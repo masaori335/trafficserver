@@ -27,6 +27,26 @@
 ##    (This may become a configurable parameter at some point.)
 ##
 
+#   The Apple Bazinga layout
+<Layout AppleBazinga>
+    exec_prefix:   ${prefix}
+    bindir:        ${exec_prefix}/bin
+    sbindir:       ${exec_prefix}/sbin
+    libdir:        ${exec_prefix}/lib+
+    libexecdir:    ${libdir}/plugins
+    infodir:       ${prefix}/share/info
+    mandir:        ${prefix}/share/man
+    sysconfdir:    ${prefix}/etc/trafficserver
+    datadir:       ${prefix}/share+
+    docdir:        ${prefix}/share/doc+
+    installbuilddir: ${datadir}/build
+    includedir:    ${prefix}/include
+    localstatedir: /var+
+    runtimedir:    /var/run+
+    logdir:        /var/log+
+    cachedir:      /var/cache+
+</Layout>
+
 #   Classical TrafficServer path layout.
 <Layout TrafficServer>
     prefix:        /usr/local
