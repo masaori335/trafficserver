@@ -444,7 +444,8 @@ Http2Stream::update_write_request(IOBufferReader *buf_reader, int64_t write_len,
             retval = false;
           }
           // Send the data frame
-          parent->connection_state.send_data_frame(this);
+          // parent->connection_state.send_data_frame(this);
+          send_response_body();
         }
         break;
       }
@@ -459,11 +460,13 @@ Http2Stream::update_write_request(IOBufferReader *buf_reader, int64_t write_len,
         // Defer sending the write complete until the send_data_frame has sent it all
         // this_ethread()->schedule_imm(this, send_event, &write_vio);
         this->mark_body_done();
-        parent->connection_state.send_data_frame(this);
+        // parent->connection_state.send_data_frame(this);
+        send_response_body();
         retval = false;
       } else {
         this_ethread()->schedule_imm(this, VC_EVENT_WRITE_READY, &write_vio);
-        parent->connection_state.send_data_frame(this);
+        // parent->connection_state.send_data_frame(this);
+        send_response_body();
         // write_vio._cont->handleEvent(send_event, &write_vio);
       }
     }
@@ -471,6 +474,30 @@ Http2Stream::update_write_request(IOBufferReader *buf_reader, int64_t write_len,
     Debug("http2_stream", "write update stream_id=%d event=%d", this->get_id(), send_event);
   }
   return retval;
+}
+
+void
+Http2Stream::send_response_body()
+{
+  Http2ClientSession *parent = static_cast<Http2ClientSession *>(this->get_parent());
+
+  if (Http2::stream_priority_enabled) {
+    // // Schedule data frames using dependencies
+    // IOBufferReader *current_reader = this->response_get_data_reader();
+    // // masaori: this should be define as fixed number
+    // int64_t buf_len = BUFFER_SIZE_FOR_INDEX(buffer_size_index[HTTP2_FRAME_TYPE_DATA]) - HTTP2_FRAME_HEADER_LEN;
+
+    // if (this->is_body_done() && current_reader && current_reader->read_avail() < buf_len) {
+    //   // If the response body is small enough, ignore dependencies
+    //   parent->connection_state.send_data_frame(this);
+    // } else {
+    parent->connection_state.schedule_stream(this);
+    // }
+
+  } else {
+    // Send the data frame directly
+    parent->connection_state.send_data_frame(this);
+  }
 }
 
 void

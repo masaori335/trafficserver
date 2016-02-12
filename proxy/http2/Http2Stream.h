@@ -28,8 +28,12 @@
 #include "../ProxyClientTransaction.h"
 #include "Http2DebugNames.h"
 #include "../http/HttpTunnel.h" // To get ChunkedHandler
+#include "Http2DependencyTree.h"
 
+class Http2Stream;
 class Http2ConnectionState;
+
+typedef Http2DependencyTree<Http2Stream *> DependencyTree;
 
 class Http2Stream : public ProxyClientTransaction
 {
@@ -38,7 +42,7 @@ public:
   Http2Stream(Http2StreamId sid = 0, ssize_t initial_rwnd = Http2::initial_window_size)
     : client_rwnd(initial_rwnd), server_rwnd(Http2::initial_window_size), header_blocks(NULL), header_blocks_length(0),
       request_header_length(0), end_stream(false), response_reader(NULL), request_reader(NULL),
-      request_buffer(CLIENT_CONNECTION_FIRST_READ_BUFFER_SIZE_INDEX), _id(sid), _state(HTTP2_STREAM_STATE_IDLE),
+      request_buffer(CLIENT_CONNECTION_FIRST_READ_BUFFER_SIZE_INDEX), node(NULL), _id(sid), _state(HTTP2_STREAM_STATE_IDLE),
       trailing_header(false), body_done(false), data_length(0), closed(false), sent_delete(false), bytes_sent(0), chunked(false),
       cross_thread_event(NULL), active_event(NULL), inactive_event(NULL)
   {
@@ -140,6 +144,7 @@ public:
   void update_read_request(int64_t read_len, bool send_update);
   bool update_write_request(IOBufferReader *buf_reader, int64_t write_len, bool send_update);
   void reenable(VIO *vio);
+  void send_response_body();
 
   // Stream level window size
   ssize_t client_rwnd, server_rwnd;
@@ -161,6 +166,7 @@ public:
   IOBufferReader *response_reader;
   IOBufferReader *request_reader;
   MIOBuffer request_buffer;
+  DependencyTree::Node *node;
 
   EThread *
   get_thread()

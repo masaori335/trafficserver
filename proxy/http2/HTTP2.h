@@ -29,6 +29,7 @@
 #include "HPACK.h"
 #include "MIME.h"
 #include "P_RecDefs.h"
+#include "I_IOBuffer.h"
 
 class HTTPHdr;
 
@@ -59,6 +60,10 @@ const uint32_t HTTP2_INITIAL_WINDOW_SIZE = 65535;
 const uint32_t HTTP2_MAX_FRAME_SIZE = 16384;
 const uint32_t HTTP2_HEADER_TABLE_SIZE = 4096;
 const uint32_t HTTP2_MAX_HEADER_LIST_SIZE = UINT_MAX;
+
+// [RFC 7540] 5.3.5 Default Priorities
+const uint32_t HTTP2_PRIORITY_DEFAULT_STREAM_DEPENDENCY = 0;
+const uint8_t HTTP2_PRIORITY_DEFAULT_WEIGHT = 15;
 
 // Statistics
 enum {
@@ -253,9 +258,14 @@ struct Http2SettingsParameter {
 
 // [RFC 7540] 6.3 PRIORITY Format
 struct Http2Priority {
-  Http2Priority() : stream_dependency(0), weight(15) {}
-  uint32_t stream_dependency;
+  Http2Priority()
+    : exclusive_flag(false), weight(HTTP2_PRIORITY_DEFAULT_WEIGHT), stream_dependency(HTTP2_PRIORITY_DEFAULT_STREAM_DEPENDENCY)
+  {
+  }
+
+  bool exclusive_flag;
   uint8_t weight;
+  uint32_t stream_dependency;
 };
 
 // [RFC 7540] 6.2 HEADERS Format
@@ -294,6 +304,19 @@ http2_is_server_streamid(Http2StreamId streamid)
 {
   return (streamid & 0x1u) == 0x0u && streamid != 0x0u;
 }
+
+static const int buffer_size_index[HTTP2_FRAME_TYPE_MAX] = {
+  BUFFER_SIZE_INDEX_16K, // HTTP2_FRAME_TYPE_DATA
+  BUFFER_SIZE_INDEX_16K, // HTTP2_FRAME_TYPE_HEADERS
+  -1,                    // HTTP2_FRAME_TYPE_PRIORITY
+  BUFFER_SIZE_INDEX_128, // HTTP2_FRAME_TYPE_RST_STREAM
+  BUFFER_SIZE_INDEX_128, // HTTP2_FRAME_TYPE_SETTINGS
+  -1,                    // HTTP2_FRAME_TYPE_PUSH_PROMISE
+  BUFFER_SIZE_INDEX_128, // HTTP2_FRAME_TYPE_PING
+  BUFFER_SIZE_INDEX_128, // HTTP2_FRAME_TYPE_GOAWAY
+  BUFFER_SIZE_INDEX_128, // HTTP2_FRAME_TYPE_WINDOW_UPDATE
+  BUFFER_SIZE_INDEX_16K, // HTTP2_FRAME_TYPE_CONTINUATION
+};
 
 bool http2_parse_frame_header(IOVec, Http2FrameHeader &);
 
@@ -348,6 +371,7 @@ public:
   static uint32_t min_concurrent_streams_in;
   static uint32_t max_active_streams_in;
   static bool throttling;
+  static bool stream_priority_enabled;
   static uint32_t initial_window_size;
   static uint32_t max_frame_size;
   static uint32_t header_table_size;
