@@ -30,6 +30,12 @@
 
 class Http2ClientSession;
 
+enum Http2SendDataFrameResult {
+  HTTP2_SEND_DATA_FRAME_NO_ERROR = 0,
+  HTTP2_SEND_DATA_FRAME_NO_WINDOW = 1,
+  HTTP2_SEND_DATA_FRAME_NO_PAYLOAD = 2,
+};
+
 class Http2ConnectionSettings
 {
 public:
@@ -181,6 +187,7 @@ public:
 
   // HTTP/2 frame sender
   void send_data_frame(Http2Stream *stream);
+  Http2SendDataFrameResult send_a_data_frame(Http2Stream *stream, size_t &payload_length);
   void send_headers_frame(Http2Stream *stream);
   void send_rst_stream_frame(Http2StreamId id, Http2ErrorCode ec);
   void send_settings_frame(const Http2ConnectionSettings &new_settings);

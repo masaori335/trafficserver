@@ -857,25 +857,20 @@ Http2ConnectionState::restart_streams()
 {
   // Currently lookup retryable streams sequentially.
   // TODO considering to stream weight and dependencies.
-  Http2Stream *s = stream_list.head;
-  while (s) {
-    Http2Stream *next = s->link.next;
-    if (s->get_state() == HTTP2_STREAM_STATE_HALF_CLOSED_REMOTE && min(this->client_rwnd, s->client_rwnd) > 0) {
-      this->send_data_frame(s);
+  for (Http2Stream *stream = stream_list.head; stream; stream = stream->link.next) {
+    if (stream->get_state() == HTTP2_STREAM_STATE_HALF_CLOSED_REMOTE && min(this->client_rwnd, stream->client_rwnd) > 0) {
+      this->send_data_frame(stream);
     }
-    s = next;
   }
 }
 
 void
 Http2ConnectionState::cleanup_streams()
 {
-  Http2Stream *s = stream_list.head;
-  while (s) {
-    Http2Stream *next = s->link.next;
-    this->delete_stream(s);
-    s = next;
+  for (Http2Stream *stream = stream_list.head; stream; stream = stream->link.next) {
+    this->delete_stream(stream);
   }
+
   client_streams_count = 0;
   if (!is_state_closed()) {
     ua_session->get_netvc()->add_to_keep_alive_queue();
@@ -908,72 +903,17 @@ Http2ConnectionState::update_initial_rwnd(Http2WindowSize new_size)
 void
 Http2ConnectionState::send_data_frame(Http2Stream *stream)
 {
-  size_t buf_len = BUFFER_SIZE_FOR_INDEX(buffer_size_index[HTTP2_FRAME_TYPE_DATA]) - HTTP2_FRAME_HEADER_LEN;
-  uint8_t payload_buffer[buf_len];
-
   if (stream->get_state() == HTTP2_STREAM_STATE_CLOSED) {
     return;
   }
 
-  for (;;) {
-    uint8_t flags = 0x00;
+  Http2SendDataFrameResult result = HTTP2_SEND_DATA_FRAME_NO_ERROR;
+  size_t len = 0;
 
-    size_t window_size = min(this->client_rwnd, stream->client_rwnd);
-    size_t send_size = min(buf_len, window_size);
-    size_t payload_length;
-    IOBufferReader *current_reader = stream->response_get_data_reader();
+  while (result == HTTP2_SEND_DATA_FRAME_NO_ERROR) {
+    result = send_a_data_frame(stream, len);
 
-    // Are we at the end?
-    // If we break here, we never send the END_STREAM in the case of a
-    // early terminating OS.  Ok if there is no body yet.  Otherwise
-    // continue on to delete the stream
-    if (stream->is_body_done() && current_reader && !current_reader->is_read_avail_more_than(0)) {
-      Debug("http2_con", "End of Stream id=%d no more data and body done", stream->get_id());
-      flags |= HTTP2_FLAGS_DATA_END_STREAM;
-      payload_length = 0;
-    } else {
-      // Select appropriate payload size
-      if (this->client_rwnd <= 0 || stream->client_rwnd <= 0)
-        break;
-      // Copy into the payload buffer.  Seems like we should be able to skip this
-      // copy step
-      payload_length = current_reader ? current_reader->read(payload_buffer, send_size) : 0;
-
-      if (payload_length == 0 && !stream->is_body_done()) {
-        break;
-      }
-
-      // Update window size
-      this->client_rwnd -= payload_length;
-      stream->client_rwnd -= payload_length;
-
-      if (stream->is_body_done() && payload_length < send_size) {
-        flags |= HTTP2_FLAGS_DATA_END_STREAM;
-      }
-    }
-
-    // Create frame
-    DebugHttp2Stream(ua_session, stream->get_id(), "Send DATA frame - client window con: %zd stream: %zd payload: %zd", client_rwnd,
-                     stream->client_rwnd, payload_length);
-    Http2Frame data(HTTP2_FRAME_TYPE_DATA, stream->get_id(), flags);
-    data.alloc(buffer_size_index[HTTP2_FRAME_TYPE_DATA]);
-    http2_write_data(payload_buffer, payload_length, data.write());
-    data.finalize(payload_length);
-
-    stream->update_sent_count(payload_length);
-
-    // Change state to 'closed' if its end of DATAs.
-    if (flags & HTTP2_FLAGS_DATA_END_STREAM) {
-      DebugHttp2Stream(ua_session, stream->get_id(), "End of DATA frame");
-      // Setting to the same state shouldn't be erroneous
-      stream->change_state(data.header().type, data.header().flags);
-    }
-
-    // xmit event
-    SCOPED_MUTEX_LOCK(lock, this->ua_session->mutex, this_ethread());
-    this->ua_session->handleEvent(HTTP2_SESSION_EVENT_XMIT, &data);
-
-    if (flags & HTTP2_FLAGS_DATA_END_STREAM) {
+    if (stream->get_state() == HTTP2_STREAM_STATE_CLOSED) {
       // Delete a stream immediately
       // TODO its should not be deleted for a several time to handling
       // RST_STREAM and WINDOW_UPDATE.
@@ -983,6 +923,71 @@ Http2ConnectionState::send_data_frame(Http2Stream *stream)
       break;
     }
   }
+}
+
+Http2SendDataFrameResult
+Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_length)
+{
+  size_t buf_len = BUFFER_SIZE_FOR_INDEX(buffer_size_index[HTTP2_FRAME_TYPE_DATA]) - HTTP2_FRAME_HEADER_LEN;
+  uint8_t payload_buffer[buf_len];
+  uint8_t flags = 0x00;
+  size_t window_size = min(this->client_rwnd, stream->client_rwnd);
+  size_t send_size = min(buf_len, window_size);
+  IOBufferReader *current_reader = stream->response_get_data_reader();
+
+  SCOPED_MUTEX_LOCK(stream_lock, stream->mutex, this_ethread());
+  // Are we at the end?
+  // If we break here, we never send the END_STREAM in the case of a
+  // early terminating OS.  Ok if there is no body yet.  Otherwise
+  // continue on to delete the stream
+  if (stream->is_body_done() && current_reader && !current_reader->is_read_avail_more_than(0)) {
+    Debug("http2_con", "End of Stream id=%d no more data and body done", stream->get_id());
+    flags |= HTTP2_FLAGS_DATA_END_STREAM;
+    payload_length = 0;
+  } else {
+    // Select appropriate payload size
+    if (this->client_rwnd <= 0 || stream->client_rwnd <= 0)
+      return HTTP2_SEND_DATA_FRAME_NO_WINDOW;
+
+    // Copy into the payload buffer.  Seems like we should be able to skip this
+    // copy step
+    payload_length = current_reader ? current_reader->read(payload_buffer, send_size) : 0;
+
+    if (payload_length == 0 && !stream->is_body_done()) {
+      return HTTP2_SEND_DATA_FRAME_NO_PAYLOAD;
+    }
+
+    // Update window size
+    this->client_rwnd -= payload_length;
+    stream->client_rwnd -= payload_length;
+
+    if (stream->is_body_done() && payload_length < send_size) {
+      flags |= HTTP2_FLAGS_DATA_END_STREAM;
+    }
+  }
+
+  // Create frame
+  DebugHttp2Stream(ua_session, stream->get_id(), "Send DATA frame - client window con: %zd stream: %zd payload: %zd", client_rwnd,
+                   stream->client_rwnd, payload_length);
+  Http2Frame data(HTTP2_FRAME_TYPE_DATA, stream->get_id(), flags);
+  data.alloc(buffer_size_index[HTTP2_FRAME_TYPE_DATA]);
+  http2_write_data(payload_buffer, payload_length, data.write());
+  data.finalize(payload_length);
+
+  stream->update_sent_count(payload_length);
+
+  // Change state to 'closed' if its end of DATAs.
+  if (flags & HTTP2_FLAGS_DATA_END_STREAM) {
+    DebugHttp2Stream(ua_session, stream->get_id(), "End of DATA frame");
+    // Setting to the same state shouldn't be erroneous
+    stream->change_state(data.header().type, data.header().flags);
+  }
+
+  // xmit event
+  SCOPED_MUTEX_LOCK(lock, this->ua_session->mutex, this_ethread());
+  this->ua_session->handleEvent(HTTP2_SESSION_EVENT_XMIT, &data);
+
+  return HTTP2_SEND_DATA_FRAME_NO_ERROR;
 }
 
 void
