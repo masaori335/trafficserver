@@ -42,6 +42,16 @@ fastopen_destroy(BIO *bio)
 }
 
 static int
+non_fatal_error(int err)
+{
+  if (err == EWOULDBLOCK || err == ENOTCONN || err == EINTR || err == EAGAIN || err == EPROTO || err == EINPROGRESS ||
+      err == EALREADY) {
+    return 1;
+  }
+  return 0;
+}
+
+static int
 fastopen_bwrite(BIO *bio, const char *in, int insz)
 {
   int64_t err;
@@ -73,7 +83,7 @@ fastopen_bwrite(BIO *bio, const char *in, int insz)
 
   if (err < 0) {
     errno = -err;
-    if (BIO_sock_non_fatal_error(errno)) {
+    if (non_fatal_error(errno)) {
       BIO_set_retry_write(bio);
     }
   }
@@ -96,7 +106,7 @@ fastopen_bread(BIO *bio, char *out, int outsz)
   err = socketManager.read(fd, out, outsz);
   if (err < 0) {
     errno = -err;
-    if (BIO_sock_non_fatal_error(errno)) {
+    if (non_fatal_error(errno)) {
       BIO_set_retry_write(bio);
     }
   }
