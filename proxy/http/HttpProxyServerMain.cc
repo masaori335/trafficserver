@@ -282,6 +282,15 @@ start_HttpProxyServer()
   for (int i = 0, n = proxy_ports.length(); i < n; ++i) {
     HttpProxyAcceptor &acceptor = HttpProxyAcceptors[i];
     HttpProxyPort &port         = proxy_ports[i];
+
+#ifdef ENABLE_UDP_EXAMPLE
+    if (port.isUDPExample()) {
+      if (nullptr == udpExampleNetProcessor.main_accept(acceptor._accept, port.m_fd, acceptor._net_opt)) {
+        return;
+      }
+    }
+#endif
+
     if (port.isSSL()) {
       if (nullptr == sslNetProcessor.main_accept(acceptor._accept, port.m_fd, acceptor._net_opt)) {
         return;

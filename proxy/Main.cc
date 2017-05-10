@@ -1839,6 +1839,10 @@ main(int /* argc ATS_UNUSED */, const char **argv)
     }
     if (num_of_udp_threads) {
       udpNet.start(num_of_udp_threads, stacksize);
+#ifdef ENABLE_UDP_EXAMPLE
+      // Example of UDP Based Protocol
+      udpExampleNetProcessor.start(-1, stacksize);
+#endif
     }
 
     // acc.init();

@@ -86,6 +86,7 @@ libinknet_a_SOURCES = \
   P_UDPIOEvent.h \
   P_UDPNet.h \
   P_UDPPacket.h \
+  P_UDPExampleNetProcessor.h \
   P_UnixCompletionUtil.h \
   P_UnixNet.h \
   P_UnixNetProcessor.h \
@@ -108,6 +109,7 @@ libinknet_a_SOURCES = \
   OCSPStapling.cc \
   Socks.cc \
   UDPIOEvent.cc \
+  UDPExampleNetProcessor.cc \
   UnixConnection.cc \
   UnixNet.cc \
   UnixNetAccept.cc \

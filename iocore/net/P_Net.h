@@ -109,6 +109,10 @@ extern RecRawStatBlock *net_rsb;
 #include "P_SSLNetAccept.h"
 #include "P_SSLCertLookup.h"
 
+#ifdef ENABLE_UDP_EXAMPLE
+#include "P_UDPExampleNetProcessor.h"
+#endif
+
 #undef NET_SYSTEM_MODULE_VERSION
 #define NET_SYSTEM_MODULE_VERSION \
   makeModuleVersion(NET_SYSTEM_MODULE_MAJOR_VERSION, NET_SYSTEM_MODULE_MINOR_VERSION, PRIVATE_MODULE_HEADER)

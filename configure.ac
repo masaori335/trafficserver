@@ -175,6 +175,14 @@ AC_ARG_ENABLE([mime-sanity-check],
 )
 AC_MSG_RESULT([$enable_mime_sanity_check])
 
+AC_MSG_CHECKING([whether to enable udp example])
+AC_ARG_ENABLE([udp-example],
+  [AS_HELP_STRING([--enable-udp-example], [turn on example of udp based protocol])],
+  [],
+  [enable_udp_example=no]
+)
+AC_MSG_RESULT([$enable_udp_example])
+
 # Enable code coverage instrumentation only if requested by the user.
 AC_MSG_CHECKING([whether to code coverage])
 AC_ARG_ENABLE([coverage],
@@ -949,6 +957,9 @@ if test "x${enable_debug}" = "xyes"; then
   TS_ADDTO(AM_CPPFLAGS, [-DDEBUG -D_DEBUG])
   if test "x${enable_mime_sanity_check}" = "xyes"; then
     TS_ADDTO(AM_CPPFLAGS, [-DENABLE_MIME_SANITY_CHECK])
+  fi
+  if test "x${enable_udp_example}" = "xyes"; then
+    TS_ADDTO(AM_CPPFLAGS, [-DENABLE_UDP_EXAMPLE])
   fi
 else
   TS_ADDTO(AM_CFLAGS, [${cc_oflag_opt}])

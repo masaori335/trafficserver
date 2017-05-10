@@ -130,6 +130,9 @@ const char *const HttpProxyPort::OPT_SSL                     = "ssl";
 const char *const HttpProxyPort::OPT_PLUGIN                  = "plugin";
 const char *const HttpProxyPort::OPT_BLIND_TUNNEL            = "blind";
 const char *const HttpProxyPort::OPT_COMPRESSED              = "compressed";
+#ifdef ENABLE_UDP_EXAMPLE
+const char *const HttpProxyPort::OPT_UDP_EXAMPLE = "udp-example";
+#endif
 
 // File local constants.
 namespace
@@ -346,6 +349,10 @@ HttpProxyPort::processOptions(const char *opts)
       m_type = TRANSPORT_SSL;
     } else if (0 == strcasecmp(OPT_PLUGIN, item)) {
       m_type = TRANSPORT_PLUGIN;
+#ifdef ENABLE_UDP_EXAMPLE
+    } else if (0 == strcasecmp(OPT_UDP_EXAMPLE, item)) {
+      m_type = TRANSPORT_UDP_EXAMPLE;
+#endif
     } else if (0 == strcasecmp(OPT_TRANSPARENT_INBOUND, item)) {
 #if TS_USE_TPROXY
       m_inbound_transparent_p = true;
@@ -533,6 +540,10 @@ HttpProxyPort::print(char *out, size_t n)
     zret += snprintf(out + zret, n - zret, ":%s", OPT_SSL);
   } else if (TRANSPORT_PLUGIN == m_type) {
     zret += snprintf(out + zret, n - zret, ":%s", OPT_PLUGIN);
+#ifdef ENABLE_UDP_EXAMPLE
+  } else if (TRANSPORT_UDP_EXAMPLE == m_type) {
+    zret += snprintf(out + zret, n - zret, ":%s", OPT_UDP_EXAMPLE);
+#endif
   } else if (TRANSPORT_COMPRESSED == m_type) {
     zret += snprintf(out + zret, n - zret, ":%s", OPT_COMPRESSED);
   }

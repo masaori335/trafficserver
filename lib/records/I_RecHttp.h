@@ -231,7 +231,10 @@ public:
     TRANSPORT_COMPRESSED,   ///< Compressed HTTP.
     TRANSPORT_BLIND_TUNNEL, ///< Blind tunnel (no processing).
     TRANSPORT_SSL,          ///< SSL connection.
-    TRANSPORT_PLUGIN        /// < Protocol plugin connection
+    TRANSPORT_PLUGIN,       ///< Protocol plugin connection
+#ifdef ENABLE_UDP_EXAMPLE
+    TRANSPORT_UDP_EXAMPLE   ///< UDP Based Example Protocol
+#endif
   };
 
   int m_fd;             ///< Pre-opened file descriptor if present.
@@ -274,6 +277,11 @@ public:
 
   /// Check for SSL port.
   bool isPlugin() const;
+
+#ifdef ENABLE_UDP_EXAMPLE
+  /// Check for Example of UDP Based Protocol port.
+  bool isUDPExample() const;
+#endif
 
   /// Process options text.
   /// @a opts should not contain any whitespace, only the option string.
@@ -390,6 +398,9 @@ public:
   static const char *const OPT_TRANSPARENT_PASSTHROUGH; ///< Pass-through non-HTTP.
   static const char *const OPT_SSL;                     ///< SSL (experimental)
   static const char *const OPT_PLUGIN;                  ///< Protocol Plugin handle (experimental)
+#ifdef ENABLE_UDP_EXAMPLE
+  static const char *const OPT_UDP_EXAMPLE;             ///< UDP Example (experimental)
+#endif
   static const char *const OPT_BLIND_TUNNEL;            ///< Blind tunnel.
   static const char *const OPT_COMPRESSED;              ///< Compressed.
   static const char *const OPT_HOST_RES_PREFIX;         ///< Set DNS family preference.
@@ -420,11 +431,20 @@ HttpProxyPort::isSSL() const
 {
   return TRANSPORT_SSL == m_type;
 }
+
 inline bool
 HttpProxyPort::isPlugin() const
 {
   return TRANSPORT_PLUGIN == m_type;
 }
+
+#ifdef ENABLE_UDP_EXAMPLE
+inline bool
+HttpProxyPort::isUDPExample() const
+{
+  return TRANSPORT_UDP_EXAMPLE == m_type;
+}
+#endif
 
 inline IpAddr &
 HttpProxyPort::outboundIp(uint16_t family)
