@@ -32,7 +32,8 @@ static constexpr char tag[] = "quic_stream_manager";
 ClassAllocator<QUICStreamManager> quicStreamManagerAllocator("quicStreamManagerAllocator");
 ClassAllocator<QUICStream> quicStreamAllocator("quicStreamAllocator");
 
-QUICStreamManager::QUICStreamManager(QUICFrameTransmitter *tx, QUICApplicationMap *app_map) : _tx(tx), _app_map(app_map)
+QUICStreamManager::QUICStreamManager(QUICNetVConnection *client_vc, QUICFrameTransmitter *tx, QUICApplicationMap *app_map)
+  : _client_vc(client_vc), _tx(tx), _app_map(app_map)
 {
 }
 
@@ -205,13 +206,13 @@ QUICStreamManager::_find_or_create_stream(QUICStreamId stream_id)
     stream = new (THREAD_ALLOC(quicStreamAllocator, this_ethread())) QUICStream();
     if (stream_id == STREAM_ID_FOR_HANDSHAKE) {
       // XXX rece/send max_stream_data are going to be set by init_flow_control_params()
-      stream->init(this->_tx, stream_id, this->_local_tp->initial_max_stream_data());
+      stream->init(this, this->_tx, stream_id, this->_local_tp->initial_max_stream_data());
     } else {
       const QUICTransportParameters &local_tp  = *this->_local_tp;
       const QUICTransportParameters &remote_tp = *this->_remote_tp;
 
       // TODO: check local_tp and remote_tp is initialized
-      stream->init(this->_tx, stream_id, local_tp.initial_max_stream_data(), remote_tp.initial_max_stream_data());
+      stream->init(this, this->_tx, stream_id, local_tp.initial_max_stream_data(), remote_tp.initial_max_stream_data());
     }
 
     stream->start();

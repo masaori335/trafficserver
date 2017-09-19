@@ -32,6 +32,7 @@
 #include "QUICStreamState.h"
 #include "QUICFlowController.h"
 
+class QUICNetVConnection;
 class QUICFrameTransmitter;
 class QUICStreamState;
 class QUICStreamManager;
@@ -45,7 +46,8 @@ class QUICStream : public VConnection
 public:
   QUICStream() : VConnection(nullptr) {}
   ~QUICStream() {}
-  void init(QUICFrameTransmitter *tx, uint32_t id, uint64_t recv_max_stream_data = 0, uint64_t send_max_stream_data = 0);
+  void init(QUICStreamManager *stream_manager, QUICFrameTransmitter *tx, uint32_t id, uint64_t recv_max_stream_data = 0,
+            uint64_t send_max_stream_data = 0);
   void start();
   void init_flow_control_params(uint32_t recv_max_stream_data, uint32_t send_max_stream_data);
   int main_event_handler(int event, void *data);
@@ -65,10 +67,13 @@ public:
 
   void reset();
 
+  void set_fin();
   size_t nbytes_to_read();
 
   QUICOffset largest_offset_received();
   QUICOffset largest_offset_sent();
+
+  QUICNetVConnection *get_client_vc();
 
   LINK(QUICStream, link);
 
@@ -91,6 +96,7 @@ private:
   QUICStreamId _id        = 0;
   QUICOffset _recv_offset = 0;
   QUICOffset _send_offset = 0;
+  bool _fin               = false;
 
   QUICRemoteStreamFlowController *_remote_flow_controller;
   QUICLocalStreamFlowController *_local_flow_controller;

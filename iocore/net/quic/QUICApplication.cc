@@ -80,6 +80,18 @@ QUICStreamIO::write_reenable()
   return this->_write_vio->reenable();
 }
 
+IOBufferReader *
+QUICStreamIO::get_read_buffer_reader()
+{
+  return this->_read_buffer_reader;
+}
+
+VIO *
+QUICStreamIO::get_read_vio()
+{
+  return this->_read_vio;
+}
+
 //
 // QUICApplication
 //

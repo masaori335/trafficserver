@@ -36,6 +36,7 @@
 #include "P_SSLNextProtocolSet.h"
 
 #include "QUICEchoApp.h"
+#include "QUICSimpleApp.h"
 #include "QUICDebugNames.h"
 #include "QUICEvents.h"
 #include "QUICConfig.h"
@@ -107,7 +108,7 @@ QUICNetVConnection::start(SSL_CTX *ssl_ctx)
   this->_packet_factory.set_crypto_module(this->_crypto);
 
   // Create frame handlers
-  this->_stream_manager         = new QUICStreamManager(this, this->_application_map);
+  this->_stream_manager         = new QUICStreamManager(this, this, this->_application_map);
   this->_congestion_controller  = new QUICCongestionController();
   this->_loss_detector          = new QUICLossDetector(this);
   this->_remote_flow_controller = new QUICRemoteConnectionFlowController(0, this);
@@ -796,7 +797,8 @@ QUICNetVConnection::_create_application()
   if (app_name) {
     DebugQUICCon("ALPN: %.*s", app_name_len, app_name);
     if (memcmp(TS_ALPN_PROTOCOL_HTTP_QUIC, app_name, app_name_len) == 0) {
-      return new QUICEchoApp(this);
+      return new QUICSimpleApp(this);
+      // return new QUICEchoApp(this);
     } else {
       DebugQUICCon("Negotiated application is not available");
       ink_assert(false);

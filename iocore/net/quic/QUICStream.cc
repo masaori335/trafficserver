@@ -32,9 +32,11 @@
   Debug("quic_stream", "[%" PRIx32 "] [%s] " fmt, this->_id, QUICDebugNames::stream_state(this->_state), ##__VA_ARGS__)
 
 void
-QUICStream::init(QUICFrameTransmitter *tx, QUICStreamId id, uint64_t recv_max_stream_data, uint64_t send_max_stream_data)
+QUICStream::init(QUICStreamManager *stream_manager, QUICFrameTransmitter *tx, QUICStreamId id, uint64_t recv_max_stream_data,
+                 uint64_t send_max_stream_data)
 {
   this->mutex                   = new_ProxyMutex();
+  this->_stream_manager         = stream_manager;
   this->_tx                     = tx;
   this->_id                     = id;
   this->_remote_flow_controller = new QUICRemoteStreamFlowController(send_max_stream_data, _tx, _id);
@@ -202,6 +204,12 @@ QUICStream::reenable(VIO *vio)
   }
 }
 
+void
+QUICStream::set_fin()
+{
+  this->_fin = true;
+}
+
 /**
  * @brief Signal event to this->_read_vio._cont
  * @param (call_update)  If true, safe to call vio handler directly.
@@ -347,7 +355,9 @@ QUICStream::_send()
   int64_t bytes_avail    = reader->read_avail();
   int64_t total_len      = 0;
   uint32_t max_size      = this->_tx->maximum_stream_frame_data_size();
+  bool fin               = false;
 
+  // TODO: allow empty STREAM frame with FIN flag if needed
   while (total_len < bytes_avail) {
     int64_t data_len = reader->block_read_avail();
     size_t len       = 0;
@@ -356,6 +366,7 @@ QUICStream::_send()
       len = max_size;
     } else {
       len = data_len;
+      fin = this->_fin;
     }
 
     QUICError error = this->_remote_flow_controller->update(this->_send_offset + len);
@@ -366,8 +377,8 @@ QUICStream::_send()
       break;
     }
 
-    std::unique_ptr<QUICStreamFrame, QUICFrameDeleterFunc> frame =
-      QUICFrameFactory::create_stream_frame(reinterpret_cast<const uint8_t *>(reader->start()), len, this->_id, this->_send_offset);
+    std::unique_ptr<QUICStreamFrame, QUICFrameDeleterFunc> frame = QUICFrameFactory::create_stream_frame(
+      reinterpret_cast<const uint8_t *>(reader->start()), len, this->_id, this->_send_offset, fin);
 
     this->_send_offset += len;
     reader->consume(len);
@@ -407,4 +418,10 @@ QUICOffset
 QUICStream::largest_offset_sent()
 {
   return this->_remote_flow_controller->current_offset();
+}
+
+QUICNetVConnection *
+QUICStream::get_client_vc()
+{
+  return _stream_manager->get_client_vc();
 }

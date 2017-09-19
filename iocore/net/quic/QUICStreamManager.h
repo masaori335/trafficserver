@@ -30,13 +30,14 @@
 #include "QUICFrame.h"
 #include "QUICFrameTransmitter.h"
 
+class QUICNetVConnection;
 class QUICTransportParameters;
 
 class QUICStreamManager : public QUICFrameHandler
 {
 public:
   QUICStreamManager(){};
-  QUICStreamManager(QUICFrameTransmitter *tx, QUICApplicationMap *app_map);
+  QUICStreamManager(QUICNetVConnection *client_vc, QUICFrameTransmitter *tx, QUICApplicationMap *app_map);
 
   void init_flow_control_params(const std::shared_ptr<const QUICTransportParameters> &local_tp,
                                 const std::shared_ptr<const QUICTransportParameters> &remote_tp);
@@ -51,6 +52,12 @@ public:
   virtual std::vector<QUICFrameType> interests() override;
   virtual QUICError handle_frame(std::shared_ptr<const QUICFrame>) override;
 
+  QUICNetVConnection *
+  get_client_vc()
+  {
+    return this->_client_vc;
+  }
+
 private:
   QUICStream *_find_or_create_stream(QUICStreamId stream_id);
   QUICStream *_find_stream(QUICStreamId id);
@@ -60,6 +67,7 @@ private:
   QUICError _handle_frame(const std::shared_ptr<const QUICStreamBlockedFrame> &);
   QUICError _handle_frame(const std::shared_ptr<const QUICMaxStreamIdFrame> &);
 
+  QUICNetVConnection *_client_vc                            = nullptr;
   QUICFrameTransmitter *_tx                                 = nullptr;
   QUICApplicationMap *_app_map                              = nullptr;
   std::shared_ptr<const QUICTransportParameters> _local_tp  = nullptr;
