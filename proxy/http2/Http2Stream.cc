@@ -327,7 +327,12 @@ Http2Stream::do_io_close(int /* flags */)
     if (parent && this->is_client_state_writeable()) {
       // Make sure any trailing end of stream frames are sent
       // Wee will be removed at send_data_frames or closing connection phase
-      static_cast<Http2ClientSession *>(parent)->connection_state.send_data_frames(this);
+      Http2SendDataFrameResult result = static_cast<Http2ClientSession *>(parent)->connection_state.send_data_frames(this);
+      if (result == Http2SendDataFrameResult::NO_WINDOW) {
+        Http2StreamDebug("cancel closing");
+        closed = false;
+        return;
+      }
     }
 
     clear_timers();
