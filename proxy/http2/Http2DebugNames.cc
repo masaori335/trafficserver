@@ -24,6 +24,7 @@
 #include "Http2DebugNames.h"
 
 #include "HTTP2.h"
+#include "Http2ConnectionState.h"
 
 const char *
 Http2DebugNames::get_settings_param_name(uint16_t id)
@@ -67,4 +68,21 @@ Http2DebugNames::get_state_name(Http2StreamState id)
   }
 
   return "UNKNOWN";
+}
+
+const char *
+Http2DebugNames::get_send_data_frame_result_name(Http2SendDataFrameResult result)
+{
+  switch (result) {
+  case Http2SendDataFrameResult::NO_ERROR:
+    return "Http2SendDataFrameResult::NO_ERROR";
+  case Http2SendDataFrameResult::NO_WINDOW:
+    return "Http2SendDataFrameResult::NO_WINDOW";
+  case Http2SendDataFrameResult::NO_PAYLOAD:
+    return "Http2SendDataFrameResult::NO_PAYLOAD";
+  case Http2SendDataFrameResult::DONE:
+    return "Http2SendDataFrameResult::DONE";
+  default:
+    return "UNKNOWN";
+  }
 }

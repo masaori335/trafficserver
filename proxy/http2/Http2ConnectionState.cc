@@ -1360,6 +1360,8 @@ Http2ConnectionState::send_data_frames(Http2Stream *stream)
       // See 'closed' state written at [RFC 7540] 5.1.
       Http2StreamDebug(this->ua_session, stream->get_id(), "Shutdown stream");
       this->delete_stream(stream);
+    } else {
+      Http2StreamDebug(this->ua_session, stream->get_id(), "%s", Http2DebugNames::get_send_data_frame_result_name(result));
     }
   }
 

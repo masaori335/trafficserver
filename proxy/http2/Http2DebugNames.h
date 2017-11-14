@@ -27,12 +27,14 @@
 #include "ts/ink_defs.h"
 
 enum class Http2StreamState;
+enum class Http2SendDataFrameResult;
 
 class Http2DebugNames
 {
 public:
   static const char *get_settings_param_name(uint16_t id);
   static const char *get_state_name(Http2StreamState id);
+  static const char *get_send_data_frame_result_name(Http2SendDataFrameResult(id));
 };
 
 #endif // __HTTP2_DEBUG_NAMES_H__
