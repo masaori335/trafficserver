@@ -32,6 +32,7 @@
 
 class Http2Stream;
 class Http2ConnectionState;
+enum class Http2SendDataFrameResult;
 
 typedef Http2DependencyTree::Tree<Http2Stream *> DependencyTree;
 
@@ -153,7 +154,7 @@ public:
   bool update_write_request(IOBufferReader *buf_reader, int64_t write_len, bool send_update);
   void reenable(VIO *vio) override;
   virtual void transaction_done() override;
-  void send_response_body();
+  Http2SendDataFrameResult send_response_body();
   void push_promise(URL &url, const MIMEField *accept_encoding);
 
   // Stream level window size

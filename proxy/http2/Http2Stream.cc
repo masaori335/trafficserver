@@ -320,13 +320,7 @@ Http2Stream::do_io_close(int /* flags */)
     if (parent && this->is_client_state_writeable()) {
       // Make sure any trailing end of stream frames are sent
       // Wee will be removed at send_data_frames or closing connection phase
-      Http2SendDataFrameResult result = static_cast<Http2ClientSession *>(parent)->connection_state.send_data_frames(this);
-      if (result == Http2SendDataFrameResult::NO_WINDOW) {
-        Http2StreamDebug("cancel closing");
-        return;
-      } else {
-        Http2StreamDebug("continue closing");
-      }
+      static_cast<Http2ClientSession *>(parent)->connection_state.send_data_frames(this);
     }
 
     // When we get here, the SM has initiated the shutdown.  Either it received a WRITE_COMPLETE, or it is shutting down.  Any
@@ -585,7 +579,11 @@ Http2Stream::update_write_request(IOBufferReader *buf_reader, int64_t write_len,
         // make sure to send the end of stream
         if (this->response_is_data_available() || send_event == VC_EVENT_WRITE_COMPLETE) {
           if (send_event != VC_EVENT_WRITE_COMPLETE) {
-            send_response_body();
+            Http2SendDataFrameResult result = send_response_body();
+            if (result == Http2SendDataFrameResult::NO_WINDOW || result == Http2SendDataFrameResult::NO_PAYLOAD) {
+              write_vio.ndone -= total_added;
+            }
+
             // As with update_read_request, should be safe to call handler directly here if
             // call_update is true.  Commented out for now while tracking a performance regression
             if (call_update) { // Coming from reenable.  Safe to call the handler directly
@@ -598,7 +596,10 @@ Http2Stream::update_write_request(IOBufferReader *buf_reader, int64_t write_len,
           } else {
             this->mark_body_done();
             // Send the data frame
-            send_response_body();
+            Http2SendDataFrameResult result = send_response_body();
+            if (result == Http2SendDataFrameResult::NO_WINDOW || result == Http2SendDataFrameResult::NO_PAYLOAD) {
+              write_vio.ndone -= total_added;
+            }
           }
         }
         break;
@@ -614,10 +615,18 @@ Http2Stream::update_write_request(IOBufferReader *buf_reader, int64_t write_len,
         // Defer sending the write complete until the send_data_frame has sent it all
         // this_ethread()->schedule_imm(this, send_event, &write_vio);
         this->mark_body_done();
-        send_response_body();
+        Http2SendDataFrameResult result = send_response_body();
+        if (result == Http2SendDataFrameResult::NO_WINDOW || result == Http2SendDataFrameResult::NO_PAYLOAD) {
+          write_vio.ndone -= total_added;
+        }
+
         retval = false;
       } else {
-        send_response_body();
+        Http2SendDataFrameResult result = send_response_body();
+        if (result == Http2SendDataFrameResult::NO_WINDOW || result == Http2SendDataFrameResult::NO_PAYLOAD) {
+          write_vio.ndone -= total_added;
+        }
+
         if (call_update) { // Coming from reenable.  Safe to call the handler directly
           if (write_vio._cont && this->current_reader) {
             write_vio._cont->handleEvent(send_event, &write_vio);
@@ -641,18 +650,21 @@ Http2Stream::push_promise(URL &url, const MIMEField *accept_encoding)
   parent->connection_state.send_push_promise_frame(this, url, accept_encoding);
 }
 
-void
+Http2SendDataFrameResult
 Http2Stream::send_response_body()
 {
   Http2ClientSession *parent = static_cast<Http2ClientSession *>(this->get_parent());
 
+  Http2SendDataFrameResult result = Http2SendDataFrameResult::NO_ERROR;
   if (Http2::stream_priority_enabled) {
     parent->connection_state.schedule_stream(this);
   } else {
     // Send DATA frames directly
-    parent->connection_state.send_data_frames(this);
+    result = parent->connection_state.send_data_frames(this);
   }
   inactive_timeout_at = Thread::get_hrtime() + inactive_timeout;
+
+  return result;
 }
 
 void
