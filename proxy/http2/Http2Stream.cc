@@ -306,7 +306,7 @@ Http2Stream::do_io_write(Continuation *c, int64_t nbytes, IOBufferReader *abuffe
   write_vio.ndone     = 0;
   write_vio.vc_server = this;
   write_vio.op        = VIO::WRITE;
-  response_reader     = response_buffer.alloc_reader();
+  response_reader     = abuffer;
   return update_write_request(abuffer, nbytes, false) ? &write_vio : nullptr;
 }
 
@@ -513,6 +513,15 @@ Http2Stream::update_read_request(int64_t read_len, bool call_update)
   }
 }
 
+void
+Http2Stream::restart_sending()
+{
+  this->send_response_body();
+  if (this->write_vio.ntodo() > 0 && this->write_vio.get_writer()->write_avail() > 0) {
+    write_vio._cont->handleEvent(VC_EVENT_WRITE_READY, &write_vio);
+  }
+}
+
 bool
 Http2Stream::update_write_request(IOBufferReader *buf_reader, int64_t write_len, bool call_update)
 {
@@ -530,8 +539,7 @@ Http2Stream::update_write_request(IOBufferReader *buf_reader, int64_t write_len,
   }
   ink_release_assert(this->get_thread() == this_ethread());
   Http2ClientSession *parent = static_cast<Http2ClientSession *>(this->get_parent());
-  // Copy over data in the abuffer into resp_buffer.  Then schedule a WRITE_READY or
-  // WRITE_COMPLETE event
+
   SCOPED_MUTEX_LOCK(lock, write_vio.mutex, this_ethread());
   int64_t total_added = 0;
   if (write_vio.nbytes > 0 && write_vio.ntodo() > 0) {
@@ -543,18 +551,15 @@ Http2Stream::update_write_request(IOBufferReader *buf_reader, int64_t write_len,
     if (bytes_avail > num_to_write) {
       bytes_avail = num_to_write;
     }
-    while (total_added < bytes_avail) {
-      int64_t bytes_added = response_buffer.write(buf_reader, bytes_avail);
-      buf_reader->consume(bytes_added);
-      total_added += bytes_added;
-    }
+    total_added += bytes_avail;
   }
 
   IOBufferReader *response_reader = this->response_get_data_reader();
   int64_t response_buffer_size    = response_reader->read_avail();
-  Http2StreamDebug("write_vio.nbytes=%" PRId64 ", write_vio.ndone=%" PRId64 ", buf_reader.read_avail=%" PRId64
-                   ", total_added=%" PRId64 ", response_buffer=%" PRId64,
-                   write_vio.nbytes, write_vio.ndone, buf_reader->read_avail(), total_added, response_buffer_size);
+  Http2StreamDebug("write_vio.nbytes=%" PRId64 ", write_vio.ndone=%" PRId64 ", write_vio.write_avail=%" PRId64
+                   ", buf_reader.read_avail=%" PRId64 ", total_added=%" PRId64 ", response_buffer=%" PRId64,
+                   write_vio.nbytes, write_vio.ndone, write_vio.get_writer()->write_avail(), buf_reader->read_avail(), total_added,
+                   response_buffer_size);
 
   bool is_done = false;
   this->response_process_data(is_done);
@@ -702,7 +707,6 @@ Http2Stream::destroy()
 
   // Drop references to all buffer data
   request_buffer.clear();
-  response_buffer.clear();
 
   // Free the mutexes in the VIO
   read_vio.mutex.clear();
@@ -751,8 +755,6 @@ Http2Stream::response_initialize_data_handling(bool &is_done)
     this->chunked_handler.init_by_action(this->response_reader, ChunkedHandler::ACTION_DECHUNK);
     this->chunked_handler.state            = ChunkedHandler::CHUNK_READ_SIZE;
     this->chunked_handler.dechunked_reader = this->chunked_handler.dechunked_buffer->alloc_reader();
-    this->response_reader->dealloc();
-    this->response_reader = nullptr;
     // Get things going if there is already data waiting
     if (this->chunked_handler.chunked_reader->is_read_avail_more_than(0)) {
       response_process_data(is_done);
