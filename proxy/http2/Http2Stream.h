@@ -154,6 +154,7 @@ public:
   bool update_write_request(IOBufferReader *buf_reader, int64_t write_len, bool send_update);
   void reenable(VIO *vio) override;
   virtual void transaction_done() override;
+  void restart_sending();
   void send_response_body();
   void push_promise(URL &url, const MIMEField *accept_encoding);
 
@@ -240,7 +241,6 @@ private:
   Http2StreamId _id;
   Http2StreamState _state = Http2StreamState::HTTP2_STREAM_STATE_IDLE;
 
-  MIOBuffer response_buffer;
   HTTPHdr _req_header;
   VIO read_vio;
   VIO write_vio;
