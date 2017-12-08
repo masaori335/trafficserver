@@ -151,13 +151,7 @@ QUICStreamManager::_handle_frame(const std::shared_ptr<const QUICStreamFrame> &f
   if (!application->is_stream_set(stream)) {
     application->set_stream(stream);
   }
-
-  size_t nbytes_to_read = stream->nbytes_to_read();
-  QUICErrorUPtr error   = stream->recv(frame);
-  // Prevent trigger read events multiple times
-  if (nbytes_to_read == 0) {
-    this_ethread()->schedule_imm(application, VC_EVENT_READ_READY, stream);
-  }
+  QUICErrorUPtr error = stream->recv(frame);
 
   return error;
 }

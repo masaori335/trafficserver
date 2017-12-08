@@ -37,8 +37,10 @@ QUICStreamIO::QUICStreamIO(QUICApplication *app, QUICStream *stream) : _stream(s
   this->_read_buffer_reader  = _read_buffer->alloc_reader();
   this->_write_buffer_reader = _write_buffer->alloc_reader();
 
-  this->_read_vio  = stream->do_io_read(app, 0, _read_buffer);
-  this->_write_vio = stream->do_io_write(app, 0, _write_buffer_reader);
+  this->_read_vio = stream->do_io_read(app, INT64_MAX, this->_read_buffer);
+  this->_read_vio->buffer.reader_for(this->_read_buffer_reader);
+
+  this->_write_vio = stream->do_io_write(app, INT64_MAX, this->_write_buffer_reader);
 }
 
 int64_t
@@ -119,6 +121,12 @@ QUICStreamIO::get_transaction_id() const
   return this->_stream->id();
 }
 
+bool
+QUICStreamIO::is_vio(VIO *vio)
+{
+  return (this->_read_vio == vio || this->_write_vio == vio);
+}
+
 //
 // QUICApplication
 //
@@ -177,4 +185,28 @@ QUICApplication::_find_stream_io(QUICStreamId id)
   } else {
     return result->second;
   }
+}
+
+QUICStreamIO *
+QUICApplication::_find_stream_io(VIO *vio)
+{
+  for (auto i : this->_stream_map) {
+    if (i.second->is_vio(vio)) {
+      return i.second;
+    }
+  }
+
+  return nullptr;
+}
+
+QUICStreamId
+QUICApplication::_find_stream_id(VIO *vio)
+{
+  for (auto i : this->_stream_map) {
+    if (i.second->is_vio(vio)) {
+      return i.first;
+    }
+  }
+
+  return 0;
 }
