@@ -98,14 +98,17 @@ class SSLNextProtocolSet;
  * @detail
  *
  * state_pre_handshake()
- *  |
+ *  | READ:
+ *  |   Do nothing
+ *  | WRITE:
+ *  |   _state_common_send_packet()
  *  v
  * state_handshake()
  *  | READ:
- *  |   _state_handshake_process__packet()
- *  |     _state_handshake_process_initial_client_packet()
- *  |     _state_handshake_process_client_cleartext_packet()
- *  |     _state_handshake_process_zero_rtt_protected_packet()
+ *  |   _state_handshake_process_packet()
+ *  |   _state_handshake_process_initial_client_packet()
+ *  |   _state_handshake_process_client_cleartext_packet()
+ *  |   _state_handshake_process_zero_rtt_protected_packet()
  *  | WRITE:
  *  |   _state_common_send_packet()
  *  v
@@ -139,7 +142,9 @@ public:
   void reenable(VIO *vio) override;
   VIO *do_io_read(Continuation *c, int64_t nbytes, MIOBuffer *buf) override;
   VIO *do_io_write(Continuation *c, int64_t nbytes, IOBufferReader *buf, bool owner = false) override;
+  int connectUp(EThread *t, int fd) override;
 
+  // QUICNetVConnection
   int startEvent(int event, Event *e);
   int state_pre_handshake(int event, Event *data);
   int state_handshake(int event, Event *data);
