@@ -588,6 +588,7 @@ QUICHandshake::_complete_handshake()
 {
   QUICHSDebug("Enter state_complete");
   SET_HANDLER(&QUICHandshake::state_complete);
+  QUICHSDebug("%s", this->negotiated_cipher_suite());
 
   int res = this->_crypto->update_key_materials();
   if (res) {
