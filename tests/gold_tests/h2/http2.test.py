@@ -52,7 +52,7 @@ server.addResponse("sessionlog.json",
 
 post_body = "12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890"
 server.addResponse("sessionlog.jason",
-                   {"headers": "POST /postchunked HTTP/1.1\r\nHost: www.example.com\r\n\r\n", 
+                   {"headers": "POST /postchunked HTTP/1.1\r\nHost: www.example.com\r\n\r\n",
                     "timestamp": "1469733493.993",
                      "body": post_body},
                    {"headers": "HTTP/1.1 200 OK\r\nServer: microserver\r\nConnection: close\r\nContent-Length: 10\r\n\r\n", "timestamp": "1469733493.993", "body": "0123456789"})
@@ -62,9 +62,19 @@ server.addResponse("sessionlog.json", request_header2, response_header2)
 ts.addSSLfile("ssl/server.pem")
 ts.addSSLfile("ssl/server.key")
 
+default_304_host = 'www.default304.test'
+regex_remap_conf_file = "maps.reg"
+
 ts.Variables.ssl_port = 4443
-ts.Disk.remap_config.AddLine(
+ts.Disk.remap_config.AddLines([
+    'map https://{0}/ http://127.0.0.1:{1}/ @plugin=regex_remap.so @pparam={2} @pparam=no-query-string @pparam=host'
+                    .format(default_304_host, server.Variables.Port, regex_remap_conf_file),
     'map / http://127.0.0.1:{0}'.format(server.Variables.Port)
+    ]
+)
+ts.Disk.MakeConfigFile(regex_remap_conf_file).AddLine(
+    '//.*/ http://127.0.0.1:{0} @status=304'
+    .format(server.Variables.Port)
 )
 
 ts.Disk.ssl_multicert_config.AddLine(
@@ -133,4 +143,11 @@ tr = Test.AddTestRun()
 tr.Processes.Default.Command = 'curl -s -k -H "Transfer-Encoding: chunked" -d "{0}" https://127.0.0.1:{1}/postchunked'.format( post_body, ts.Variables.ssl_port)
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.Streams.All = "gold/post_chunked.gold"
+tr.StillRunningAfter = server
+
+# Test Case 7: 304 response
+tr = Test.AddTestRun()
+tr.Processes.Default.Command = 'curl -vs -k --http2 https://127.0.0.1:{0}/ -H "Host: {1}"'.format(ts.Variables.ssl_port, default_304_host)
+tr.Processes.Default.ReturnCode = 0
+tr.Processes.Default.Streams.All = "gold/304.gold"
 tr.StillRunningAfter = server
