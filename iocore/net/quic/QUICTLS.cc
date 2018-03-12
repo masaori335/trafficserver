@@ -41,7 +41,8 @@ to_hex(uint8_t *out, uint8_t *in, int in_len)
   out[in_len * 2] = 0;
 }
 
-QUICTLS::QUICTLS(SSL *ssl, NetVConnectionContext_t nvc_ctx) : QUICHandshakeProtocol(), _ssl(ssl), _netvc_context(nvc_ctx)
+QUICTLS::QUICTLS(SSL *ssl, NetVConnectionContext_t nvc_ctx, bool stateless)
+  : QUICHandshakeProtocol(), _ssl(ssl), _netvc_context(nvc_ctx), _stateless(stateless)
 {
   if (this->_netvc_context == NET_VCONNECTION_IN) {
     SSL_set_accept_state(this->_ssl);
@@ -50,9 +51,14 @@ QUICTLS::QUICTLS(SSL *ssl, NetVConnectionContext_t nvc_ctx) : QUICHandshakeProto
   } else {
     ink_assert(false);
   }
+  ink_assert(this->_netvc_context != NET_VCONNECTION_UNSET);
 
   this->_client_pp = new QUICPacketProtection();
   this->_server_pp = new QUICPacketProtection();
+}
+
+QUICTLS::QUICTLS(SSL *ssl, NetVConnectionContext_t nvc_ctx) : QUICTLS(ssl, nvc_ctx, false)
+{
 }
 
 QUICTLS::~QUICTLS()
@@ -76,13 +82,26 @@ QUICTLS::handshake(uint8_t *out, size_t &out_len, size_t max_out_len, const uint
 
   int err = SSL_ERROR_NONE;
   if (!SSL_is_init_finished(this->_ssl)) {
-    if (!this->_early_data_processed && this->_read_early_data() == 1) {
-      Debug(tag, "Early data processed");
-      this->_early_data_processed = true;
-    }
+    // if (!this->_early_data_processed && this->_read_early_data() == 1) {
+    //   Debug(tag, "Early data processed");
+    //   this->_early_data_processed = true;
+    // }
     ERR_clear_error();
-    int ret = SSL_do_handshake(this->_ssl);
-    if (ret <= 0) {
+    int ret = 0;
+    if (this->_netvc_context == NET_VCONNECTION_IN) {
+      if (this->_stateless) {
+        ret = SSL_stateless(this->_ssl);
+        if (ret > 0) {
+          this->_stateless = false;
+        }
+      } else {
+        ret = SSL_do_handshake(this->_ssl);
+      }
+    } else {
+      ret = SSL_do_handshake(this->_ssl);
+    }
+
+    if (ret < 0) {
       err = SSL_get_error(this->_ssl, ret);
 
       switch (err) {

@@ -40,6 +40,7 @@ class QUICTLS : public QUICHandshakeProtocol
 {
 public:
   QUICTLS(SSL *ssl, NetVConnectionContext_t nvc_ctx);
+  QUICTLS(SSL *ssl, NetVConnectionContext_t nvc_ctx, bool stateless);
   ~QUICTLS();
 
   int handshake(uint8_t *out, size_t &out_len, size_t max_out_len, const uint8_t *in, size_t in_len) override;
@@ -80,7 +81,7 @@ private:
   QUICPacketProtection *_client_pp       = nullptr;
   QUICPacketProtection *_server_pp       = nullptr;
   NetVConnectionContext_t _netvc_context = NET_VCONNECTION_UNSET;
-
-  bool _early_data_processed = false;
+  bool _stateless                        = false;
+  bool _early_data_processed             = false;
   int _read_early_data();
 };
