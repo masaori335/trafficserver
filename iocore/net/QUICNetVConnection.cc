@@ -779,6 +779,9 @@ QUICNetVConnection::_state_handshake_process_packet(QUICPacketUPtr packet)
 {
   QUICErrorUPtr error = QUICErrorUPtr(new QUICNoError());
   switch (packet->type()) {
+  case QUICPacketType::STATELESS_RESET:
+    error = this->_state_common_process_stateless_reset_packet(std::move(packet));
+    break;
   case QUICPacketType::VERSION_NEGOTIATION:
     error = this->_state_handshake_process_version_negotiation_packet(std::move(packet));
     break;
@@ -912,6 +915,9 @@ QUICNetVConnection::_state_common_receive_packet()
 
     // Process the packet
     switch (p->type()) {
+    case QUICPacketType::STATELESS_RESET:
+      error = this->_state_common_process_stateless_reset_packet(std::move(p));
+      break;
     case QUICPacketType::PROTECTED:
       // Check connection migration
       if (this->_handshake_handler->is_completed() && p->connection_id() != this->_quic_connection_id) {
@@ -1016,6 +1022,23 @@ QUICNetVConnection::_state_handshake_send_retry_packet()
   this->_loss_detector->on_packet_sent(std::move(packet));
 
   QUIC_INCREMENT_DYN_STAT_EX(QUICStats::total_packets_sent_stat, 1);
+
+  return QUICErrorUPtr(new QUICNoError());
+}
+
+QUICErrorUPtr
+QUICNetVConnection::_state_common_process_stateless_reset_packet(QUICPacketUPtr packet)
+{
+  std::shared_ptr<const QUICTransportParameters> tp = this->_handshake_handler->remote_transport_parameters();
+  uint16_t len;
+  const uint8_t *token = tp->getAsBytes(QUICTransportParameterId::STATELESS_RESET_TOKEN, len);
+
+  // FIXME: payload() doesn't return pointer to token :(
+  if (packet->payload_size() == len && memcmp(packet->payload(), token, len) == 0) {
+    this->close(QUICConnectionErrorUPtr(QUICConnectionErrorUPtr(new QUICConnectionError())));
+  } else {
+    QUICConDebug("Ignore STATELESS RESET packet because of token mismatch");
+  }
 
   return QUICErrorUPtr(new QUICNoError());
 }
