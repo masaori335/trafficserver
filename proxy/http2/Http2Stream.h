@@ -302,6 +302,9 @@ private:
 
   Event *read_event  = nullptr;
   Event *write_event = nullptr;
+
+  Event *_read_vio_cont_event  = nullptr;
+  Event *_write_vio_cont_event = nullptr;
 };
 
 extern ClassAllocator<Http2Stream> http2StreamAllocator;
