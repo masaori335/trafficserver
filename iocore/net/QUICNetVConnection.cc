@@ -1383,15 +1383,12 @@ QUICNetVConnection::_recv_and_ack(QUICPacketUPtr packet)
   }
 
   if (is_flow_controlled) {
-    int ret = this->_local_flow_controller->update(this->_stream_manager->total_offset_received());
-    QUICFCDebug("[LOCAL] %" PRIu64 "/%" PRIu64, this->_local_flow_controller->current_offset(),
-                this->_local_flow_controller->current_limit());
-
-    if (ret != 0) {
+    bool ret = this->_local_flow_controller->is_exceeded_the_limit(this->_stream_manager->total_offset_received());
+    if (ret) {
       return QUICErrorUPtr(new QUICConnectionError(QUICTransErrorCode::FLOW_CONTROL_ERROR));
     }
 
-    this->_local_flow_controller->forward_limit(this->_stream_manager->total_reordered_bytes() + this->_flow_control_buffer_size);
+    this->_local_flow_controller->update(this->_stream_manager->total_reordered_bytes());
     QUICFCDebug("[LOCAL] %" PRIu64 "/%" PRIu64, this->_local_flow_controller->current_offset(),
                 this->_local_flow_controller->current_limit());
   }
@@ -1457,8 +1454,7 @@ QUICNetVConnection::_init_flow_control_params(const std::shared_ptr<const QUICTr
   uint32_t local_initial_max_data  = 0;
   uint32_t remote_initial_max_data = 0;
   if (local_tp) {
-    local_initial_max_data          = local_tp->getAsUInt32(QUICTransportParameterId::INITIAL_MAX_DATA);
-    this->_flow_control_buffer_size = local_initial_max_data;
+    local_initial_max_data = local_tp->getAsUInt32(QUICTransportParameterId::INITIAL_MAX_DATA);
   }
   if (remote_tp) {
     remote_initial_max_data = remote_tp->getAsUInt32(QUICTransportParameterId::INITIAL_MAX_DATA);

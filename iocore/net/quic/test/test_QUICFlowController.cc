@@ -103,7 +103,7 @@ TEST_CASE("QUICFlowController_Local_Connection", "[quic]")
 
   ret = fc.update(1280);
   CHECK(fc.current_offset() == 1280);
-  CHECK(fc.current_limit() == 2048);
+  CHECK(fc.current_limit() == 2304);
   CHECK(ret == 0);
 }
 
@@ -249,7 +249,7 @@ TEST_CASE("QUICFlowController_Local_Stream", "[quic]")
 
   ret = fc.update(1280);
   CHECK(fc.current_offset() == 1280);
-  CHECK(fc.current_limit() == 2048);
+  CHECK(fc.current_limit() == 2304);
   CHECK(ret == 0);
 }
 

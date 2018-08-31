@@ -110,7 +110,6 @@ protected:
 
   QUICRemoteStreamFlowController _remote_flow_controller;
   QUICLocalStreamFlowController _local_flow_controller;
-  uint64_t _flow_control_buffer_size = 1024;
 
   VIO _read_vio;
   VIO _write_vio;

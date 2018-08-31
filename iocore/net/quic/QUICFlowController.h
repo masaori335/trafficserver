@@ -53,13 +53,11 @@ public:
   virtual int update(QUICOffset offset);
   virtual void forward_limit(QUICOffset limit);
 
-  void set_threshold(uint64_t threshold);
-
   /**
    * This is only for flow controllers initialized without a limit (== UINT64_MAX).
    * Once a limit is set, it should be updated with forward_limit().
    */
-  void set_limit(QUICOffset limit);
+  virtual void set_limit(QUICOffset limit);
 
   // QUICFrameGenerator
   bool will_generate_frame(QUICEncryptionLevel level) override;
@@ -69,10 +67,9 @@ protected:
   QUICFlowController(uint64_t initial_limit) : _limit(initial_limit) {}
   virtual QUICFrameUPtr _create_frame() = 0;
 
-  QUICOffset _offset    = 0;
-  QUICOffset _limit     = 0;
-  QUICOffset _threshold = 1024;
-  QUICFrameUPtr _frame  = QUICFrameFactory::create_null_frame();
+  QUICOffset _offset   = 0;
+  QUICOffset _limit    = 0;
+  QUICFrameUPtr _frame = QUICFrameFactory::create_null_frame();
 };
 
 class QUICRemoteFlowController : public QUICFlowController
@@ -89,17 +86,24 @@ private:
 class QUICLocalFlowController : public QUICFlowController
 {
 public:
+  using super = QUICFlowController;
   QUICLocalFlowController(QUICRTTProvider *rtt_provider, uint64_t initial_limit)
-    : QUICFlowController(initial_limit), _rtt_provider(rtt_provider)
+    : QUICFlowController(initial_limit), _initial_limit(initial_limit), _rtt_provider(rtt_provider)
   {
   }
   void forward_limit(QUICOffset limit) override;
   int update(QUICOffset offset) override;
+  void set_limit(QUICOffset limit) override;
+
+  bool is_exceeded_the_limit(QUICOffset offset);
 
 private:
-  bool _need_to_gen_frame();
-  QUICRateAnalyzer _analyzer;
+  void _forward_limit(QUICOffset limit);
+  bool _need_to_forward_limit();
 
+  QUICRateAnalyzer _analyzer;
+  QUICOffset _initial_limit      = 0;
+  QUICOffset _threshold          = 0;
   QUICRTTProvider *_rtt_provider = nullptr;
 };
 

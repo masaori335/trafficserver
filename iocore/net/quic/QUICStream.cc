@@ -75,7 +75,6 @@ QUICStream::~QUICStream()
 void
 QUICStream::init_flow_control_params(uint64_t recv_max_stream_data, uint64_t send_max_stream_data)
 {
-  this->_flow_control_buffer_size = recv_max_stream_data;
   this->_local_flow_controller.forward_limit(recv_max_stream_data);
   this->_remote_flow_controller.forward_limit(send_max_stream_data);
   QUICStreamFCDebug("[LOCAL] %" PRIu64 "/%" PRIu64, this->_local_flow_controller.current_offset(),
@@ -314,10 +313,8 @@ QUICStream::recv(const QUICStreamFrame &frame)
   }
 
   // Flow Control - Even if it's allowed to receive on the state, it may exceed the limit
-  int ret = this->_local_flow_controller.update(frame.offset() + frame.data_length());
-  QUICStreamFCDebug("[LOCAL] %" PRIu64 "/%" PRIu64, this->_local_flow_controller.current_offset(),
-                    this->_local_flow_controller.current_limit());
-  if (ret != 0) {
+  bool ret = this->_local_flow_controller.is_exceeded_the_limit(frame.offset() + frame.data_length());
+  if (ret) {
     return QUICErrorUPtr(new QUICConnectionError(QUICTransErrorCode::FLOW_CONTROL_ERROR));
   }
 
@@ -336,7 +333,7 @@ QUICStream::recv(const QUICStreamFrame &frame)
                              stream_frame->has_fin_flag());
 
     this->_reordered_bytes = stream_frame->offset() + stream_frame->data_length();
-    this->_local_flow_controller.forward_limit(this->_reordered_bytes + this->_flow_control_buffer_size);
+    this->_local_flow_controller.update(this->_reordered_bytes);
     QUICStreamFCDebug("[LOCAL] %" PRIu64 "/%" PRIu64, this->_local_flow_controller.current_offset(),
                       this->_local_flow_controller.current_limit());
     this->_state.update_with_receiving_frame(*new_frame);
