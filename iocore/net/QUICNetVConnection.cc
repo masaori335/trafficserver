@@ -511,13 +511,12 @@ QUICNetVConnection::_handle_frame(const QUICNewConnectionIdFrame &frame)
                                                  QUICFrameType::NEW_CONNECTION_ID);
   }
 
-  if (this->netvc_context == NET_VCONNECTION_IN && this->_connection_migration_initiated) {
-    // For connection migration testing, server update peer cid every time when it's offered
-    // TODO: update peer cid only if client's local adress is changed
-    this->_connection_migration_initiated = false;
-    this->_update_peer_cid(frame.connection_id());
-  } else {
-    // TODO: on client side, store offered alt cids from server
+  QUICConnectionId new_cid = frame.connection_id();
+  this->_remote_alt_cids.push(new_cid);
+  if (is_debug_tag_set(QUIC_DEBUG_TAG.data())) {
+    char new_cid_str[QUICConnectionId::MAX_HEX_STR_LENGTH];
+    new_cid.hex(new_cid_str, QUICConnectionId::MAX_HEX_STR_LENGTH);
+    QUICConDebug("remote alt-cid=%s", new_cid_str);
   }
 
   return error;
@@ -1014,14 +1013,24 @@ QUICNetVConnection::_state_common_receive_packet()
     case QUICPacketType::PROTECTED:
       // Check connection migration
       if (this->_handshake_handler->is_completed() && p->destination_cid() != this->_quic_connection_id) {
+        if (this->_remote_alt_cids.empty()) {
+          // Remote peer should send NEW_CONNECTION_ID frames before initiating connection migration
+          error = std::make_unique<QUICConnectionError>(QUICTransErrorCode::PROTOCOL_VIOLATION, "no alt cid candidates");
+          break;
+        }
+
         if (this->_alt_con_manager->migrate_to(p->destination_cid(), this->_reset_token)) {
           // Migrate connection
+          QUICConDebug("Connection migration initiated");
+
           this->_update_local_cid(p->destination_cid());
           Connection con;
           con.setRemote(&p->from().sa);
           this->con.move(con);
-          QUICConDebug("Connection migrated");
-          this->_connection_migration_initiated = true;
+
+          this->_update_peer_cid(this->_remote_alt_cids.front());
+          this->_remote_alt_cids.pop();
+
           this->_validate_new_path();
         } else {
           char dcid_str[QUICConnectionId::MAX_HEX_STR_LENGTH];
@@ -1030,6 +1039,7 @@ QUICNetVConnection::_state_common_receive_packet()
           break;
         }
       }
+
       error = this->_state_connection_established_process_packet(std::move(p));
       break;
     case QUICPacketType::INITIAL:
