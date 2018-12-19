@@ -28,6 +28,11 @@
 #include "Http2DebugNames.h"
 #include <sstream>
 
+#define REMEMBER(e, r)                                    \
+  {                                                       \
+    this->_history.push_back(MakeSourceLocation(), e, r); \
+  }
+
 #define Http2ConDebug(ua_session, fmt, ...) \
   SsnDebug(ua_session, "http2_con", "[%" PRId64 "] " fmt, ua_session->connection_id(), ##__VA_ARGS__);
 
@@ -999,6 +1004,7 @@ Http2ConnectionState::main_event_handler(int event, void *edata)
     if (this->ua_session->ready_to_free()) {
       MUTEX_TRY_LOCK(lock, this->ua_session->mutex, this_ethread());
       if (lock.is_locked()) {
+        REMEMBER(event, this->recursion);
         this->ua_session->free();
         // After the free, the Http2ConnectionState object is also freed.
         // The Http2ConnectionState object is allocted within the Http2ClientSession object
@@ -1189,6 +1195,8 @@ Http2ConnectionState::delete_stream(Http2Stream *stream)
   ink_assert(nullptr != stream);
   SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
 
+  REMEMBER(NO_EVENT, this->recursion);
+
   // If stream has already been removed from the list, just go on
   if (!stream_list.in(stream)) {
     return false;
@@ -1236,6 +1244,8 @@ Http2ConnectionState::delete_stream(Http2Stream *stream)
 void
 Http2ConnectionState::release_stream(Http2Stream *stream)
 {
+  REMEMBER(NO_EVENT, this->recursion);
+
   if (stream) {
     // Decrement total_client_streams_count here, because it's a counter include streams in the process of shutting down.
     // Other counters (client_streams_in_count/client_streams_out_count) are already decremented in delete_stream().

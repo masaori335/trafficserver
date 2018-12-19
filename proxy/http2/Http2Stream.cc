@@ -26,6 +26,11 @@
 #include "Http2ClientSession.h"
 #include "../http/HttpSM.h"
 
+#define REMEMBER(e, r)                                    \
+  {                                                       \
+    this->_history.push_back(MakeSourceLocation(), e, r); \
+  }
+
 #define Http2StreamDebug(fmt, ...) \
   SsnDebug(parent, "http2_stream", "[%" PRId64 "] [%u] " fmt, parent->connection_id(), this->get_id(), ##__VA_ARGS__);
 
@@ -371,6 +376,8 @@ void
 Http2Stream::terminate_if_possible()
 {
   if (terminate_stream && reentrancy_count == 0) {
+    REMEMBER(NO_EVENT, this->reentrancy_count);
+
     Http2ClientSession *h2_parent = static_cast<Http2ClientSession *>(parent);
     SCOPED_MUTEX_LOCK(lock, h2_parent->connection_state.mutex, this_ethread());
     h2_parent->connection_state.delete_stream(this);
@@ -705,6 +712,8 @@ Http2Stream::reenable(VIO *vio)
 void
 Http2Stream::destroy()
 {
+  REMEMBER(NO_EVENT, this->reentrancy_count);
+
   Http2StreamDebug("Destroy stream, sent %" PRIu64 " bytes", this->bytes_sent);
   SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
   // Clean up after yourself if this was an EOS

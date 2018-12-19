@@ -28,6 +28,7 @@
 #include "Http2DebugNames.h"
 #include "../http/HttpTunnel.h" // To get ChunkedHandler
 #include "Http2DependencyTree.h"
+#include "tscore/History.h"
 
 class Http2Stream;
 class Http2ConnectionState;
@@ -235,6 +236,8 @@ private:
    * Return true if the caller can continue event processing.
    */
   bool _switch_thread_if_not_on_right_thread(int event, void *edata);
+
+  History<HISTORY_DEFAULT_SIZE> _history;
 
   HTTPParser http_parser;
   ink_hrtime _start_time = 0;

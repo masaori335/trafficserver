@@ -25,8 +25,14 @@
 #include "HttpDebugNames.h"
 #include "tscore/ink_base64.h"
 
+#define REMEMBER(e, r)                                    \
+  {                                                       \
+    this->_history.push_back(MakeSourceLocation(), e, r); \
+  }
+
 #define STATE_ENTER(state_name, event)                                                       \
   do {                                                                                       \
+    REMEMBER(event, this->recursion)                                                         \
     SsnDebug(this, "http2_cs", "[%" PRId64 "] [%s, %s]", this->connection_id(), #state_name, \
              HttpDebugNames::get_event_name(event));                                         \
   } while (0)
@@ -35,6 +41,7 @@
 
 #define HTTP2_SET_SESSION_HANDLER(handler) \
   do {                                     \
+    REMEMBER(NO_EVENT, this->recursion);   \
     this->session_handler = (handler);     \
   } while (0)
 
@@ -63,6 +70,8 @@ Http2ClientSession::Http2ClientSession() {}
 void
 Http2ClientSession::destroy()
 {
+  REMEMBER(NO_EVENT, this->recursion)
+
   if (!in_destroy) {
     in_destroy = true;
     Http2SsnDebug("session destroy");
@@ -74,6 +83,8 @@ Http2ClientSession::destroy()
 void
 Http2ClientSession::free()
 {
+  REMEMBER(NO_EVENT, this->recursion)
+
   if (client_vc) {
     client_vc->do_io_close();
     client_vc = nullptr;
@@ -366,6 +377,7 @@ Http2ClientSession::main_event_handler(int event, void *edata)
 
   recursion--;
   if (!connection_state.is_recursing() && this->recursion == 0 && kill_me) {
+    REMEMBER(event, this->recursion)
     this->free();
   }
   return retval;

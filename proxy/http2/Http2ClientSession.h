@@ -29,6 +29,7 @@
 #include "Http2ConnectionState.h"
 #include <string_view>
 #include "tscore/ink_inet.h"
+#include "tscore/History.h"
 
 // Name                       Edata                 Description
 // HTTP2_SESSION_EVENT_INIT   Http2ClientSession *  HTTP/2 session is born
@@ -343,6 +344,7 @@ private:
   int recursion         = 0;
 
   std::unordered_set<std::string> h2_pushed_urls;
+  History<HISTORY_DEFAULT_SIZE> _history;
 };
 
 extern ClassAllocator<Http2ClientSession> http2ClientSessionAllocator;

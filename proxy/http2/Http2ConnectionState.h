@@ -27,6 +27,7 @@
 #include "HPACK.h"
 #include "Http2Stream.h"
 #include "Http2DependencyTree.h"
+#include "tscore/History.h"
 
 class Http2ClientSession;
 
@@ -302,6 +303,7 @@ private:
   //   If given Stream Identifier is not found in stream_list and it is greater
   //   than latest_streamid_in, the state of Stream is IDLE.
   Queue<Http2Stream> stream_list;
+  History<HISTORY_DEFAULT_SIZE> _history;
   Http2StreamId latest_streamid_in  = 0;
   Http2StreamId latest_streamid_out = 0;
   int stream_requests               = 0;
