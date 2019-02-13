@@ -25,35 +25,52 @@ HTTP Connection
 .. ts:stat:: global proxy.process.current_server_connections integer
    :type: gauge
 
+   Not HTTP version specific.
+
 .. ts:stat:: global proxy.process.http.user_agent_total_request_bytes integer
    :type: counter
    :units: bytes
+
+   Not HTTP version specific.
 
 .. ts:stat:: global proxy.process.http.user_agent_total_response_bytes integer
    :type: counter
    :units: bytes
 
+   Not HTTP version specific.
+
 .. ts:stat:: global proxy.process.http.broken_server_connections integer
    :type: counter
+
+   Not HTTP version specific.
 
 .. ts:stat:: global proxy.process.http.completed_requests integer
    :type: counter
 
+   Not HTTP version specific.
+
 .. ts:stat:: global proxy.process.http.connect_requests integer
    :type: counter
+
+   Not HTTP version specific.
 
 .. ts:stat:: global proxy.process.http.current_active_client_connections integer
    :type: gauge
 
-   Represents the current number of HTTP/1.0 and HTTP/1.1 connections
+   Represents the current number of active HTTP/1.0 and HTTP/1.1 connections
    from client to the |TS|.
 
 .. ts:stat:: global proxy.process.http.current_cache_connections integer
    :type: gauge
    :ungathered:
 
+   Not HTTP version specific.
+
 .. ts:stat:: global proxy.process.http.current_client_connections integer
    :type: gauge
+
+   Represents the current number of HTTP/1.0 and HTTP/1.1 connections
+   from client to the |TS|.
 
 .. ts:stat:: global proxy.process.http.current_client_transactions integer
    :type: gauge
@@ -61,75 +78,122 @@ HTTP Connection
 .. ts:stat:: global proxy.process.http.current_server_connections integer
    :type: gauge
 
+   Not HTTP version specific.
+
 .. ts:stat:: global proxy.process.http.current_server_transactions integer
    :type: gauge
 
+   Not HTTP version specific.
+
 .. ts:stat:: global proxy.process.http.err_client_abort_count_stat integer
    :type: counter
+
+   Not HTTP version specific.
 
 .. ts:stat:: global proxy.process.http.err_client_abort_origin_server_bytes_stat integer
    :type: counter
    :units: bytes
 
+   Not HTTP version specific.
+
 .. ts:stat:: global proxy.process.http.err_client_abort_user_agent_bytes_stat integer
    :type: counter
    :units: bytes
 
+   Not HTTP version specific.
+
 .. ts:stat:: global proxy.process.http.err_client_read_error_count_stat integer
    :type: counter
+
+   Not HTTP version specific.
 
 .. ts:stat:: global proxy.process.http.err_client_read_error_origin_server_bytes_stat integer
    :type: counter
    :units: bytes
 
+   Not HTTP version specific.
+
 .. ts:stat:: global proxy.process.http.err_client_read_error_user_agent_bytes_stat integer
    :type: counter
    :units: bytes
 
+   Not HTTP version specific.
+
 .. ts:stat:: global proxy.process.http.err_connect_fail_count_stat integer
    :type: counter
    :ungathered:
+
+   Not HTTP version specific.
 
 .. ts:stat:: global proxy.process.http.err_connect_fail_origin_server_bytes_stat integer
    :type: counter
    :units: bytes
    :ungathered:
 
+   Not HTTP version specific.
+
 .. ts:stat:: global proxy.process.http.err_connect_fail_user_agent_bytes_stat integer
    :type: counter
    :units: bytes
    :ungathered:
 
+   Not HTTP version specific.
+
 .. ts:stat:: global proxy.process.http.http_misc_origin_server_bytes_stat integer
    :type: counter
    :units: bytes
 
+   Not HTTP version specific.
+
 .. ts:stat:: global proxy.process.http.incoming_requests integer
    :type: counter
+
+   Not HTTP version specific.
 
 .. ts:stat:: global proxy.process.http.incoming_responses integer
    :type: counter
 
+   Not HTTP version specific.
+
 .. ts:stat:: global proxy.process.https.incoming_requests integer
    :type: counter
+
+   Not HTTP version specific.
 
 .. ts:stat:: global proxy.process.https.total_client_connections integer
    :type: counter
 
+   Represents the total number of HTTP/1.0 and HTTP/1.1 connections
+   over TLS from client to the |TS|.
+
 .. ts:stat:: global proxy.process.http.total_client_connections integer
    :type: counter
+
+   Represents the total number of HTTP/1.0 and HTTP/1.1 connections
+   from client to the |TS|.
 
 .. ts:stat:: global proxy.process.http.total_client_connections_ipv4 integer
    :type: counter
 
+   Represents the total number of HTTP/1.0 and HTTP/1.1
+   connections over IPv4 from client to the |TS|.
+
 .. ts:stat:: global proxy.process.http.total_client_connections_ipv6 integer
    :type: counter
+
+   Represents the total number of HTTP/1.0 and HTTP/1.1
+   connections over IPv6 from client to the |TS|.
 
 .. ts:stat:: global proxy.process.http.total_incoming_connections integer
    :type: counter
 
+   Represents the total number of HTTP/1.0 and HTTP/1.1
+   connections from client to the |TS|.
+
 .. ts:stat:: global proxy.process.http.total_server_connections integer
    :type: counter
+
+   Not HTTP version specific.
 
 .. ts:stat:: global proxy.process.http.origin_connections_throttled_out integer
    :type: counter
@@ -139,4 +203,64 @@ HTTP Connection
 .. ts:stat:: global proxy.process.http2.current_active_client_connections integer
    :type: gauge
 
+   Represents the current number of active HTTP/2 connections from client to the |TS|.
+
+.. ts:stat:: global proxy.process.http2.current_client_connections integer
+   :type: gauge
+
    Represents the current number of HTTP/2 connections from client to the |TS|.
+
+.. ts:stat:: global proxy.process.http2.current_client_streams integer
+   :type: gauge
+
+   Represents the current number of HTTP/2 streams from client to the |TS|.
+
+.. ts:stat:: global proxy.process.http2.session_die_default integer
+   :type: counter
+
+   Represents the total number of HTTP/2 sessions closed normally.
+
+.. ts:stat:: global proxy.process.http2.session_die_active integer
+   :type: counter
+
+   Represents the total number of HTTP/2 sessions closed by active timeout.
+
+.. ts:stat:: global proxy.process.http2.session_die_inactive integer
+   :type: counter
+
+   Represents the total number of HTTP/2 sessions closed by inactive timeout.
+
+.. ts:stat:: global proxy.process.http2.session_die_eos integer
+   :type: counter
+
+   Represents the total number of HTTP/2 sessions closed by EOS.
+
+.. ts:stat:: global proxy.process.http2.session_die_error integer
+   :type: counter
+
+   Represents the total number of HTTP/2 sessions closed by error.
+
+.. ts:stat:: global proxy.process.http2.session_die_other integer
+   :type: counter
+
+   Represents the total number of HTTP/2 sessions closed by unknown event.
+
+.. ts:stat:: global proxy.process.http2.stream_errors integer
+   :type: counter
+
+   Represents the total number of HTTP/2 streams which sent RST_STREAM.
+
+.. ts:stat:: global proxy.process.http2.total_client_connections integer
+   :type: counter
+
+   Represents the total number of HTTP/2 connections from client to the |TS|.
+
+.. ts:stat:: global proxy.process.http2.total_client_streams integer
+   :type: counter
+
+   Represents the total number of HTTP/2 streams from client to the |TS|.
+
+.. ts:stat:: global proxy.process.http2.total_transactions_time integer
+   :type: counter
+
+   Represents the total time of HTTP/2 streams used.
