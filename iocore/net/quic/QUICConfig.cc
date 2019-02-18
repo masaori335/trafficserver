@@ -40,6 +40,7 @@ static constexpr std::string_view QUIC_ALPN_PROTO_LIST("\5hq-17"sv);
 
 int QUICConfig::_config_id                   = 0;
 int QUICConfigParams::_connection_table_size = 65521;
+int QUICCertConfig::_config_id               = 0;
 
 static SSL_CTX *
 quic_new_ssl_ctx()
@@ -70,24 +71,144 @@ quic_new_ssl_ctx()
   return ssl_ctx;
 }
 
-static SSL_CTX *
-quic_init_server_ssl_ctx(const QUICConfigParams *params)
+static int
+quic_sni_cb(SSL *ssl, int * /* ad */, void * /*arg*/)
 {
-  SSL_CTX *ssl_ctx = quic_new_ssl_ctx();
+  const char *servername = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+  if (servername == nullptr) {
+    servername = "";
+  }
+  Debug("quic", "Requested servername is %s", servername);
 
-  SSLConfig::scoped_config ssl_params;
-  SSLParseCertificateConfiguration(ssl_params, ssl_ctx);
+  SSL_CTX *ctx       = nullptr;
+  SSLCertContext *cc = nullptr;
+
+  // The incoming SSL_CTX is either the one mapped from the inbound IP address or the default one. If we
+  // don't find a name-based match at this point, we *do not* want to mess with the context because we've
+  // already made a best effort to find the best match.
+  if (likely(servername)) {
+    QUICCertConfig::scoped_config lookup;
+    cc = lookup->find((char *)servername);
+    if (cc && cc->ctx) {
+      ctx = cc->ctx;
+    }
+  }
+
+  // should we fallback to looking up by ip?
+  // If there's no match on the server name, try to match on the peer address.
+  // if (ctx == nullptr) {
+  //   IpEndpoint ip;
+  //   int namelen = sizeof(ip);
+
+  //   if (0 == safe_getsockname(netvc->get_socket(), &ip.sa, &namelen)) {
+  //     cc = lookup->find(ip);
+  //   }
+  //   if (cc && cc->ctx) {
+  //     ctx = cc->ctx;
+  //   }
+  // }
+
+  bool found = true;
+  if (ctx != nullptr) {
+    SSL_set_SSL_CTX(ssl, ctx);
+  } else {
+    found = false;
+  }
+
+  ctx = SSL_get_SSL_CTX(ssl);
+  Debug("quic", "ssl_cert_callback %s SSL context %p for requested name '%s'", found ? "found" : "using", ctx, servername);
+
+  return 1;
+}
+
+SSL_CTX *
+quic_store_ssl_context(const SSLConfigParams *params, SSLCertLookup *lookup, const ssl_user_config *sslMultCertSettings)
+{
+  std::vector<X509 *> cert_list;
+  SSL_CTX *ssl_ctx = quic_new_ssl_ctx();
+  bool inserted    = false;
+
+  // Loading cert
+  if (sslMultCertSettings->cert) {
+    if (!ssl_setup_cert(ssl_ctx, params, sslMultCertSettings, cert_list)) {
+      return nullptr;
+    }
+  }
+
+  if (!ssl_ctx || !sslMultCertSettings) {
+    lookup->is_valid = false;
+    return nullptr;
+  }
+
+  const char *certname = sslMultCertSettings->cert.get();
+  for (auto cert : cert_list) {
+    if (0 > SSLCheckServerCertNow(cert, certname)) {
+      /* At this point, we know cert is bad, and we've already printed a
+         descriptive reason as to why cert is bad to the log file */
+      Debug("quic", "Marking certificate as NOT VALID: %s", certname);
+      lookup->is_valid = false;
+    }
+  }
+
+  SSL_CTX_set_alpn_select_cb(ssl_ctx, QUIC::ssl_select_next_protocol, nullptr);
+
+  if (params->server_groups_list != nullptr) {
+    if (!SSL_CTX_set1_groups_list(ssl_ctx, params->server_groups_list)) {
+      Error("SSL_CTX_set1_groups_list failed");
+    }
+  }
 
   if (SSL_CTX_check_private_key(ssl_ctx) != 1) {
     Error("check private key failed");
   }
 
-  SSL_CTX_set_alpn_select_cb(ssl_ctx, QUIC::ssl_select_next_protocol, nullptr);
+  // Index this certificate by the specified IP(v6) address. If the address is "*", make it the default context.
+  if (sslMultCertSettings->addr) {
+    if (strcmp(sslMultCertSettings->addr, "*") == 0) {
+      if (lookup->insert(sslMultCertSettings->addr, SSLCertContext(ssl_ctx, sslMultCertSettings->opt)) >= 0) {
+        inserted            = true;
+        lookup->ssl_default = ssl_ctx;
+        // XXX ssl_set_handshake_callbacks(ssl_ctx) should be called?
+        SSL_CTX_set_tlsext_servername_callback(ssl_ctx, quic_sni_cb);
+      }
+    } else {
+      IpEndpoint ep;
 
-  if (params->server_supported_groups() != nullptr) {
-    if (SSL_CTX_set1_groups_list(ssl_ctx, params->server_supported_groups()) != 1) {
-      Error("SSL_CTX_set1_groups_list failed");
+      if (ats_ip_pton(sslMultCertSettings->addr, &ep) == 0) {
+        Debug("quic", "mapping '%s' to certificate %s", (const char *)sslMultCertSettings->addr, (const char *)certname);
+        if (lookup->insert(ep, SSLCertContext(ssl_ctx, sslMultCertSettings->opt)) >= 0) {
+          inserted = true;
+        }
+      } else {
+        Error("'%s' is not a valid IPv4 or IPv6 address", (const char *)sslMultCertSettings->addr);
+        lookup->is_valid = false;
+      }
     }
+  }
+
+  // Insert additional mappings. Note that this maps multiple keys to the same value, so when
+  // this code is updated to reconfigure the SSL certificates, it will need some sort of
+  // refcounting or alternate way of avoiding double frees.
+  Debug("ssl", "importing SNI names from %s", (const char *)certname);
+  for (auto cert : cert_list) {
+    if (ssl_index_certificate(lookup, SSLCertContext(ssl_ctx, sslMultCertSettings->opt), cert, certname)) {
+      inserted = true;
+    }
+  }
+
+  if (inserted) {
+    if (SSLConfigParams::init_ssl_ctx_cb) {
+      SSLConfigParams::init_ssl_ctx_cb(ssl_ctx, true);
+    }
+  }
+
+  if (!inserted) {
+    SSLReleaseContext(ssl_ctx);
+    ssl_ctx = nullptr;
+  }
+
+  for (auto &i : cert_list) {
+    X509_free(i);
   }
 
   return ssl_ctx;
@@ -125,7 +246,6 @@ QUICConfigParams::~QUICConfigParams()
   this->_server_supported_groups = (char *)ats_free_null(this->_server_supported_groups);
   this->_client_supported_groups = (char *)ats_free_null(this->_client_supported_groups);
 
-  SSL_CTX_free(this->_server_ssl_ctx);
   SSL_CTX_free(this->_client_ssl_ctx);
 };
 
@@ -139,6 +259,7 @@ QUICConfigParams::initialize()
   REC_EstablishStaticConfigInt32U(this->_vn_exercise_enabled, "proxy.config.quic.client.vn_exercise_enabled");
   REC_EstablishStaticConfigInt32U(this->_cm_exercise_enabled, "proxy.config.quic.client.cm_exercise_enabled");
 
+  // deprecated in favor of proxy.config.ssl.server.groups_list
   REC_ReadConfigStringAlloc(this->_server_supported_groups, "proxy.config.quic.server.supported_groups");
   REC_ReadConfigStringAlloc(this->_client_supported_groups, "proxy.config.quic.client.supported_groups");
   REC_ReadConfigStringAlloc(this->_session_file, "proxy.config.quic.client.session_file");
@@ -190,7 +311,6 @@ QUICConfigParams::initialize()
   REC_EstablishStaticConfigInt32U(this->_cc_persistent_congestion_threshold,
                                   "proxy.config.quic.congestion_control.persistent_congestion_threshold");
 
-  this->_server_ssl_ctx = quic_init_server_ssl_ctx(this);
   this->_client_ssl_ctx = quic_init_client_ssl_ctx(this);
 }
 
@@ -361,12 +481,6 @@ QUICConfigParams::client_supported_groups() const
 }
 
 SSL_CTX *
-QUICConfigParams::server_ssl_ctx() const
-{
-  return this->_server_ssl_ctx;
-}
-
-SSL_CTX *
 QUICConfigParams::client_ssl_ctx() const
 {
   return this->_client_ssl_ctx;
@@ -474,4 +588,42 @@ void
 QUICConfig::release(QUICConfigParams *params)
 {
   configProcessor.release(_config_id, params);
+}
+
+//
+// QUICCertConfig
+//
+void
+QUICCertConfig::startup()
+{
+  reconfigure();
+}
+
+void
+QUICCertConfig::reconfigure()
+{
+  SSLConfig::scoped_config ssl_params;
+  SSLCertLookup *lookup = new SSLCertLookup();
+
+  SSLParseCertificateConfiguration(ssl_params, lookup, quic_store_ssl_context);
+
+  // If there are errors in the certificate configs and we had wanted to exit on error
+  // we won't want to reset the config
+  if (lookup->is_valid) {
+    _config_id = configProcessor.set(_config_id, lookup);
+  } else {
+    delete lookup;
+  }
+}
+
+SSLCertLookup *
+QUICCertConfig::acquire()
+{
+  return static_cast<SSLCertLookup *>(configProcessor.get(_config_id));
+}
+
+void
+QUICCertConfig::release(SSLCertLookup *lookup)
+{
+  configProcessor.release(_config_id, lookup);
 }

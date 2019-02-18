@@ -520,11 +520,12 @@ SSLCertificateConfig::reconfigure()
     ink_hrtime_sleep(HRTIME_SECONDS(secs));
   }
 
-  SSLParseCertificateConfiguration(params, lookup);
+  SSLParseCertificateConfiguration(params, lookup, ssl_store_ssl_context);
 
   if (!lookup->is_valid) {
     retStatus = false;
   }
+
   // If there are errors in the certificate configs and we had wanted to exit on error
   // we won't want to reset the config
   if (lookup->is_valid || !params->configExitOnLoadError) {

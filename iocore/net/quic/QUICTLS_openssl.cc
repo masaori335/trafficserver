@@ -240,6 +240,14 @@ QUICTLS::QUICTLS(SSL_CTX *ssl_ctx, NetVConnectionContext_t nvc_ctx)
 
   if (this->_netvc_context == NET_VCONNECTION_OUT) {
     SSL_set_connect_state(this->_ssl);
+
+    // how to set name from client?
+    char name[] = "quic.ogre.com";
+    if (!SSL_set_tlsext_host_name(this->_ssl, name)) {
+      Debug(tag, "Could not set SNI");
+
+      return;
+    }
   } else {
     SSL_set_accept_state(this->_ssl);
   }

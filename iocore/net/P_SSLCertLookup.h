@@ -24,7 +24,13 @@
 #pragma once
 
 #include "ProxyConfig.h"
-#include "P_SSLUtils.h"
+// #include "P_SSLUtils.h"
+
+// BoringSSL does not have this include file
+#ifndef OPENSSL_IS_BORINGSSL
+#include <openssl/opensslconf.h>
+#endif
+#include <openssl/ssl.h>
 
 struct SSLConfigParams;
 struct SSLContextStorage;

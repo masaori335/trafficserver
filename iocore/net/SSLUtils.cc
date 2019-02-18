@@ -88,36 +88,6 @@
 #endif
 #endif
 
-/*
- * struct ssl_user_config: gather user provided settings from ssl_multicert.config in to this single struct
- * ssl_ticket_enabled - session ticket enabled
- * ssl_cert_name - certificate
- * dest_ip - IPv[64] address to match
- * ssl_cert_name - certificate
- * first_cert - the first certificate name when multiple cert files are in 'ssl_cert_name'
- * ssl_ca_name - CA public certificate
- * ssl_key_name - Private key
- * ticket_key_name - session key file. [key_name (16Byte) + HMAC_secret (16Byte) + AES_key (16Byte)]
- * ssl_key_dialog - Private key dialog
- * servername - Destination server
- */
-struct ssl_user_config {
-  ssl_user_config() : opt(SSLCertContext::OPT_NONE)
-  {
-    REC_ReadConfigInt32(session_ticket_enabled, "proxy.config.ssl.server.session_ticket.enable");
-  }
-
-  int session_ticket_enabled;
-  ats_scoped_str addr;
-  ats_scoped_str cert;
-  ats_scoped_str first_cert;
-  ats_scoped_str ca;
-  ats_scoped_str key;
-  ats_scoped_str dialog;
-  ats_scoped_str servername;
-  SSLCertContext::Option opt;
-};
-
 SSLSessionCache *session_cache; // declared extern in P_SSLConfig.h
 
 // Check if the ticket_key callback #define is available, and if so, enable session tickets.
@@ -1220,7 +1190,7 @@ SSLInitializeStatistics()
       RecRegisterRawStat(ssl_rsb, RECT_PROCESS, statName.c_str(), RECD_INT, RECP_NON_PERSISTENT,
                          (int)ssl_cipher_stats_start + index, RecRawStatSyncSum);
       SSL_CLEAR_DYN_STAT((int)ssl_cipher_stats_start + index);
-      Debug("ssl", "registering SSL cipher metric '%s'", statName.c_str());
+      // Debug("ssl", "registering SSL cipher metric '%s'", statName.c_str());
     }
   }
 
@@ -1466,7 +1436,7 @@ SSLPrivateKeyHandler(SSL_CTX *ctx, const SSLConfigParams *params, const std::str
   return true;
 }
 
-static int
+int
 SSLCheckServerCertNow(X509 *cert, const char *certname)
 {
   int timeCmpValue;
@@ -1527,7 +1497,7 @@ asn1_strdup(ASN1_STRING *s)
 // Given a certificate and it's corresponding SSL_CTX context, insert hash
 // table aliases for subject CN and subjectAltNames DNS without wildcard,
 // insert trie aliases for those with wildcard.
-static bool
+bool
 ssl_index_certificate(SSLCertLookup *lookup, SSLCertContext const &cc, X509 *cert, const char *certname)
 {
   X509_NAME *subject = nullptr;
@@ -1677,6 +1647,90 @@ setClientCertLevel(SSL *ssl, uint8_t certLevel)
   SSL_set_verify_depth(ssl, params->verify_depth); // might want to make configurable at some point.
 }
 
+bool
+ssl_setup_cert(SSL_CTX *ctx, const SSLConfigParams *params, const ssl_user_config *sslMultCertSettings,
+               std::vector<X509 *> &certList)
+{
+  SimpleTokenizer cert_tok((const char *)sslMultCertSettings->cert, SSL_CERT_SEPARATE_DELIM);
+  SimpleTokenizer key_tok((sslMultCertSettings->key ? (const char *)sslMultCertSettings->key : ""), SSL_CERT_SEPARATE_DELIM);
+
+  if (sslMultCertSettings->key && cert_tok.getNumTokensRemaining() != key_tok.getNumTokensRemaining()) {
+    Error("the number of certificates in ssl_cert_name and ssl_key_name doesn't match");
+    return false;
+  }
+  SimpleTokenizer ca_tok("", SSL_CERT_SEPARATE_DELIM);
+  if (sslMultCertSettings->ca) {
+    ca_tok.setString(sslMultCertSettings->ca);
+    if (cert_tok.getNumTokensRemaining() != ca_tok.getNumTokensRemaining()) {
+      Error("the number of certificates in ssl_cert_name and ssl_ca_name doesn't match");
+      return false;
+    }
+  }
+
+  for (const char *certname = cert_tok.getNext(); certname; certname = cert_tok.getNext()) {
+    std::string completeServerCertPath = Layout::relative_to(params->serverCertPathOnly, certname);
+    scoped_BIO bio(BIO_new_file(completeServerCertPath.c_str(), "r"));
+    X509 *cert = nullptr;
+    if (bio) {
+      cert = PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr);
+    }
+    if (!bio || !cert) {
+      SSLError("failed to load certificate chain from %s", completeServerCertPath.c_str());
+      return false;
+    }
+    if (!SSL_CTX_use_certificate(ctx, cert)) {
+      SSLError("Failed to assign cert from %s to SSL_CTX", completeServerCertPath.c_str());
+      X509_free(cert);
+      return false;
+    }
+
+    // Load up any additional chain certificates
+    SSL_CTX_add_extra_chain_cert_bio(ctx, bio);
+
+    const char *keyPath = key_tok.getNext();
+    if (!SSLPrivateKeyHandler(ctx, params, completeServerCertPath, keyPath)) {
+      return false;
+    }
+
+    certList.push_back(cert);
+    if (SSLConfigParams::load_ssl_file_cb) {
+      SSLConfigParams::load_ssl_file_cb(completeServerCertPath.c_str(), CONFIG_FLAG_UNVERSIONED);
+    }
+    // Must load all the intermediate certificates before starting the next chain
+
+    // First, load any CA chains from the global chain file.  This should probably
+    // eventually be a comma separated list too.  For now we will load it in all chains even
+    // though it only makes sense in one chain
+    if (params->serverCertChainFilename) {
+      ats_scoped_str completeServerCertChainPath(Layout::relative_to(params->serverCertPathOnly, params->serverCertChainFilename));
+      if (!SSL_CTX_add_extra_chain_cert_file(ctx, completeServerCertChainPath)) {
+        SSLError("failed to load global certificate chain from %s", (const char *)completeServerCertChainPath);
+        return false;
+      }
+      if (SSLConfigParams::load_ssl_file_cb) {
+        SSLConfigParams::load_ssl_file_cb(completeServerCertChainPath, CONFIG_FLAG_UNVERSIONED);
+      }
+    }
+
+    // Now, load any additional certificate chains specified in this entry.
+    if (sslMultCertSettings->ca) {
+      const char *ca_name = ca_tok.getNext();
+      if (ca_name != nullptr) {
+        ats_scoped_str completeServerCertChainPath(Layout::relative_to(params->serverCertPathOnly, ca_name));
+        if (!SSL_CTX_add_extra_chain_cert_file(ctx, completeServerCertChainPath)) {
+          SSLError("failed to load certificate chain from %s", (const char *)completeServerCertChainPath);
+          return false;
+        }
+        if (SSLConfigParams::load_ssl_file_cb) {
+          SSLConfigParams::load_ssl_file_cb(completeServerCertChainPath, CONFIG_FLAG_UNVERSIONED);
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
 SSL_CTX *
 SSLInitServerContext(const SSLConfigParams *params, const ssl_user_config *sslMultCertSettings, std::vector<X509 *> &certList)
 {
@@ -1768,83 +1822,8 @@ SSLInitServerContext(const SSLConfigParams *params, const ssl_user_config *sslMu
     }
 
     if (sslMultCertSettings->cert) {
-      SimpleTokenizer cert_tok((const char *)sslMultCertSettings->cert, SSL_CERT_SEPARATE_DELIM);
-      SimpleTokenizer key_tok((sslMultCertSettings->key ? (const char *)sslMultCertSettings->key : ""), SSL_CERT_SEPARATE_DELIM);
-
-      if (sslMultCertSettings->key && cert_tok.getNumTokensRemaining() != key_tok.getNumTokensRemaining()) {
-        Error("the number of certificates in ssl_cert_name and ssl_key_name doesn't match");
+      if (!ssl_setup_cert(ctx, params, sslMultCertSettings, certList)) {
         goto fail;
-      }
-      SimpleTokenizer ca_tok("", SSL_CERT_SEPARATE_DELIM);
-      if (sslMultCertSettings->ca) {
-        ca_tok.setString(sslMultCertSettings->ca);
-        if (cert_tok.getNumTokensRemaining() != ca_tok.getNumTokensRemaining()) {
-          Error("the number of certificates in ssl_cert_name and ssl_ca_name doesn't match");
-          goto fail;
-        }
-      }
-
-      for (const char *certname = cert_tok.getNext(); certname; certname = cert_tok.getNext()) {
-        std::string completeServerCertPath = Layout::relative_to(params->serverCertPathOnly, certname);
-        scoped_BIO bio(BIO_new_file(completeServerCertPath.c_str(), "r"));
-        X509 *cert = nullptr;
-        if (bio) {
-          cert = PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr);
-        }
-        if (!bio || !cert) {
-          SSLError("failed to load certificate chain from %s", completeServerCertPath.c_str());
-          goto fail;
-        }
-        if (!SSL_CTX_use_certificate(ctx, cert)) {
-          SSLError("Failed to assign cert from %s to SSL_CTX", completeServerCertPath.c_str());
-          X509_free(cert);
-          goto fail;
-        }
-
-        // Load up any additional chain certificates
-        SSL_CTX_add_extra_chain_cert_bio(ctx, bio);
-
-        const char *keyPath = key_tok.getNext();
-        if (!SSLPrivateKeyHandler(ctx, params, completeServerCertPath, keyPath)) {
-          goto fail;
-        }
-
-        certList.push_back(cert);
-        if (SSLConfigParams::load_ssl_file_cb) {
-          SSLConfigParams::load_ssl_file_cb(completeServerCertPath.c_str(), CONFIG_FLAG_UNVERSIONED);
-        }
-
-        // Must load all the intermediate certificates before starting the next chain
-
-        // First, load any CA chains from the global chain file.  This should probably
-        // eventually be a comma separated list too.  For now we will load it in all chains even
-        // though it only makes sense in one chain
-        if (params->serverCertChainFilename) {
-          ats_scoped_str completeServerCertChainPath(
-            Layout::relative_to(params->serverCertPathOnly, params->serverCertChainFilename));
-          if (!SSL_CTX_add_extra_chain_cert_file(ctx, completeServerCertChainPath)) {
-            SSLError("failed to load global certificate chain from %s", (const char *)completeServerCertChainPath);
-            goto fail;
-          }
-          if (SSLConfigParams::load_ssl_file_cb) {
-            SSLConfigParams::load_ssl_file_cb(completeServerCertChainPath, CONFIG_FLAG_UNVERSIONED);
-          }
-        }
-
-        // Now, load any additional certificate chains specified in this entry.
-        if (sslMultCertSettings->ca) {
-          const char *ca_name = ca_tok.getNext();
-          if (ca_name != nullptr) {
-            ats_scoped_str completeServerCertChainPath(Layout::relative_to(params->serverCertPathOnly, ca_name));
-            if (!SSL_CTX_add_extra_chain_cert_file(ctx, completeServerCertChainPath)) {
-              SSLError("failed to load certificate chain from %s", (const char *)completeServerCertChainPath);
-              goto fail;
-            }
-            if (SSLConfigParams::load_ssl_file_cb) {
-              SSLConfigParams::load_ssl_file_cb(completeServerCertChainPath, CONFIG_FLAG_UNVERSIONED);
-            }
-          }
-        }
       }
     }
 
@@ -2025,7 +2004,7 @@ SSLCreateServerContext(const SSLConfigParams *params)
   return ctx;
 }
 
-static SSL_CTX *
+SSL_CTX *
 ssl_store_ssl_context(const SSLConfigParams *params, SSLCertLookup *lookup, const ssl_user_config *sslMultCertSettings)
 {
   std::vector<X509 *> cert_list;
@@ -2200,83 +2179,8 @@ ssl_extract_certificate(const matcher_line *line_info, ssl_user_config &sslMultC
   return true;
 }
 
-// TODO: remove this function and setup SSL_CTX for QUIC somehow
 bool
-SSLParseCertificateConfiguration(const SSLConfigParams *params, SSL_CTX *ssl_ctx)
-{
-  char *tok_state = nullptr;
-  char *line      = nullptr;
-  ats_scoped_str file_buf;
-  unsigned line_num = 0;
-  matcher_line line_info;
-
-  const matcher_tags sslCertTags = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, false};
-
-  Note("loading SSL certificate configuration from %s", params->configFilePath);
-
-  if (params->configFilePath) {
-    file_buf = readIntoBuffer(params->configFilePath, __func__, nullptr);
-  }
-
-  if (!file_buf) {
-    Error("failed to read SSL certificate configuration from %s", params->configFilePath);
-    return false;
-  }
-
-  // Optionally elevate/allow file access to read root-only
-  // certificates. The destructor will drop privilege for us.
-  uint32_t elevate_setting = 0;
-  REC_ReadConfigInteger(elevate_setting, "proxy.config.ssl.cert.load_elevated");
-  ElevateAccess elevate_access(elevate_setting ? ElevateAccess::FILE_PRIVILEGE : 0);
-
-  line = tokLine(file_buf, &tok_state);
-  while (line != nullptr) {
-    line_num++;
-
-    // Skip all blank spaces at beginning of line.
-    while (*line && isspace(*line)) {
-      line++;
-    }
-
-    if (*line != '\0' && *line != '#') {
-      ssl_user_config sslMultiCertSettings;
-      const char *errPtr;
-
-      errPtr = parseConfigLine(line, &line_info, &sslCertTags);
-
-      if (errPtr != nullptr) {
-        RecSignalWarning(REC_SIGNAL_CONFIG_ERROR, "%s: discarding %s entry at line %d: %s", __func__, params->configFilePath,
-                         line_num, errPtr);
-      } else {
-        if (ssl_extract_certificate(&line_info, sslMultiCertSettings)) {
-          // There must be a certificate specified unless the tunnel action is set
-          if (sslMultiCertSettings.cert || sslMultiCertSettings.opt != SSLCertContext::OPT_TUNNEL) {
-            if (SSL_CTX_use_PrivateKey_file(ssl_ctx, sslMultiCertSettings.key.get(), SSL_FILETYPE_PEM) != 1) {
-              Error("Couldn't load private_key: %s", sslMultiCertSettings.key.get());
-              return false;
-            }
-
-            if (SSL_CTX_use_certificate_chain_file(ssl_ctx, sslMultiCertSettings.cert.get()) != 1) {
-              Error("Couldn't load cert: %s", sslMultiCertSettings.cert.get());
-              return false;
-            }
-
-            return true;
-
-          } else {
-            Warning("No ssl_cert_name specified and no tunnel action set");
-          }
-        }
-      }
-    }
-
-    line = tokLine(nullptr, &tok_state);
-  }
-  return true;
-}
-
-bool
-SSLParseCertificateConfiguration(const SSLConfigParams *params, SSLCertLookup *lookup)
+SSLParseCertificateConfiguration(const SSLConfigParams *params, SSLCertLookup *lookup, SSLCertStore_cb cert_store_cb)
 {
   char *tok_state = nullptr;
   char *line      = nullptr;
@@ -2325,7 +2229,7 @@ SSLParseCertificateConfiguration(const SSLConfigParams *params, SSLCertLookup *l
         if (ssl_extract_certificate(&line_info, sslMultiCertSettings)) {
           // There must be a certificate specified unless the tunnel action is set
           if (sslMultiCertSettings.cert || sslMultiCertSettings.opt != SSLCertContext::OPT_TUNNEL) {
-            ssl_store_ssl_context(params, lookup, &sslMultiCertSettings);
+            cert_store_cb(params, lookup, &sslMultiCertSettings);
           } else {
             Warning("No ssl_cert_name specified and no tunnel action set");
           }
@@ -2342,7 +2246,7 @@ SSLParseCertificateConfiguration(const SSLConfigParams *params, SSLCertLookup *l
   if (lookup->ssl_default == nullptr) {
     ssl_user_config sslMultiCertSettings;
     sslMultiCertSettings.addr = ats_strdup("*");
-    if (ssl_store_ssl_context(params, lookup, &sslMultiCertSettings) == nullptr) {
+    if (cert_store_cb(params, lookup, &sslMultiCertSettings) == nullptr) {
       Error("failed set default context");
       return false;
     }

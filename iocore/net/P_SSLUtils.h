@@ -24,6 +24,7 @@
 #include "tscore/ink_config.h"
 #include "tscore/Diags.h"
 #include "P_SSLClientUtils.h"
+#include "P_SSLCertLookup.h"
 
 #define OPENSSL_THREAD_DEFINES
 
@@ -165,8 +166,44 @@ const char *SSLErrorName(int ssl_error);
 void SSLDebugBufferPrint(const char *tag, const char *buffer, unsigned buflen, const char *message);
 
 // Load the SSL certificate configuration.
-bool SSLParseCertificateConfiguration(const SSLConfigParams *params, SSLCertLookup *lookup);
-bool SSLParseCertificateConfiguration(const SSLConfigParams *params, SSL_CTX *ssl_ctx);
+/*
+ * struct ssl_user_config: gather user provided settings from ssl_multicert.config in to this single struct
+ * ssl_ticket_enabled - session ticket enabled
+ * ssl_cert_name - certificate
+ * dest_ip - IPv[64] address to match
+ * ssl_cert_name - certificate
+ * first_cert - the first certificate name when multiple cert files are in 'ssl_cert_name'
+ * ssl_ca_name - CA public certificate
+ * ssl_key_name - Private key
+ * ticket_key_name - session key file. [key_name (16Byte) + HMAC_secret (16Byte) + AES_key (16Byte)]
+ * ssl_key_dialog - Private key dialog
+ * servername - Destination server
+ */
+struct ssl_user_config {
+  ssl_user_config() : opt(SSLCertContext::OPT_NONE)
+  {
+    REC_ReadConfigInt32(session_ticket_enabled, "proxy.config.ssl.server.session_ticket.enable");
+  }
+
+  int session_ticket_enabled;
+  ats_scoped_str addr;
+  ats_scoped_str cert;
+  ats_scoped_str first_cert;
+  ats_scoped_str ca;
+  ats_scoped_str key;
+  ats_scoped_str dialog;
+  ats_scoped_str servername;
+  SSLCertContext::Option opt;
+};
+
+using SSLCertStore_cb = SSL_CTX *(*)(const SSLConfigParams *params, SSLCertLookup *lookup,
+                                     const ssl_user_config *sslMultCertSettings);
+bool SSLParseCertificateConfiguration(const SSLConfigParams *params, SSLCertLookup *lookup, SSLCertStore_cb cert_store_cb);
+SSL_CTX *ssl_store_ssl_context(const SSLConfigParams *params, SSLCertLookup *lookup, const ssl_user_config *sslMultCertSettings);
+bool ssl_setup_cert(SSL_CTX *ctx, const SSLConfigParams *params, const ssl_user_config *sslMultCertSettings,
+                    std::vector<X509 *> &certList);
+bool ssl_index_certificate(SSLCertLookup *lookup, SSLCertContext const &cc, X509 *cert, const char *certname);
+int SSLCheckServerCertNow(X509 *cert, const char *certname);
 
 // Attach a SSL NetVC back pointer to a SSL session.
 void SSLNetVCAttach(SSL *ssl, SSLNetVConnection *vc);

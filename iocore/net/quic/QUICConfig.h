@@ -25,6 +25,7 @@
 
 #include <openssl/ssl.h>
 
+#include "P_SSLCertLookup.h"
 #include "ProxyConfig.h"
 
 class QUICConfigParams : public ConfigInfo
@@ -45,7 +46,6 @@ public:
   const char *client_supported_groups() const;
   const char *session_file() const;
 
-  SSL_CTX *server_ssl_ctx() const;
   SSL_CTX *client_ssl_ctx() const;
 
   // Transport Parameters
@@ -100,8 +100,7 @@ private:
   char *_client_supported_groups = nullptr;
   char *_session_file            = nullptr;
 
-  // TODO: integrate with SSLCertLookup or SNIConfigParams
-  SSL_CTX *_server_ssl_ctx = nullptr;
+  // should move to QUICCertConfig?
   SSL_CTX *_client_ssl_ctx = nullptr;
 
   // Transport Parameters
@@ -140,6 +139,7 @@ private:
   uint32_t _cc_persistent_congestion_threshold = 2;
 };
 
+// General QUIC related config
 class QUICConfig
 {
 public:
@@ -149,6 +149,22 @@ public:
   static void release(QUICConfigParams *params);
 
   using scoped_config = ConfigProcessor::scoped_config<QUICConfig, QUICConfigParams>;
+
+private:
+  static int _config_id;
+};
+
+// ssl_multicert.config related config
+// QUICServerCertConfig ???
+class QUICCertConfig
+{
+public:
+  static void startup();
+  static void reconfigure();
+  static SSLCertLookup *acquire();
+  static void release(SSLCertLookup *lookup);
+
+  using scoped_config = ConfigProcessor::scoped_config<QUICCertConfig, SSLCertLookup>;
 
 private:
   static int _config_id;
