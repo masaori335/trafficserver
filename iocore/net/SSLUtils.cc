@@ -334,10 +334,6 @@ set_context_cert(SSL *ssl)
 
   if (ctx != nullptr) {
     SSL_set_SSL_CTX(ssl, ctx);
-#if TS_HAVE_OPENSSL_SESSION_TICKETS
-    // Reset the ticket callback if needed
-    SSL_CTX_set_tlsext_ticket_key_cb(ctx, ssl_callback_session_ticket);
-#endif
   } else {
     found = false;
   }
