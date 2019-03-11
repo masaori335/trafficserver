@@ -564,10 +564,13 @@ SSLTicketParams::LoadTicket()
   time_t last_load_time    = 0;
   bool no_default_keyblock = true;
 
-  SSLTicketKeyConfig::scoped_config ticket_params;
-  if (ticket_params) {
-    last_load_time      = ticket_params->load_time;
-    no_default_keyblock = ticket_params->default_global_keyblock != nullptr;
+  // Narrow down scope of ticket_params. Reading ticket could be slow.
+  {
+    SSLTicketKeyConfig::scoped_config ticket_params;
+    if (ticket_params) {
+      last_load_time      = ticket_params->load_time;
+      no_default_keyblock = ticket_params->default_global_keyblock != nullptr;
+    }
   }
 
   if (REC_ReadConfigStringAlloc(ticket_key_filename, "proxy.config.ssl.server.ticket_key.filename") == REC_ERR_OKAY &&
