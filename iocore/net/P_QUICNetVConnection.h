@@ -134,7 +134,7 @@ class QUICNetVConnection : public UnixNetVConnection, public QUICConnection, pub
 public:
   QUICNetVConnection();
   ~QUICNetVConnection();
-  void init(QUICConnectionId peer_cid, QUICConnectionId original_cid, UDPConnection *, QUICPacketHandler *);
+  void init(QUICConnectionId peer_cid, QUICConnectionId original_cid, UDPConnection *, QUICPacketHandler *, const SSL_CTX *ssl_ctx);
   void init(QUICConnectionId peer_cid, QUICConnectionId original_cid, QUICConnectionId first_cid, UDPConnection *,
             QUICPacketHandler *, QUICConnectionTable *ctable);
 
@@ -346,7 +346,7 @@ private:
   void _update_local_cid(const QUICConnectionId &new_cid);
   void _rerandomize_original_cid();
 
-  QUICHandshakeProtocol *_setup_handshake_protocol(SSL_CTX *ctx);
+  QUICHandshakeProtocol *_setup_handshake_protocol(const SSL_CTX *ctx);
 
   QUICPacketUPtr _the_final_packet = QUICPacketFactory::create_null_packet();
   QUICStatelessResetToken _reset_token;
@@ -371,6 +371,8 @@ private:
       QUICEncryptionLevel::ONE_RTT,
     };
   }
+
+  const SSL_CTX *_ssl_ctx_out;
 };
 
 typedef int (QUICNetVConnection::*QUICNetVConnHandler)(int, void *);

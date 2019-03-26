@@ -269,7 +269,7 @@ QUICNetVConnection::~QUICNetVConnection()
 // Initialize QUICNetVC for out going connection (NET_VCONNECTION_OUT)
 void
 QUICNetVConnection::init(QUICConnectionId peer_cid, QUICConnectionId original_cid, UDPConnection *udp_con,
-                         QUICPacketHandler *packet_handler)
+                         QUICPacketHandler *packet_handler, const SSL_CTX *ssl_ctx)
 {
   SET_HANDLER((NetVConnHandler)&QUICNetVConnection::startEvent);
   this->_udp_con                     = udp_con;
@@ -277,6 +277,7 @@ QUICNetVConnection::init(QUICConnectionId peer_cid, QUICConnectionId original_ci
   this->_peer_quic_connection_id     = peer_cid;
   this->_original_quic_connection_id = original_cid;
   this->_quic_connection_id.randomize();
+  this->_ssl_ctx_out = ssl_ctx;
 
   this->_update_cids();
 
@@ -436,7 +437,7 @@ QUICNetVConnection::start()
     QUICTPConfigQCP tp_config(this->_quic_config, NET_VCONNECTION_OUT);
     this->_pp_key_info.set_context(QUICPacketProtectionKeyInfo::Context::CLIENT);
     this->_ack_frame_manager.set_ack_delay_exponent(this->_quic_config->ack_delay_exponent_out());
-    this->_hs_protocol       = this->_setup_handshake_protocol(this->_quic_config->client_ssl_ctx());
+    this->_hs_protocol       = this->_setup_handshake_protocol(this->_ssl_ctx_out);
     this->_handshake_handler = new QUICHandshake(this, this->_hs_protocol);
     this->_handshake_handler->start(tp_config, &this->_packet_factory, this->_quic_config->vn_exercise_enabled());
     this->_handshake_handler->do_handshake();
@@ -2232,11 +2233,12 @@ QUICNetVConnection::_rerandomize_original_cid()
 }
 
 QUICHandshakeProtocol *
-QUICNetVConnection::_setup_handshake_protocol(SSL_CTX *ctx)
+QUICNetVConnection::_setup_handshake_protocol(const SSL_CTX *ctx)
 {
   // Initialize handshake protocol specific stuff
   // For QUICv1 TLS is the only option
-  QUICTLS *tls = new QUICTLS(this->_pp_key_info, ctx, this->direction(), this->_quic_config->session_file());
+  QUICTLS *tls =
+    new QUICTLS(this->_pp_key_info, ctx, this->direction(), this->_quic_config->session_file(), this->options.sni_servername.get());
   SSL_set_ex_data(tls->ssl_handle(), QUIC::ssl_quic_qc_index, static_cast<QUICConnection *>(this));
   return tls;
 }

@@ -240,6 +240,7 @@ struct NetVCOptions {
     }
     return *this;
   }
+
   self &
   set_ssl_servername(const char *name)
   {

@@ -23,6 +23,8 @@
 
 #pragma once
 
+#include <fstream>
+
 #include <openssl/ssl.h>
 
 class QUIC
@@ -36,7 +38,9 @@ public:
   static int ssl_client_new_session(SSL *ssl, SSL_SESSION *session);
   static int ssl_cert_cb(SSL *ssl, void *arg);
   static int ssl_sni_cb(SSL *ssl, int *ad, void *arg);
+  static void ssl_keylog_cb(const SSL *ssl, const char *line);
 
+  static std::ofstream keylog_file;
   static int ssl_quic_qc_index;
   static int ssl_quic_tls_index;
 

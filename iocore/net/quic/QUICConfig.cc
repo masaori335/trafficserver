@@ -38,8 +38,8 @@
 // OpenSSL protocol-lists format (vector of 8-bit length-prefixed, byte strings)
 // https://www.openssl.org/docs/manmaster/man3/SSL_CTX_set_alpn_protos.html
 // Should be integrate with IP_PROTO_TAG_HTTP_QUIC in ts/ink_inet.h ?
-using namespace std::literals;
-static constexpr std::string_view QUIC_ALPN_PROTO_LIST("\5hq-18"sv);
+// using namespace std::literals;
+// static constexpr std::string_view QUIC_ALPN_PROTO_LIST("\5hq-18"sv);
 
 int QUICConfig::_config_id                   = 0;
 int QUICConfigParams::_connection_table_size = 65521;
@@ -74,15 +74,15 @@ quic_new_ssl_ctx()
   return ssl_ctx;
 }
 
-static SSL_CTX *
+SSL_CTX *
 quic_init_client_ssl_ctx(const QUICConfigParams *params)
 {
   SSL_CTX *ssl_ctx = quic_new_ssl_ctx();
 
-  if (SSL_CTX_set_alpn_protos(ssl_ctx, reinterpret_cast<const unsigned char *>(QUIC_ALPN_PROTO_LIST.data()),
-                              QUIC_ALPN_PROTO_LIST.size()) != 0) {
-    Error("SSL_CTX_set_alpn_protos failed");
-  }
+  // if (SSL_CTX_set_alpn_protos(ssl_ctx, reinterpret_cast<const unsigned char *>(QUIC_ALPN_PROTO_LIST.data()),
+  //                             QUIC_ALPN_PROTO_LIST.size()) != 0) {
+  //   Error("SSL_CTX_set_alpn_protos failed");
+  // }
 
   if (params->client_supported_groups() != nullptr) {
     if (SSL_CTX_set1_groups_list(ssl_ctx, params->client_supported_groups()) != 1) {
@@ -94,6 +94,18 @@ quic_init_client_ssl_ctx(const QUICConfigParams *params)
     SSL_CTX_set_session_cache_mode(ssl_ctx, SSL_SESS_CACHE_CLIENT | SSL_SESS_CACHE_NO_INTERNAL_STORE);
     SSL_CTX_sess_set_new_cb(ssl_ctx, QUIC::ssl_client_new_session);
   }
+
+#ifdef SSL_MODE_QUIC_HACK
+  // TODO: add handle to modify ssl_ctx from traffic_quic cmd
+  if (params->client_keylog_file()) {
+    QUIC::keylog_file.open(params->client_keylog_file(), std::ios_base::app);
+    if (QUIC::keylog_file.is_open()) {
+      SSL_CTX_set_keylog_callback(ssl_ctx, QUIC::ssl_keylog_cb);
+    } else {
+      ink_abort("could not open keylog file: %s", params->client_keylog_file());
+    }
+  }
+#endif
 
   return ssl_ctx;
 }
@@ -122,6 +134,7 @@ QUICConfigParams::initialize()
   REC_ReadConfigStringAlloc(this->_server_supported_groups, "proxy.config.quic.server.supported_groups");
   REC_ReadConfigStringAlloc(this->_client_supported_groups, "proxy.config.quic.client.supported_groups");
   REC_ReadConfigStringAlloc(this->_session_file, "proxy.config.quic.client.session_file");
+  REC_ReadConfigStringAlloc(this->_client_keylog_file, "proxy.config.quic.client.keylog_file");
 
   // Transport Parameters
   REC_EstablishStaticConfigInt32U(this->_no_activity_timeout_in, "proxy.config.quic.no_activity_timeout_in");
@@ -174,7 +187,7 @@ QUICConfigParams::initialize()
   REC_EstablishStaticConfigInt32U(this->_cc_persistent_congestion_threshold,
                                   "proxy.config.quic.congestion_control.persistent_congestion_threshold");
 
-  this->_client_ssl_ctx = quic_init_client_ssl_ctx(this);
+  // this->_client_ssl_ctx = quic_init_client_ssl_ctx(this);
 }
 
 uint32_t
@@ -428,6 +441,12 @@ const char *
 QUICConfigParams::session_file() const
 {
   return _session_file;
+}
+
+const char *
+QUICConfigParams::client_keylog_file() const
+{
+  return this->_client_keylog_file;
 }
 
 //

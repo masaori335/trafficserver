@@ -41,6 +41,7 @@ RecRawStatBlock *quic_rsb;
 
 int QUIC::ssl_quic_qc_index  = -1;
 int QUIC::ssl_quic_tls_index = -1;
+std::ofstream QUIC::keylog_file;
 
 void
 QUIC::init()
@@ -140,6 +141,15 @@ QUIC::ssl_sni_cb(SSL *ssl, int * /*ad*/, void * /*arg*/)
   // XXX: add SNIConfig support ?
   // XXX: add TRANSPORT_BLIND_TUNNEL support ?
   return 1;
+}
+
+// TODO: move to traffic_quic
+void
+QUIC::ssl_keylog_cb(const SSL *ssl, const char *line)
+{
+  QUIC::keylog_file.write(line, strlen(line));
+  QUIC::keylog_file.put('\n');
+  QUIC::keylog_file.flush();
 }
 
 void

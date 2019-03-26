@@ -99,7 +99,7 @@ QUICNetProcessor::allocate_vc(EThread *t)
 }
 
 Action *
-QUICNetProcessor::connect_re(Continuation *cont, sockaddr const *remote_addr, NetVCOptions *opt)
+QUICNetProcessor::connect_re(Continuation *cont, sockaddr const *remote_addr, NetVCOptions *opt, const SSL_CTX *ssl_ctx)
 {
   Debug("quic_ps", "connect to server");
   EThread *t = cont->mutex->thread_holding;
@@ -143,7 +143,7 @@ QUICNetProcessor::connect_re(Continuation *cont, sockaddr const *remote_addr, Ne
   QUICConnectionId client_dst_cid;
   client_dst_cid.randomize();
   // vc->init set handler of vc `QUICNetVConnection::startEvent`
-  vc->init(client_dst_cid, client_dst_cid, con, packet_handler);
+  vc->init(client_dst_cid, client_dst_cid, con, packet_handler, ssl_ctx);
   packet_handler->init(vc);
 
   // Connection ID will be changed

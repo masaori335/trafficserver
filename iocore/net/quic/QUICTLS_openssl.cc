@@ -31,10 +31,19 @@
 #include <openssl/evp.h>
 
 #include "QUICConfig.h"
-
+#include "QUICGlobals.h"
 #include "QUICDebugNames.h"
 
 static constexpr char tag[] = "quic_tls";
+
+using namespace std::literals;
+
+static constexpr std::string_view QUIC_CLIENT_EARLY_TRAFFIC_SECRET("QUIC_CLIENT_EARLY_TRAFFIC_SECRET"sv);
+static constexpr std::string_view QUIC_CLIENT_HANDSHAKE_TRAFFIC_SECRET("QUIC_CLIENT_HANDSHAKE_TRAFFIC_SECRET"sv);
+static constexpr std::string_view QUIC_SERVER_HANDSHAKE_TRAFFIC_SECRET("QUIC_SERVER_HANDSHAKE_TRAFFIC_SECRET"sv);
+// TODO: support key update
+static constexpr std::string_view QUIC_CLIENT_TRAFFIC_SECRET("QUIC_CLIENT_TRAFFIC_SECRET_0"sv);
+static constexpr std::string_view QUIC_SERVER_TRAFFIC_SECRET("QUIC_SERVER_TRAFFIC_SECRET_0"sv);
 
 static const char *
 content_type_str(int type)
@@ -139,6 +148,54 @@ msg_cb(int write_p, int version, int content_type, const void *buf, size_t len, 
   return;
 }
 
+static void
+log_secret(SSL *ssl, int name, const unsigned char *secret, size_t secretlen)
+{
+  if (auto keylog_cb = SSL_CTX_get_keylog_callback(SSL_get_SSL_CTX(ssl))) {
+    unsigned char crandom[32];
+    if (SSL_get_client_random(ssl, crandom, 32) != 32) {
+      return;
+    }
+    uint8_t line[256] = {0};
+    size_t len        = 0;
+    switch (name) {
+    case SSL_KEY_CLIENT_EARLY_TRAFFIC:
+      memcpy(line, QUIC_CLIENT_EARLY_TRAFFIC_SECRET.data(), QUIC_CLIENT_EARLY_TRAFFIC_SECRET.size());
+      len += QUIC_CLIENT_EARLY_TRAFFIC_SECRET.size();
+      break;
+    case SSL_KEY_CLIENT_HANDSHAKE_TRAFFIC:
+      memcpy(line, QUIC_CLIENT_HANDSHAKE_TRAFFIC_SECRET.data(), QUIC_CLIENT_HANDSHAKE_TRAFFIC_SECRET.size());
+      len += QUIC_CLIENT_HANDSHAKE_TRAFFIC_SECRET.size();
+      break;
+    case SSL_KEY_SERVER_HANDSHAKE_TRAFFIC:
+      memcpy(line, QUIC_SERVER_HANDSHAKE_TRAFFIC_SECRET.data(), QUIC_SERVER_HANDSHAKE_TRAFFIC_SECRET.size());
+      len += QUIC_SERVER_HANDSHAKE_TRAFFIC_SECRET.size();
+      break;
+    case SSL_KEY_CLIENT_APPLICATION_TRAFFIC:
+      memcpy(line, QUIC_CLIENT_TRAFFIC_SECRET.data(), QUIC_CLIENT_TRAFFIC_SECRET.size());
+      len += QUIC_CLIENT_TRAFFIC_SECRET.size();
+      break;
+    case SSL_KEY_SERVER_APPLICATION_TRAFFIC:
+      memcpy(line, QUIC_SERVER_TRAFFIC_SECRET.data(), QUIC_SERVER_TRAFFIC_SECRET.size());
+      len += QUIC_SERVER_TRAFFIC_SECRET.size();
+      break;
+
+    default:
+      return;
+    }
+
+    line[len] = ' ';
+    ++len;
+    QUICDebug::to_hex(line + len, crandom, sizeof(crandom));
+    len += sizeof(crandom) * 2;
+    line[len] = ' ';
+    ++len;
+    QUICDebug::to_hex(line + len, secret, secretlen);
+
+    keylog_cb(ssl, reinterpret_cast<char *>(line));
+  }
+}
+
 static int
 key_cb(SSL *ssl, int name, const unsigned char *secret, size_t secret_len, void *arg)
 {
@@ -149,6 +206,8 @@ key_cb(SSL *ssl, int name, const unsigned char *secret, size_t secret_len, void 
   QUICTLS *qtls = reinterpret_cast<QUICTLS *>(arg);
   qtls->update_key_materials_on_key_cb(name, secret, secret_len);
 
+  log_secret(ssl, name, secret, secret_len);
+
   return 1;
 }
 
@@ -158,19 +217,19 @@ QUICTLS::update_key_materials_on_key_cb(int name, const uint8_t *secret, size_t 
   if (is_debug_tag_set("vv_quic_crypto")) {
     switch (name) {
     case SSL_KEY_CLIENT_EARLY_TRAFFIC:
-      Debug("vv_quic_crypto", "client_early_traffic");
+      Debug("vv_quic_crypto", "%s", QUIC_CLIENT_EARLY_TRAFFIC_SECRET.data());
       break;
     case SSL_KEY_CLIENT_HANDSHAKE_TRAFFIC:
-      Debug("vv_quic_crypto", "client_handshake_traffic");
-      break;
-    case SSL_KEY_CLIENT_APPLICATION_TRAFFIC:
-      Debug("vv_quic_crypto", "client_application_traffic");
+      Debug("vv_quic_crypto", "%s", QUIC_CLIENT_HANDSHAKE_TRAFFIC_SECRET.data());
       break;
     case SSL_KEY_SERVER_HANDSHAKE_TRAFFIC:
-      Debug("vv_quic_crypto", "server_handshake_traffic");
+      Debug("vv_quic_crypto", "%s", QUIC_SERVER_HANDSHAKE_TRAFFIC_SECRET.data());
+      break;
+    case SSL_KEY_CLIENT_APPLICATION_TRAFFIC:
+      Debug("vv_quic_crypto", "%s", QUIC_CLIENT_TRAFFIC_SECRET.data());
       break;
     case SSL_KEY_SERVER_APPLICATION_TRAFFIC:
-      Debug("vv_quic_crypto", "server_application_traffic");
+      Debug("vv_quic_crypto", "%s", QUIC_SERVER_TRAFFIC_SECRET.data());
       break;
     default:
       break;
@@ -328,14 +387,17 @@ QUICTLS::update_key_materials_on_key_cb(int name, const uint8_t *secret, size_t 
   return;
 }
 
-QUICTLS::QUICTLS(QUICPacketProtectionKeyInfo &pp_key_info, SSL_CTX *ssl_ctx, NetVConnectionContext_t nvc_ctx,
-                 const char *session_file)
-  : QUICHandshakeProtocol(pp_key_info), _session_file(session_file), _ssl(SSL_new(ssl_ctx)), _netvc_context(nvc_ctx)
+QUICTLS::QUICTLS(QUICPacketProtectionKeyInfo &pp_key_info, const SSL_CTX *ssl_ctx, NetVConnectionContext_t nvc_ctx,
+                 const char *session_file, const char *sni)
+  : QUICHandshakeProtocol(pp_key_info), _session_file(session_file), _netvc_context(nvc_ctx)
 {
   ink_assert(this->_netvc_context != NET_VCONNECTION_UNSET);
 
+  this->_ssl = SSL_new(const_cast<SSL_CTX *>(ssl_ctx));
+
   if (this->_netvc_context == NET_VCONNECTION_OUT) {
     SSL_set_connect_state(this->_ssl);
+    SSL_set_tlsext_host_name(this->_ssl, sni);
   } else {
     SSL_set_accept_state(this->_ssl);
   }
