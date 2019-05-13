@@ -33,7 +33,7 @@ Http3StreamDataVIOAdaptor::interests()
 }
 
 Http3ErrorUPtr
-Http3StreamDataVIOAdaptor::handle_frame(std::shared_ptr<const Http3Frame> frame)
+Http3StreamDataVIOAdaptor::handle_frame(std::shared_ptr<const Http3Frame> frame, bool fin)
 {
   ink_assert(frame->type() == Http3FrameType::DATA);
   const Http3DataFrame *dframe = dynamic_cast<const Http3DataFrame *>(frame.get());
@@ -42,6 +42,11 @@ Http3StreamDataVIOAdaptor::handle_frame(std::shared_ptr<const Http3Frame> frame)
 
   MIOBuffer *writer = this->_sink_vio->get_writer();
   writer->write(dframe->payload(), dframe->payload_length());
+  this->_data_len += dframe->payload_length();
+
+  if (fin) {
+    this->_sink_vio->nbytes = this->_data_len;
+  }
 
   return Http3ErrorUPtr(new Http3NoError());
 }

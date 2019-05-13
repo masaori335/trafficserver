@@ -111,6 +111,10 @@ void
 QUICStreamIO::consume(int64_t len)
 {
   this->_read_buffer_reader->consume(len);
+  if (len > 0) {
+    this->_read_vio->ndone += len;
+  }
+
   this->_stream_vc->on_read();
 }
 

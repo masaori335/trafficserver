@@ -123,7 +123,13 @@ Http3App::main_event_handler(int event, Event *data)
   case VC_EVENT_ERROR:
   case VC_EVENT_INACTIVITY_TIMEOUT:
   case VC_EVENT_ACTIVE_TIMEOUT:
-    ink_assert(false);
+    if (stream_io->is_bidirectional()) {
+      this->_handle_bidi_stream_on_error(event, stream_io);
+    } else {
+      this->_handle_uni_stream_on_error(event, stream_io);
+    }
+    break;
+
     break;
   default:
     break;
@@ -256,6 +262,18 @@ Http3App::_handle_uni_stream_on_eos(int /* event */, QUICStreamIO *stream_io)
 }
 
 void
+Http3App::_handle_bidi_stream_on_error(int /* event */, QUICStreamIO *stream_io)
+{
+  // TODO: handle error
+}
+
+void
+Http3App::_handle_uni_stream_on_error(int /* event */, QUICStreamIO *stream_io)
+{
+  // TODO: handle error
+}
+
+void
 Http3App::_set_qpack_stream(Http3StreamType type, QUICStreamIO *stream_io)
 {
   // Change app to QPACK from Http3
@@ -297,7 +315,7 @@ Http3SettingsHandler::interests()
 }
 
 Http3ErrorUPtr
-Http3SettingsHandler::handle_frame(std::shared_ptr<const Http3Frame> frame)
+Http3SettingsHandler::handle_frame(std::shared_ptr<const Http3Frame> frame, bool /* fin */)
 {
   ink_assert(frame->type() == Http3FrameType::SETTINGS);
 

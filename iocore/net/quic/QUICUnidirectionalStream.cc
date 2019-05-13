@@ -61,8 +61,7 @@ QUICSendStream::state_stream_open(int event, void *data)
   case VC_EVENT_ERROR:
   case VC_EVENT_INACTIVITY_TIMEOUT:
   case VC_EVENT_ACTIVE_TIMEOUT: {
-    // TODO
-    ink_assert(false);
+    this->_signal_event(event);
     break;
   }
   default:
@@ -113,8 +112,7 @@ QUICSendStream::state_stream_closed(int event, void *data)
   case VC_EVENT_ERROR:
   case VC_EVENT_INACTIVITY_TIMEOUT:
   case VC_EVENT_ACTIVE_TIMEOUT: {
-    // TODO
-    ink_assert(false);
+    // ignore
     break;
   }
   default:
@@ -438,8 +436,7 @@ QUICReceiveStream::state_stream_open(int event, void *data)
   case VC_EVENT_ERROR:
   case VC_EVENT_INACTIVITY_TIMEOUT:
   case VC_EVENT_ACTIVE_TIMEOUT: {
-    // TODO
-    ink_assert(false);
+    this->_signal_event(event);
     break;
   }
   default:
@@ -490,8 +487,7 @@ QUICReceiveStream::state_stream_closed(int event, void *data)
   case VC_EVENT_ERROR:
   case VC_EVENT_INACTIVITY_TIMEOUT:
   case VC_EVENT_ACTIVE_TIMEOUT: {
-    // TODO
-    ink_assert(false);
+    // ignore
     break;
   }
   default:

@@ -54,16 +54,19 @@ public:
   QUICConnectionErrorUPtr create_uni_stream(QUICStreamId &new_stream_id, Http3StreamType type);
 
 protected:
+  virtual void _handle_uni_stream_on_eos(int event, QUICStreamIO *stream_io);
+  virtual void _handle_uni_stream_on_error(int event, QUICStreamIO *stream_io);
+  virtual void _handle_bidi_stream_on_eos(int event, QUICStreamIO *stream_io);
+  virtual void _handle_bidi_stream_on_error(int event, QUICStreamIO *stream_io);
+
   // TODO: create Http3Session
   Http3ClientSession *_ssn = nullptr;
 
 private:
   void _handle_uni_stream_on_read_ready(int event, QUICStreamIO *stream_io);
   void _handle_uni_stream_on_write_ready(int event, QUICStreamIO *stream_io);
-  void _handle_uni_stream_on_eos(int event, QUICStreamIO *stream_io);
   void _handle_bidi_stream_on_read_ready(int event, QUICStreamIO *stream_io);
   void _handle_bidi_stream_on_write_ready(int event, QUICStreamIO *stream_io);
-  void _handle_bidi_stream_on_eos(int event, QUICStreamIO *stream_io);
 
   void _set_qpack_stream(Http3StreamType type, QUICStreamIO *stream_io);
 
@@ -87,7 +90,7 @@ public:
 
   // Http3FrameHandler
   std::vector<Http3FrameType> interests() override;
-  Http3ErrorUPtr handle_frame(std::shared_ptr<const Http3Frame> frame) override;
+  Http3ErrorUPtr handle_frame(std::shared_ptr<const Http3Frame> frame, bool fin) override;
 
 private:
   // TODO: clarify Http3ClientSession I/F for Http3SettingsHandler and Http3App

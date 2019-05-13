@@ -96,7 +96,7 @@ Http09App::main_event_handler(int event, Event *data)
   case VC_EVENT_ERROR:
   case VC_EVENT_INACTIVITY_TIMEOUT:
   case VC_EVENT_ACTIVE_TIMEOUT:
-    ink_assert(false);
+    txn->do_io_close();
     break;
   default:
     break;

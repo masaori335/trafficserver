@@ -23,6 +23,7 @@
 
 #include "quic_client.h"
 
+#include <cstdlib>
 #include <iostream>
 #include <fstream>
 #include <string_view>
@@ -234,11 +235,16 @@ Http09ClientApp::main_event_handler(int event, Event *data)
   case VC_EVENT_WRITE_COMPLETE:
     break;
   case VC_EVENT_EOS:
+    Http09ClientAppDebug("exit event=%s (%d)", get_vc_event_name(event), event);
+    std::exit(EXIT_SUCCESS);
+    break;
   case VC_EVENT_ERROR:
   case VC_EVENT_INACTIVITY_TIMEOUT:
   case VC_EVENT_ACTIVE_TIMEOUT:
-    ink_assert(false);
+    Http09ClientAppDebug("exit event=%s (%d)", get_vc_event_name(event), event);
+    std::exit(EXIT_FAILURE);
     break;
+
   default:
     break;
   }
@@ -272,10 +278,31 @@ Http3ClientApp::start()
   this->_resp_buf                 = new_MIOBuffer();
   IOBufferReader *resp_buf_reader = _resp_buf->alloc_reader();
 
-  this->_resp_handler = new RespHandler(this->_config, resp_buf_reader);
+  this->_resp_handler = new RespHandler(this->_config, resp_buf_reader, this);
 
   super::start();
   this->_do_http_request();
+}
+
+void
+Http3ClientApp::do_close_exercise()
+{
+  // Connection Close Exercise
+  this->_qc->close(QUICConnectionErrorUPtr(new QUICConnectionError(QUICTransErrorCode::NO_ERROR, "Close Exercise")));
+}
+
+void
+Http3ClientApp::_handle_bidi_stream_on_eos(int event, QUICStreamIO * /* stream_io */)
+{
+  Http09ClientAppDebug("exit event=%s (%d)", get_vc_event_name(event), event);
+  std::exit(EXIT_SUCCESS);
+}
+
+void
+Http3ClientApp::_handle_bidi_stream_on_error(int event, QUICStreamIO * /* stream_io */)
+{
+  Http09ClientAppDebug("exit event=%s (%d)", get_vc_event_name(event), event);
+  std::exit(EXIT_FAILURE);
 }
 
 void
@@ -322,8 +349,8 @@ Http3ClientApp::_do_http_request()
 //
 // Response Handler
 //
-RespHandler::RespHandler(const QUICClientConfig *config, IOBufferReader *reader)
-  : Continuation(new_ProxyMutex()), _config(config), _reader(reader)
+RespHandler::RespHandler(const QUICClientConfig *config, IOBufferReader *reader, Http3ClientApp *app)
+  : Continuation(new_ProxyMutex()), _config(config), _reader(reader), _app(app)
 {
   if (this->_config->output[0] != 0x0) {
     this->_filename = this->_config->output;
@@ -370,6 +397,12 @@ RespHandler::main_event_handler(int event, Event *data)
     if (this->_filename) {
       f_stream.close();
       std::cout.rdbuf(default_stream);
+    }
+
+    Debug("http3", "%" PRId64, this->_read_vio->ntodo());
+
+    if (this->_read_vio->ntodo() == 0 && this->_config->close) {
+      this->_app->do_close_exercise();
     }
 
     break;

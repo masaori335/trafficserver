@@ -275,7 +275,7 @@ QUICStreamVConnection::_signal_write_event()
 }
 
 /**
- * @brief Signal event to this->_write_vio.cont
+ * @brief Signal event to this->_read_vio.cont
  */
 void
 QUICStreamVConnection::_signal_read_eos_event()
@@ -288,10 +288,50 @@ QUICStreamVConnection::_signal_read_eos_event()
   int event = VC_EVENT_EOS;
 
   if (lock.is_locked()) {
-    this->_write_vio.cont->handleEvent(event, &this->_write_vio);
+    this->_read_vio.cont->handleEvent(event, &this->_read_vio);
   } else {
     this_ethread()->schedule_imm(this->_read_vio.cont, event, &this->_read_vio);
   }
+}
+
+/**
+ * @brief Signal event to this->_read_vio.cont and this->_write_vio.cont
+ */
+void
+QUICStreamVConnection::_signal_event(int event)
+{
+  // signal event to this->_read_vio.cont
+  if (this->_read_vio.cont == nullptr || this->_read_vio.op == VIO::NONE) {
+    return;
+  } else {
+    MUTEX_TRY_LOCK(lock, this->_read_vio.mutex, this_ethread());
+
+    if (lock.is_locked()) {
+      this->_read_vio.cont->handleEvent(event, &this->_read_vio);
+    } else {
+      this_ethread()->schedule_imm(this->_read_vio.cont, event, &this->_read_vio);
+    }
+  }
+
+  if (this->_read_vio.cont == this->_write_vio.cont) {
+    // nothing to do
+    return;
+  }
+
+  // signal event to this->_write_vio.cont
+  if (this->_write_vio.cont == nullptr || this->_write_vio.op == VIO::NONE) {
+    return;
+  } else {
+    MUTEX_TRY_LOCK(lock, this->_write_vio.mutex, this_ethread());
+
+    if (lock.is_locked()) {
+      this->_write_vio.cont->handleEvent(event, &this->_write_vio);
+    } else {
+      this_ethread()->schedule_imm(this->_write_vio.cont, event, &this->_write_vio);
+    }
+  }
+
+  return;
 }
 
 int64_t

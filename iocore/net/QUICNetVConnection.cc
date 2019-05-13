@@ -928,6 +928,8 @@ QUICNetVConnection::state_connection_closed(int event, Event *data)
   SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
   switch (event) {
   case QUIC_EVENT_SHUTDOWN: {
+    this->_stream_manager->signal_event(VC_EVENT_EOS);
+
     this->_unschedule_ack_manager_periodic();
     this->_unschedule_packet_write_ready();
     this->_unschedule_closing_timeout();
@@ -2141,8 +2143,7 @@ QUICNetVConnection::_handle_idle_timeout()
 {
   this->remove_from_active_queue();
   this->_switch_to_draining_state(std::make_unique<QUICConnectionError>(QUICTransErrorCode::NO_ERROR, "Idle Timeout"));
-
-  // TODO: signal VC_EVENT_ACTIVE_TIMEOUT/VC_EVENT_INACTIVITY_TIMEOUT to application
+  this->_stream_manager->signal_event(VC_EVENT_INACTIVITY_TIMEOUT);
 }
 
 void

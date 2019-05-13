@@ -44,10 +44,12 @@ struct QUICClientConfig {
   int http3             = false;
 };
 
+class Http3ClientApp;
+
 class RespHandler : public Continuation
 {
 public:
-  RespHandler(const QUICClientConfig *config, IOBufferReader *reader);
+  RespHandler(const QUICClientConfig *config, IOBufferReader *reader, Http3ClientApp *app);
   int main_event_handler(int event, Event *data);
   void set_read_vio(VIO *vio);
 
@@ -56,6 +58,7 @@ private:
   const char *_filename           = nullptr;
   IOBufferReader *_reader         = nullptr;
   VIO *_read_vio                  = nullptr;
+  Http3ClientApp *_app            = nullptr;
 };
 
 class QUICClient : public Continuation
@@ -96,6 +99,11 @@ public:
   ~Http3ClientApp();
 
   void start() override;
+  void do_close_exercise();
+
+protected:
+  void _handle_bidi_stream_on_eos(int event, QUICStreamIO *stream_io) override;
+  void _handle_bidi_stream_on_error(int event, QUICStreamIO *stream_io) override;
 
 private:
   void _do_http_request();

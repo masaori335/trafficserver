@@ -97,12 +97,17 @@ Http3FrameDispatcher::on_read_ready(QUICStreamIO &stream_io, uint64_t &nread)
       nread += frame_len;
       stream_io.consume(frame_len);
 
+      bool fin = false;
+      if (stream_io.is_read_done()) {
+        fin = true;
+      }
+
       // Dispatch
       Http3FrameType type = frame->type();
-      Debug("http3", "[RX] [%d] | %s size=%zu", stream_io.stream_id(), Http3DebugNames::frame_type(type), frame_len);
+      Debug("http3", "[RX] [%d] | %s size=%zu fin=%d", stream_io.stream_id(), Http3DebugNames::frame_type(type), frame_len, fin);
       std::vector<Http3FrameHandler *> handlers = this->_handlers[static_cast<uint8_t>(type)];
       for (auto h : handlers) {
-        error = h->handle_frame(frame);
+        error = h->handle_frame(frame, fin);
         if (error->cls != Http3ErrorClass::NONE) {
           return error;
         }

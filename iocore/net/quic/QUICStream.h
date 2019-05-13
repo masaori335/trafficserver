@@ -108,6 +108,7 @@ protected:
   void _signal_read_event();
   void _signal_write_event();
   void _signal_read_eos_event();
+  void _signal_event(int event);
   Event *_send_tracked_event(Event *, int, VIO *);
 
   void _write_to_read_vio(QUICOffset offset, const uint8_t *data, uint64_t data_length, bool fin);

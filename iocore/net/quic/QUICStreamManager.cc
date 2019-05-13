@@ -383,6 +383,15 @@ QUICStreamManager::set_default_application(QUICApplication *app)
   this->_app_map->set_default(app);
 }
 
+void
+QUICStreamManager::signal_event(int event)
+{
+  for (QUICStreamVConnection *s = this->stream_list.head; s; s = s->link.next) {
+    SCOPED_MUTEX_LOCK(lock, s->mutex, this_ethread());
+    s->handleEvent(event);
+  }
+}
+
 bool
 QUICStreamManager::will_generate_frame(QUICEncryptionLevel level, ink_hrtime timestamp)
 {

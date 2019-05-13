@@ -55,6 +55,7 @@ public:
   void reset_stream(QUICStreamId stream_id, QUICStreamErrorUPtr error);
 
   void set_default_application(QUICApplication *app);
+  void signal_event(int event);
 
   DLL<QUICStreamVConnection> stream_list;
 
