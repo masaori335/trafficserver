@@ -237,21 +237,8 @@ HdrHeap::allocate_str(int nbytes)
   char *new_space = nullptr;
   ink_assert(m_writeable);
 
-  // INKqa08287 - We could get infinite build up
-  //   of dead strings on header merge.  To prevent
-  //   this we keep track of the dead string space
-  //   and force a heap coalesce if it is too large.
-  //   Ideally this should be done on free_string()
-  //   but I already no that this code path is
-  //   safe for forcing a str coalesce so I'm doing
-  //   it here for sanity's sake
-  if (m_lost_string_space > (int)MAX_LOST_STR_SPACE) {
-    goto FAILED;
-  }
-
 RETRY:
-  // First check to see if we have a read/write
-  //   string heap
+  // First check to see if we have a read/write string heap
   if (!m_read_write_heap) {
     int next_size     = (last_size * 2) - sizeof(HdrStrHeap);
     next_size         = next_size > nbytes ? next_size : nbytes;
@@ -273,9 +260,7 @@ RETRY:
     goto RETRY;
   }
 
-FAILED:
-  // We failed to demote.  We'll have to coalesce
-  //  the heaps
+  // We failed to demote. We'll have to coalesce the heaps.
   coalesce_str_heaps();
   goto RETRY;
 }
