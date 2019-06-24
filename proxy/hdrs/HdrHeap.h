@@ -50,7 +50,7 @@ using HdrHeapMarshalBlocks                     = ts::Scalar<HDR_PTR_SIZE>;
 //  heaps are hand unrolled in the code.  Changing
 //  this value requires a full pass through HdrBuf.cc
 //  to fix the unrolled operations
-static constexpr unsigned HDR_BUF_RONLY_HEAPS = 3;
+static constexpr unsigned HDR_BUF_RONLY_HEAPS = 6;
 
 class CoreUtils;
 class IOBufferBlock;
