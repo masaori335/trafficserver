@@ -565,9 +565,10 @@ REGRESSION_TEST(HPACK_Decode)(RegressionTest *t, int, int *pstatus)
   for (unsigned int i = 0; i < sizeof(encoded_field_request_test_case) / sizeof(encoded_field_request_test_case[0]); i++) {
     ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);
     headers->create(HTTP_TYPE_REQUEST);
-
+    bool is_hdr_heap_moved = false;
     hpack_decode_header_block(indexing_table, headers, encoded_field_request_test_case[i].encoded_field,
-                              encoded_field_request_test_case[i].encoded_field_len, MAX_REQUEST_HEADER_SIZE, MAX_TABLE_SIZE);
+                              encoded_field_request_test_case[i].encoded_field_len, MAX_REQUEST_HEADER_SIZE, MAX_TABLE_SIZE,
+                              is_hdr_heap_moved);
 
     for (unsigned int j = 0; j < sizeof(raw_field_request_test_case[i]) / sizeof(raw_field_request_test_case[i][0]); j++) {
       const char *expected_name  = raw_field_request_test_case[i][j].raw_name;

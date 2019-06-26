@@ -295,9 +295,9 @@ HpackIndexingTable::get_header_field(uint32_t index, MIMEFieldWrapper &field) co
 }
 
 void
-HpackIndexingTable::add_header_field(const MIMEField *field)
+HpackIndexingTable::add_header_field(const MIMEField *field, HdrHeap *hdr_heap)
 {
-  _dynamic_table->add_header_field(field);
+  _dynamic_table->add_header_field(field, hdr_heap);
 }
 
 uint32_t
@@ -321,44 +321,54 @@ HpackIndexingTable::update_maximum_size(uint32_t new_size)
 const MIMEField *
 HpackDynamicTable::get_header_field(uint32_t index) const
 {
-  return _headers.at(index);
+  return this->_headers.at(index)->field;
+}
+
+//
+// HpackDynamicTable
+//
+HpackDynamicTable::~HpackDynamicTable()
+{
+  for (auto &e : this->_headers) {
+    this->_hdr_heap_ref_counts[e->hdr_heap] -= 1;
+    if (this->_hdr_heap_ref_counts[e->hdr_heap] == 0) {
+      e->hdr_heap->destroy();
+      this->_hdr_heap_ref_counts.erase(e->hdr_heap);
+    }
+    delete e;
+  }
+  this->_headers.clear();
+
+  ink_assert(this->_hdr_heap_ref_counts.size() == 0);
 }
 
 void
-HpackDynamicTable::add_header_field(const MIMEField *field)
+HpackDynamicTable::add_header_field(const MIMEField *header, HdrHeap *hdr_heap)
 {
   int name_len, value_len;
-  const char *name     = field->name_get(&name_len);
-  const char *value    = field->value_get(&value_len);
+  header->name_get(&name_len);
+  header->value_get(&value_len);
   uint32_t header_size = ADDITIONAL_OCTETS + name_len + value_len;
 
-  if (header_size > _maximum_size) {
+  if (header_size > this->_maximum_size) {
     // [RFC 7541] 4.4. Entry Eviction When Adding New Entries
     // It is not an error to attempt to add an entry that is larger than
     // the maximum size; an attempt to add an entry larger than the entire
     // table causes the table to be emptied of all existing entries.
-    _headers.clear();
-    _mhdr->fields_clear();
-    _current_size = 0;
+    this->_headers.clear();
+    this->_current_size = 0;
   } else {
-    _current_size += header_size;
-    while (_current_size > _maximum_size) {
-      int last_name_len, last_value_len;
-      MIMEField *last_field = _headers.back();
+    this->_current_size += header_size;
+    this->_evacuate_entries();
 
-      last_field->name_get(&last_name_len);
-      last_field->value_get(&last_value_len);
-      _current_size -= ADDITIONAL_OCTETS + last_name_len + last_value_len;
+    Entry *e = new Entry(header, hdr_heap);
+    this->_headers.insert(_headers.begin(), e);
 
-      _headers.erase(_headers.begin() + _headers.size() - 1);
-      _mhdr->field_delete(last_field, false);
+    if (this->_hdr_heap_ref_counts.find(hdr_heap) != this->_hdr_heap_ref_counts.end()) {
+      this->_hdr_heap_ref_counts[hdr_heap] += 1;
+    } else {
+      this->_hdr_heap_ref_counts.insert(std::make_pair(hdr_heap, 1));
     }
-
-    MIMEField *new_field = _mhdr->field_create(name, name_len);
-    new_field->value_set(_mhdr->m_heap, _mhdr->m_mime, value, value_len);
-    _mhdr->field_attach(new_field);
-    // XXX Because entire Vec instance is copied, Its too expensive!
-    _headers.insert(_headers.begin(), new_field);
   }
 }
 
@@ -384,22 +394,13 @@ HpackDynamicTable::size() const
 bool
 HpackDynamicTable::update_maximum_size(uint32_t new_size)
 {
-  while (_current_size > new_size) {
-    if (_headers.size() == 0) {
-      return false;
-    }
-    int last_name_len, last_value_len;
-    MIMEField *last_field = _headers.back();
-
-    last_field->name_get(&last_name_len);
-    last_field->value_get(&last_value_len);
-    _current_size -= ADDITIONAL_OCTETS + last_name_len + last_value_len;
-
-    _headers.erase(_headers.begin() + _headers.size() - 1);
-    _mhdr->field_delete(last_field, false);
+  if (_headers.size() == 0) {
+    return false;
   }
 
-  _maximum_size = new_size;
+  this->_maximum_size = new_size;
+  this->_evacuate_entries();
+
   return true;
 }
 
@@ -407,6 +408,37 @@ uint32_t
 HpackDynamicTable::length() const
 {
   return _headers.size();
+}
+
+void
+HpackDynamicTable::_evacuate_entries()
+{
+  int evicted_entries = 0;
+  while (this->_current_size > this->_maximum_size) {
+    ++evicted_entries;
+    int last_name_len, last_value_len;
+    const Entry *entry          = this->_headers.back();
+    const MIMEField *last_field = entry->field;
+
+    last_field->name_get(&last_name_len);
+    last_field->value_get(&last_value_len);
+    this->_current_size -= ADDITIONAL_OCTETS + last_name_len + last_value_len;
+
+    this->_headers.erase(this->_headers.begin() + this->_headers.size() - 1);
+
+    HdrHeap *last_heap = entry->hdr_heap;
+    this->_hdr_heap_ref_counts[last_heap] -= 1;
+    if (this->_hdr_heap_ref_counts[last_heap] == 0) {
+      last_heap->destroy();
+      this->_hdr_heap_ref_counts.erase(last_heap);
+    }
+
+    delete entry;
+  }
+
+  if (evicted_entries > 0) {
+    Debug("v_hpack_eviction", "entries=%d", evicted_entries);
+  }
 }
 
 //
@@ -534,7 +566,7 @@ encode_literal_header_field_with_indexed_name(uint8_t *buf_start, const uint8_t 
 
   switch (type) {
   case HpackField::INDEXED_LITERAL:
-    indexing_table.add_header_field(header.field_get());
+    indexing_table.add_header_field(header.field_get(), header.hdr_heap());
     prefix = 6;
     flag   = 0x40;
     break;
@@ -588,7 +620,7 @@ encode_literal_header_field_with_new_name(uint8_t *buf_start, const uint8_t *buf
 
   switch (type) {
   case HpackField::INDEXED_LITERAL:
-    indexing_table.add_header_field(header.field_get());
+    indexing_table.add_header_field(header.field_get(), header.hdr_heap());
     flag = 0x40;
     break;
   case HpackField::NOINDEX_LITERAL:
@@ -833,7 +865,8 @@ decode_literal_header_field(MIMEFieldWrapper &header, const uint8_t *buf_start, 
 
   // Incremental Indexing adds header to header table as new entry
   if (isIncremental) {
-    indexing_table.add_header_field(header.field_get());
+    indexing_table.add_header_field(header.field_get(), header.hdr_heap());
+    header.is_hdr_heap_moved = true;
   }
 
   // Print decoded header field
@@ -886,7 +919,7 @@ update_dynamic_table_size(const uint8_t *buf_start, const uint8_t *buf_end, Hpac
 
 int64_t
 hpack_decode_header_block(HpackIndexingTable &indexing_table, HTTPHdr *hdr, const uint8_t *in_buf, const size_t in_buf_len,
-                          uint32_t max_header_size, uint32_t maximum_table_size)
+                          uint32_t max_header_size, uint32_t maximum_table_size, bool &is_hdr_heap_moved)
 {
   const uint8_t *cursor           = in_buf;
   const uint8_t *const in_buf_end = in_buf + in_buf_len;
@@ -952,7 +985,11 @@ hpack_decode_header_block(HpackIndexingTable &indexing_table, HTTPHdr *hdr, cons
 
     // Store to HdrHeap
     mime_hdr_field_attach(hh->m_fields_impl, field, 1, nullptr);
+    if (header.is_hdr_heap_moved) {
+      is_hdr_heap_moved = true;
+    }
   }
+
   // Parsing all headers is done
   if (has_http2_violation) {
     return -(cursor - in_buf);
@@ -982,6 +1019,7 @@ hpack_encode_header_block(HpackIndexingTable &indexing_table, uint8_t *out_buf, 
   }
 
   MIMEFieldIter field_iter;
+  bool is_hdr_heap_moved = false;
   for (MIMEField *field = hdr->iter_get_first(&field_iter); field != nullptr; field = hdr->iter_get_next(&field_iter)) {
     HpackField field_type;
     MIMEFieldWrapper header(field, hdr->m_heap, hdr->m_http->m_fields_impl);
@@ -1001,11 +1039,13 @@ hpack_encode_header_block(HpackIndexingTable &indexing_table, uint8_t *out_buf, 
     const HpackLookupResult result = indexing_table.lookup(header);
     switch (result.match_type) {
     case HpackMatch::NONE:
-      written = encode_literal_header_field_with_new_name(cursor, out_buf_end, header, indexing_table, field_type);
+      written           = encode_literal_header_field_with_new_name(cursor, out_buf_end, header, indexing_table, field_type);
+      is_hdr_heap_moved = true;
       break;
     case HpackMatch::NAME:
       written =
         encode_literal_header_field_with_indexed_name(cursor, out_buf_end, header, result.index, indexing_table, field_type);
+      is_hdr_heap_moved = true;
       break;
     case HpackMatch::EXACT:
       written = encode_indexed_header_field(cursor, out_buf_end, result.index);
@@ -1020,6 +1060,11 @@ hpack_encode_header_block(HpackIndexingTable &indexing_table, uint8_t *out_buf, 
     }
     cursor += written;
   }
+
+  if (is_hdr_heap_moved) {
+    hdr->m_heap = nullptr; // HdrHeap is owend by HPACK
+  }
+
   return cursor - out_buf;
 }
 

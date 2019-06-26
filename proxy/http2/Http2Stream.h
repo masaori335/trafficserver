@@ -246,6 +246,7 @@ private:
   HTTPHdr _req_header;
   VIO read_vio;
   VIO write_vio;
+  bool _is_hdr_heap_moved = false;
 
   History<HISTORY_DEFAULT_SIZE> _history;
 

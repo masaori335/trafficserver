@@ -95,6 +95,14 @@ public:
     return _field;
   }
 
+  HdrHeap *
+  hdr_heap() const
+  {
+    return this->_heap;
+  }
+
+  bool is_hdr_heap_moved = false;
+
 private:
   MIMEField *_field;
   HdrHeap *_heap;
@@ -105,26 +113,16 @@ private:
 class HpackDynamicTable
 {
 public:
-  explicit HpackDynamicTable(uint32_t size) : _current_size(0), _maximum_size(size)
-  {
-    _mhdr = new MIMEHdr();
-    _mhdr->create();
-  }
+  explicit HpackDynamicTable(uint32_t size) : _maximum_size(size) {}
 
-  ~HpackDynamicTable()
-  {
-    _headers.clear();
-    _mhdr->fields_clear();
-    _mhdr->destroy();
-    delete _mhdr;
-  }
+  ~HpackDynamicTable();
 
   // noncopyable
   HpackDynamicTable(HpackDynamicTable &) = delete;
   HpackDynamicTable &operator=(const HpackDynamicTable &) = delete;
 
   const MIMEField *get_header_field(uint32_t index) const;
-  void add_header_field(const MIMEField *field);
+  void add_header_field(const MIMEField *header, HdrHeap *hdr_heap);
 
   uint32_t maximum_size() const;
   uint32_t size() const;
@@ -133,11 +131,19 @@ public:
   uint32_t length() const;
 
 private:
-  uint32_t _current_size;
-  uint32_t _maximum_size;
+  struct Entry {
+    Entry(const MIMEField *f, HdrHeap *h) : field(f), hdr_heap(h){};
+    const MIMEField *field;
+    HdrHeap *hdr_heap;
+  };
 
-  MIMEHdr *_mhdr;
-  std::vector<MIMEField *> _headers;
+  void _evacuate_entries();
+
+  uint32_t _current_size = 0;
+  uint32_t _maximum_size = 0;
+
+  std::vector<Entry *> _headers;
+  std::map<HdrHeap *, uint32_t> _hdr_heap_ref_counts;
 };
 
 // [RFC 7541] 2.3. Indexing Table
@@ -155,7 +161,7 @@ public:
   HpackLookupResult lookup(const char *name, int name_len, const char *value, int value_len) const;
   int get_header_field(uint32_t index, MIMEFieldWrapper &header_field) const;
 
-  void add_header_field(const MIMEField *field);
+  void add_header_field(const MIMEField *field, HdrHeap *hdr_heap);
   uint32_t maximum_size() const;
   uint32_t size() const;
   bool update_maximum_size(uint32_t new_size);
@@ -184,7 +190,7 @@ int64_t update_dynamic_table_size(const uint8_t *buf_start, const uint8_t *buf_e
 // High level interfaces
 typedef HpackIndexingTable HpackHandle;
 int64_t hpack_decode_header_block(HpackHandle &handle, HTTPHdr *hdr, const uint8_t *in_buf, const size_t in_buf_len,
-                                  uint32_t max_header_size, uint32_t maximum_table_size);
+                                  uint32_t max_header_size, uint32_t maximum_table_size, bool &is_hdr_heap_moved);
 int64_t hpack_encode_header_block(HpackHandle &handle, uint8_t *out_buf, const size_t out_buf_len, HTTPHdr *hdr,
                                   int32_t maximum_table_size = -1);
 int32_t hpack_get_maximum_table_size(HpackHandle &handle);

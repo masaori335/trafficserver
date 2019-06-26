@@ -140,7 +140,7 @@ Http2ErrorCode
 Http2Stream::decode_header_blocks(HpackHandle &hpack_handle, uint32_t maximum_table_size)
 {
   return http2_decode_header_blocks(&_req_header, (const uint8_t *)header_blocks, header_blocks_length, nullptr, hpack_handle,
-                                    trailing_header, maximum_table_size);
+                                    trailing_header, maximum_table_size, this->_is_hdr_heap_moved);
 }
 
 void
@@ -742,6 +742,9 @@ Http2Stream::destroy()
 
   ink_hrtime end_time = Thread::get_hrtime();
   HTTP2_SUM_THREAD_DYN_STAT(HTTP2_STAT_TOTAL_TRANSACTIONS_TIME, _thread, end_time - _start_time);
+  if (this->_is_hdr_heap_moved) {
+    _req_header.m_heap = nullptr;
+  }
   _req_header.destroy();
   response_header.destroy();
 
