@@ -1400,7 +1400,7 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
   payload_length                    = 0;
 
   uint8_t flags = 0x00;
-  uint8_t payload_buffer[buf_len];
+  // uint8_t payload_buffer[buf_len];
   IOBufferReader *current_reader = stream->response_get_data_reader();
 
   SCOPED_MUTEX_LOCK(stream_lock, stream->mutex, this_ethread());
@@ -1410,6 +1410,7 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
     return Http2SendDataFrameResult::ERROR;
   }
 
+  IOBufferChain payload;
   // Select appropriate payload length
   if (current_reader->is_read_avail_more_than(0)) {
     // We only need to check for window size when there is a payload
@@ -1419,7 +1420,27 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
     }
     // Copy into the payload buffer. Seems like we should be able to skip this copy step
     payload_length = write_available_size;
-    payload_length = current_reader->read(payload_buffer, static_cast<int64_t>(write_available_size));
+    // payload_length = current_reader->read(payload_buffer, static_cast<int64_t>(write_available_size));
+
+    // It'd be grate if IOBufferChain::write support IOBufferReader
+    // somethign like
+    // ```
+    // int64_t written = chain->write(current_reader, length);
+    // ```
+    IOBufferBlock *block = current_reader->get_current_block();
+    int64_t nwritten     = 0;
+
+    while (nwritten < (int64_t)payload_length && block != nullptr) {
+      int64_t len = payload.write(block, payload_length - nwritten, current_reader->start_offset);
+      if (len == 0) {
+        break;
+      }
+      current_reader->consume(len);
+      block = current_reader->get_current_block();
+      nwritten += len;
+    }
+
+    payload_length = nwritten;
   } else {
     payload_length = 0;
   }
@@ -1444,15 +1465,14 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
   Http2StreamDebug(ua_session, stream->get_id(), "Send a DATA frame - client window con: %5zd stream: %5zd payload: %5zd",
                    client_rwnd, stream->client_rwnd, payload_length);
 
-  Http2Frame data(HTTP2_FRAME_TYPE_DATA, stream->get_id(), flags);
-  data.alloc(buffer_size_index[HTTP2_FRAME_TYPE_DATA]);
-  http2_write_data(payload_buffer, payload_length, data.write());
-  data.finalize(payload_length);
+  Http2DataFrame data(HTTP2_FRAME_TYPE_DATA, stream->get_id(), flags);
+  data.set_payload(payload, payload_length);
 
   stream->update_sent_count(payload_length);
 
   // xmit event
   SCOPED_MUTEX_LOCK(lock, this->ua_session->mutex, this_ethread());
+
   this->ua_session->handleEvent(HTTP2_SESSION_EVENT_XMIT, &data);
 
   if (flags & HTTP2_FLAGS_DATA_END_STREAM) {

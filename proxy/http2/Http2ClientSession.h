@@ -114,7 +114,7 @@ public:
     }
   }
 
-  void
+  virtual void
   xmit(MIOBuffer *iobuffer)
   {
     // Write frame header
@@ -129,7 +129,7 @@ public:
     }
   }
 
-  int64_t
+  virtual int64_t
   size()
   {
     if (ioblock) {
@@ -143,10 +143,30 @@ public:
   Http2Frame(Http2Frame &) = delete;
   Http2Frame &operator=(const Http2Frame &) = delete;
 
+protected:
+  Http2FrameHeader hdr; // frame header
+
 private:
-  Http2FrameHeader hdr;       // frame header
   Ptr<IOBufferBlock> ioblock; // frame payload
   IOBufferReader *ioreader = nullptr;
+};
+
+class Http2DataFrame : public Http2Frame
+{
+public:
+  Http2DataFrame(Http2FrameType type, Http2StreamId streamid, uint8_t flags) : Http2Frame(type, streamid, flags) {}
+
+  virtual void xmit(MIOBuffer *iobuffer) override;
+  virtual int64_t size() override;
+  void
+  set_payload(const IOBufferChain &chain, uint32_t len)
+  {
+    this->_chain     = chain;
+    this->hdr.length = len;
+  }
+
+private:
+  IOBufferChain _chain;
 };
 
 class Http2ClientSession : public ProxySession

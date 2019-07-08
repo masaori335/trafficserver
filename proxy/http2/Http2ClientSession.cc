@@ -65,6 +65,31 @@ send_connection_event(Continuation *cont, int event, void *edata)
   return cont->handleEvent(event, edata);
 }
 
+//
+// Http2DataFrame
+//
+void
+Http2DataFrame::xmit(MIOBuffer *iobuffer)
+{
+  // Write frame header
+  uint8_t buf[HTTP2_FRAME_HEADER_LEN];
+  http2_write_frame_header(hdr, make_iovec(buf));
+  iobuffer->write(buf, sizeof(buf));
+
+  // Write frame payload
+  // uint64_t len =
+  iobuffer->write(&this->_chain);
+}
+
+int64_t
+Http2DataFrame::size()
+{
+  return HTTP2_FRAME_HEADER_LEN + this->hdr.length;
+}
+
+//
+// Http2ClientSession
+//
 Http2ClientSession::Http2ClientSession() {}
 
 void
