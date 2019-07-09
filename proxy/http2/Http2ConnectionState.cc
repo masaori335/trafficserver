@@ -1391,6 +1391,22 @@ Http2ConnectionState::send_data_frames_depends_on_priority()
   return;
 }
 
+void
+Http2ConnectionState::consume_stream(Http2StreamId id)
+{
+  Http2Stream *stream = this->find_stream(id);
+  if (stream) {
+    SCOPED_MUTEX_LOCK(stream_lock, stream->mutex, this_ethread());
+
+    IOBufferReader *current_reader = stream->response_get_data_reader();
+    current_reader->consume(stream->buffering_len);
+    Http2StreamDebug(this->ua_session, stream->get_id(), "consume size=%" PRId64, stream->buffering_len);
+
+    stream->buffering_len = 0;
+    stream->signal_write_event(true);
+  }
+}
+
 Http2SendDataFrameResult
 Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_length)
 {
@@ -1403,7 +1419,7 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
   // uint8_t payload_buffer[buf_len];
   IOBufferReader *current_reader = stream->response_get_data_reader();
 
-  SCOPED_MUTEX_LOCK(stream_lock, stream->mutex, this_ethread());
+  // SCOPED_MUTEX_LOCK(stream_lock, stream->mutex, this_ethread());
 
   if (!current_reader) {
     Http2StreamDebug(this->ua_session, stream->get_id(), "couldn't get data reader");
@@ -1412,7 +1428,7 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
 
   IOBufferChain payload;
   // Select appropriate payload length
-  if (current_reader->is_read_avail_more_than(0)) {
+  if (current_reader->is_read_avail_more_than(stream->buffering_len)) {
     // We only need to check for window size when there is a payload
     if (window_size <= 0) {
       Http2StreamDebug(this->ua_session, stream->get_id(), "No window");
@@ -1430,17 +1446,17 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
     IOBufferBlock *block = current_reader->get_current_block();
     int64_t nwritten     = 0;
 
-    while (nwritten < (int64_t)payload_length && block != nullptr) {
+    while (block != nullptr) {
       int64_t len = payload.write(block, payload_length - nwritten, current_reader->start_offset);
       if (len == 0) {
         break;
       }
-      current_reader->consume(len);
-      block = current_reader->get_current_block();
       nwritten += len;
+      block = block->next.get();
     }
 
     payload_length = nwritten;
+    stream->buffering_len += nwritten;
   } else {
     payload_length = 0;
   }
@@ -1453,9 +1469,13 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
     return Http2SendDataFrameResult::NO_PAYLOAD;
   }
 
-  if (stream->is_body_done() && !current_reader->is_read_avail_more_than(0)) {
+  if (stream->is_body_done() && !current_reader->is_read_avail_more_than(stream->buffering_len)) {
     flags |= HTTP2_FLAGS_DATA_END_STREAM;
   }
+
+  // if (stream->is_body_done() && !current_reader->is_read_avail_more_than(stream->buffering_len)) {
+  //   flags |= HTTP2_FLAGS_DATA_END_STREAM;
+  // }
 
   // Update window size
   this->client_rwnd -= payload_length;

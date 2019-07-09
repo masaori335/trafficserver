@@ -358,7 +358,9 @@ private:
   // For Upgrade: h2c
   Http2UpgradeContext upgrade_context;
 
-  VIO *write_vio                 = nullptr;
+  VIO *write_vio            = nullptr;
+  uint64_t _sent_data_frame = false;
+
   int dying_event                = 0;
   bool kill_me                   = false;
   Http2SessionCod cause_of_death = Http2SessionCod::NOT_PROVIDED;

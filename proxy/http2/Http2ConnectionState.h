@@ -255,6 +255,7 @@ public:
   void send_goaway_frame(Http2StreamId id, Http2ErrorCode ec);
   void send_window_update_frame(Http2StreamId id, uint32_t size);
 
+  void consume_stream(Http2StreamId id);
   bool
   is_state_closed() const
   {

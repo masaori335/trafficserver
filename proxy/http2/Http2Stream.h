@@ -178,6 +178,8 @@ public:
   MIOBuffer request_buffer                 = CLIENT_CONNECTION_FIRST_READ_BUFFER_SIZE_INDEX;
   Http2DependencyTree::Node *priority_node = nullptr;
 
+  uint64_t buffering_len = 0;
+
   IOBufferReader *response_get_data_reader() const;
   bool
   response_is_chunked() const
@@ -223,6 +225,8 @@ public:
   void increment_client_transactions_stat() override;
   void decrement_client_transactions_stat() override;
 
+  VIO write_vio;
+
 private:
   void response_initialize_data_handling(bool &is_done);
   void response_process_data(bool &is_done);
@@ -245,7 +249,6 @@ private:
 
   HTTPHdr _req_header;
   VIO read_vio;
-  VIO write_vio;
 
   History<HISTORY_DEFAULT_SIZE> _history;
 

@@ -317,6 +317,7 @@ read_from_net(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
       }
     }
   }
+  Debug("iocore.net.process_ready_list", "write_avail=%lld", buf.writer()->write_avail());
   // If here are is no more room, or nothing to do, disable the connection
   if (s->vio.ntodo() <= 0 || !s->enabled || !buf.writer()->write_avail()) {
     read_disable(nh, vc);

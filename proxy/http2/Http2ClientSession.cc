@@ -367,6 +367,11 @@ Http2ClientSession::main_event_handler(int event, void *edata)
     total_write_len += frame->size();
     write_vio->nbytes = total_write_len;
     frame->xmit(this->write_buffer);
+
+    if (frame->header().type == HTTP2_FRAME_TYPE_DATA) {
+      this->_sent_data_frame = 1;
+    }
+
     write_reenable();
     retval = 0;
     break;
@@ -382,14 +387,22 @@ Http2ClientSession::main_event_handler(int event, void *edata)
     break;
 
   case VC_EVENT_WRITE_READY:
+    Http2SsnDebug("WRITE_READY event=%d edata=%p", event, edata);
     retval = 0;
     break;
 
-  case VC_EVENT_WRITE_COMPLETE:
+  case VC_EVENT_WRITE_COMPLETE: {
+    // TODO: track DATA frames
+    if (this->_sent_data_frame) {
+      Http2SsnDebug("WRITE_COMPLETE event=%d edata=%p", event, edata);
+      this->_sent_data_frame = 0;
+      this->connection_state.consume_stream(1);
+    }
+
     // Seems as this is being closed already
     retval = 0;
     break;
-
+  }
   default:
     Http2SsnDebug("unexpected event=%d edata=%p", event, edata);
     ink_release_assert(0);

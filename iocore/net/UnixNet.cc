@@ -392,6 +392,7 @@ NetHandler::process_ready_list()
     if (vc->closed) {
       free_netvc(vc);
     } else if (vc->read.enabled && vc->read.triggered) {
+      Debug("iocore.net.process_ready_list", "read=%p %s", vc, (vc->get_context() == NET_VCONNECTION_OUT ? "OUT" : "IN"));
       vc->net_read_io(this, this->thread);
     } else if (!vc->read.enabled) {
       read_ready_list.remove(vc);
@@ -409,6 +410,7 @@ NetHandler::process_ready_list()
     if (vc->closed) {
       free_netvc(vc);
     } else if (vc->write.enabled && vc->write.triggered) {
+      Debug("iocore.net.process_ready_list", "write=%p %s", vc, (vc->get_context() == NET_VCONNECTION_OUT ? "OUT" : "IN"));
       write_to_net(this, vc, this->thread);
     } else if (!vc->write.enabled) {
       write_ready_list.remove(vc);

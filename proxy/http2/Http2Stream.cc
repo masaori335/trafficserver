@@ -695,7 +695,7 @@ Http2Stream::send_response_body(bool call_update)
   } else {
     SCOPED_MUTEX_LOCK(lock, proxy_ssn->connection_state.mutex, this_ethread());
     proxy_ssn->connection_state.send_data_frames(this);
-    this->signal_write_event(call_update);
+    // this->signal_write_event(call_update);
     // XXX The call to signal_write_event can destroy/free the Http2Stream.
     // Don't modify the Http2Stream after calling this method.
   }
