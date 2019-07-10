@@ -733,6 +733,10 @@ SSLNetVConnection::load_buffer_and_write(int64_t towrite, MIOBufferAccessor &buf
     return this->super::load_buffer_and_write(towrite, buf, total_written, needs);
   }
 
+  char *write_buf = nullptr;
+  uint8_t tmp_buf[32768];
+  uint32_t tmp_buf_len = sizeof(tmp_buf);
+
   do {
     // What is remaining left in the next block?
     l                   = buf.reader()->block_read_avail();
@@ -775,10 +779,25 @@ SSLNetVConnection::load_buffer_and_write(int64_t towrite, MIOBufferAccessor &buf
       break;
     }
 
-    try_to_write       = l;
+    IOBufferBlock *next_block = buf.reader()->get_current_block()->next.get();
+    // coalese IOBuffer if it's very small
+    if (l < 1024 && next_block) {
+      memcpy(tmp_buf, current_block, l);
+
+      int64_t block_size = next_block->read_avail();
+      block_size         = std::min(block_size, tmp_buf_len - l);
+      memcpy(tmp_buf + l, next_block->start(), block_size);
+
+      try_to_write = l + block_size;
+      write_buf    = (char *)tmp_buf;
+    } else {
+      try_to_write = l;
+      write_buf    = current_block;
+    }
+
     num_really_written = 0;
-    Debug("ssl", "write=%" PRId64 " towrite=%" PRId64 " block=%p", l, towrite, current_block);
-    err = SSLWriteBuffer(ssl, current_block, l, num_really_written);
+    Debug("ssl", "write=%" PRId64 " towrite=%" PRId64 " block=%p", try_to_write, towrite, current_block);
+    err = SSLWriteBuffer(ssl, write_buf, try_to_write, num_really_written);
 
     // We wrote all that we thought we should
     if (num_really_written > 0) {
@@ -786,8 +805,11 @@ SSLNetVConnection::load_buffer_and_write(int64_t towrite, MIOBufferAccessor &buf
       buf.reader()->consume(num_really_written);
     }
 
-    Debug("ssl", "written=%" PRId64 " total_written=%" PRId64 "", num_really_written, total_written);
+    if (try_to_write != num_really_written) {
+      Debug("ssl", "written=%" PRId64 " total_written=%" PRId64 "", num_really_written, total_written);
+    }
     NET_INCREMENT_DYN_STAT(net_calls_to_write_stat);
+
   } while (num_really_written == try_to_write && total_written < towrite);
 
   if (total_written > 0) {
