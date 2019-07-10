@@ -1400,6 +1400,8 @@ Http2ConnectionState::consume_stream(Http2StreamId id)
 
     IOBufferReader *current_reader = stream->response_get_data_reader();
     current_reader->consume(stream->buffering_len);
+    stream->update_sent_count(stream->buffering_len);
+
     Http2StreamDebug(this->ua_session, stream->get_id(), "consume size=%" PRId64, stream->buffering_len);
 
     stream->buffering_len = 0;
@@ -1410,49 +1412,46 @@ Http2ConnectionState::consume_stream(Http2StreamId id)
 Http2SendDataFrameResult
 Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_length)
 {
-  const ssize_t window_size         = std::min(this->client_rwnd, stream->client_rwnd);
-  const size_t buf_len              = BUFFER_SIZE_FOR_INDEX(buffer_size_index[HTTP2_FRAME_TYPE_DATA]);
-  const size_t write_available_size = std::min(buf_len, static_cast<size_t>(window_size));
-  payload_length                    = 0;
+  const ssize_t window_size = std::min(this->client_rwnd, stream->client_rwnd);
+  size_t buf_len            = BUFFER_SIZE_FOR_INDEX(buffer_size_index[HTTP2_FRAME_TYPE_DATA]);
+  buf_len                   = std::min(buf_len, static_cast<size_t>(window_size));
 
-  uint8_t flags = 0x00;
-  // uint8_t payload_buffer[buf_len];
-  IOBufferReader *current_reader = stream->response_get_data_reader();
+  uint8_t flags                  = 0x00;
+  IOBufferReader *current_reader = stream->response_get_data_reader()->clone();
+  current_reader->consume(stream->buffering_len); ///< skip read blocks
 
+  // should be locked try lock?
   // SCOPED_MUTEX_LOCK(stream_lock, stream->mutex, this_ethread());
 
   if (!current_reader) {
     Http2StreamDebug(this->ua_session, stream->get_id(), "couldn't get data reader");
+    current_reader->dealloc();
     return Http2SendDataFrameResult::ERROR;
   }
 
   IOBufferChain payload;
+  payload_length = 0;
+
   // Select appropriate payload length
-  if (current_reader->is_read_avail_more_than(stream->buffering_len)) {
+  if (current_reader->is_read_avail_more_than(0)) {
     // We only need to check for window size when there is a payload
     if (window_size <= 0) {
       Http2StreamDebug(this->ua_session, stream->get_id(), "No window");
+      current_reader->dealloc();
       return Http2SendDataFrameResult::NO_WINDOW;
     }
-    // Copy into the payload buffer. Seems like we should be able to skip this copy step
-    payload_length = write_available_size;
-    // payload_length = current_reader->read(payload_buffer, static_cast<int64_t>(write_available_size));
 
-    // It'd be grate if IOBufferChain::write support IOBufferReader
-    // somethign like
-    // ```
-    // int64_t written = chain->write(current_reader, length);
-    // ```
-    IOBufferBlock *block = current_reader->get_current_block();
-    int64_t nwritten     = 0;
+    int64_t nwritten    = 0;
+    int64_t write_avail = buf_len;
 
-    while (block != nullptr) {
-      int64_t len = payload.write(block, payload_length - nwritten, current_reader->start_offset);
-      if (len == 0) {
+    for (IOBufferBlock *block = current_reader->get_current_block(); block; block = block->next.get()) {
+      int64_t len = payload.write(block, write_avail, current_reader->start_offset);
+      nwritten += len;
+      write_avail -= len;
+
+      if (write_avail == 0 || len == 0) {
         break;
       }
-      nwritten += len;
-      block = block->next.get();
     }
 
     payload_length = nwritten;
@@ -1466,16 +1465,14 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
   // OK if there is no body yet. Otherwise continue on to send a DATA frame and delete the stream
   if (!stream->is_body_done() && payload_length == 0) {
     Http2StreamDebug(this->ua_session, stream->get_id(), "No payload");
+    current_reader->dealloc();
     return Http2SendDataFrameResult::NO_PAYLOAD;
   }
 
-  if (stream->is_body_done() && !current_reader->is_read_avail_more_than(stream->buffering_len)) {
+  // why not stream->write_vio->ntodo() == 0 ?
+  if (stream->is_body_done() && !current_reader->is_read_avail_more_than(0)) {
     flags |= HTTP2_FLAGS_DATA_END_STREAM;
   }
-
-  // if (stream->is_body_done() && !current_reader->is_read_avail_more_than(stream->buffering_len)) {
-  //   flags |= HTTP2_FLAGS_DATA_END_STREAM;
-  // }
 
   // Update window size
   this->client_rwnd -= payload_length;
@@ -1488,22 +1485,22 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
   Http2DataFrame data(HTTP2_FRAME_TYPE_DATA, stream->get_id(), flags);
   data.set_payload(payload, payload_length);
 
-  stream->update_sent_count(payload_length);
-
   // xmit event
   SCOPED_MUTEX_LOCK(lock, this->ua_session->mutex, this_ethread());
 
   this->ua_session->handleEvent(HTTP2_SESSION_EVENT_XMIT, &data);
+  current_reader->dealloc();
 
   if (flags & HTTP2_FLAGS_DATA_END_STREAM) {
     Http2StreamDebug(ua_session, stream->get_id(), "End of DATA frame");
     stream->send_end_stream = true;
     // Setting to the same state shouldn't be erroneous
     stream->change_state(data.header().type, data.header().flags);
-
+    current_reader->dealloc();
     return Http2SendDataFrameResult::DONE;
   }
 
+  current_reader->dealloc();
   return Http2SendDataFrameResult::NO_ERROR;
 }
 
