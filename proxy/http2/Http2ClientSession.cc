@@ -157,6 +157,7 @@ Http2ClientSession::start()
   SET_HANDLER(&Http2ClientSession::main_event_handler);
   HTTP2_SET_SESSION_HANDLER(&Http2ClientSession::state_read_connection_preface);
 
+  // Connection level read/write vio length is unknown - e.g. who knows how many PING frames come and go?
   read_vio  = this->do_io_read(this, INT64_MAX, this->read_buffer);
   write_vio = this->do_io_write(this, INT64_MAX, this->sm_writer);
 
@@ -340,7 +341,6 @@ Http2ClientSession::main_event_handler(int event, void *edata)
   case HTTP2_SESSION_EVENT_XMIT: {
     Http2Frame *frame = static_cast<Http2Frame *>(edata);
     total_write_len += frame->size();
-    write_vio->nbytes = total_write_len;
     frame->xmit(this->write_buffer);
     write_reenable();
     retval = 0;
@@ -357,9 +357,9 @@ Http2ClientSession::main_event_handler(int event, void *edata)
     break;
 
   case VC_EVENT_WRITE_READY:
+    this->connection_state.restart_streams();
     retval = 0;
     break;
-
   case VC_EVENT_WRITE_COMPLETE:
     // Seems as this is being closed already
     retval = 0;

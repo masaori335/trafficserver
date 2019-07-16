@@ -35,6 +35,7 @@ enum class Http2SendDataFrameResult {
   NO_ERROR = 0,
   NO_WINDOW,
   NO_PAYLOAD,
+  NOT_WRITE_AVAIL,
   ERROR,
   DONE,
 };

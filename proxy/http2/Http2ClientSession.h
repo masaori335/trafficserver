@@ -201,6 +201,12 @@ public:
     write_vio->reenable();
   }
 
+  int64_t
+  write_avail()
+  {
+    return write_vio->get_writer()->write_avail();
+  }
+
   void set_upgrade_context(HTTPHdr *h);
 
   const Http2UpgradeContext &
