@@ -71,6 +71,8 @@ Http2Stream::main_event_handler(int event, void *edata)
   switch (event) {
   case VC_EVENT_ACTIVE_TIMEOUT:
   case VC_EVENT_INACTIVITY_TIMEOUT:
+    Http2StreamDebug("%s (%d)", get_vc_event_name(event), event);
+
     if (current_reader && read_vio.ntodo() > 0) {
       MUTEX_TRY_LOCK(lock, read_vio.mutex, this_ethread());
       if (lock.is_locked()) {

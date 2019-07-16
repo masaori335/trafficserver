@@ -132,7 +132,11 @@ public:
     // Write frame payload
     // It could be empty (e.g. SETTINGS frame with ACK flag)
     if (ioblock && ioblock->read_avail() > 0) {
-      iobuffer->append_block(this->ioblock.get());
+      // It looks counter-intuitive but calling MIOBuffer::write() is faster than MIOBuffer::append_block() here.
+      // Because calling SSL_write() is called for each IOBufferBlock. And calling it with a small IOBufferBlock
+      // (9 bytes for frame header) many times is too expensive especially for sending large response body.
+      // This also requires the maximum size of DATA frame payload should be 16K - 9.
+      iobuffer->write(this->ioblock->buf(), this->ioblock->size());
     }
   }
 
@@ -303,9 +307,15 @@ public:
   }
 
   int64_t
-  write_buffer_size()
+  write_avail()
   {
-    return write_buffer->max_read_avail();
+    return write_buffer->write_avail();
+  }
+
+  bool
+  high_water()
+  {
+    return write_buffer->high_water();
   }
 
   // Record history from Http2ConnectionState

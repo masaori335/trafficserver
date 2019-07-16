@@ -47,6 +47,9 @@
 
 ClassAllocator<Http2ClientSession> http2ClientSessionAllocator("http2ClientSessionAllocator");
 
+static constexpr int64_t H2_HIGH_WATER_MARK = 31744; ///< 32K - 1K
+static constexpr int64_t H2_LOW_WATER_MARK  = 1024;
+
 // memcpy the requested bytes from the IOBufferReader, returning how many were
 // actually copied.
 static inline unsigned
@@ -167,6 +170,7 @@ Http2ClientSession::start()
   SET_HANDLER(&Http2ClientSession::main_event_handler);
   HTTP2_SET_SESSION_HANDLER(&Http2ClientSession::state_read_connection_preface);
 
+  // Connection level read/write vio length is unknown - e.g. who knows how many PING frames come and go?
   read_vio  = this->do_io_read(this, INT64_MAX, this->read_buffer);
   write_vio = this->do_io_write(this, INT64_MAX, this->sm_writer);
 
@@ -207,8 +211,9 @@ Http2ClientSession::new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOB
   this->read_buffer->water_mark = connection_state.server_settings.get(HTTP2_SETTINGS_MAX_FRAME_SIZE);
   this->sm_reader               = reader ? reader : this->read_buffer->alloc_reader();
 
-  this->write_buffer = new_MIOBuffer(HTTP2_HEADER_BUFFER_SIZE_INDEX);
-  this->sm_writer    = this->write_buffer->alloc_reader();
+  this->write_buffer             = new_MIOBuffer(BUFFER_SIZE_INDEX_32K);
+  this->write_buffer->water_mark = H2_HIGH_WATER_MARK;
+  this->sm_writer                = this->write_buffer->alloc_reader();
 
   do_api_callout(TS_HTTP_SSN_START_HOOK);
 }
@@ -351,7 +356,6 @@ Http2ClientSession::main_event_handler(int event, void *edata)
   case HTTP2_SESSION_EVENT_XMIT: {
     Http2Frame *frame = static_cast<Http2Frame *>(edata);
     total_write_len += frame->size();
-    write_vio->nbytes = total_write_len;
     frame->xmit(this->write_buffer);
     write_reenable();
     retval = 0;
@@ -362,15 +366,27 @@ Http2ClientSession::main_event_handler(int event, void *edata)
   case VC_EVENT_INACTIVITY_TIMEOUT:
   case VC_EVENT_ERROR:
   case VC_EVENT_EOS:
+    Http2SsnDebug("%s (%d)", get_vc_event_name(event), event);
+
     this->set_dying_event(event);
     this->do_io_close();
     retval = 0;
     break;
 
-  case VC_EVENT_WRITE_READY:
+  case VC_EVENT_WRITE_READY: {
+    // Reenable producers (Http2Stream) when data size hits the low water mark
+    int64_t read_avail = sm_writer->read_avail();
+    Http2SsnDebug("WRITE_READY write_avail=%" PRId64 " read_avail=%" PRId64, this->write_avail(), read_avail);
+
+    if (read_avail > H2_LOW_WATER_MARK) {
+      write_reenable();
+    } else {
+      this->connection_state.restart_streams();
+    }
+
     retval = 0;
     break;
-
+  }
   case VC_EVENT_WRITE_COMPLETE:
     // Seems as this is being closed already
     retval = 0;
