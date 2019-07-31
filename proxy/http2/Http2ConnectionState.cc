@@ -1396,7 +1396,7 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
 {
   const ssize_t window_size         = std::min(this->client_rwnd, stream->client_rwnd);
   const size_t buf_len              = BUFFER_SIZE_FOR_INDEX(buffer_size_index[HTTP2_FRAME_TYPE_DATA]);
-  const size_t write_available_size = std::min(buf_len, static_cast<size_t>(window_size));
+  const size_t write_available_size = std::min(buf_len - HTTP2_FRAME_HEADER_LEN, static_cast<size_t>(window_size));
   payload_length                    = 0;
 
   uint8_t flags = 0x00;
