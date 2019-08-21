@@ -81,6 +81,37 @@ MIOBuffer::remove_append(IOBufferReader *r)
 }
 
 int64_t
+MIOBuffer::write2(const char *buf, const int64_t buf_len)
+{
+  int64_t written = 0;
+
+  if (!this->_writer) {
+    return written;
+  }
+
+  while (this->_writer) {
+    int64_t block_write_avail = this->_writer->write_avail();
+    int64_t n                 = std::min(buf_len - written, block_write_avail);
+
+    std::memcpy(this->_writer->end(), buf + written, n);
+    this->_writer->fill(n);
+    written += n;
+
+    if (written == buf_len) {
+      break;
+    }
+
+    if (this->_writer->next == nullptr) {
+      break;
+    }
+
+    this->_writer = this->_writer->next;
+  }
+
+  return written;
+}
+
+int64_t
 MIOBuffer::write(const void *abuf, int64_t alen)
 {
   const char *buf = static_cast<const char *>(abuf);

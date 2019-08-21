@@ -128,12 +128,24 @@ public:
     // Write frame header
     uint8_t buf[HTTP2_FRAME_HEADER_LEN];
     http2_write_frame_header(hdr, make_iovec(buf));
-    iobuffer->write(buf, sizeof(buf));
+
+    uint64_t written = 0;
+    Debug("http2", "b=%p current_write_avail=%" PRId64, iobuffer->buf(), iobuffer->current_write_avail());
+    written = iobuffer->write2(reinterpret_cast<char *>(buf), sizeof(buf));
+    Debug("http2", "b=%p current_write_avail=%" PRId64 " written=%" PRId64, iobuffer->buf(), iobuffer->current_write_avail(),
+          written);
 
     // Write frame payload
     // It could be empty (e.g. SETTINGS frame with ACK flag)
     if (ioblock && ioblock->read_avail() > 0) {
-      iobuffer->append_block(this->ioblock.get());
+      // It looks counter-intuitive but calling MIOBuffer::write() is faster than MIOBuffer::append_block() here.
+      // Because calling SSL_write() is called for each IOBufferBlock. And calling it with a small IOBufferBlock
+      // (9 bytes for frame header) many times is too expensive especially for sending large response body.
+      // This also requires the maximum size of DATA frame payload should be 16K - 9.
+      Debug("http2", "b=%p current_write_avail=%" PRId64, iobuffer->buf(), iobuffer->current_write_avail());
+      written = iobuffer->write2(this->ioblock->buf(), this->ioblock->size());
+      Debug("http2", "b=%p current_write_avail=%" PRId64 " written=%" PRId64, iobuffer->buf(), iobuffer->current_write_avail(),
+            written);
     }
   }
 

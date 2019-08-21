@@ -208,8 +208,9 @@ Http2ClientSession::new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOB
   this->read_buffer->water_mark = connection_state.server_settings.get(HTTP2_SETTINGS_MAX_FRAME_SIZE);
   this->sm_reader               = reader ? reader : this->read_buffer->alloc_reader();
 
-  this->write_buffer        = new_MIOBuffer(HTTP2_HEADER_BUFFER_SIZE_INDEX);
-  this->write_buffer_reader = this->write_buffer->alloc_reader();
+  this->write_buffer             = new_MIOBuffer(BUFFER_SIZE_INDEX_32K);
+  this->write_buffer->water_mark = HTTP2_FRAME_HEADER_LEN;
+  this->write_buffer_reader      = this->write_buffer->alloc_reader();
 
   do_api_callout(TS_HTTP_SSN_START_HOOK);
 }
@@ -658,5 +659,9 @@ Http2ClientSession::_should_do_something_else()
 int64_t
 Http2ClientSession::write_avail()
 {
+  Debug("http2", "current_write_avail=%" PRId64 " high_water=%d current_low_water=%d will_add_block?=%d",
+        this->write_buffer->current_write_avail(), this->write_buffer->high_water(), this->write_buffer->current_low_water(),
+        (!this->write_buffer->high_water() && this->write_buffer->current_low_water()));
+
   return this->write_buffer->write_avail();
 }

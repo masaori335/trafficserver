@@ -976,6 +976,16 @@ public:
   void append_fast_allocated(void *b, int64_t len, int64_t fast_size_index);
 
   /**
+    Write to the current block. Do not add new block.
+
+    @param buf buffer to write
+    @param buf_len length of given buffer
+
+    @return how much written to the current block
+   */
+  int64_t write2(const char *buf, const int64_t buf_len);
+
+  /**
     Adds the nbytes worth of data pointed by rbuf to the buffer. The
     data is copied into the buffer. write() does not respect watermarks
     or buffer size limits. Users of write must implement their own flow

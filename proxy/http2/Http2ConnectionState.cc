@@ -45,7 +45,7 @@
 
 using http2_frame_dispatch = Http2Error (*)(Http2ConnectionState &, const Http2Frame &);
 
-static const int buffer_size_index[HTTP2_FRAME_TYPE_MAX] = {
+static constexpr int buffer_size_index[HTTP2_FRAME_TYPE_MAX] = {
   BUFFER_SIZE_INDEX_16K, // HTTP2_FRAME_TYPE_DATA
   BUFFER_SIZE_INDEX_16K, // HTTP2_FRAME_TYPE_HEADERS
   -1,                    // HTTP2_FRAME_TYPE_PRIORITY
@@ -57,6 +57,9 @@ static const int buffer_size_index[HTTP2_FRAME_TYPE_MAX] = {
   BUFFER_SIZE_INDEX_128, // HTTP2_FRAME_TYPE_WINDOW_UPDATE
   BUFFER_SIZE_INDEX_16K, // HTTP2_FRAME_TYPE_CONTINUATION
 };
+
+static constexpr int64_t MAX_DATA_FRAME_PAYLOAD_LEN =
+  BUFFER_SIZE_FOR_INDEX(buffer_size_index[HTTP2_FRAME_TYPE_DATA]) - HTTP2_FRAME_HEADER_LEN;
 
 inline static unsigned
 read_rcv_buffer(char *buf, size_t bufsize, unsigned &nbytes, const Http2Frame &frame)
@@ -1438,26 +1441,30 @@ Http2ConnectionState::send_data_frames_depends_on_priority()
 Http2SendDataFrameResult
 Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_length)
 {
-  const ssize_t window_size         = std::min(this->client_rwnd(), stream->client_rwnd());
-  const size_t buf_len              = BUFFER_SIZE_FOR_INDEX(buffer_size_index[HTTP2_FRAME_TYPE_DATA]);
-  const size_t write_available_size = std::min(buf_len, static_cast<size_t>(window_size));
-  payload_length                    = 0;
+  payload_length = 0;
+
+  SCOPED_MUTEX_LOCK(lock, this->ua_session->mutex, this_ethread());
+  int64_t buf_len = this->ua_session->write_avail();
+  if (buf_len < static_cast<int64_t>(HTTP2_FRAME_HEADER_LEN)) {
+    Http2StreamDebug(this->ua_session, stream->get_id(), "Not write avail");
+    return Http2SendDataFrameResult::NOT_WRITE_AVAIL;
+  }
+
+  // frame header will be written this buffer later
+  buf_len = buf_len - HTTP2_FRAME_HEADER_LEN;
+
+  const ssize_t window_size = std::min(this->client_rwnd(), stream->client_rwnd());
+  buf_len                   = std::min(buf_len, static_cast<int64_t>(window_size));
+  buf_len                   = std::min(buf_len, MAX_DATA_FRAME_PAYLOAD_LEN);
 
   uint8_t flags = 0x00;
   uint8_t payload_buffer[buf_len];
-  IOBufferReader *current_reader = stream->response_get_data_reader();
 
   SCOPED_MUTEX_LOCK(stream_lock, stream->mutex, this_ethread());
-
+  IOBufferReader *current_reader = stream->response_get_data_reader();
   if (!current_reader) {
     Http2StreamDebug(this->ua_session, stream->get_id(), "couldn't get data reader");
     return Http2SendDataFrameResult::ERROR;
-  }
-
-  SCOPED_MUTEX_LOCK(lock, this->ua_session->mutex, this_ethread());
-  if (this->ua_session->write_avail() == 0) {
-    Http2StreamDebug(this->ua_session, stream->get_id(), "Not write avail");
-    return Http2SendDataFrameResult::NOT_WRITE_AVAIL;
   }
 
   // Select appropriate payload length
@@ -1468,8 +1475,8 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
       return Http2SendDataFrameResult::NO_WINDOW;
     }
     // Copy into the payload buffer. Seems like we should be able to skip this copy step
-    payload_length = write_available_size;
-    payload_length = current_reader->read(payload_buffer, static_cast<int64_t>(write_available_size));
+    payload_length = buf_len;
+    payload_length = current_reader->read(payload_buffer, buf_len);
   } else {
     payload_length = 0;
   }
