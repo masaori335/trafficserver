@@ -208,7 +208,8 @@ Http2ClientSession::new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOB
   this->read_buffer->water_mark = connection_state.server_settings.get(HTTP2_SETTINGS_MAX_FRAME_SIZE);
   this->sm_reader               = reader ? reader : this->read_buffer->alloc_reader();
 
-  this->write_buffer             = new_MIOBuffer(BUFFER_SIZE_INDEX_32K);
+  // Trade-off of performance vs memory usage
+  this->write_buffer             = new_MIOBuffer(BUFFER_SIZE_INDEX_128K);
   this->write_buffer->water_mark = HTTP2_FRAME_HEADER_LEN;
   this->write_buffer_reader      = this->write_buffer->alloc_reader();
 
