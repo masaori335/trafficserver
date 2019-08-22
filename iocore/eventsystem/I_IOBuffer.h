@@ -986,6 +986,18 @@ public:
   int64_t write2(const char *buf, const int64_t buf_len);
 
   /**
+    Copy buf from the reader to the buffer.
+    - Do not add new block.
+    - Do not clone block from reader.
+
+    @param reader copy source
+    @param len copy length
+
+    @return how much written to the current block
+   */
+  int64_t write2(IOBufferReader *reader, const int64_t len);
+
+  /**
     Adds the nbytes worth of data pointed by rbuf to the buffer. The
     data is copied into the buffer. write() does not respect watermarks
     or buffer size limits. Users of write must implement their own flow

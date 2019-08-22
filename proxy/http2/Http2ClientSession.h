@@ -130,8 +130,7 @@ public:
     http2_write_frame_header(hdr, make_iovec(buf));
 
     uint64_t written = 0;
-    Debug("http2", "b=%p current_write_avail=%" PRId64, iobuffer->buf(), iobuffer->current_write_avail());
-    written = iobuffer->write2(reinterpret_cast<char *>(buf), sizeof(buf));
+    written          = iobuffer->write2(reinterpret_cast<char *>(buf), sizeof(buf));
     Debug("http2", "b=%p current_write_avail=%" PRId64 " written=%" PRId64, iobuffer->buf(), iobuffer->current_write_avail(),
           written);
 
@@ -312,6 +311,7 @@ public:
   // Record history from Http2ConnectionState
   void remember(const SourceLocation &location, int event, int reentrant = NO_REENTRANT);
 
+  int64_t write_frame(const Http2FrameHeader &frame_hdr, IOBufferReader *reader);
   int64_t write_avail();
 
   // noncopyable

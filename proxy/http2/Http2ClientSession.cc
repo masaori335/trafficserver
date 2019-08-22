@@ -665,3 +665,35 @@ Http2ClientSession::write_avail()
 
   return this->write_buffer->write_avail();
 }
+
+int64_t
+Http2ClientSession::write_frame(const Http2FrameHeader &frame_hdr, IOBufferReader *reader)
+{
+  // write Frame Header
+  uint8_t buf[HTTP2_FRAME_HEADER_LEN];
+  http2_write_frame_header(frame_hdr, make_iovec(buf));
+
+  uint64_t written = 0;
+  written          = this->write_buffer->write2(reinterpret_cast<char *>(buf), sizeof(buf));
+  Debug("http2", "b=%p current_write_avail=%" PRId64 " written=%" PRId64, this->write_buffer->buf(),
+        this->write_buffer->current_write_avail(), written);
+
+  // write Frame Payload
+  if (frame_hdr.length > 0) {
+    Debug("http2", "read_avail=%" PRId64 " length=%" PRIu32, reader->read_avail(), frame_hdr.length);
+
+    ink_release_assert(reader->is_read_avail_more_than(frame_hdr.length - 1));
+
+    Debug("http2", "b=%p current_write_avail=%" PRId64, this->write_buffer->buf(), this->write_buffer->current_write_avail());
+    written += this->write_buffer->write2(reader, frame_hdr.length);
+    Debug("http2", "b=%p current_write_avail=%" PRId64 " written=%" PRId64, this->write_buffer->buf(),
+          this->write_buffer->current_write_avail(), written);
+  }
+
+  // reenable vio
+  this->total_write_len += written;
+  this->write_vio->nbytes = total_write_len;
+  this->write_vio->reenable();
+
+  return written;
+}

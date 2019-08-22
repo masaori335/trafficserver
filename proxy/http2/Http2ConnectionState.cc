@@ -1458,7 +1458,6 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
   buf_len                   = std::min(buf_len, MAX_DATA_FRAME_PAYLOAD_LEN);
 
   uint8_t flags = 0x00;
-  uint8_t payload_buffer[buf_len];
 
   SCOPED_MUTEX_LOCK(stream_lock, stream->mutex, this_ethread());
   IOBufferReader *current_reader = stream->response_get_data_reader();
@@ -1474,9 +1473,8 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
       Http2StreamDebug(this->ua_session, stream->get_id(), "No window");
       return Http2SendDataFrameResult::NO_WINDOW;
     }
-    // Copy into the payload buffer. Seems like we should be able to skip this copy step
-    payload_length = buf_len;
-    payload_length = current_reader->read(payload_buffer, buf_len);
+    // TODO: add new api to stop calling read_avail();
+    payload_length = std::min(buf_len, current_reader->read_avail());
   } else {
     payload_length = 0;
   }
@@ -1501,21 +1499,17 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
   Http2StreamDebug(ua_session, stream->get_id(), "Send a DATA frame - client window con: %5zd stream: %5zd payload: %5zd",
                    _client_rwnd, stream->client_rwnd(), payload_length);
 
-  Http2Frame data(HTTP2_FRAME_TYPE_DATA, stream->get_id(), flags);
-  data.alloc(buffer_size_index[HTTP2_FRAME_TYPE_DATA]);
-  http2_write_data(payload_buffer, payload_length, data.write());
-  data.finalize(payload_length);
+  Http2FrameHeader data_frame_hdr{static_cast<uint32_t>(payload_length), HTTP2_FRAME_TYPE_DATA, flags, stream->get_id()};
+  int64_t written = ua_session->write_frame(data_frame_hdr, current_reader);
+  ink_release_assert(written == static_cast<int64_t>(HTTP2_FRAME_HEADER_LEN + payload_length));
 
   stream->update_sent_count(payload_length);
-
-  // xmit event
-  this->ua_session->handleEvent(HTTP2_SESSION_EVENT_XMIT, &data);
 
   if (flags & HTTP2_FLAGS_DATA_END_STREAM) {
     Http2StreamDebug(ua_session, stream->get_id(), "End of DATA frame");
     stream->send_end_stream = true;
     // Setting to the same state shouldn't be erroneous
-    stream->change_state(data.header().type, data.header().flags);
+    stream->change_state(HTTP2_FRAME_TYPE_DATA, flags);
 
     return Http2SendDataFrameResult::DONE;
   }
