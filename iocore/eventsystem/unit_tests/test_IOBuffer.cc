@@ -173,6 +173,46 @@ TEST_CASE("MIOBuffer", "[iocore]")
 
     free_MIOBuffer(miob);
   }
+
+  SECTION("append_block(IOBufferBlock *b)")
+  {
+    MIOBuffer *miob                     = new_MIOBuffer();
+    IOBufferReader *miob_r              = miob->alloc_reader();
+    const IOBufferBlock *initial_writer = miob->first_write_block();
+
+    uint8_t buf_a[8192];
+    uint8_t buf_b[8192];
+
+    memset(buf_a, 0xAA, sizeof(buf_a));
+    memset(buf_b, 0xBB, sizeof(buf_b));
+
+    IOBufferBlock *block = new_IOBufferBlock();
+    block->alloc(miob->size_index);
+    memcpy(block->end(), buf_a, 4096);
+    block->fill(4096);
+
+    CHECK(miob->write_avail() == 4096);
+
+    // append block
+    miob->append_block(block);
+
+    CHECK(miob->max_read_avail() == 4096);
+    CHECK(initial_writer != miob->first_write_block());
+
+    // write block
+    miob->write(buf_b, 4096);
+
+    CHECK(miob->max_read_avail() == 8192);
+
+    // read all of the data
+    uint8_t dst[8192] = {0};
+    miob_r->read(dst, 8192);
+
+    CHECK(memcmp(dst, buf_a, 4096) == 0);
+    CHECK(memcmp(dst + 4096, buf_b, 4096) == 0);
+
+    free_MIOBuffer(miob);
+  }
 }
 
 struct EventProcessorListener : Catch::TestEventListenerBase {
