@@ -391,6 +391,8 @@ public:
   static uint32_t con_slow_log_threshold;
   static uint32_t stream_slow_log_threshold;
   static uint32_t header_table_size_limit;
+  static uint32_t flow_control_high_water;
+  static uint32_t flow_control_low_water;
 
   static void init();
 };

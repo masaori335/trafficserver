@@ -736,7 +736,7 @@ uint32_t Http2::min_concurrent_streams_in      = 10;
 uint32_t Http2::max_active_streams_in          = 0;
 bool Http2::throttling                         = false;
 uint32_t Http2::stream_priority_enabled        = 0;
-uint32_t Http2::initial_window_size            = 1048576;
+uint32_t Http2::initial_window_size            = 65535;
 uint32_t Http2::max_frame_size                 = 16384;
 uint32_t Http2::header_table_size              = 4096;
 uint32_t Http2::max_header_list_size           = 4294967295;
@@ -755,6 +755,8 @@ float Http2::min_avg_window_update             = 2560.0;
 uint32_t Http2::con_slow_log_threshold         = 0;
 uint32_t Http2::stream_slow_log_threshold      = 0;
 uint32_t Http2::header_table_size_limit        = 65536;
+uint32_t Http2::flow_control_high_water        = 0;
+uint32_t Http2::flow_control_low_water         = 0;
 
 void
 Http2::init()
@@ -763,7 +765,15 @@ Http2::init()
   REC_EstablishStaticConfigInt32U(min_concurrent_streams_in, "proxy.config.http2.min_concurrent_streams_in");
   REC_EstablishStaticConfigInt32U(max_active_streams_in, "proxy.config.http2.max_active_streams_in");
   REC_EstablishStaticConfigInt32U(stream_priority_enabled, "proxy.config.http2.stream_priority_enabled");
+
+  // Flow Control Settings
+  // should be constant as spec value in favor of flow_contorol_(high|low)_water config?
   REC_EstablishStaticConfigInt32U(initial_window_size, "proxy.config.http2.initial_window_size_in");
+  REC_EstablishStaticConfigInt32U(flow_control_high_water, "proxy.config.http2.flow_control.high_water");
+  REC_EstablishStaticConfigInt32U(flow_control_low_water, "proxy.config.http2.flow_control.low_water");
+
+  ink_release_assert(flow_control_low_water <= flow_control_high_water);
+
   REC_EstablishStaticConfigInt32U(max_frame_size, "proxy.config.http2.max_frame_size");
   REC_EstablishStaticConfigInt32U(header_table_size, "proxy.config.http2.header_table_size");
   REC_EstablishStaticConfigInt32U(max_header_list_size, "proxy.config.http2.max_header_list_size");

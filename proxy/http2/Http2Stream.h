@@ -51,8 +51,7 @@ class Http2Stream : public ProxyTransaction
 public:
   using super = ProxyTransaction; ///< Parent type.
 
-  Http2Stream(Http2StreamId sid = 0, ssize_t initial_rwnd = Http2::initial_window_size);
-
+  Http2Stream();
   void init(Http2StreamId sid, ssize_t initial_rwnd);
 
   int main_event_handler(int event, void *edata);
@@ -121,6 +120,10 @@ public:
   bool has_trailing_header() const;
   void set_request_headers(HTTPHdr &h2_headers);
 
+  bool is_read_vio_high_water() const;
+  bool is_read_vio_low_water() const;
+  int64_t read_vio_read_avail() const;
+
   //////////////////
   // Variables
   uint8_t *header_blocks        = nullptr;
@@ -155,8 +158,8 @@ private:
   bool _switch_thread_if_not_on_right_thread(int event, void *edata);
 
   HTTPParser http_parser;
-  EThread *_thread = nullptr;
-  Http2StreamId _id;
+  EThread *_thread        = nullptr;
+  Http2StreamId _id       = 0;
   Http2StreamState _state = Http2StreamState::HTTP2_STREAM_STATE_IDLE;
   int64_t _http_sm_id     = -1;
 
@@ -195,8 +198,8 @@ private:
   uint64_t data_length = 0;
   uint64_t bytes_sent  = 0;
 
-  ssize_t _client_rwnd;
-  ssize_t _server_rwnd = Http2::initial_window_size;
+  ssize_t _client_rwnd = 0;
+  ssize_t _server_rwnd = 0;
 
   std::vector<size_t> _recent_rwnd_increment = {SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX};
   int _recent_rwnd_increment_index           = 0;

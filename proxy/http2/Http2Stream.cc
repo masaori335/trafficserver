@@ -38,7 +38,7 @@
 
 ClassAllocator<Http2Stream> http2StreamAllocator("http2StreamAllocator");
 
-Http2Stream::Http2Stream(Http2StreamId sid, ssize_t initial_rwnd) : _id(sid), _client_rwnd(initial_rwnd)
+Http2Stream::Http2Stream()
 {
   SET_HANDLER(&Http2Stream::main_event_handler);
 }
@@ -51,6 +51,7 @@ Http2Stream::init(Http2StreamId sid, ssize_t initial_rwnd)
   this->_id          = sid;
   this->_thread      = this_ethread();
   this->_client_rwnd = initial_rwnd;
+  this->_server_rwnd = Http2::initial_window_size;
 
   _reader = request_reader = request_buffer.alloc_reader();
   // FIXME: Are you sure? every "stream" needs request_header?
@@ -164,6 +165,7 @@ Http2Stream::main_event_handler(int event, void *edata)
     }
     break;
   }
+
   reentrancy_count--;
   // Clean stream up if the terminate flag is set and we are at the bottom of the handler stack
   terminate_if_possible();
@@ -531,6 +533,7 @@ Http2Stream::update_read_request(int64_t read_len, bool call_update, bool check_
       if (num_to_read > read_len) {
         num_to_read = read_len;
       }
+
       if (num_to_read > 0) {
         int bytes_added = read_vio.buffer.writer()->write(request_reader, num_to_read);
         if (bytes_added > 0 || (check_eos && recv_end_stream)) {
@@ -720,6 +723,13 @@ Http2Stream::reenable(VIO *vio)
       update_write_request(vio->get_reader(), INT64_MAX, true);
     } else if (vio->op == VIO::READ) {
       SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
+
+      // Re-enable read when data in the buffer is less than the low water mark
+      if (this->is_read_vio_low_water()) {
+        Http2ClientSession *ssn = static_cast<Http2ClientSession *>(this->get_proxy_ssn());
+        ssn->connection_state.restart_receiving(this);
+      }
+
       update_read_request(INT64_MAX, true);
     }
   }
@@ -995,4 +1005,39 @@ Http2Stream::get_transaction_priority_dependence() const
   } else {
     return priority_node->parent ? priority_node->parent->id : 0;
   }
+}
+
+bool
+Http2Stream::is_read_vio_high_water() const
+{
+  MIOBuffer *writer = this->read_vio.get_writer();
+  // TODO: replace with MIOBuffer::is_max_read_avail_more_than(int64_t size)
+  if (writer) {
+    return writer->max_read_avail() > Http2::flow_control_high_water;
+  }
+
+  return false;
+}
+
+bool
+Http2Stream::is_read_vio_low_water() const
+{
+  MIOBuffer *writer = this->read_vio.get_writer();
+  // TODO: replace with MIOBuffer::is_max_read_avail_more_than(int64_t size)
+  if (writer) {
+    return writer->max_read_avail() <= Http2::flow_control_low_water;
+  }
+
+  return false;
+}
+
+int64_t
+Http2Stream::read_vio_read_avail() const
+{
+  MIOBuffer *writer = this->read_vio.get_writer();
+  if (writer) {
+    return writer->max_read_avail();
+  }
+
+  return 0;
 }

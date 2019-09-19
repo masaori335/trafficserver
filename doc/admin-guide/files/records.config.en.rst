@@ -3594,7 +3594,7 @@ HTTP/2 Configuration
    :ts:cv:`proxy.config.http2.min_concurrent_streams_in`.
    To disable, set to zero (``0``).
 
-.. ts:cv:: CONFIG proxy.config.http2.initial_window_size_in INT 1048576
+.. ts:cv:: CONFIG proxy.config.http2.initial_window_size_in INT 65535
    :reloadable:
 
    The initial window size for inbound connections.
@@ -3724,6 +3724,19 @@ HTTP/2 Configuration
    Clients that send smaller window increments lower than this limit will be immediately disconnected with an error
    code of ENHANCE_YOUR_CALM.
 
+.. ts:cv:: CONFIG proxy.config.http2.flow_control.high_water INT 65536
+   :units: bytes
+   :overridable:
+
+   The high water mark for HTTP/2 stream level flow control. Receiving DATA frame is halted when the total buffer space in use by
+   the HTTP/2 stream exceeds this value.
+
+.. ts:cv:: CONFIG proxy.config.http2.flow_control.low_water INT 16384
+   :units: bytes
+   :overridable:
+
+   The low water mark for HTTP/2 stream level flow control. Receiving DATA frame is resumed when the total buffer space in use by
+   the HTTP/2 stream is no more than this value.
 
 HTTP/3 Configuration
 ====================
