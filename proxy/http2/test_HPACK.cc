@@ -130,6 +130,7 @@ compare_header_fields(HTTPHdr *a, HTTPHdr *b)
 {
   // compare fields count
   if (a->fields_count() != b->fields_count()) {
+    cerr << "fields count didn't match: " << a->fields_count() << " vs " << b->fields_count() << endl;
     return -1;
   }
 
@@ -170,7 +171,7 @@ compare_header_fields(HTTPHdr *a, HTTPHdr *b)
 int
 test_decoding(const string &filename)
 {
-  HpackIndexingTable indexing_table(INITIAL_TABLE_SIZE);
+  HpackIndexingTable indexing_table(INITIAL_TABLE_SIZE, HpackIndexingTable::Context::DECODING);
   string line, name, value;
   uint8_t unpacked[8192];
   size_t unpacked_len;
@@ -223,7 +224,8 @@ test_decoding(const string &filename)
 int
 test_encoding(const string &filename_in, const string &filename_out)
 {
-  HpackIndexingTable indexing_table_for_encoding(INITIAL_TABLE_SIZE), indexing_table_for_decoding(INITIAL_TABLE_SIZE);
+  HpackIndexingTable indexing_table_for_encoding(INITIAL_TABLE_SIZE, HpackIndexingTable::Context::ENCODING);
+  HpackIndexingTable indexing_table_for_decoding(INITIAL_TABLE_SIZE, HpackIndexingTable::Context::DECODING);
   string line, name, value;
   uint8_t encoded[8192];
   const uint64_t encoded_len = sizeof(encoded);
@@ -300,11 +302,17 @@ test_encoding(const string &filename_in, const string &filename_out)
   // Check the final sequence
   written = hpack_encode_header_block(indexing_table_for_encoding, encoded, encoded_len, &original);
   if (written == -1) {
+    cerr << "Failed on encoding" << endl;
+    ts::LocalBufferWriter<1024> w;
+    w.reset().print("{}", ts::bwf::Hex_Dump(encoded));
+    cerr << w.data() << endl;
+
     result = seqnum;
     return result;
   }
   hpack_decode_header_block(indexing_table_for_decoding, &decoded, encoded, written, MAX_REQUEST_HEADER_SIZE, MAX_TABLE_SIZE);
   if (compare_header_fields(&decoded, &original) != 0) {
+    cerr << "Failed on decoding" << endl;
     result = seqnum;
     return result;
   }

@@ -130,8 +130,9 @@ public:
   void
   init()
   {
-    local_hpack_handle  = new HpackHandle(HTTP2_HEADER_TABLE_SIZE);
-    remote_hpack_handle = new HpackHandle(HTTP2_HEADER_TABLE_SIZE);
+    // TODO:: Make these hanldes member of ConnectionState
+    local_hpack_handle  = new HpackHandle(HTTP2_HEADER_TABLE_SIZE, HpackHandle::Context::DECODING);
+    remote_hpack_handle = new HpackHandle(HTTP2_HEADER_TABLE_SIZE, HpackHandle::Context::ENCODING);
     if (Http2::stream_priority_enabled) {
       dependency_tree = new DependencyTree(Http2::max_concurrent_streams_in);
     }

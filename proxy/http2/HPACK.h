@@ -29,6 +29,7 @@
 #include "../hdrs/XPACK.h"
 
 #include <deque>
+#include <unordered_map>
 
 // It means that any header field can be compressed/decompressed by ATS
 const static int HPACK_ERROR_COMPRESSION_ERROR   = -1;
@@ -170,48 +171,65 @@ private:
   MIMEHdrImpl *_mh;
 };
 
-// [RFC 7541] 2.3.2. Dynamic Table
-class HpackDynamicTable
-{
-public:
-  explicit HpackDynamicTable(uint32_t size) : _current_size(0), _maximum_size(size)
-  {
-    _mhdr = new MIMEHdr();
-    _mhdr->create();
-  }
-
-  ~HpackDynamicTable();
-
-  // noncopyable
-  HpackDynamicTable(HpackDynamicTable &) = delete;
-  HpackDynamicTable &operator=(const HpackDynamicTable &) = delete;
-
-  const MIMEField *get_header_field(uint32_t index) const;
-  void add_header_field(const MIMEField *field);
-
-  uint32_t maximum_size() const;
-  uint32_t size() const;
-  bool update_maximum_size(uint32_t new_size);
-
-  uint32_t length() const;
-
-private:
-  bool _evict_overflowed_entries();
-  void _mime_hdr_gc();
-
-  uint32_t _current_size = 0;
-  uint32_t _maximum_size = 0;
-
-  MIMEHdr *_mhdr     = nullptr;
-  MIMEHdr *_mhdr_old = nullptr;
-  std::deque<MIMEField *> _headers;
-};
-
 // [RFC 7541] 2.3. Indexing Table
 class HpackIndexingTable
 {
 public:
-  explicit HpackIndexingTable(uint32_t size) { _dynamic_table = new HpackDynamicTable(size); }
+  enum class Context {
+    NONE,
+    DECODING,
+    ENCODING,
+  };
+
+  // [RFC 7541] 2.3.2. Dynamic Table
+  class HpackDynamicTable
+  {
+  public:
+    explicit HpackDynamicTable(uint32_t size, Context c) : _maximum_size(size), _context(c)
+    {
+      _mhdr = new MIMEHdr();
+      _mhdr->create();
+    }
+
+    ~HpackDynamicTable();
+
+    // noncopyable
+    HpackDynamicTable(HpackDynamicTable &) = delete;
+    HpackDynamicTable &operator=(const HpackDynamicTable &) = delete;
+
+    const MIMEField *get_header_field(uint32_t index) const;
+    void add_header_field(const MIMEField *field);
+    HpackLookupResult lookup(const char *name, int name_len, const char *value, int value_len) const;
+
+    uint32_t maximum_size() const;
+    uint32_t size() const;
+    bool update_maximum_size(uint32_t new_size);
+    uint32_t length() const;
+
+  private:
+    bool _evict_overflowed_entries();
+    void _mime_hdr_gc();
+    uint32_t _index(uint32_t index) const;
+
+    uint32_t _current_size = 0;
+    uint32_t _maximum_size = 0;
+    Context _context       = Context::NONE;
+
+    MIMEHdr *_mhdr     = nullptr;
+    MIMEHdr *_mhdr_old = nullptr;
+    std::deque<MIMEField *> _headers;
+
+    // TODO: measure memory usage
+    std::unordered_multimap<std::string_view, std::pair<std::string_view, uint32_t>> _lookup_table;
+    uint32_t _abs_index = 0;
+    uint32_t _offset    = 0;
+  };
+
+  explicit HpackIndexingTable(uint32_t size, Context c)
+  {
+    // TODO: Make DynamicTable a member of Hpack
+    _dynamic_table = new HpackDynamicTable(size, c);
+  }
   ~HpackIndexingTable() { delete _dynamic_table; }
 
   // noncopyable
