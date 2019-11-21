@@ -175,10 +175,8 @@ HpackIndexingTable::lookup(const MIMEFieldWrapper &field) const
 HpackLookupResult
 HpackIndexingTable::lookup(const char *name, int name_len, const char *value, int value_len) const
 {
-  HpackLookupResult result;
-
   // static table
-  result = this->_lookup_static_table(name, name_len, value, value_len);
+  HpackLookupResult result = this->_lookup_static_table(name, name_len, value, value_len);
 
   // if match type is NAME, lookup dynamic table for exact match
   if (result.match_type == HpackMatch::EXACT) {
@@ -186,26 +184,12 @@ HpackIndexingTable::lookup(const char *name, int name_len, const char *value, in
   }
 
   // dynamic table
-  const uint32_t entry_num = TS_HPACK_STATIC_TABLE_ENTRY_NUM + _dynamic_table->length();
+  if (HpackLookupResult dt_result = this->_dynamic_table->lookup(name, name_len, value, value_len);
+      dt_result.match_type == HpackMatch::EXACT) {
+    // Convert index from dynamic table space to indexing table space
+    dt_result.index += TS_HPACK_STATIC_TABLE_ENTRY_NUM;
 
-  for (uint32_t index = TS_HPACK_STATIC_TABLE_ENTRY_NUM; index < entry_num; ++index) {
-    const char *table_name, *table_value;
-    int table_name_len = 0, table_value_len = 0;
-
-    const MIMEField *m_field = _dynamic_table->get_header_field(index - TS_HPACK_STATIC_TABLE_ENTRY_NUM);
-
-    table_name  = m_field->name_get(&table_name_len);
-    table_value = m_field->value_get(&table_value_len);
-
-    // Check whether name (and value) are matched
-    if (ptr_len_casecmp(name, name_len, table_name, table_name_len) == 0) {
-      if ((value_len == table_value_len) && (memcmp(value, table_value, value_len) == 0)) {
-        result = {index, HpackIndex::DYNAMIC, HpackMatch::EXACT};
-        break;
-      } else if (!result.index) {
-        result = {index, HpackIndex::DYNAMIC, HpackMatch::NAME};
-      }
-    }
+    return dt_result;
   }
 
   return result;
@@ -668,7 +652,7 @@ HpackIndexingTable::_lookup_value(HpackStaticTableIndex begin, HpackStaticTableI
 //
 // HpackDynamicTable
 //
-HpackDynamicTable::~HpackDynamicTable()
+HpackIndexingTable::HpackDynamicTable::~HpackDynamicTable()
 {
   this->_headers.clear();
 
@@ -684,18 +668,17 @@ HpackDynamicTable::~HpackDynamicTable()
 }
 
 const MIMEField *
-HpackDynamicTable::get_header_field(uint32_t index) const
+HpackIndexingTable::HpackDynamicTable::get_header_field(uint32_t index) const
 {
   return this->_headers.at(index);
 }
 
 void
-HpackDynamicTable::add_header_field(const MIMEField *field)
+HpackIndexingTable::HpackDynamicTable::add_header_field(const MIMEField *field)
 {
-  int name_len, value_len;
-  const char *name     = field->name_get(&name_len);
-  const char *value    = field->value_get(&value_len);
-  uint32_t header_size = ADDITIONAL_OCTETS + name_len + value_len;
+  std::string_view name  = field->name_get();
+  std::string_view value = field->value_get();
+  uint32_t header_size   = ADDITIONAL_OCTETS + name.size() + value.size();
 
   if (header_size > _maximum_size) {
     // [RFC 7541] 4.4. Entry Eviction When Adding New Entries
@@ -709,21 +692,61 @@ HpackDynamicTable::add_header_field(const MIMEField *field)
     this->_current_size += header_size;
     this->_evict_overflowed_entries();
 
-    MIMEField *new_field = this->_mhdr->field_create(name, name_len);
-    new_field->value_set(this->_mhdr->m_heap, this->_mhdr->m_mime, value, value_len);
+    // Copy @field to current HdrHeap
+    MIMEField *new_field = this->_mhdr->field_create(name.data(), name.size());
+    new_field->value_set(this->_mhdr->m_heap, this->_mhdr->m_mime, value.data(), value.size());
     this->_mhdr->field_attach(new_field);
     this->_headers.push_front(new_field);
+
+    // TODO: figure out deal with wks
+    if (this->_context == HpackIndexingTable::Context::ENCODING) {
+      uint32_t index = this->_abs_index++;
+
+      // Get pointers of pushed header field
+      std::string_view new_name  = new_field->name_get();
+      std::string_view new_value = new_field->value_get();
+
+      Debug("hpack_encode", "name=%.*s value=%.*s index=%" PRId32, static_cast<int>(new_name.size()), new_name.data(),
+            static_cast<int>(new_value.size()), new_value.data(), index);
+
+      this->_lookup_table.insert(std::make_pair(new_name, std::make_pair(new_value, index)));
+    }
   }
 }
 
+HpackLookupResult
+HpackIndexingTable::HpackDynamicTable::lookup(const char *name, int name_len, const char *value, int value_len) const
+{
+  ink_assert(this->_context == HpackIndexingTable::Context::ENCODING);
+
+  auto range = this->_lookup_table.equal_range(std::string_view(name, name_len));
+  if (range.first == this->_lookup_table.end()) {
+    return {0, HpackIndex::NONE, HpackMatch::NONE};
+  }
+
+  uint32_t index = 0;
+  for (auto it = range.first; it != range.second; ++it) {
+    index = it->second.second;
+    if (it->second.first.compare(std::string_view(value, value_len)) == 0) {
+      Debug("hpack_encode", "name=%.*s value=%.*s %p", name_len, name, value_len, value, it->second.first.data());
+
+      index = this->_index(index);
+      return {index, HpackIndex::DYNAMIC, HpackMatch::EXACT};
+    }
+  }
+
+  index = this->_index(index);
+  return {index, HpackIndex::DYNAMIC, HpackMatch::NAME};
+}
+
 uint32_t
-HpackDynamicTable::maximum_size() const
+HpackIndexingTable::HpackDynamicTable::maximum_size() const
 {
   return _maximum_size;
 }
 
 uint32_t
-HpackDynamicTable::size() const
+HpackIndexingTable::HpackDynamicTable::size() const
 {
   return _current_size;
 }
@@ -736,20 +759,20 @@ HpackDynamicTable::size() const
 // header table is less than or equal to the maximum size.
 //
 bool
-HpackDynamicTable::update_maximum_size(uint32_t new_size)
+HpackIndexingTable::HpackDynamicTable::update_maximum_size(uint32_t new_size)
 {
   this->_maximum_size = new_size;
   return this->_evict_overflowed_entries();
 }
 
 uint32_t
-HpackDynamicTable::length() const
+HpackIndexingTable::HpackDynamicTable::length() const
 {
   return this->_headers.size();
 }
 
 bool
-HpackDynamicTable::_evict_overflowed_entries()
+HpackIndexingTable::HpackDynamicTable::_evict_overflowed_entries()
 {
   if (this->_current_size <= this->_maximum_size) {
     // Do nothing
@@ -757,13 +780,26 @@ HpackDynamicTable::_evict_overflowed_entries()
   }
 
   for (auto h = this->_headers.rbegin(); h != this->_headers.rend(); ++h) {
-    int name_len, value_len;
-    (*h)->name_get(&name_len);
-    (*h)->value_get(&value_len);
+    std::string_view name  = (*h)->name_get();
+    std::string_view value = (*h)->value_get();
 
-    this->_current_size -= ADDITIONAL_OCTETS + name_len + value_len;
+    Debug("hpack_encode", "name=%.*s value=%.*s", static_cast<int>(name.size()), name.data(), static_cast<int>(value.size()),
+          value.data());
+
+    this->_current_size -= ADDITIONAL_OCTETS + name.size() + value.size();
     this->_mhdr->field_delete(*h, false);
     this->_headers.pop_back();
+
+    if (this->_context == HpackIndexingTable::Context::ENCODING) {
+      auto range = this->_lookup_table.equal_range(name);
+      for (auto it = range.first; it != range.second; ++it) {
+        if (it->second.first.compare(value) == 0) {
+          this->_lookup_table.erase(it);
+          this->_offset++;
+          break;
+        }
+      }
+    }
 
     if (this->_current_size <= this->_maximum_size) {
       break;
@@ -784,7 +820,7 @@ HpackDynamicTable::_evict_overflowed_entries()
    The old MIMEHdr and HdrHeap will be freed, when all MIMEFiled are deleted by HPACK Entry Eviction.
  */
 void
-HpackDynamicTable::_mime_hdr_gc()
+HpackIndexingTable::HpackDynamicTable::_mime_hdr_gc()
 {
   if (this->_mhdr_old == nullptr) {
     if (this->_mhdr->m_heap->total_used_size() >= HPACK_HDR_HEAP_THRESHOLD) {
@@ -798,6 +834,17 @@ HpackDynamicTable::_mime_hdr_gc()
       this->_mhdr_old = nullptr;
     }
   }
+}
+
+/**
+   Calculate dynamic table index from absolute @index & offset
+ */
+uint32_t
+HpackIndexingTable::HpackDynamicTable::_index(uint32_t index) const
+{
+  ink_assert(this->_offset + this->length() >= index + 1);
+
+  return this->_offset + this->length() - index - 1;
 }
 
 int64_t
@@ -1213,8 +1260,8 @@ hpack_encode_header_block(HpackIndexingTable &indexing_table, uint8_t *out_buf, 
     MIMEFieldWrapper header(field, hdr->m_heap, hdr->m_http->m_fields_impl);
     int name_len;
     int value_len;
-    const char *name = header.name_get(&name_len);
-    header.value_get(&value_len);
+    const char *name  = header.name_get(&name_len);
+    const char *value = header.value_get(&value_len);
     // Choose field representation (See RFC7541 7.1.3)
     // - Authorization header obviously should not be indexed
     // - Short Cookie header should not be indexed because of low entropy
@@ -1224,16 +1271,22 @@ hpack_encode_header_block(HpackIndexingTable &indexing_table, uint8_t *out_buf, 
     } else {
       field_type = HpackField::INDEXED_LITERAL;
     }
+
+    Debug("hpack_encode", "name=%.*s value=%.*s", name_len, name, value_len, value);
+
     const HpackLookupResult result = indexing_table.lookup(header);
     switch (result.match_type) {
     case HpackMatch::NONE:
+      Debug("hpack_encode", "no match");
       written = encode_literal_header_field_with_new_name(cursor, out_buf_end, header, indexing_table, field_type);
       break;
     case HpackMatch::NAME:
+      Debug("hpack_encode", "name only match");
       written =
         encode_literal_header_field_with_indexed_name(cursor, out_buf_end, header, result.index, indexing_table, field_type);
       break;
     case HpackMatch::EXACT:
+      Debug("hpack_encode", "exact match");
       written = encode_indexed_header_field(cursor, out_buf_end, result.index);
       break;
     default:
