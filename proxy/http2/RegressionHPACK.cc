@@ -23,7 +23,10 @@
 
 #include "HPACK.h"
 #include "HuffmanCodec.h"
+
 #include "tscore/TestBox.h"
+#include "tscore/BufferWriter.h"
+#include "tscore/bwf_std_format.h"
 
 // Constants for regression test
 const static int DYNAMIC_TABLE_SIZE_FOR_REGRESSION_TEST = 256;
@@ -200,25 +203,25 @@ const static struct {
 } raw_field_response_test_case[][MAX_TEST_FIELD_NUM] = {
   {
     {(char *)":status", (char *)"302"},
-    {(char *)"cache-control", (char *)"private"},
-    {(char *)"date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
-    {(char *)"location", (char *)"https://www.example.com"},
+    {(char *)"Cache-Control", (char *)"private"},
+    {(char *)"Date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
+    {(char *)"Location", (char *)"https://www.example.com"},
     {(char *)"", (char *)""} // End of this test case
   },
   {
     {(char *)":status", (char *)"307"},
-    {(char *)"cache-control", (char *)"private"},
-    {(char *)"date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
-    {(char *)"location", (char *)"https://www.example.com"},
+    {(char *)"Cache-Control", (char *)"private"},
+    {(char *)"Date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
+    {(char *)"Location", (char *)"https://www.example.com"},
     {(char *)"", (char *)""} // End of this test case
   },
   {
     {(char *)":status", (char *)"200"},
-    {(char *)"cache-control", (char *)"private"},
-    {(char *)"date", (char *)"Mon, 21 Oct 2013 20:13:22 GMT"},
-    {(char *)"location", (char *)"https://www.example.com"},
-    {(char *)"content-encoding", (char *)"gzip"},
-    {(char *)"set-cookie", (char *)"foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1"},
+    {(char *)"Cache-Control", (char *)"private"},
+    {(char *)"Date", (char *)"Mon, 21 Oct 2013 20:13:22 GMT"},
+    {(char *)"Location", (char *)"https://www.example.com"},
+    {(char *)"Content-Encoding", (char *)"gzip"},
+    {(char *)"Set-Cookie", (char *)"foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1"},
     {(char *)"", (char *)""} // End of this test case
   }};
 const static struct {
@@ -261,23 +264,23 @@ const static struct {
   char *value;
 } dynamic_table_response_test_case[][MAX_TEST_FIELD_NUM] = {
   {
-    {63, (char *)"location", (char *)"https://www.example.com"},
-    {65, (char *)"date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
-    {52, (char *)"cache-control", (char *)"private"},
+    {63, (char *)"Location", (char *)"https://www.example.com"},
+    {65, (char *)"Date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
+    {52, (char *)"Cache-Control", (char *)"private"},
     {42, (char *)":status", (char *)"302"},
     {0, (char *)"", (char *)""} // End of this test case
   },
   {
     {42, (char *)":status", (char *)"307"},
-    {63, (char *)"location", (char *)"https://www.example.com"},
-    {65, (char *)"date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
-    {52, (char *)"cache-control", (char *)"private"},
+    {63, (char *)"Location", (char *)"https://www.example.com"},
+    {65, (char *)"Date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
+    {52, (char *)"Cache-Control", (char *)"private"},
     {0, (char *)"", (char *)""} // End of this test case
   },
   {
-    {98, (char *)"set-cookie", (char *)"foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1"},
-    {52, (char *)"content-encoding", (char *)"gzip"},
-    {65, (char *)"date", (char *)"Mon, 21 Oct 2013 20:13:22 GMT"},
+    {98, (char *)"Set-Cookie", (char *)"foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1"},
+    {52, (char *)"Content-Encoding", (char *)"gzip"},
+    {65, (char *)"Date", (char *)"Mon, 21 Oct 2013 20:13:22 GMT"},
     {0, (char *)"", (char *)""} // End of this test case
   }};
 
@@ -311,7 +314,7 @@ REGRESSION_TEST(HPACK_EncodeLiteralHeaderField)(RegressionTest *t, int, int *pst
 
   uint8_t buf[BUFSIZE_FOR_REGRESSION_TEST];
   int len;
-  HpackIndexingTable indexing_table(4096);
+  HpackIndexingTable indexing_table(4096, HpackIndexingTable::Context::ENCODING);
 
   for (unsigned int i = 9; i < sizeof(literal_test_case) / sizeof(literal_test_case[0]); i++) {
     memset(buf, 0, BUFSIZE_FOR_REGRESSION_TEST);
@@ -344,7 +347,7 @@ REGRESSION_TEST(HPACK_Encode)(RegressionTest *t, int, int *pstatus)
   box = REGRESSION_TEST_PASSED;
 
   uint8_t buf[BUFSIZE_FOR_REGRESSION_TEST];
-  HpackIndexingTable indexing_table(4096);
+  HpackIndexingTable indexing_table(4096, HpackIndexingTable::Context::ENCODING);
   indexing_table.update_maximum_size(DYNAMIC_TABLE_SIZE_FOR_REGRESSION_TEST);
 
   for (unsigned int i = 0; i < sizeof(encoded_field_response_test_case) / sizeof(encoded_field_response_test_case[0]); i++) {
@@ -373,9 +376,20 @@ REGRESSION_TEST(HPACK_Encode)(RegressionTest *t, int, int *pstatus)
       break;
     }
 
+    Debug("hpack", "len=%" PRId64, len);
+
     box.check(len == encoded_field_response_test_case[i].encoded_field_len, "encoded length was %" PRId64 ", expecting %d", len,
               encoded_field_response_test_case[i].encoded_field_len);
     box.check(len > 0 && memcmp(buf, encoded_field_response_test_case[i].encoded_field, len) == 0, "encoded value was invalid");
+
+    {
+      ts::LocalBufferWriter<1024> w;
+      w.reset().print("{}", ts::bwf::Hex_Dump(buf));
+      Debug("hpack", "%.*s", static_cast<int>(len), w.data());
+
+      w.reset().print("{}", ts::bwf::Hex_Dump(encoded_field_response_test_case[i].encoded_field));
+      Debug("hpack", "%.*s", static_cast<int>(len), w.data());
+    }
 
     // Check dynamic table
     uint32_t expected_dynamic_table_size = 0;
@@ -396,7 +410,9 @@ REGRESSION_TEST(HPACK_Encode)(RegressionTest *t, int, int *pstatus)
 
       expected_dynamic_table_size += dynamic_table_response_test_case[i][j].size;
     }
-    box.check(indexing_table.size() == expected_dynamic_table_size, "dynamic table is unexpected size: %d", indexing_table.size());
+
+    box.check(indexing_table.size() == expected_dynamic_table_size, "dynamic table size is unexpected - expect=%d actual=%d",
+              expected_dynamic_table_size, indexing_table.size());
   }
 }
 
@@ -405,7 +421,7 @@ REGRESSION_TEST(HPACK_DecodeIndexedHeaderField)(RegressionTest *t, int, int *pst
   TestBox box(t, pstatus);
   box = REGRESSION_TEST_PASSED;
 
-  HpackIndexingTable indexing_table(4096);
+  HpackIndexingTable indexing_table(4096, HpackIndexingTable::Context::DECODING);
 
   for (const auto &i : indexed_test_case) {
     ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);
@@ -432,7 +448,7 @@ REGRESSION_TEST(HPACK_DecodeLiteralHeaderField)(RegressionTest *t, int, int *pst
   TestBox box(t, pstatus);
   box = REGRESSION_TEST_PASSED;
 
-  HpackIndexingTable indexing_table(4096);
+  HpackIndexingTable indexing_table(4096, HpackIndexingTable::Context::DECODING);
 
   for (const auto &i : literal_test_case) {
     ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);
@@ -459,7 +475,7 @@ REGRESSION_TEST(HPACK_Decode)(RegressionTest *t, int, int *pstatus)
   TestBox box(t, pstatus);
   box = REGRESSION_TEST_PASSED;
 
-  HpackIndexingTable indexing_table(4096);
+  HpackIndexingTable indexing_table(4096, HpackIndexingTable::Context::DECODING);
 
   for (unsigned int i = 0; i < sizeof(encoded_field_request_test_case) / sizeof(encoded_field_request_test_case[0]); i++) {
     ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);
