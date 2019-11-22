@@ -54,10 +54,78 @@ enum class HpackMatch {
   EXACT,
 };
 
+enum class HpackStaticTableIndex : uint32_t {
+  NONE = 0,
+  AUTHORITY,
+  METHOD_GET,
+  METHOD_POST,
+  PATH_ROOT,
+  PATH_INDEX,
+  SCHEME_HTTP,
+  SCHEME_HTTPS,
+  STATUS_200,
+  STATUS_204,
+  STATUS_206,
+  STATUS_304,
+  STATUS_400,
+  STATUS_404,
+  STATUS_500,
+  ACCEPT_CHARSET,
+  ACCEPT_ENCODING,
+  ACCEPT_LANGUAGE,
+  ACCEPT_RANGES,
+  ACCEPT,
+  ACCESS_CONTROL_ALLOW_ORIGIN,
+  AGE,
+  ALLOW,
+  AUTHORIZATION,
+  CACHE_CONTROL,
+  CONTENT_DISPOSITION,
+  CONTENT_ENCODING,
+  CONTENT_LANGUAGE,
+  CONTENT_LENGTH,
+  CONTENT_LOCATION,
+  CONTENT_RANGE,
+  CONTENT_TYPE,
+  COOKIE,
+  DATE,
+  ETAG,
+  EXPECT,
+  EXPIRES,
+  FROM,
+  HOST,
+  IF_MATCH,
+  IF_MODIFIED_SINCE,
+  IF_NONE_MATCH,
+  IF_RANGE,
+  IF_UNMODIFIED_SINCE,
+  LAST_MODIFIED,
+  LINK,
+  LOCATION,
+  MAX_FORWARDS,
+  PROXY_AUTHENTICATE,
+  PROXY_AUTHORIZATION,
+  RANGE,
+  REFERER,
+  REFRESH,
+  RETRY_AFTER,
+  SERVER,
+  SET_COOKIE,
+  STRICT_TRANSPORT_SECURITY,
+  TRANSFER_ENCODING,
+  USER_AGENT,
+  VARY,
+  VIA,
+  WWW_AUTHENTICATE,
+  MAX,
+};
+
 // Result of looking for a header field in IndexingTable
 struct HpackLookupResult {
   HpackLookupResult() {}
-  int index             = 0;
+  HpackLookupResult(uint32_t i, HpackIndex it, HpackMatch mt) : index(i), index_type(it), match_type(mt) {}
+
+  uint32_t index        = 0;
   HpackIndex index_type = HpackIndex::NONE;
   HpackMatch match_type = HpackMatch::NONE;
 };
@@ -160,6 +228,11 @@ public:
   bool update_maximum_size(uint32_t new_size);
 
 private:
+  HpackLookupResult _lookup_static_table(const char *name, int name_len, const char *value, int value_len) const;
+  HpackStaticTableIndex _lookup_name(const char *name, int name_len) const;
+  HpackStaticTableIndex _lookup_value(HpackStaticTableIndex begin, HpackStaticTableIndex end, const char *value,
+                                      int value_len) const;
+
   HpackDynamicTable *_dynamic_table;
 };
 
