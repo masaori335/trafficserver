@@ -960,12 +960,11 @@ encode_literal_header_field_with_new_name(uint8_t *buf_start, const uint8_t *buf
 
   // Convert field name to lower case to follow HTTP2 spec.
   // This conversion is needed because WKSs in MIMEFields is old fashioned
-  Arena arena;
   int name_len;
   const char *name = header.name_get(&name_len);
-  char *lower_name = arena.str_store(name, name_len);
+  char lower_name[name_len];
   for (int i = 0; i < name_len; i++) {
-    lower_name[i] = ParseRules::ink_tolower(lower_name[i]);
+    lower_name[i] = ParseRules::ink_tolower(name[i]);
   }
 
   // Name String
