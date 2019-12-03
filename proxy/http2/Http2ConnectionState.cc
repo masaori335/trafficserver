@@ -1550,37 +1550,28 @@ Http2ConnectionState::send_data_frames(Http2Stream *stream)
 void
 Http2ConnectionState::send_headers_frame(Http2Stream *stream)
 {
-  uint8_t *buf                = nullptr;
-  uint32_t buf_len            = 0;
-  uint32_t header_blocks_size = 0;
-  int payload_length          = 0;
-  uint64_t sent               = 0;
-  uint8_t flags               = 0x00;
-
-  HTTPHdr *resp_header = &stream->response_header;
-
   Http2StreamDebug(ua_session, stream->get_id(), "Send HEADERS frame");
 
+  HTTPHdr *resp_header = &stream->response_header;
   HTTPHdr h2_hdr;
   http2_generate_h2_header_from_1_1(resp_header, &h2_hdr);
 
-  buf_len = resp_header->length_get() * 2; // Make it double just in case
-  buf     = static_cast<uint8_t *>(ats_malloc(buf_len));
-  if (buf == nullptr) {
-    h2_hdr.destroy();
-    return;
-  }
+  uint32_t buf_len = resp_header->length_get() * 2; // Make it double just in case
+  uint8_t buf[buf_len];
 
   stream->mark_milestone(Http2StreamMilestone::START_ENCODE_HEADERS);
-  Http2ErrorCode result = http2_encode_header_blocks(&h2_hdr, buf, buf_len, &header_blocks_size, *(this->remote_hpack_handle),
+
+  uint32_t header_blocks_size = 0;
+  Http2ErrorCode result       = http2_encode_header_blocks(&h2_hdr, buf, buf_len, &header_blocks_size, *(this->remote_hpack_handle),
                                                      client_settings.get(HTTP2_SETTINGS_HEADER_TABLE_SIZE));
   if (result != Http2ErrorCode::HTTP2_ERROR_NO_ERROR) {
     h2_hdr.destroy();
-    ats_free(buf);
     return;
   }
 
   // Send a HEADERS frame
+  int payload_length = 0;
+  uint8_t flags      = 0x00;
   if (header_blocks_size <= static_cast<uint32_t>(BUFFER_SIZE_FOR_INDEX(buffer_size_index[HTTP2_FRAME_TYPE_HEADERS]))) {
     payload_length = header_blocks_size;
     flags |= HTTP2_FLAGS_HEADERS_END_HEADERS;
@@ -1608,14 +1599,13 @@ Http2ConnectionState::send_headers_frame(Http2Stream *stream)
     }
 
     h2_hdr.destroy();
-    ats_free(buf);
     return;
   }
 
   // xmit event
   SCOPED_MUTEX_LOCK(lock, this->ua_session->mutex, this_ethread());
   this->ua_session->handleEvent(HTTP2_SESSION_EVENT_XMIT, &headers);
-  sent += payload_length;
+  uint64_t sent = payload_length;
 
   // Send CONTINUATION frames
   flags = 0;
@@ -1638,7 +1628,6 @@ Http2ConnectionState::send_headers_frame(Http2Stream *stream)
   }
 
   h2_hdr.destroy();
-  ats_free(buf);
 }
 
 bool
