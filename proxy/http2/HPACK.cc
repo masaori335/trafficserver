@@ -652,18 +652,23 @@ HpackIndexingTable::_lookup_value(HpackStaticTableIndex begin, HpackStaticTableI
 //
 // HpackDynamicTable
 //
+HpackIndexingTable::HpackDynamicTable::HpackDynamicTable(uint32_t size, Context c) : _maximum_size(size), _context(c)
+{
+  this->_mhdr = new (&this->_mhdr_buf[0]) MIMEHdr;
+  this->_mhdr->create();
+
+  this->_lookup_table.reserve(1000);
+}
+
 HpackIndexingTable::HpackDynamicTable::~HpackDynamicTable()
 {
   this->_headers.clear();
 
-  this->_mhdr->fields_clear();
-  this->_mhdr->destroy();
-  delete this->_mhdr;
-
-  if (this->_mhdr_old != nullptr) {
-    this->_mhdr_old->fields_clear();
-    this->_mhdr_old->destroy();
-    delete this->_mhdr_old;
+  for (int i = 0; i < 2; ++i) {
+    if (this->_mhdr_buf[i].m_heap) {
+      this->_mhdr_buf[i].fields_clear();
+      this->_mhdr_buf[i].destroy();
+    }
   }
 }
 
@@ -789,13 +794,13 @@ HpackIndexingTable::HpackDynamicTable::_evict_overflowed_entries()
     this->_current_size -= ADDITIONAL_OCTETS + name.size() + value.size();
     this->_mhdr->field_delete(*h, false);
     this->_headers.pop_back();
+    this->_offset++;
 
     if (this->_context == HpackIndexingTable::Context::ENCODING) {
       auto range = this->_lookup_table.equal_range(name);
       for (auto it = range.first; it != range.second; ++it) {
         if (it->second.first.compare(value) == 0) {
           this->_lookup_table.erase(it);
-          this->_offset++;
           break;
         }
       }
@@ -822,16 +827,16 @@ HpackIndexingTable::HpackDynamicTable::_evict_overflowed_entries()
 void
 HpackIndexingTable::HpackDynamicTable::_mime_hdr_gc()
 {
-  if (this->_mhdr_old == nullptr) {
-    if (this->_mhdr->m_heap->total_used_size() >= HPACK_HDR_HEAP_THRESHOLD) {
-      this->_mhdr_old = this->_mhdr;
-      this->_mhdr     = new MIMEHdr();
-      this->_mhdr->create();
-    }
+  if (this->_mhdr->m_heap->total_used_size() >= HPACK_HDR_HEAP_THRESHOLD) {
+    this->_mhdr = new (&this->_mhdr_buf[++this->_mhdr_index & 1]) MIMEHdr;
+    this->_mhdr->create();
   } else {
-    if (this->_mhdr_old->fields_count() == 0) {
-      this->_mhdr_old->destroy();
-      this->_mhdr_old = nullptr;
+    if (this->_mhdr_index > 1) {
+      int i = (this->_mhdr_index - 1) & 1;
+      if (this->_mhdr_buf[i].m_heap && this->_mhdr_buf[i].fields_count() == 0) {
+        this->_mhdr_buf[i].fields_clear();
+        this->_mhdr_buf[i].destroy();
+      }
     }
   }
 }

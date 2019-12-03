@@ -185,12 +185,7 @@ public:
   class HpackDynamicTable
   {
   public:
-    explicit HpackDynamicTable(uint32_t size, Context c) : _maximum_size(size), _context(c)
-    {
-      _mhdr = new MIMEHdr();
-      _mhdr->create();
-    }
-
+    explicit HpackDynamicTable(uint32_t size, Context c);
     ~HpackDynamicTable();
 
     // noncopyable
@@ -215,11 +210,12 @@ public:
     uint32_t _maximum_size = 0;
     Context _context       = Context::NONE;
 
-    MIMEHdr *_mhdr     = nullptr;
-    MIMEHdr *_mhdr_old = nullptr;
+    MIMEHdr *_mhdr = nullptr;
+    MIMEHdr _mhdr_buf[2]; /// MIMHdr ring buffer
+    int _mhdr_index = 0;
+
     std::deque<MIMEField *> _headers;
 
-    // TODO: measure memory usage
     std::unordered_multimap<std::string_view, std::pair<std::string_view, uint32_t>> _lookup_table;
     uint32_t _abs_index = 0;
     uint32_t _offset    = 0;
