@@ -709,6 +709,7 @@ inkcoreapi MIMEField *mime_hdr_field_find(MIMEHdrImpl *mh, const char *field_nam
 MIMEField *mime_hdr_field_get(MIMEHdrImpl *mh, int idx);
 MIMEField *mime_hdr_field_get_slotnum(MIMEHdrImpl *mh, int slotnum);
 int mime_hdr_fields_count(MIMEHdrImpl *mh);
+bool mime_hdr_fields_is_empty(MIMEHdrImpl *mh);
 
 void mime_field_init(MIMEField *field);
 MIMEField *mime_field_create(HdrHeap *heap, MIMEHdrImpl *mh);
@@ -1000,6 +1001,7 @@ public:
 
   void fields_clear();
   int fields_count();
+  bool is_empty();
 
   MIMEField *field_create(const char *name = nullptr, int length = -1);
   MIMEField *field_find(const char *name, int length);
@@ -1166,6 +1168,12 @@ inline int
 MIMEHdr::fields_count()
 {
   return mime_hdr_fields_count(m_mime);
+}
+
+inline bool
+MIMEHdr::is_empty()
+{
+  return mime_hdr_fields_is_empty(m_mime);
 }
 
 /*-------------------------------------------------------------------------

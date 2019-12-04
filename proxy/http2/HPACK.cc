@@ -833,7 +833,7 @@ HpackIndexingTable::HpackDynamicTable::_mime_hdr_gc()
   } else {
     if (this->_mhdr_index > 1) {
       int i = (this->_mhdr_index - 1) & 1;
-      if (this->_mhdr_buf[i].m_heap && this->_mhdr_buf[i].fields_count() == 0) {
+      if (this->_mhdr_buf[i].m_heap && this->_mhdr_buf[i].is_empty()) {
         this->_mhdr_buf[i].fields_clear();
         this->_mhdr_buf[i].destroy();
       }
