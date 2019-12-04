@@ -700,7 +700,7 @@ HpackIndexingTable::HpackDynamicTable::add_header_field(const MIMEField *field)
     // Copy @field to current HdrHeap
     MIMEField *new_field = this->_mhdr->field_create(name.data(), name.size());
     new_field->value_set(this->_mhdr->m_heap, this->_mhdr->m_mime, value.data(), value.size());
-    this->_mhdr->field_attach(new_field);
+    this->_mhdr->field_attach(new_field, false);
     this->_headers.push_front(new_field);
 
     // TODO: figure out deal with wks

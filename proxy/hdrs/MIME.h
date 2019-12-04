@@ -1006,7 +1006,7 @@ public:
   MIMEField *field_create(const char *name = nullptr, int length = -1);
   MIMEField *field_find(const char *name, int length);
   const MIMEField *field_find(const char *name, int length) const;
-  void field_attach(MIMEField *field);
+  void field_attach(MIMEField *field, bool check_for_dups = true);
   void field_detach(MIMEField *field, bool detach_all_dups = true);
   void field_delete(MIMEField *field, bool delete_all_dups = true);
   void field_delete(const char *name, int name_length);
@@ -1214,9 +1214,9 @@ MIMEHdr::field_find(const char *name, int length) const
   -------------------------------------------------------------------------*/
 
 inline void
-MIMEHdr::field_attach(MIMEField *field)
+MIMEHdr::field_attach(MIMEField *field, bool check_for_dups)
 {
-  mime_hdr_field_attach(m_mime, field, 1, nullptr);
+  mime_hdr_field_attach(m_mime, field, check_for_dups, nullptr);
 }
 
 /*-------------------------------------------------------------------------
