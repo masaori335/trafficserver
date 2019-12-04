@@ -252,9 +252,9 @@ private:
 
 // Low level interfaces
 int64_t encode_indexed_header_field(uint8_t *buf_start, const uint8_t *buf_end, uint32_t index);
-int64_t encode_literal_header_field_with_indexed_name(uint8_t *buf_start, const uint8_t *buf_end, const MIMEFieldWrapper &header,
+int64_t encode_literal_header_field_with_indexed_name(uint8_t *buf_start, const uint8_t *buf_end, const MIMEField *field,
                                                       uint32_t index, HpackIndexingTable &indexing_table, HpackField type);
-int64_t encode_literal_header_field_with_new_name(uint8_t *buf_start, const uint8_t *buf_end, const MIMEFieldWrapper &header,
+int64_t encode_literal_header_field_with_new_name(uint8_t *buf_start, const uint8_t *buf_end, const MIMEField *field,
                                                   HpackIndexingTable &indexing_table, HpackField type);
 int64_t decode_indexed_header_field(MIMEFieldWrapper &header, const uint8_t *buf_start, const uint8_t *buf_end,
                                     HpackIndexingTable &indexing_table);
@@ -263,8 +263,12 @@ int64_t decode_literal_header_field(MIMEFieldWrapper &header, const uint8_t *buf
 int64_t update_dynamic_table_size(const uint8_t *buf_start, const uint8_t *buf_end, HpackIndexingTable &indexing_table,
                                   uint32_t maximum_table_size);
 
-// High level interfaces
+// Middle level interface
 typedef HpackIndexingTable HpackHandle;
+int64_t hpack_encode_header_field(HpackHandle &handle, uint8_t *out_buf, const size_t out_buf_len, std::string_view name,
+                                  std::string_view value);
+
+// High level interfaces
 int64_t hpack_decode_header_block(HpackHandle &handle, HTTPHdr *hdr, const uint8_t *in_buf, const size_t in_buf_len,
                                   uint32_t max_header_size, uint32_t maximum_table_size);
 int64_t hpack_encode_header_block(HpackHandle &handle, uint8_t *out_buf, const size_t out_buf_len, HTTPHdr *hdr,

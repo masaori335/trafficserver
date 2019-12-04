@@ -1553,8 +1553,7 @@ Http2ConnectionState::send_headers_frame(Http2Stream *stream)
   Http2StreamDebug(ua_session, stream->get_id(), "Send HEADERS frame");
 
   HTTPHdr *resp_header = &stream->response_header;
-  HTTPHdr h2_hdr;
-  http2_generate_h2_header_from_1_1(resp_header, &h2_hdr);
+  http2_convert_header_from_1_1_to_2(resp_header);
 
   uint32_t buf_len = resp_header->length_get() * 2; // Make it double just in case
   uint8_t buf[buf_len];
@@ -1562,10 +1561,9 @@ Http2ConnectionState::send_headers_frame(Http2Stream *stream)
   stream->mark_milestone(Http2StreamMilestone::START_ENCODE_HEADERS);
 
   uint32_t header_blocks_size = 0;
-  Http2ErrorCode result       = http2_encode_header_blocks(&h2_hdr, buf, buf_len, &header_blocks_size, *(this->remote_hpack_handle),
+  Http2ErrorCode result = http2_encode_header_blocks(resp_header, buf, buf_len, &header_blocks_size, *(this->remote_hpack_handle),
                                                      client_settings.get(HTTP2_SETTINGS_HEADER_TABLE_SIZE));
   if (result != Http2ErrorCode::HTTP2_ERROR_NO_ERROR) {
-    h2_hdr.destroy();
     return;
   }
 
@@ -1575,7 +1573,7 @@ Http2ConnectionState::send_headers_frame(Http2Stream *stream)
   if (header_blocks_size <= static_cast<uint32_t>(BUFFER_SIZE_FOR_INDEX(buffer_size_index[HTTP2_FRAME_TYPE_HEADERS]))) {
     payload_length = header_blocks_size;
     flags |= HTTP2_FLAGS_HEADERS_END_HEADERS;
-    if ((h2_hdr.presence(MIME_PRESENCE_CONTENT_LENGTH) && h2_hdr.get_content_length() == 0) ||
+    if ((resp_header->presence(MIME_PRESENCE_CONTENT_LENGTH) && resp_header->get_content_length() == 0) ||
         (!resp_header->expect_final_response() && stream->is_write_vio_done())) {
       Http2StreamDebug(ua_session, stream->get_id(), "END_STREAM");
       flags |= HTTP2_FLAGS_HEADERS_END_STREAM;
@@ -1598,7 +1596,6 @@ Http2ConnectionState::send_headers_frame(Http2Stream *stream)
       fini_event = this_ethread()->schedule_imm_local((Continuation *)this, HTTP2_SESSION_EVENT_FINI);
     }
 
-    h2_hdr.destroy();
     return;
   }
 
@@ -1626,8 +1623,6 @@ Http2ConnectionState::send_headers_frame(Http2Stream *stream)
     this->ua_session->handleEvent(HTTP2_SESSION_EVENT_XMIT, &continuation_frame);
     sent += payload_length;
   }
-
-  h2_hdr.destroy();
 }
 
 bool

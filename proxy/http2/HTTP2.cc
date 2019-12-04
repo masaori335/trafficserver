@@ -24,6 +24,7 @@
 #include "HTTP2.h"
 #include "HPACK.h"
 #include "tscore/ink_assert.h"
+#include "tscore/ink_string.h"
 #include "records/P_RecCore.h"
 #include "records/P_RecProcess.h"
 
@@ -520,6 +521,25 @@ http2_convert_header_from_2_to_1_1(HTTPHdr *headers)
 }
 
 void
+http2_convert_header_from_1_1_to_2(HTTPHdr *headers)
+{
+  // Intermediaries SHOULD remove connection-specific header fields.
+  MIMEFieldIter field_iter;
+  for (MIMEField *field = headers->iter_get_first(&field_iter); field != nullptr; field = headers->iter_get_next(&field_iter)) {
+    int name_len;
+    const char *name = field->name_get(&name_len);
+    if ((name_len == MIME_LEN_CONNECTION && strncasecmp(name, MIME_FIELD_CONNECTION, name_len) == 0) ||
+        (name_len == MIME_LEN_KEEP_ALIVE && strncasecmp(name, MIME_FIELD_KEEP_ALIVE, name_len) == 0) ||
+        (name_len == MIME_LEN_PROXY_CONNECTION && strncasecmp(name, MIME_FIELD_PROXY_CONNECTION, name_len) == 0) ||
+        (name_len == MIME_LEN_TRANSFER_ENCODING && strncasecmp(name, MIME_FIELD_TRANSFER_ENCODING, name_len) == 0) ||
+        (name_len == MIME_LEN_UPGRADE && strncasecmp(name, MIME_FIELD_UPGRADE, name_len) == 0)) {
+      headers->field_delete(field);
+      continue;
+    }
+  }
+}
+
+void
 http2_generate_h2_header_from_1_1(HTTPHdr *headers, HTTPHdr *h2_headers)
 {
   h2_headers->create(http_hdr_type_get(headers->m_http));
@@ -613,13 +633,40 @@ http2_encode_header_blocks(HTTPHdr *in, uint8_t *out, uint32_t out_len, uint32_t
   if (maximum_table_size == hpack_get_maximum_table_size(handle)) {
     maximum_table_size = -1;
   }
+
+  uint32_t len = 0;
+
+  // Encode pseudo-header fields first
+  switch (HTTPType type = http_hdr_type_get(in->m_http)) {
+  case HTTP_TYPE_RESPONSE: {
+    // Encode ':status' header
+    // TODO: HTTPHdr::status_str_get()
+    char status_str[6];
+    ink_small_itoa(in->status_get(), status_str, sizeof(status_str));
+
+    // TODO: update dynamic table size first?
+    std::string_view name(HTTP2_VALUE_STATUS, HTTP2_LEN_STATUS);
+    std::string_view value(status_str, 3);
+
+    int64_t result = hpack_encode_header_field(handle, out, out_len, name, value);
+    if (result < 0) {
+      return Http2ErrorCode::HTTP2_ERROR_COMPRESSION_ERROR;
+    }
+    len += result;
+    break;
+  }
+  case HTTP_TYPE_REQUEST:
+  default:
+    ink_abort("not supported yet");
+  }
+
   // TODO: It would be better to split Cookie header value
-  int64_t result = hpack_encode_header_block(handle, out, out_len, in, maximum_table_size);
+  int64_t result = hpack_encode_header_block(handle, out + len, out_len - len, in, maximum_table_size);
   if (result < 0) {
     return Http2ErrorCode::HTTP2_ERROR_COMPRESSION_ERROR;
   }
   if (len_written) {
-    *len_written = result;
+    *len_written = len + result;
   }
   return Http2ErrorCode::HTTP2_ERROR_NO_ERROR;
 }
@@ -848,12 +895,12 @@ Http2::init()
 
 #if TS_HAS_TESTS
 
-void forceLinkRegressionHPACK();
-void
-forceLinkRegressionHPACKCaller()
-{
-  forceLinkRegressionHPACK();
-}
+// void forceLinkRegressionHPACK();
+// void
+// forceLinkRegressionHPACKCaller()
+// {
+//   forceLinkRegressionHPACK();
+// }
 
 #include "tscore/TestBox.h"
 

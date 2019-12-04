@@ -880,8 +880,8 @@ encode_indexed_header_field(uint8_t *buf_start, const uint8_t *buf_end, uint32_t
 }
 
 int64_t
-encode_literal_header_field_with_indexed_name(uint8_t *buf_start, const uint8_t *buf_end, const MIMEFieldWrapper &header,
-                                              uint32_t index, HpackIndexingTable &indexing_table, HpackField type)
+encode_literal_header_field_with_indexed_name(uint8_t *buf_start, const uint8_t *buf_end, const MIMEField *field, uint32_t index,
+                                              HpackIndexingTable &indexing_table, HpackField type)
 {
   uint8_t *p = buf_start;
   int64_t len;
@@ -891,7 +891,7 @@ encode_literal_header_field_with_indexed_name(uint8_t *buf_start, const uint8_t 
 
   switch (type) {
   case HpackField::INDEXED_LITERAL:
-    indexing_table.add_header_field(header.field_get());
+    indexing_table.add_header_field(field);
     prefix = 6;
     flag   = 0x40;
     break;
@@ -923,7 +923,7 @@ encode_literal_header_field_with_indexed_name(uint8_t *buf_start, const uint8_t 
 
   // Value String
   int value_len;
-  const char *value = header.value_get(&value_len);
+  const char *value = field->value_get(&value_len);
   len               = xpack_encode_string(p, buf_end, value, value_len);
   if (len == -1) {
     return -1;
@@ -935,7 +935,7 @@ encode_literal_header_field_with_indexed_name(uint8_t *buf_start, const uint8_t 
 }
 
 int64_t
-encode_literal_header_field_with_new_name(uint8_t *buf_start, const uint8_t *buf_end, const MIMEFieldWrapper &header,
+encode_literal_header_field_with_new_name(uint8_t *buf_start, const uint8_t *buf_end, MIMEField *field,
                                           HpackIndexingTable &indexing_table, HpackField type)
 {
   uint8_t *p = buf_start;
@@ -946,7 +946,7 @@ encode_literal_header_field_with_new_name(uint8_t *buf_start, const uint8_t *buf
 
   switch (type) {
   case HpackField::INDEXED_LITERAL:
-    indexing_table.add_header_field(header.field_get());
+    indexing_table.add_header_field(field);
     flag = 0x40;
     break;
   case HpackField::NOINDEX_LITERAL:
@@ -966,7 +966,7 @@ encode_literal_header_field_with_new_name(uint8_t *buf_start, const uint8_t *buf
   // Convert field name to lower case to follow HTTP2 spec.
   // This conversion is needed because WKSs in MIMEFields is old fashioned
   int name_len;
-  const char *name = header.name_get(&name_len);
+  const char *name = field->name_get(&name_len);
   char lower_name[name_len];
   for (int i = 0; i < name_len; i++) {
     lower_name[i] = ParseRules::ink_tolower(name[i]);
@@ -981,7 +981,7 @@ encode_literal_header_field_with_new_name(uint8_t *buf_start, const uint8_t *buf
 
   // Value String
   int value_len;
-  const char *value = header.value_get(&value_len);
+  const char *value = field->value_get(&value_len);
   len               = xpack_encode_string(p, buf_end, value, value_len);
   if (len == -1) {
     return -1;
@@ -1260,50 +1260,63 @@ hpack_encode_header_block(HpackIndexingTable &indexing_table, uint8_t *out_buf, 
 
   MIMEFieldIter field_iter;
   for (MIMEField *field = hdr->iter_get_first(&field_iter); field != nullptr; field = hdr->iter_get_next(&field_iter)) {
-    HpackField field_type;
-    MIMEFieldWrapper header(field, hdr->m_heap, hdr->m_http->m_fields_impl);
-    int name_len;
-    int value_len;
-    const char *name  = header.name_get(&name_len);
-    const char *value = header.value_get(&value_len);
-    // Choose field representation (See RFC7541 7.1.3)
-    // - Authorization header obviously should not be indexed
-    // - Short Cookie header should not be indexed because of low entropy
-    if ((ptr_len_casecmp(name, name_len, MIME_FIELD_COOKIE, MIME_LEN_COOKIE) == 0 && value_len < 20) ||
-        (ptr_len_casecmp(name, name_len, MIME_FIELD_AUTHORIZATION, MIME_LEN_AUTHORIZATION) == 0)) {
-      field_type = HpackField::NEVERINDEX_LITERAL;
-    } else {
-      field_type = HpackField::INDEXED_LITERAL;
-    }
-
-    Debug("hpack_encode", "name=%.*s value=%.*s", name_len, name, value_len, value);
-
-    const HpackLookupResult result = indexing_table.lookup(header);
-    switch (result.match_type) {
-    case HpackMatch::NONE:
-      Debug("hpack_encode", "no match");
-      written = encode_literal_header_field_with_new_name(cursor, out_buf_end, header, indexing_table, field_type);
-      break;
-    case HpackMatch::NAME:
-      Debug("hpack_encode", "name only match");
-      written =
-        encode_literal_header_field_with_indexed_name(cursor, out_buf_end, header, result.index, indexing_table, field_type);
-      break;
-    case HpackMatch::EXACT:
-      Debug("hpack_encode", "exact match");
-      written = encode_indexed_header_field(cursor, out_buf_end, result.index);
-      break;
-    default:
-      // Does it happen?
-      written = 0;
-      break;
-    }
-    if (written == HPACK_ERROR_COMPRESSION_ERROR) {
+    int64_t len = hpack_encode_header_field(indexing_table, cursor, out_buf_end - cursor, field->name_get(), field->value_get());
+    if (len == HPACK_ERROR_COMPRESSION_ERROR) {
       return HPACK_ERROR_COMPRESSION_ERROR;
     }
-    cursor += written;
+    cursor += len;
   }
   return cursor - out_buf;
+}
+
+int64_t
+hpack_encode_header_field(HpackHandle &indexing_table, uint8_t *out_buf, const size_t out_buf_len, std::string_view name_sv,
+                          std::string_view value_sv)
+{
+  const char *name    = name_sv.data();
+  const int name_len  = name_sv.size();
+  const char *value   = value_sv.data();
+  const int value_len = value_sv.size();
+
+  // Choose field representation (See RFC7541 7.1.3)
+  // - Authorization header obviously should not be indexed
+  // - Short Cookie header should not be indexed because of low entropy
+  HpackField field_type;
+  if ((ptr_len_casecmp(name, name_len, MIME_FIELD_COOKIE, MIME_LEN_COOKIE) == 0 && value_len < 20) ||
+      (ptr_len_casecmp(name, name_len, MIME_FIELD_AUTHORIZATION, MIME_LEN_AUTHORIZATION) == 0)) {
+    field_type = HpackField::NEVERINDEX_LITERAL;
+  } else {
+    field_type = HpackField::INDEXED_LITERAL;
+  }
+
+  Debug("hpack_encode", "name=%.*s value=%.*s", name_len, name, value_len, value);
+
+  // TODO: polish interfaces using MIMEWrapper
+  MIMEField field                  = {name, value, nullptr, -1, (uint16_t)name_len, (uint16_t)value_len, 0, 0, 0, 0};
+  int64_t written                  = 0;
+  uint8_t *cursor                  = out_buf;
+  const uint8_t *const out_buf_end = out_buf + out_buf_len;
+
+  const HpackLookupResult result = indexing_table.lookup(name, name_len, value, value_len);
+  switch (result.match_type) {
+  case HpackMatch::NONE:
+    Debug("hpack_encode", "no match");
+    written = encode_literal_header_field_with_new_name(cursor, out_buf_end, &field, indexing_table, field_type);
+    break;
+  case HpackMatch::NAME:
+    Debug("hpack_encode", "name only match");
+    written = encode_literal_header_field_with_indexed_name(cursor, out_buf_end, &field, result.index, indexing_table, field_type);
+    break;
+  case HpackMatch::EXACT:
+    Debug("hpack_encode", "exact match");
+    written = encode_indexed_header_field(cursor, out_buf_end, result.index);
+    break;
+  default:
+    // Does it happen?
+    written = 0;
+    break;
+  }
+  return written;
 }
 
 int32_t

@@ -52,10 +52,10 @@ libhttp2_a_SOURCES = \
 	Http2SessionAccept.cc \
 	Http2SessionAccept.h
 
-if BUILD_TESTS
-libhttp2_a_SOURCES += \
-	RegressionHPACK.cc
-endif
+# if BUILD_TESTS
+# libhttp2_a_SOURCES += \
+# 	RegressionHPACK.cc
+# endif
 
 check_PROGRAMS = \
 	test_Http2DependencyTree \

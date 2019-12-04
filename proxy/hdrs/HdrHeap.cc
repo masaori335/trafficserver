@@ -84,7 +84,7 @@ obj_describe(HdrHeapObjImpl *obj, bool recurse)
 /*-------------------------------------------------------------------------
   -------------------------------------------------------------------------*/
 
-inline void
+void
 HdrHeap::init()
 {
   m_data_start = m_free_start = (reinterpret_cast<char *>(this)) + HDR_HEAP_HDR_SIZE;
