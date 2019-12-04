@@ -307,12 +307,12 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 3:
     switch (name[2]) {
     case 'a':
-      if (strncasecmp("vi", name, 2) == 0) {
+      if (memcmp("vi", name, 2) == 0) {
         return HpackStaticTableIndex::VIA;
       }
       break;
     case 'e':
-      if (strncasecmp("ag", name, 2) == 0) {
+      if (memcmp("ag", name, 2) == 0) {
         return HpackStaticTableIndex::AGE;
       }
       break;
@@ -321,32 +321,32 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 4:
     switch (name[3]) {
     case 'e':
-      if (strncasecmp("dat", name, 3) == 0) {
+      if (memcmp("dat", name, 3) == 0) {
         return HpackStaticTableIndex::DATE;
       }
       break;
     case 'g':
-      if (strncasecmp("eta", name, 3) == 0) {
+      if (memcmp("eta", name, 3) == 0) {
         return HpackStaticTableIndex::ETAG;
       }
       break;
     case 'k':
-      if (strncasecmp("lin", name, 3) == 0) {
+      if (memcmp("lin", name, 3) == 0) {
         return HpackStaticTableIndex::LINK;
       }
       break;
     case 'm':
-      if (strncasecmp("fro", name, 3) == 0) {
+      if (memcmp("fro", name, 3) == 0) {
         return HpackStaticTableIndex::FROM;
       }
       break;
     case 't':
-      if (strncasecmp("hos", name, 3) == 0) {
+      if (memcmp("hos", name, 3) == 0) {
         return HpackStaticTableIndex::HOST;
       }
       break;
     case 'y':
-      if (strncasecmp("var", name, 3) == 0) {
+      if (memcmp("var", name, 3) == 0) {
         return HpackStaticTableIndex::VARY;
       }
       break;
@@ -355,17 +355,17 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 5:
     switch (name[4]) {
     case 'e':
-      if (strncasecmp("rang", name, 4) == 0) {
+      if (memcmp("rang", name, 4) == 0) {
         return HpackStaticTableIndex::RANGE;
       }
       break;
     case 'h':
-      if (strncasecmp(":pat", name, 4) == 0) {
+      if (memcmp(":pat", name, 4) == 0) {
         return HpackStaticTableIndex::PATH_ROOT;
       }
       break;
     case 'w':
-      if (strncasecmp("allo", name, 4) == 0) {
+      if (memcmp("allo", name, 4) == 0) {
         return HpackStaticTableIndex::ALLOW;
       }
       break;
@@ -374,20 +374,20 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 6:
     switch (name[5]) {
     case 'e':
-      if (strncasecmp("cooki", name, 5) == 0) {
+      if (memcmp("cooki", name, 5) == 0) {
         return HpackStaticTableIndex::COOKIE;
       }
       break;
     case 'r':
-      if (strncasecmp("serve", name, 5) == 0) {
+      if (memcmp("serve", name, 5) == 0) {
         return HpackStaticTableIndex::SERVER;
       }
       break;
     case 't':
-      if (strncasecmp("accep", name, 5) == 0) {
+      if (memcmp("accep", name, 5) == 0) {
         return HpackStaticTableIndex::ACCEPT;
       }
-      if (strncasecmp("expec", name, 5) == 0) {
+      if (memcmp("expec", name, 5) == 0) {
         return HpackStaticTableIndex::EXPECT;
       }
       break;
@@ -396,31 +396,31 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 7:
     switch (name[6]) {
     case 'd':
-      if (strncasecmp(":metho", name, 6) == 0) {
+      if (memcmp(":metho", name, 6) == 0) {
         return HpackStaticTableIndex::METHOD_GET;
       }
       break;
     case 'e':
-      if (strncasecmp(":schem", name, 6) == 0) {
+      if (memcmp(":schem", name, 6) == 0) {
         return HpackStaticTableIndex::SCHEME_HTTP;
       }
       break;
     case 'h':
-      if (strncasecmp("refres", name, 6) == 0) {
+      if (memcmp("refres", name, 6) == 0) {
         return HpackStaticTableIndex::REFRESH;
       }
       break;
     case 'r':
-      if (strncasecmp("refere", name, 6) == 0) {
+      if (memcmp("refere", name, 6) == 0) {
         return HpackStaticTableIndex::REFERER;
       }
       break;
     case 's':
-      if (strncasecmp(":statu", name, 6) == 0) {
+      if (memcmp(":statu", name, 6) == 0) {
         // TODO: check value
         return HpackStaticTableIndex::STATUS_200;
       }
-      if (strncasecmp("expire", name, 6) == 0) {
+      if (memcmp("expire", name, 6) == 0) {
         return HpackStaticTableIndex::EXPIRES;
       }
       break;
@@ -429,17 +429,17 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 8:
     switch (name[7]) {
     case 'e':
-      if (strncasecmp("if-rang", name, 7) == 0) {
+      if (memcmp("if-rang", name, 7) == 0) {
         return HpackStaticTableIndex::IF_RANGE;
       }
       break;
     case 'h':
-      if (strncasecmp("if-matc", name, 7) == 0) {
+      if (memcmp("if-matc", name, 7) == 0) {
         return HpackStaticTableIndex::IF_MATCH;
       }
       break;
     case 'n':
-      if (strncasecmp("locatio", name, 7) == 0) {
+      if (memcmp("locatio", name, 7) == 0) {
         return HpackStaticTableIndex::LOCATION;
       }
       break;
@@ -448,17 +448,17 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 10:
     switch (name[9]) {
     case 'e':
-      if (strncasecmp("set-cooki", name, 9) == 0) {
+      if (memcmp("set-cooki", name, 9) == 0) {
         return HpackStaticTableIndex::SET_COOKIE;
       }
       break;
     case 't':
-      if (strncasecmp("user-agen", name, 9) == 0) {
+      if (memcmp("user-agen", name, 9) == 0) {
         return HpackStaticTableIndex::USER_AGENT;
       }
       break;
     case 'y':
-      if (strncasecmp(":authorit", name, 9) == 0) {
+      if (memcmp(":authorit", name, 9) == 0) {
         return HpackStaticTableIndex::AUTHORITY;
       }
       break;
@@ -467,7 +467,7 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 11:
     switch (name[10]) {
     case 'r':
-      if (strncasecmp("retry-afte", name, 10) == 0) {
+      if (memcmp("retry-afte", name, 10) == 0) {
         return HpackStaticTableIndex::RETRY_AFTER;
       }
       break;
@@ -476,12 +476,12 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 12:
     switch (name[11]) {
     case 'e':
-      if (strncasecmp("content-typ", name, 11) == 0) {
+      if (memcmp("content-typ", name, 11) == 0) {
         return HpackStaticTableIndex::CONTENT_TYPE;
       }
       break;
     case 's':
-      if (strncasecmp("max-forward", name, 11) == 0) {
+      if (memcmp("max-forward", name, 11) == 0) {
         return HpackStaticTableIndex::MAX_FORWARDS;
       }
       break;
@@ -490,32 +490,32 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 13:
     switch (name[12]) {
     case 'd':
-      if (strncasecmp("last-modifie", name, 12) == 0) {
+      if (memcmp("last-modifie", name, 12) == 0) {
         return HpackStaticTableIndex::LAST_MODIFIED;
       }
       break;
     case 'e':
-      if (strncasecmp("content-rang", name, 12) == 0) {
+      if (memcmp("content-rang", name, 12) == 0) {
         return HpackStaticTableIndex::CONTENT_RANGE;
       }
       break;
     case 'h':
-      if (strncasecmp("if-none-matc", name, 12) == 0) {
+      if (memcmp("if-none-matc", name, 12) == 0) {
         return HpackStaticTableIndex::IF_NONE_MATCH;
       }
       break;
     case 'l':
-      if (strncasecmp("cache-contro", name, 12) == 0) {
+      if (memcmp("cache-contro", name, 12) == 0) {
         return HpackStaticTableIndex::CACHE_CONTROL;
       }
       break;
     case 'n':
-      if (strncasecmp("authorizatio", name, 12) == 0) {
+      if (memcmp("authorizatio", name, 12) == 0) {
         return HpackStaticTableIndex::AUTHORIZATION;
       }
       break;
     case 's':
-      if (strncasecmp("accept-range", name, 12) == 0) {
+      if (memcmp("accept-range", name, 12) == 0) {
         return HpackStaticTableIndex::ACCEPT_RANGES;
       }
       break;
@@ -524,12 +524,12 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 14:
     switch (name[13]) {
     case 'h':
-      if (strncasecmp("content-lengt", name, 13) == 0) {
+      if (memcmp("content-lengt", name, 13) == 0) {
         return HpackStaticTableIndex::CONTENT_LENGTH;
       }
       break;
     case 't':
-      if (strncasecmp("accept-charse", name, 13) == 0) {
+      if (memcmp("accept-charse", name, 13) == 0) {
         return HpackStaticTableIndex::ACCEPT_CHARSET;
       }
       break;
@@ -538,12 +538,12 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 15:
     switch (name[14]) {
     case 'e':
-      if (strncasecmp("accept-languag", name, 14) == 0) {
+      if (memcmp("accept-languag", name, 14) == 0) {
         return HpackStaticTableIndex::ACCEPT_LANGUAGE;
       }
       break;
     case 'g':
-      if (strncasecmp("accept-encodin", name, 14) == 0) {
+      if (memcmp("accept-encodin", name, 14) == 0) {
         return HpackStaticTableIndex::ACCEPT_ENCODING;
       }
       break;
@@ -552,20 +552,20 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 16:
     switch (name[15]) {
     case 'e':
-      if (strncasecmp("content-languag", name, 15) == 0) {
+      if (memcmp("content-languag", name, 15) == 0) {
         return HpackStaticTableIndex::CONTENT_LANGUAGE;
       }
-      if (strncasecmp("www-authenticat", name, 15) == 0) {
+      if (memcmp("www-authenticat", name, 15) == 0) {
         return HpackStaticTableIndex::WWW_AUTHENTICATE;
       }
       break;
     case 'g':
-      if (strncasecmp("content-encodin", name, 15) == 0) {
+      if (memcmp("content-encodin", name, 15) == 0) {
         return HpackStaticTableIndex::CONTENT_ENCODING;
       }
       break;
     case 'n':
-      if (strncasecmp("content-locatio", name, 15) == 0) {
+      if (memcmp("content-locatio", name, 15) == 0) {
         return HpackStaticTableIndex::CONTENT_LOCATION;
       }
       break;
@@ -574,12 +574,12 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 17:
     switch (name[16]) {
     case 'e':
-      if (strncasecmp("if-modified-sinc", name, 16) == 0) {
+      if (memcmp("if-modified-sinc", name, 16) == 0) {
         return HpackStaticTableIndex::IF_MODIFIED_SINCE;
       }
       break;
     case 'g':
-      if (strncasecmp("transfer-encodin", name, 16) == 0) {
+      if (memcmp("transfer-encodin", name, 16) == 0) {
         return HpackStaticTableIndex::TRANSFER_ENCODING;
       }
       break;
@@ -588,7 +588,7 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 18:
     switch (name[17]) {
     case 'e':
-      if (strncasecmp("proxy-authenticat", name, 17) == 0) {
+      if (memcmp("proxy-authenticat", name, 17) == 0) {
         return HpackStaticTableIndex::PROXY_AUTHENTICATE;
       }
       break;
@@ -597,15 +597,15 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 19:
     switch (name[18]) {
     case 'e':
-      if (strncasecmp("if-unmodified-sinc", name, 18) == 0) {
+      if (memcmp("if-unmodified-sinc", name, 18) == 0) {
         return HpackStaticTableIndex::IF_UNMODIFIED_SINCE;
       }
       break;
     case 'n':
-      if (strncasecmp("content-dispositio", name, 18) == 0) {
+      if (memcmp("content-dispositio", name, 18) == 0) {
         return HpackStaticTableIndex::CONTENT_DISPOSITION;
       }
-      if (strncasecmp("proxy-authorizatio", name, 18) == 0) {
+      if (memcmp("proxy-authorizatio", name, 18) == 0) {
         return HpackStaticTableIndex::PROXY_AUTHORIZATION;
       }
       break;
@@ -614,7 +614,7 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 25:
     switch (name[24]) {
     case 'y':
-      if (strncasecmp("strict-transport-securit", name, 24) == 0) {
+      if (memcmp("strict-transport-securit", name, 24) == 0) {
         return HpackStaticTableIndex::STRICT_TRANSPORT_SECURITY;
       }
       break;
@@ -623,7 +623,7 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 27:
     switch (name[26]) {
     case 'n':
-      if (strncasecmp("access-control-allow-origi", name, 26) == 0) {
+      if (memcmp("access-control-allow-origi", name, 26) == 0) {
         return HpackStaticTableIndex::ACCESS_CONTROL_ALLOW_ORIGIN;
       }
       break;
@@ -641,7 +641,7 @@ HpackStaticTableIndex
 HpackIndexingTable::_lookup_value(HpackStaticTableIndex begin, HpackStaticTableIndex end, const char *value, int value_len) const
 {
   for (uint32_t i = static_cast<uint32_t>(begin); i <= static_cast<uint32_t>(end); ++i) {
-    if (STATIC_TABLE[i].value_size == value_len && strncasecmp(STATIC_TABLE[i].value, value, value_len) == 0) {
+    if (STATIC_TABLE[i].value_size == value_len && memcmp(STATIC_TABLE[i].value, value, value_len) == 0) {
       return static_cast<HpackStaticTableIndex>(i);
     }
   }
@@ -711,8 +711,8 @@ HpackIndexingTable::HpackDynamicTable::add_header_field(const MIMEField *field)
       std::string_view new_name  = new_field->name_get();
       std::string_view new_value = new_field->value_get();
 
-      Debug("hpack_encode", "name=%.*s value=%.*s index=%" PRId32, static_cast<int>(new_name.size()), new_name.data(),
-            static_cast<int>(new_value.size()), new_value.data(), index);
+      // Debug("hpack_encode", "name=%.*s value=%.*s index=%" PRId32, static_cast<int>(new_name.size()), new_name.data(),
+      //       static_cast<int>(new_value.size()), new_value.data(), index);
 
       this->_lookup_table.insert(std::make_pair(new_name, std::make_pair(new_value, index)));
     }
