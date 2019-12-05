@@ -312,12 +312,15 @@ rcv_headers_frame(Http2ConnectionState &cstate, const Http2Frame &frame)
     }
   }
 
-  stream->header_blocks = static_cast<uint8_t *>(ats_malloc(header_block_fragment_length));
-  frame.reader()->memcpy(stream->header_blocks, header_block_fragment_length, header_block_fragment_offset);
-
   stream->header_blocks_length = header_block_fragment_length;
 
   if (frame.header().flags & HTTP2_FLAGS_HEADERS_END_HEADERS) {
+    // TODO: support decode from MIOBuffer (IOBufferReader) to avoid copy
+    // TODO: check header_block_fragment_length is reasonable length on stack
+    uint8_t header_blocks[header_block_fragment_length];
+    stream->header_blocks = header_blocks;
+    frame.reader()->memcpy(stream->header_blocks, header_block_fragment_length, header_block_fragment_offset);
+
     // NOTE: If there are END_HEADERS flag, decode stored Header Blocks.
     if (!stream->change_state(HTTP2_FRAME_TYPE_HEADERS, frame.header().flags) && stream->has_trailing_header() == false) {
       return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_CONNECTION, Http2ErrorCode::HTTP2_ERROR_PROTOCOL_ERROR,
@@ -341,6 +344,9 @@ rcv_headers_frame(Http2ConnectionState &cstate, const Http2Frame &frame)
     Http2ErrorCode result =
       stream->decode_header_blocks(*cstate.local_hpack_handle, cstate.server_settings.get(HTTP2_SETTINGS_HEADER_TABLE_SIZE));
 
+    // Hack to avoid memory allocation
+    // TODO: extend decode_header_blocks API
+    stream->header_blocks = nullptr;
     if (result != Http2ErrorCode::HTTP2_ERROR_NO_ERROR) {
       if (result == Http2ErrorCode::HTTP2_ERROR_COMPRESSION_ERROR) {
         return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_CONNECTION, Http2ErrorCode::HTTP2_ERROR_COMPRESSION_ERROR,
@@ -365,6 +371,9 @@ rcv_headers_frame(Http2ConnectionState &cstate, const Http2Frame &frame)
   } else {
     // NOTE: Expect CONTINUATION Frame. Do NOT change state of stream or decode
     // Header Blocks.
+    stream->header_blocks = static_cast<uint8_t *>(ats_malloc(header_block_fragment_length));
+    frame.reader()->memcpy(stream->header_blocks, header_block_fragment_length, header_block_fragment_offset);
+
     Http2StreamDebug(cstate.ua_session, stream_id, "No END_HEADERS flag, expecting CONTINUATION frame");
     cstate.set_continued_stream_id(stream_id);
   }
