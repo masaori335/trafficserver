@@ -453,9 +453,8 @@ http2_convert_header_from_2_to_1_1(HTTPHdr *headers)
     }
 
     // Parse URL
-    Arena arena;
-    size_t url_length     = scheme_len + 3 + authority_len + path_len;
-    char *url             = arena.str_alloc(url_length);
+    size_t url_length = scheme_len + 3 + authority_len + path_len;
+    char url[url_length];
     const char *url_start = url;
 
     memcpy(url, scheme, scheme_len);
@@ -463,7 +462,6 @@ http2_convert_header_from_2_to_1_1(HTTPHdr *headers)
     memcpy(url + scheme_len + 3, authority, authority_len);
     memcpy(url + scheme_len + 3 + authority_len, path, path_len);
     url_parse(headers->m_heap, headers->m_http->u.req.m_url_impl, &url_start, url + url_length, true);
-    arena.str_free(url);
 
     // Get value of :method
     if ((field = headers->field_find(HTTP2_VALUE_METHOD, HTTP2_LEN_METHOD)) != nullptr && field->value_is_valid()) {
