@@ -217,6 +217,7 @@ public:
   void init();
 
   void attach_client_session(ProxyTransaction *client_vc_arg, IOBufferReader *buffer_reader);
+  void attach_client_request_header(const HTTPHdr *h);
 
   // Called by httpSessionManager so that we can reset
   //  the session timeouts and initiate a read while

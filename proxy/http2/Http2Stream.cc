@@ -185,29 +185,7 @@ Http2Stream::send_request(Http2ConnectionState &cstate)
   // Convert header to HTTP/1.1 format
   http2_convert_header_from_2_to_1_1(&_req_header);
 
-  // Write header to a buffer.  Borrowing logic from HttpSM::write_header_into_buffer.
-  // Seems like a function like this ought to be in HTTPHdr directly
-  int bufindex;
-  int dumpoffset = 0;
-  int done, tmp;
-  do {
-    bufindex             = 0;
-    tmp                  = dumpoffset;
-    IOBufferBlock *block = request_buffer.get_current_block();
-    if (!block) {
-      request_buffer.add_block();
-      block = request_buffer.get_current_block();
-    }
-    done = _req_header.print(block->start(), block->write_avail(), &bufindex, &tmp);
-    dumpoffset += bufindex;
-    request_buffer.fill(bufindex);
-    if (!done) {
-      request_buffer.add_block();
-    }
-  } while (!done);
-
-  // Is there a read_vio request waiting?
-  this->update_read_request(INT64_MAX, true);
+  this->_sm->attach_client_request_header(&_req_header);
 }
 
 bool

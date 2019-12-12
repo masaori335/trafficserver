@@ -591,6 +591,17 @@ HttpSM::attach_client_session(ProxyTransaction *client_vc, IOBufferReader *buffe
   }
 }
 
+/**
+   Bypass HttpSM::state_read_client_request_header
+ */
+void
+HttpSM::attach_client_request_header(const HTTPHdr *hdr)
+{
+  t_state.hdr_info.client_request.copy(hdr);
+
+  call_transact_and_set_next_state(HttpTransact::ModifyRequest);
+}
+
 void
 HttpSM::setup_client_read_request_header()
 {
