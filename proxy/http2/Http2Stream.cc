@@ -55,8 +55,6 @@ Http2Stream::init(Http2StreamId sid, ssize_t initial_rwnd)
   _reader = request_reader = request_buffer.alloc_reader();
   // FIXME: Are you sure? every "stream" needs request_header?
   _req_header.create(HTTP_TYPE_REQUEST);
-  response_header.create(HTTP_TYPE_RESPONSE);
-  http_parser_init(&http_parser);
 }
 
 int
@@ -585,8 +583,6 @@ Http2Stream::update_write_request(IOBufferReader *buf_reader, int64_t write_len,
   }
   ink_release_assert(this->_thread == this_ethread());
 
-  Http2ClientSession *h2_proxy_ssn = static_cast<Http2ClientSession *>(this->_proxy_ssn);
-
   SCOPED_MUTEX_LOCK(lock, write_vio.mutex, this_ethread());
 
   int64_t bytes_avail = this->response_reader->read_avail();
@@ -608,66 +604,44 @@ Http2Stream::update_write_request(IOBufferReader *buf_reader, int64_t write_len,
     return;
   }
 
-  // Process the new data
-  if (!this->response_header_done) {
-    // Still parsing the response_header
-    int bytes_used = 0;
-    int state      = this->response_header.parse_resp(&http_parser, this->response_reader, &bytes_used, false);
-    // HTTPHdr::parse_resp() consumed the response_reader in above (consumed size is `bytes_used`)
-    write_vio.ndone += bytes_used;
-
-    switch (state) {
-    case PARSE_RESULT_DONE: {
-      this->response_header_done = true;
-
-      // Schedule session shutdown if response header has "Connection: close"
-      MIMEField *field = this->response_header.field_find(MIME_FIELD_CONNECTION, MIME_LEN_CONNECTION);
-      if (field) {
-        int len;
-        const char *value = field->value_get(&len);
-        if (memcmp(HTTP_VALUE_CLOSE, value, HTTP_LEN_CLOSE) == 0) {
-          SCOPED_MUTEX_LOCK(lock, h2_proxy_ssn->connection_state.mutex, this_ethread());
-          if (h2_proxy_ssn->connection_state.get_shutdown_state() == HTTP2_SHUTDOWN_NONE) {
-            h2_proxy_ssn->connection_state.set_shutdown_state(HTTP2_SHUTDOWN_NOT_INITIATED, Http2ErrorCode::HTTP2_ERROR_NO_ERROR);
-          }
-        }
-      }
-
-      {
-        SCOPED_MUTEX_LOCK(lock, h2_proxy_ssn->connection_state.mutex, this_ethread());
-        // Send the response header back
-        h2_proxy_ssn->connection_state.send_headers_frame(this);
-      }
-
-      // Roll back states of response header to read final response
-      if (this->response_header.expect_final_response()) {
-        this->response_header_done = false;
-        response_header.destroy();
-        response_header.create(HTTP_TYPE_RESPONSE);
-        http_parser_clear(&http_parser);
-        http_parser_init(&http_parser);
-      }
-
-      this->signal_write_event(call_update);
-
-      if (this->response_reader->is_read_avail_more_than(0)) {
-        this->_milestones.mark(Http2StreamMilestone::START_TX_DATA_FRAMES);
-        this->send_response_body(call_update);
-      }
-      break;
-    }
-    case PARSE_RESULT_CONT:
-      // Let it ride for next time
-      break;
-    default:
-      break;
-    }
-  } else {
-    this->_milestones.mark(Http2StreamMilestone::START_TX_DATA_FRAMES);
-    this->send_response_body(call_update);
-  }
+  this->_milestones.mark(Http2StreamMilestone::START_TX_DATA_FRAMES);
+  this->send_response_body(call_update);
 
   return;
+}
+
+// TODO: deal with end stream
+void
+Http2Stream::write_response_header(HTTPHdr *hdr)
+{
+  Http2ClientSession *h2_proxy_ssn = static_cast<Http2ClientSession *>(this->_proxy_ssn);
+
+  // Schedule session shutdown if response header has "Connection: close"
+  MIMEField *field = hdr->field_find(MIME_FIELD_CONNECTION, MIME_LEN_CONNECTION);
+  if (field) {
+    int len;
+    const char *value = field->value_get(&len);
+    if (memcmp(HTTP_VALUE_CLOSE, value, HTTP_LEN_CLOSE) == 0) {
+      SCOPED_MUTEX_LOCK(lock, h2_proxy_ssn->connection_state.mutex, this_ethread());
+      if (h2_proxy_ssn->connection_state.get_shutdown_state() == HTTP2_SHUTDOWN_NONE) {
+        h2_proxy_ssn->connection_state.set_shutdown_state(HTTP2_SHUTDOWN_NOT_INITIATED, Http2ErrorCode::HTTP2_ERROR_NO_ERROR);
+      }
+    }
+  }
+
+  {
+    SCOPED_MUTEX_LOCK(lock, h2_proxy_ssn->connection_state.mutex, this_ethread());
+    // Send the response header back
+    this->response_header = hdr;
+    h2_proxy_ssn->connection_state.send_headers_frame(this);
+  }
+
+  this->signal_write_event();
+
+  if (this->response_reader && this->response_reader->is_read_avail_more_than(0)) {
+    this->_milestones.mark(Http2StreamMilestone::START_TX_DATA_FRAMES);
+    this->send_response_body();
+  }
 }
 
 void
@@ -791,7 +765,6 @@ Http2Stream::destroy()
   }
 
   _req_header.destroy();
-  response_header.destroy();
 
   // Drop references to all buffer data
   request_buffer.clear();
@@ -805,7 +778,6 @@ Http2Stream::destroy()
   }
   clear_timers();
   clear_io_events();
-  http_parser_clear(&http_parser);
 
   super::destroy();
   THREAD_FREE(this, http2StreamAllocator, this_ethread());

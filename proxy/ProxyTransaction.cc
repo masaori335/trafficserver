@@ -211,3 +211,9 @@ ProxyTransaction::get_transaction_priority_dependence() const
 {
   return 0;
 }
+
+void
+ProxyTransaction::write_response_header(HTTPHdr *hdr)
+{
+  ink_abort("not supported");
+}

@@ -1561,7 +1561,7 @@ Http2ConnectionState::send_headers_frame(Http2Stream *stream)
 {
   Http2StreamDebug(ua_session, stream->get_id(), "Send HEADERS frame");
 
-  HTTPHdr *resp_header = &stream->response_header;
+  HTTPHdr *resp_header = stream->response_header;
   http2_convert_header_from_1_1_to_2(resp_header);
 
   uint32_t buf_len = resp_header->length_get() * 2; // Make it double just in case

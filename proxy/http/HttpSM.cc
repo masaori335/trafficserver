@@ -6100,10 +6100,19 @@ HttpSM::setup_cache_read_transfer()
 
   IOBufferReader *buf_start = buf->alloc_reader();
 
-  // Now dump the header into the buffer
   ink_assert(t_state.hdr_info.client_response.status_get() != HTTP_STATUS_NOT_MODIFIED);
-  client_response_hdr_bytes = hdr_size = write_response_header_into_buffer(&t_state.hdr_info.client_response, buf);
-  cache_response_hdr_bytes             = client_response_hdr_bytes;
+
+  if (client_protocol && strncmp(client_protocol, "http/2", 6) == 0) {
+    // Bypass resposne header dump to avoid duplicated header parse
+    // TODO: clarify interface between ProxyTransaction to passing HTTPHdr directly
+    // TODO: HTTP/3 support
+    ua_txn->write_response_header(&t_state.hdr_info.client_response);
+    hdr_size = t_state.hdr_info.client_response.length_get();
+  } else {
+    // Now dump the header into the buffer
+    hdr_size = write_response_header_into_buffer(&t_state.hdr_info.client_response, buf);
+  }
+  client_response_hdr_bytes = cache_response_hdr_bytes = hdr_size;
 
   HTTP_SM_SET_DEFAULT_HANDLER(&HttpSM::tunnel_handler);
 

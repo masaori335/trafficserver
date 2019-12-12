@@ -43,6 +43,7 @@ public:
   virtual void release(IOBufferReader *r);
   virtual void transaction_done() = 0;
   virtual void destroy();
+  virtual void write_response_header(HTTPHdr *hdr);
 
   /// Virtual Accessors
   //

@@ -61,6 +61,7 @@ public:
   void release(IOBufferReader *r) override;
   void reenable(VIO *vio) override;
   void transaction_done() override;
+  void write_response_header(HTTPHdr *hdr) override;
 
   void do_io_shutdown(ShutdownHowTo_t) override {}
   VIO *do_io_read(Continuation *c, int64_t nbytes, MIOBuffer *buf) override;
@@ -73,7 +74,7 @@ public:
   void terminate_if_possible();
   void update_read_request(int64_t read_len, bool send_update, bool check_eos = false);
   void update_write_request(IOBufferReader *buf_reader, int64_t write_len, bool send_update);
-  void signal_write_event(bool call_update);
+  void signal_write_event(bool call_update = true);
   void restart_sending();
   bool push_promise(URL &url, const MIMEField *accept_encoding);
 
@@ -132,11 +133,10 @@ public:
   bool send_end_stream = false;
 
   bool sent_request_header       = false;
-  bool response_header_done      = false;
   bool request_sent              = false;
   bool is_first_transaction_flag = false;
 
-  HTTPHdr response_header;
+  HTTPHdr *response_header                 = nullptr;
   IOBufferReader *response_reader          = nullptr;
   IOBufferReader *request_reader           = nullptr;
   MIOBuffer request_buffer                 = CLIENT_CONNECTION_FIRST_READ_BUFFER_SIZE_INDEX;
@@ -145,7 +145,7 @@ public:
 private:
   bool response_is_data_available() const;
   Event *send_tracked_event(Event *event, int send_event, VIO *vio);
-  void send_response_body(bool call_update);
+  void send_response_body(bool call_update = true);
 
   /**
    * Check if this thread is the right thread to process events for this
@@ -154,7 +154,6 @@ private:
    */
   bool _switch_thread_if_not_on_right_thread(int event, void *edata);
 
-  HTTPParser http_parser;
   EThread *_thread = nullptr;
   Http2StreamId _id;
   Http2StreamState _state = Http2StreamState::HTTP2_STREAM_STATE_IDLE;
