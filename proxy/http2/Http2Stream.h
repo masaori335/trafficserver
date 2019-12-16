@@ -24,9 +24,8 @@
 #pragma once
 
 #include "HTTP2.h"
-#include "../ProxyTransaction.h"
+#include "ProxyTransaction.h"
 #include "Http2DebugNames.h"
-#include "../http/HttpTunnel.h" // To get ChunkedHandler
 #include "Http2DependencyTree.h"
 #include "tscore/History.h"
 #include "Milestones.h"
@@ -74,9 +73,12 @@ public:
   void terminate_if_possible();
   void update_read_request(int64_t read_len, bool send_update, bool check_eos = false);
   void update_write_request(IOBufferReader *buf_reader, int64_t write_len, bool send_update);
+
+  void signal_read_event(int event);
   void signal_write_event(bool call_update);
+
   void restart_sending();
-  void push_promise(URL &url, const MIMEField *accept_encoding);
+  bool push_promise(URL &url, const MIMEField *accept_encoding);
 
   // Stream level window size
   ssize_t client_rwnd() const;
@@ -97,6 +99,8 @@ public:
   void increment_client_transactions_stat() override;
   void decrement_client_transactions_stat() override;
   int get_transaction_id() const override;
+  int get_transaction_priority_weight() const override;
+  int get_transaction_priority_dependence() const override;
 
   void clear_inactive_timer();
   void clear_active_timer();
@@ -105,15 +109,13 @@ public:
 
   bool is_client_state_writeable() const;
   bool is_closed() const;
-  bool response_is_chunked() const;
   IOBufferReader *response_get_data_reader() const;
 
   void mark_milestone(Http2StreamMilestone type);
 
   void increment_data_length(uint64_t length);
   bool payload_length_is_valid() const;
-  bool is_body_done() const;
-  void mark_body_done();
+  bool is_write_vio_done() const;
   void update_sent_count(unsigned num_bytes);
   Http2StreamId get_id() const;
   Http2StreamState get_state() const;
@@ -121,6 +123,7 @@ public:
   void update_initial_rwnd(Http2WindowSize new_size);
   bool has_trailing_header() const;
   void set_request_headers(HTTPHdr &h2_headers);
+  MIOBuffer *read_vio_writer() const;
 
   //////////////////
   // Variables
@@ -139,13 +142,9 @@ public:
 
   HTTPHdr response_header;
   IOBufferReader *response_reader          = nullptr;
-  IOBufferReader *request_reader           = nullptr;
-  MIOBuffer request_buffer                 = CLIENT_CONNECTION_FIRST_READ_BUFFER_SIZE_INDEX;
   Http2DependencyTree::Node *priority_node = nullptr;
 
 private:
-  void response_initialize_data_handling(bool &is_done);
-  void response_process_data(bool &is_done);
   bool response_is_data_available() const;
   Event *send_tracked_event(Event *event, int send_event, VIO *vio);
   void send_response_body(bool call_update);
@@ -164,6 +163,8 @@ private:
   int64_t _http_sm_id     = -1;
 
   HTTPHdr _req_header;
+  MIOBuffer _request_buffer = CLIENT_CONNECTION_FIRST_READ_BUFFER_SIZE_INDEX;
+  int64_t read_vio_nbytes;
   VIO read_vio;
   VIO write_vio;
 
@@ -171,8 +172,6 @@ private:
   Milestones<Http2StreamMilestone, static_cast<size_t>(Http2StreamMilestone::LAST_ENTRY)> _milestones;
 
   bool trailing_header = false;
-  bool body_done       = false;
-  bool chunked         = false;
 
   // A brief discussion of similar flags and state variables:  _state, closed, terminate_stream
   //
@@ -206,7 +205,6 @@ private:
   std::vector<size_t> _recent_rwnd_increment = {SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX};
   int _recent_rwnd_increment_index           = 0;
 
-  ChunkedHandler chunked_handler;
   Event *cross_thread_event      = nullptr;
   Event *buffer_full_write_event = nullptr;
 
@@ -225,3 +223,106 @@ private:
 };
 
 extern ClassAllocator<Http2Stream> http2StreamAllocator;
+
+////////////////////////////////////////////////////
+// INLINE
+
+inline void
+Http2Stream::mark_milestone(Http2StreamMilestone type)
+{
+  this->_milestones.mark(type);
+}
+
+inline bool
+Http2Stream::is_write_vio_done() const
+{
+  return this->write_vio.ntodo() == 0;
+}
+
+inline void
+Http2Stream::update_sent_count(unsigned num_bytes)
+{
+  bytes_sent += num_bytes;
+  this->write_vio.ndone += num_bytes;
+}
+
+inline Http2StreamId
+Http2Stream::get_id() const
+{
+  return _id;
+}
+
+inline int
+Http2Stream::get_transaction_id() const
+{
+  return _id;
+}
+
+inline Http2StreamState
+Http2Stream::get_state() const
+{
+  return _state;
+}
+
+inline void
+Http2Stream::update_initial_rwnd(Http2WindowSize new_size)
+{
+  this->_client_rwnd = new_size;
+}
+
+inline bool
+Http2Stream::has_trailing_header() const
+{
+  return trailing_header;
+}
+
+inline void
+Http2Stream::set_request_headers(HTTPHdr &h2_headers)
+{
+  _req_header.copy(&h2_headers);
+}
+
+inline // Check entire DATA payload length if content-length: header is exist
+  void
+  Http2Stream::increment_data_length(uint64_t length)
+{
+  data_length += length;
+}
+
+inline bool
+Http2Stream::payload_length_is_valid() const
+{
+  uint32_t content_length = _req_header.get_content_length();
+  return content_length == 0 || content_length == data_length;
+}
+
+inline bool
+Http2Stream::allow_half_open() const
+{
+  return false;
+}
+
+inline bool
+Http2Stream::is_client_state_writeable() const
+{
+  return _state == Http2StreamState::HTTP2_STREAM_STATE_OPEN || _state == Http2StreamState::HTTP2_STREAM_STATE_HALF_CLOSED_REMOTE ||
+         _state == Http2StreamState::HTTP2_STREAM_STATE_RESERVED_LOCAL;
+}
+
+inline bool
+Http2Stream::is_closed() const
+{
+  return closed;
+}
+
+inline bool
+Http2Stream::is_first_transaction() const
+{
+  return is_first_transaction_flag;
+}
+
+inline MIOBuffer *
+Http2Stream::read_vio_writer() const
+{
+  return this->read_vio.get_writer();
+}

@@ -786,24 +786,6 @@ Old expansion variable   Condition variable to use with concatenations
 %<cquup>                 %{CLIENT-URL:PATH}
 ======================== ==========================================================================
 
-Header Values
--------------
-
-Setting a header with a value can take the following formats:
-
-- Any `condition <Conditions>`_ which extracts a value from the request.
-
-- ``$N``, where 0 <= N <= 9, from matching groups in a regular expression.
-
-- A string (which can contain the numbered matches from a regular expression as
-  described above).
-
-- Null.
-
-Supplying no value for a header for certain operators can lead to an effective
-no-op. In particular, `add-header`_ and `set-header`_ will simply short-circuit
-if no value has been supplied for the named header.
-
 URL Parts
 ---------
 
@@ -822,7 +804,9 @@ Part     Description
 HOST     Full hostname.
 
 PATH     URL substring beginning with (but not including) the first ``/`` after
-         the hostname up to, but not including, the query string.
+         the hostname up to, but not including, the query string. **Note**: previous
+         versions of ATS had a `%{PATH}` directive, this will no longer work. Instead,
+         you want to use `%{CLIENT-URL:PATH}`.
 
 PORT     Port number.
 
@@ -878,7 +862,7 @@ one forces the beginning of a new ruleset.
      node[shape=record];
 
      Client[height=4, label="{ Client|{<p1>|<p2>} }"];
-     ATS[height=4, fontsize=10,label="{ {{<clientside0>Global:\nREAD_REQUEST_PRE_REMAP_HOOK|<clientside01>Global:\nREAD_REQUEST_HDR_HOOK\nRemap rule:\nREMAP_PSEUDO_HOOK}|<clientside1>SEND_RESPONSE_HDR_HOOK}|ATS |{<originside0>SEND_REQUEST_HDR_HOOK|<originside1>READ_RESPONSE_HDR_HOOK} }",xlabel="ATS"];
+     ATS[height=4, fontsize=10,label="{ {{<clientside0>Global:\nREAD_REQUEST_HDR_HOOK\nREAD_REQUEST_PRE_REMAP_HOOK|<clientside01>Remap rule:\nREMAP_PSEUDO_HOOK}|<clientside1>SEND_RESPONSE_HDR_HOOK}|ATS |{<originside0>SEND_REQUEST_HDR_HOOK|<originside1>READ_RESPONSE_HDR_HOOK} }",xlabel="ATS"];
      Origin[height=4, label="{ {<request>|<response>}|Origin }"];
 
      Client:p1 -> ATS:clientside0 [ label = "Request" ];

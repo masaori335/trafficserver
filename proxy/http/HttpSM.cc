@@ -44,6 +44,7 @@
 #include "IPAllow.h"
 #include "tscore/I_Layout.h"
 #include "tscore/bwf_std_format.h"
+#include "ts/sdt.h"
 
 #include <openssl/ossl_typ.h>
 #include <openssl/ssl.h>
@@ -194,26 +195,10 @@ HttpVCTable::remove_entry(HttpVCTableEntry *e)
     free_MIOBuffer(e->write_buffer);
     e->write_buffer = nullptr;
   }
-  if (e->read_vio != nullptr && e->read_vio->cont == sm) {
-    // Cleanup dangling i/o
-    if (e == sm->get_ua_entry() && sm->get_ua_txn() != nullptr) {
-      e->read_vio = sm->get_ua_txn()->do_io_read(nullptr, 0, nullptr);
-    } else if (e == sm->get_server_entry() && sm->get_server_session()) {
-      e->read_vio = sm->get_server_session()->do_io_read(nullptr, 0, nullptr);
-    } else {
-      ink_release_assert(false);
-    }
-  }
-  if (e->write_vio != nullptr && e->write_vio->cont == sm) {
-    // Cleanup dangling i/o
-    if (e == sm->get_ua_entry() && sm->get_ua_txn()) {
-      e->write_vio = sm->get_ua_txn()->do_io_write(nullptr, 0, nullptr);
-    } else if (e == sm->get_server_entry() && sm->get_server_session()) {
-      e->write_vio = sm->get_server_session()->do_io_write(nullptr, 0, nullptr);
-    } else {
-      ink_release_assert(false);
-    }
-  }
+  // Cannot reach in to checkout the netvc
+  // for remaining I/O operations because the netvc
+  // may have been deleted at this point and the pointer
+  // could be stale.
   e->read_vio   = nullptr;
   e->write_vio  = nullptr;
   e->vc_handler = nullptr;
@@ -389,6 +374,9 @@ HttpSM::init()
 
   SET_HANDLER(&HttpSM::main_handler);
 
+  // Remember where this SM is running so it gets returned correctly
+  this->setThreadAffinity(this_ethread());
+
 #ifdef USE_HTTP_DEBUG_LISTS
   ink_mutex_acquire(&debug_sm_list_mutex);
   debug_sm_list.push(this);
@@ -501,7 +489,9 @@ HttpSM::attach_client_session(ProxyTransaction *client_vc, IOBufferReader *buffe
   // It seems to be possible that the ua_txn pointer will go stale before log entries for this HTTP transaction are
   // generated.  Therefore, collect information that may be needed for logging from the ua_txn object at this point.
   //
-  _client_transaction_id = ua_txn->get_transaction_id();
+  _client_transaction_id                  = ua_txn->get_transaction_id();
+  _client_transaction_priority_weight     = ua_txn->get_transaction_priority_weight();
+  _client_transaction_priority_dependence = ua_txn->get_transaction_priority_dependence();
   {
     auto p = ua_txn->get_proxy_ssn();
 
@@ -1463,7 +1453,7 @@ plugins required to work with sni_routing.
         callout_state = HTTP_API_IN_CALLOUT;
       }
 
-      MUTEX_TRY_LOCK(lock, cur_hook->m_cont->mutex, mutex->thread_holding);
+      WEAK_MUTEX_TRY_LOCK(lock, cur_hook->m_cont->mutex, mutex->thread_holding);
 
       // Have a mutex but didn't get the lock, reschedule
       if (!lock.is_locked()) {
@@ -1775,6 +1765,8 @@ HttpSM::state_http_server_open(int event, void *data)
     pending_action = nullptr;
 
     session->new_connection(vc);
+
+    ATS_PROBE1(new_origin_server_connection, t_state.current.server->name);
 
     session->state = HSS_ACTIVE;
     ats_ip_copy(&t_state.server_info.src_addr, netvc->get_local_addr());
@@ -2467,6 +2459,15 @@ HttpSM::state_cache_open_write(int event, void *data)
   // INTENTIONAL FALL THROUGH
   // Allow for stale object to be served
   case CACHE_EVENT_OPEN_READ:
+    if (!t_state.cache_info.object_read) {
+      t_state.cache_open_write_fail_action = t_state.txn_conf->cache_open_write_fail_action;
+      // Note that CACHE_LOOKUP_COMPLETE may be invoked more than once
+      // if CACHE_WL_FAIL_ACTION_READ_RETRY is configured
+      ink_assert(t_state.cache_open_write_fail_action == HttpTransact::CACHE_WL_FAIL_ACTION_READ_RETRY);
+      t_state.cache_lookup_result         = HttpTransact::CACHE_LOOKUP_NONE;
+      t_state.cache_info.write_lock_state = HttpTransact::CACHE_WL_READ_RETRY;
+      break;
+    }
     // The write vector was locked and the cache_sm retried
     // and got the read vector again.
     cache_sm.cache_read_vc->get_http_info(&t_state.cache_info.object_read);
@@ -3307,8 +3308,7 @@ HttpSM::tunnel_handler_ua(int event, HttpTunnelConsumer *c)
     // only external POSTs should be subject to this logic; ruling out internal POSTs here
     bool is_eligible_post_request = ((t_state.method == HTTP_WKSIDX_POST) && !is_internal);
 
-    if ((is_eligible_post_request || t_state.client_info.pipeline_possible == true) && c->producer->vc_type != HT_STATIC &&
-        event == VC_EVENT_WRITE_COMPLETE) {
+    if (is_eligible_post_request && c->producer->vc_type != HT_STATIC && event == VC_EVENT_WRITE_COMPLETE) {
       ua_txn->set_half_close_flag(true);
     }
 
@@ -3490,12 +3490,10 @@ HttpSM::tunnel_handler_post_ua(int event, HttpTunnelProducer *p)
     //   server and close the ua
     p->handler_state = HTTP_SM_POST_UA_FAIL;
     set_ua_abort(HttpTransact::ABORTED, event);
-
+    p->vc->do_io_write(nullptr, 0, nullptr);
+    p->vc->do_io_shutdown(IO_SHUTDOWN_READ);
     tunnel.chain_abort_all(p);
     server_session = nullptr;
-    p->read_vio    = nullptr;
-    p->vc->do_io_close(EHTTP_ERROR);
-
     // the in_tunnel status on both the ua & and
     //   it's consumer must already be set to true.  Previously
     //   we were setting it again to true but incorrectly in
@@ -3619,7 +3617,6 @@ HttpSM::tunnel_handler_post_server(int event, HttpTunnelConsumer *c)
       if (ua_producer->vc_type == HT_STATIC && event != VC_EVENT_ERROR && event != VC_EVENT_EOS) {
         ua_entry->read_vio = ua_producer->vc->do_io_read(this, INT64_MAX, c->producer->read_buffer);
         // ua_producer->vc->do_io_shutdown(IO_SHUTDOWN_READ);
-        t_state.client_info.pipeline_possible = false;
       } else {
         if (ua_producer->vc_type == HT_STATIC && t_state.redirect_info.redirect_in_process) {
           post_failed = true;
@@ -3629,7 +3626,6 @@ HttpSM::tunnel_handler_post_server(int event, HttpTunnelConsumer *c)
       ua_entry->read_vio = ua_producer->vc->do_io_read(this, INT64_MAX, c->producer->read_buffer);
       // we should not shutdown read side of the client here to prevent sending a reset
       // ua_producer->vc->do_io_shutdown(IO_SHUTDOWN_READ);
-      t_state.client_info.pipeline_possible = false;
     } // end of added logic
 
     // We want to shutdown the tunnel here and see if there
@@ -5062,6 +5058,17 @@ HttpSM::do_http_server_open(bool raw)
     if (t_state.txn_conf->ssl_client_sni_policy != nullptr && !strcmp(t_state.txn_conf->ssl_client_sni_policy, "remap")) {
       len = strlen(t_state.server_info.name);
       opt.set_sni_servername(t_state.server_info.name, len);
+    } else if (t_state.txn_conf->ssl_client_sni_policy != nullptr &&
+               !strcmp(t_state.txn_conf->ssl_client_sni_policy, "verify_with_name_source")) {
+      // the same with "remap" policy to set sni_servername
+      len = strlen(t_state.server_info.name);
+      opt.set_sni_servername(t_state.server_info.name, len);
+
+      // also set sni_hostname with host header from server request in this policy
+      const char *host = t_state.hdr_info.server_request.host_get(&len);
+      if (host && len > 0) {
+        opt.set_sni_hostname(host, len);
+      }
     } else { // Do the default of host header for SNI
       const char *host = t_state.hdr_info.server_request.host_get(&len);
       if (host && len > 0) {
@@ -6858,6 +6865,23 @@ HttpSM::kill_this()
       update_stats();
     }
 
+    //////////////
+    // Log Data //
+    //////////////
+    SMDebug("http_seq", "[HttpSM::update_stats] Logging transaction");
+    if (Log::transaction_logging_enabled() && t_state.api_info.logging_enabled) {
+      LogAccess accessor(this);
+
+      int ret = Log::access(&accessor);
+
+      if (ret & Log::FULL) {
+        SMDebug("http", "[update_stats] Logging system indicates FULL.");
+      }
+      if (ret & Log::FAIL) {
+        Log::error("failed to log transaction for at least one log object");
+      }
+    }
+
     if (ua_txn) {
       ua_txn->transaction_done();
     }
@@ -6875,23 +6899,6 @@ HttpSM::kill_this()
     ink_release_assert(tunnel.is_tunnel_active() == false);
 
     HTTP_SM_SET_DEFAULT_HANDLER(nullptr);
-
-    //////////////
-    // Log Data //
-    //////////////
-    SMDebug("http_seq", "[HttpSM::update_stats] Logging transaction");
-    if (Log::transaction_logging_enabled() && t_state.api_info.logging_enabled) {
-      LogAccess accessor(this);
-
-      int ret = Log::access(&accessor);
-
-      if (ret & Log::FULL) {
-        SMDebug("http", "[update_stats] Logging system indicates FULL.");
-      }
-      if (ret & Log::FAIL) {
-        Log::error("failed to log transaction for at least one log object");
-      }
-    }
 
     if (redirect_url != nullptr) {
       ats_free((void *)redirect_url);

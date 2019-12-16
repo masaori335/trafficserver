@@ -38,11 +38,15 @@
 #include "tscore/ink_syslog.h"
 #include "tscore/hugepages.h"
 #include "tscore/runroot.h"
+#include "tscore/Filenames.h"
+#include "tscore/ts_file.h"
 
 #include "ts/ts.h" // This is sadly needed because of us using TSThreadInit() for some reason.
 
 #include <syslog.h>
 #include <algorithm>
+#include <list>
+#include <string>
 
 #if !defined(linux)
 #include <sys/lock.h>
@@ -90,6 +94,7 @@ extern "C" int plock(int);
 #include "DiagsConfig.h"
 #include "CoreUtils.h"
 #include "RemapConfig.h"
+#include "RemapPluginInfo.h"
 #include "RemapProcessor.h"
 #include "I_Tasks.h"
 #include "InkAPIInternal.h"
@@ -204,7 +209,7 @@ static ArgumentDescription argument_descriptions[] = {
   {"remote_management", 'M', "Remote Management", "T", &remote_management_flag, "PROXY_REMOTE_MANAGEMENT", nullptr},
   {"command", 'C',
    "Maintenance Command to Execute\n"
-   "      Commands: list, check, clear, clear_cache, clear_hostdb, verify_config, help",
+   "      Commands: list, check, clear, clear_cache, clear_hostdb, verify_config, verify_global_plugin, verify_remap_plugin, help",
    "S511", &command_string, "PROXY_COMMAND_STRING", nullptr},
   {"conf_dir", 'D', "config dir to verify", "S511", &conf_dir, "PROXY_CONFIG_CONFIG_DIR", nullptr},
   {"clear_hostdb", 'k', "Clear HostDB on Startup", "F", &auto_clear_hostdb_flag, "PROXY_CLEAR_HOSTDB", nullptr},
@@ -230,7 +235,7 @@ struct AutoStopCont : public Continuation {
 
     APIHook *hook = lifecycle_hooks->get(TS_LIFECYCLE_SHUTDOWN_HOOK);
     while (hook) {
-      SCOPED_MUTEX_LOCK(lock, hook->m_cont->mutex, this_ethread());
+      WEAK_SCOPED_MUTEX_LOCK(lock, hook->m_cont->mutex, this_ethread());
       hook->invoke(TS_EVENT_LIFECYCLE_SHUTDOWN, nullptr);
       hook = hook->next();
     }
@@ -678,17 +683,27 @@ cmd_list(char * /* cmd ATS_UNUSED */)
   }
 }
 
+/** Parse the given string and skip the first word.
+ *
+ * Words are assumed to be separated by spaces or tabs.
+ *
+ * @param[in] cmd The string whose first word will be skipped.
+ *
+ * @return The pointer in the string cmd to the second word in the string, or
+ * nullptr if there is no second word.
+ */
 static char *
-skip(char *cmd, int null_ok = 0)
+skip(char *cmd)
 {
+  // Skip initial white space.
   cmd += strspn(cmd, " \t");
+  // Point to the beginning of the next white space.
   cmd = strpbrk(cmd, " \t");
   if (!cmd) {
-    if (!null_ok) {
-      printf("Error: argument missing\n");
-    }
     return cmd;
   }
+  // Skip the second white space so that cmd now points to the beginning of the
+  // second word.
   cmd += strspn(cmd, " \t");
   return cmd;
 }
@@ -857,23 +872,23 @@ cmd_verify(char * /* cmd ATS_UNUSED */)
 
   if (!urlRewriteVerify()) {
     exitStatus |= (1 << 0);
-    fprintf(stderr, "ERROR: Failed to load remap.config, exitStatus %d\n\n", exitStatus);
+    fprintf(stderr, "ERROR: Failed to load %s, exitStatus %d\n\n", ts::filename::REMAP, exitStatus);
   } else {
-    fprintf(stderr, "INFO: Successfully loaded remap.config\n\n");
+    fprintf(stderr, "INFO: Successfully loaded %s\n\n", ts::filename::REMAP);
   }
 
   if (RecReadConfigFile() != REC_ERR_OKAY) {
     exitStatus |= (1 << 1);
-    fprintf(stderr, "ERROR: Failed to load records.config, exitStatus %d\n\n", exitStatus);
+    fprintf(stderr, "ERROR: Failed to load %s, exitStatus %d\n\n", ts::filename::RECORDS, exitStatus);
   } else {
-    fprintf(stderr, "INFO: Successfully loaded records.config\n\n");
+    fprintf(stderr, "INFO: Successfully loaded %s\n\n", ts::filename::RECORDS);
   }
 
   if (!plugin_init(true)) {
     exitStatus |= (1 << 2);
-    fprintf(stderr, "ERROR: Failed to load plugin.config, exitStatus %d\n\n", exitStatus);
+    fprintf(stderr, "ERROR: Failed to load %s, exitStatus %d\n\n", ts::filename::PLUGIN, exitStatus);
   } else {
-    fprintf(stderr, "INFO: Successfully loaded plugin.config\n\n");
+    fprintf(stderr, "INFO: Successfully loaded %s\n\n", ts::filename::PLUGIN);
   }
 
   SSLInitializeLibrary();
@@ -898,6 +913,115 @@ cmd_verify(char * /* cmd ATS_UNUSED */)
   ::exit(exitStatus);
 
   return 0;
+}
+
+enum class plugin_type_t {
+  GLOBAL,
+  REMAP,
+};
+
+/** Attempt to load a plugin shared object file.
+ *
+ * @param[in] plugin_type The type of plugin for which to create a PluginInfo.
+ * @param[in] plugin_path The path to the plugin's shared object file.
+ * @param[out] error Some description of why the plugin failed to load if
+ * loading it fails.
+ *
+ * @return True if the plugin loaded successfully, false otherwise.
+ */
+static bool
+load_plugin(plugin_type_t plugin_type, const fs::path &plugin_path, std::string &error)
+{
+  switch (plugin_type) {
+  case plugin_type_t::GLOBAL: {
+    void *handle, *initptr;
+    return plugin_dso_load(plugin_path.c_str(), handle, initptr, error);
+  }
+  case plugin_type_t::REMAP: {
+    auto temporary_directory = fs::temp_directory_path();
+    temporary_directory /= fs::path(std::string("verify_plugin_") + std::to_string(getpid()));
+    std::error_code ec;
+    if (!fs::create_directories(temporary_directory, ec)) {
+      std::ostringstream error_os;
+      error_os << "Could not create temporary directory " << temporary_directory.string() << ": " << ec.message();
+      error = error_os.str();
+      return false;
+    }
+    const auto runtime_path = temporary_directory / ts::file::filename(plugin_path);
+    const fs::path unused_config;
+    auto plugin_info = std::make_unique<RemapPluginInfo>(unused_config, plugin_path, runtime_path);
+    bool loaded      = plugin_info->load(error);
+    if (!fs::remove(temporary_directory, ec)) {
+      fprintf(stderr, "ERROR: could not remove temporary directory '%s': %s\n", temporary_directory.c_str(), ec.message().c_str());
+    }
+    return loaded;
+  }
+  }
+  // Unreached.
+  return false;
+}
+
+/** A helper for the verify plugin command functions.
+ *
+ * @param[in] args The arguments passed to the -C command option. This includes
+ * verify_global_plugin.
+ *
+ * @param[in] symbols The expected symbols to verify exist in the plugin file.
+ *
+ * @return a CMD status code. See the CMD_ defines above in this file.
+ */
+static int
+verify_plugin_helper(char *args, plugin_type_t plugin_type)
+{
+  const auto *plugin_filename = skip(args);
+  if (!plugin_filename) {
+    fprintf(stderr, "ERROR: verifying a plugin requires a plugin SO file path argument\n");
+    return CMD_FAILED;
+  }
+
+  fs::path plugin_path(plugin_filename);
+  fprintf(stderr, "NOTE: verifying plugin '%s'...\n", plugin_filename);
+
+  if (!fs::exists(plugin_path)) {
+    fprintf(stderr, "ERROR: verifying plugin '%s' Fail: No such file or directory\n", plugin_filename);
+    return CMD_FAILED;
+  }
+
+  auto ret = CMD_OK;
+  std::string error;
+  if (load_plugin(plugin_type, plugin_path, error)) {
+    fprintf(stderr, "NOTE: verifying plugin '%s' Success\n", plugin_filename);
+  } else {
+    fprintf(stderr, "ERROR: verifying plugin '%s' Fail: %s\n", plugin_filename, error.c_str());
+    ret = CMD_FAILED;
+  }
+  return ret;
+}
+
+/** Verify whether a given SO file looks like a valid global plugin.
+ *
+ * @param[in] args The arguments passed to the -C command option. This includes
+ * verify_global_plugin.
+ *
+ * @return a CMD status code. See the CMD_ defines above in this file.
+ */
+static int
+cmd_verify_global_plugin(char *args)
+{
+  return verify_plugin_helper(args, plugin_type_t::GLOBAL);
+}
+
+/** Verify whether a given SO file looks like a valid remap plugin.
+ *
+ * @param[in] args The arguments passed to the -C command option. This includes
+ * verify_global_plugin.
+ *
+ * @return a CMD status code. See the CMD_ defines above in this file.
+ */
+static int
+cmd_verify_remap_plugin(char *args)
+{
+  return verify_plugin_helper(args, plugin_type_t::REMAP);
 }
 
 static int cmd_help(char *cmd);
@@ -960,6 +1084,22 @@ static const struct CMD {
    "\n"
    "Load the config and verify traffic_server comes up correctly. \n",
    cmd_verify, true},
+  {"verify_global_plugin", "Verify a global plugin's shared object file",
+   "VERIFY_GLOBAL_PLUGIN\n"
+   "\n"
+   "FORMAT: verify_global_plugin [global_plugin_so_file]\n"
+   "\n"
+   "Load a global plugin's shared object file and verify it meets\n"
+   "minimal plugin API requirements. \n",
+   cmd_verify_global_plugin, false},
+  {"verify_remap_plugin", "Verify a remap plugin's shared object file",
+   "VERIFY_REMAP_PLUGIN\n"
+   "\n"
+   "FORMAT: verify_remap_plugin [remap_plugin_so_file]\n"
+   "\n"
+   "Load a remap plugin's shared object file and verify it meets\n"
+   "minimal plugin API requirements. \n",
+   cmd_verify_remap_plugin, false},
   {"help", "Obtain a short description of a command (e.g. 'help clear')",
    "HELP\n"
    "\n"
@@ -992,16 +1132,24 @@ find_cmd_index(const char *p)
   return -1;
 }
 
+/** Print the maintenance command help output.
+ */
+static void
+print_cmd_help()
+{
+  for (unsigned i = 0; i < countof(commands); i++) {
+    printf("%25s  %s\n", commands[i].n, commands[i].d);
+  }
+}
+
 static int
 cmd_help(char *cmd)
 {
   (void)cmd;
   printf("HELP\n\n");
-  cmd = skip(cmd, true);
+  cmd = skip(cmd);
   if (!cmd) {
-    for (unsigned i = 0; i < countof(commands); i++) {
-      printf("%15s  %s\n", commands[i].n, commands[i].d);
-    }
+    print_cmd_help();
   } else {
     int i;
     if ((i = find_cmd_index(cmd)) < 0) {
@@ -1044,6 +1192,10 @@ cmd_mode()
     return commands[command_index].f(command_string);
   } else if (*command_string) {
     Warning("unrecognized command: '%s'", command_string);
+    printf("\n");
+    printf("WARNING: Unrecognized command: '%s'\n", command_string);
+    printf("\n");
+    print_cmd_help();
     return CMD_FAILED; // in error
   } else {
     printf("\n");
@@ -1304,7 +1456,7 @@ syslog_log_configure()
 
     ats_free(facility_str);
     if (facility < 0) {
-      syslog(LOG_WARNING, "Bad syslog facility in records.config. Keeping syslog at LOG_DAEMON");
+      syslog(LOG_WARNING, "Bad syslog facility in %s. Keeping syslog at LOG_DAEMON", ts::filename::RECORDS);
     } else {
       Debug("server", "Setting syslog facility to %d", facility);
       closelog();
@@ -1474,7 +1626,8 @@ change_uid_gid(const char *user)
               "\tand then rebuild the server.\n"
               "\tIt is strongly suggested that you instead modify the\n"
               "\tproxy.config.admin.user_id directive in your\n"
-              "\trecords.config file to list a non-root user.\n");
+              "\t%s file to list a non-root user.\n",
+              ts::filename::RECORDS);
   }
 #endif
 }
@@ -1813,10 +1966,10 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   quic_NetProcessor.init();
 #endif
 
-  // If num_accept_threads == 0, let the ET_NET threads to set the condition variable,
+  // If num_accept_threads == 0, let the ET_NET threads set the condition variable,
   // Else we set it here so when checking the condition variable later it returns immediately.
-  if (num_accept_threads == 0) {
-    eventProcessor.schedule_spawn(&init_HttpProxyServer, ET_NET);
+  if (num_accept_threads == 0 || command_flag) {
+    eventProcessor.thread_group[ET_NET]._afterStartCallback = init_HttpProxyServer;
   } else {
     std::unique_lock<std::mutex> lock(proxyServerMutex);
     et_net_threads_ready = true;
@@ -1858,6 +2011,12 @@ main(int /* argc ATS_UNUSED */, const char **argv)
     int cmd_ret = cmd_mode();
 
     if (cmd_ret != CMD_IN_PROGRESS) {
+      // Check the condition variable.
+      {
+        std::unique_lock<std::mutex> lock(proxyServerMutex);
+        proxyServerCheck.wait(lock, [] { return et_net_threads_ready; });
+      }
+
       if (cmd_ret >= 0) {
         ::exit(0); // everything is OK
       } else {
@@ -2029,8 +2188,7 @@ REGRESSION_TEST(Hdrs)(RegressionTest *t, int atype, int *pstatus)
 }
 #endif
 
-static void
-mgmt_restart_shutdown_callback(ts::MemSpan<void>)
+static void mgmt_restart_shutdown_callback(ts::MemSpan<void>)
 {
   sync_cache_dir_on_shutdown();
 }
@@ -2099,13 +2257,13 @@ init_ssl_ctx_callback(void *ctx, bool server)
 static void
 load_ssl_file_callback(const char *ssl_file)
 {
-  pmgmt->signalConfigFileChild("ssl_multicert.config", ssl_file);
+  pmgmt->signalConfigFileChild(ts::filename::SSL_MULTICERT, ssl_file);
 }
 
 static void
 load_remap_file_callback(const char *remap_file)
 {
-  pmgmt->signalConfigFileChild("remap.config", remap_file);
+  pmgmt->signalConfigFileChild(ts::filename::REMAP, remap_file);
 }
 
 static void
@@ -2113,7 +2271,7 @@ task_threads_started_callback()
 {
   APIHook *hook = lifecycle_hooks->get(TS_LIFECYCLE_TASK_THREADS_READY_HOOK);
   while (hook) {
-    SCOPED_MUTEX_LOCK(lock, hook->m_cont->mutex, this_ethread());
+    WEAK_SCOPED_MUTEX_LOCK(lock, hook->m_cont->mutex, this_ethread());
     hook->invoke(TS_EVENT_LIFECYCLE_TASK_THREADS_READY, nullptr);
     hook = hook->next();
   }

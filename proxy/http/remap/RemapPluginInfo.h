@@ -57,7 +57,7 @@ public:
   /// Reload function, called to inform the plugin that configuration is going to be reloaded.
   using PreReload_F = void();
   /// Reload function, called to inform the plugin that configuration is done reloading.
-  using PostReload_F = void(TSReturnCode);
+  using PostReload_F = void(TSRemapReloadStatus);
   /// Called when remapping for a transaction has finished.
   using Done_F = void();
   /// Create an rule instance.
@@ -83,11 +83,11 @@ public:
   ~RemapPluginInfo();
 
   /* Overload to add / execute remap plugin specific tasks during the plugin loading */
-  virtual bool load(std::string &error);
+  bool load(std::string &error) override;
 
   /* Used by the factory to invoke callbacks during plugin load, init and unload  */
-  virtual bool init(std::string &error);
-  virtual void done(void);
+  bool init(std::string &error) override;
+  void done(void) override;
 
   /* Used by the facility that handles remap plugin instances to invoke callbacks per plugin instance */
   bool initInstance(int argc, char **argv, void **ih, std::string &error);
@@ -98,8 +98,8 @@ public:
   void osResponse(void *ih, TSHttpTxn rh, int os_response_type);
 
   /* Used by traffic server core to indicate configuration reload */
-  virtual void indicatePreReload();
-  virtual void indicatePostReload(TSReturnCode reloadStatus);
+  void indicatePreReload() override;
+  void indicatePostReload(TSRemapReloadStatus reloadStatus) override;
 
 protected:
   /* Utility to be used only with unit testing */

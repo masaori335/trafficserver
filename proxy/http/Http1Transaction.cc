@@ -46,7 +46,8 @@ Http1Transaction::release(IOBufferReader *r)
   }
 }
 
-void Http1Transaction::destroy() // todo make ~Http1Transaction()
+void
+Http1Transaction::destroy() // todo make ~Http1Transaction()
 {
   _sm = nullptr;
 }
@@ -111,12 +112,6 @@ void
 Http1Transaction::do_io_shutdown(ShutdownHowTo_t howto)
 {
   _proxy_ssn->do_io_shutdown(howto);
-}
-
-void
-Http1Transaction::set_reader(IOBufferReader *reader)
-{
-  _reader = reader;
 }
 
 void
