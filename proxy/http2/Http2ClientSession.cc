@@ -324,6 +324,15 @@ Http2ClientSession::set_half_close_local_flag(bool flag)
   half_close_local = flag;
 }
 
+void
+Http2ClientSession::xmit(const Http2Frame *frame)
+{
+  total_write_len += frame->size();
+  write_vio->nbytes = total_write_len;
+  frame->xmit(this->write_buffer);
+  write_reenable();
+}
+
 int
 Http2ClientSession::main_event_handler(int event, void *edata)
 {

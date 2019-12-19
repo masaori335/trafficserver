@@ -122,8 +122,8 @@ public:
     }
   }
 
-  void
-  xmit(MIOBuffer *iobuffer)
+  virtual void
+  xmit(MIOBuffer *iobuffer) const
   {
     // Write frame header
     uint8_t buf[HTTP2_FRAME_HEADER_LEN];
@@ -137,8 +137,8 @@ public:
     }
   }
 
-  int64_t
-  size()
+  virtual int64_t
+  size() const
   {
     if (ioblock) {
       return HTTP2_FRAME_HEADER_LEN + ioblock->size();
@@ -151,10 +151,93 @@ public:
   Http2Frame(Http2Frame &) = delete;
   Http2Frame &operator=(const Http2Frame &) = delete;
 
+protected:
+  Http2FrameHeader hdr; // frame header
+
 private:
-  Http2FrameHeader hdr;       // frame header
   Ptr<IOBufferBlock> ioblock; // frame payload
   IOBufferReader *ioreader = nullptr;
+};
+
+class Http2HeadersFrame : public Http2Frame
+{
+public:
+  Http2HeadersFrame(Http2FrameType type, Http2StreamId streamid, uint8_t flags, uint8_t *p, size_t l)
+    : Http2Frame(type, streamid, flags), payload(p), payload_len(l)
+  {
+    // TODO: set payload length on FrameHeader constructor
+    hdr.length = payload_len;
+  }
+
+  // noncopyable
+  Http2HeadersFrame(Http2Frame &) = delete;
+  Http2HeadersFrame &operator=(const Http2Frame &) = delete;
+
+  void
+  xmit(MIOBuffer *iobuffer) const override
+  {
+    // Write frame header
+    uint8_t buf[HTTP2_FRAME_HEADER_LEN];
+    http2_write_frame_header(hdr, make_iovec(buf));
+    iobuffer->write(buf, sizeof(buf));
+
+    // Write frame payload
+    // It could be empty (e.g. SETTINGS frame with ACK flag)
+    if (payload && payload_len > 0) {
+      iobuffer->write(payload, payload_len);
+    }
+  }
+
+  int64_t
+  size() const override
+  {
+    return HTTP2_FRAME_HEADER_LEN + payload_len;
+  }
+
+private:
+  uint8_t *payload   = nullptr;
+  size_t payload_len = 0;
+};
+
+class Http2DataFrame : public Http2Frame
+{
+public:
+  Http2DataFrame(Http2FrameType type, Http2StreamId streamid, uint8_t flags, IOBufferReader *r, int64_t l)
+    : Http2Frame(type, streamid, flags), payload(r), payload_len(l)
+  {
+    // TODO: set payload length on FrameHeader constructor
+    hdr.length = payload_len;
+  }
+
+  // noncopyable
+  Http2DataFrame(Http2Frame &) = delete;
+  Http2DataFrame &operator=(const Http2Frame &) = delete;
+
+  void
+  xmit(MIOBuffer *iobuffer) const override
+  {
+    // Write frame header
+    uint8_t buf[HTTP2_FRAME_HEADER_LEN];
+    http2_write_frame_header(hdr, make_iovec(buf));
+    iobuffer->write(buf, sizeof(buf));
+
+    // Write frame payload
+    // It could be empty (e.g. SETTINGS frame with ACK flag)
+    if (payload && payload_len > 0) {
+      // FIXME: should we use http2_write_data for endian?
+      iobuffer->write(payload, payload_len);
+    }
+  }
+
+  int64_t
+  size() const override
+  {
+    return HTTP2_FRAME_HEADER_LEN + payload_len;
+  }
+
+private:
+  IOBufferReader *payload = nullptr;
+  size_t payload_len      = 0;
 };
 
 class Http2ClientSession : public ProxySession
@@ -184,6 +267,7 @@ public:
 
   // more methods
   void write_reenable();
+  void xmit(const Http2Frame *frame);
 
   ////////////////////
   // Accessors

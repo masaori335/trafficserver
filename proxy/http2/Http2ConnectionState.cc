@@ -1459,7 +1459,7 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
   payload_length                    = 0;
 
   uint8_t flags = 0x00;
-  uint8_t payload_buffer[buf_len];
+  // uint8_t payload_buffer[buf_len];
   IOBufferReader *_sm = stream->response_get_data_reader();
 
   SCOPED_MUTEX_LOCK(stream_lock, stream->mutex, this_ethread());
@@ -1477,8 +1477,11 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
       return Http2SendDataFrameResult::NO_WINDOW;
     }
     // Copy into the payload buffer. Seems like we should be able to skip this copy step
-    payload_length = write_available_size;
-    payload_length = _sm->read(payload_buffer, static_cast<int64_t>(write_available_size));
+    if (_sm->is_read_avail_more_than(write_available_size)) {
+      payload_length = write_available_size;
+    } else {
+      payload_length = _sm->read_avail();
+    }
   } else {
     payload_length = 0;
   }
@@ -1503,16 +1506,11 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
   Http2StreamDebug(ua_session, stream->get_id(), "Send a DATA frame - client window con: %5zd stream: %5zd payload: %5zd",
                    _client_rwnd, stream->client_rwnd(), payload_length);
 
-  Http2Frame data(HTTP2_FRAME_TYPE_DATA, stream->get_id(), flags);
-  data.alloc(buffer_size_index[HTTP2_FRAME_TYPE_DATA]);
-  http2_write_data(payload_buffer, payload_length, data.write());
-  data.finalize(payload_length);
+  Http2DataFrame data(HTTP2_FRAME_TYPE_DATA, stream->get_id(), flags, _sm, payload_length);
+  this->ua_session->xmit(&data);
+  _sm->consume(payload_length);
 
   stream->update_sent_count(payload_length);
-
-  // xmit event
-  SCOPED_MUTEX_LOCK(lock, this->ua_session->mutex, this_ethread());
-  this->ua_session->handleEvent(HTTP2_SESSION_EVENT_XMIT, &data);
 
   if (flags & HTTP2_FLAGS_DATA_END_STREAM) {
     Http2StreamDebug(ua_session, stream->get_id(), "END_STREAM");
@@ -1592,10 +1590,11 @@ Http2ConnectionState::send_headers_frame(Http2Stream *stream)
   } else {
     payload_length = BUFFER_SIZE_FOR_INDEX(buffer_size_index[HTTP2_FRAME_TYPE_HEADERS]);
   }
-  Http2Frame headers(HTTP2_FRAME_TYPE_HEADERS, stream->get_id(), flags);
-  headers.alloc(buffer_size_index[HTTP2_FRAME_TYPE_HEADERS]);
-  http2_write_headers(buf, payload_length, headers.write());
-  headers.finalize(payload_length);
+
+  uint8_t payload[16384];
+  http2_write_headers(buf, payload_length, make_iovec(payload));
+
+  Http2HeadersFrame headers(HTTP2_FRAME_TYPE_HEADERS, stream->get_id(), flags, payload, payload_length);
 
   // Change stream state
   if (!stream->change_state(HTTP2_FRAME_TYPE_HEADERS, flags)) {
@@ -1608,9 +1607,7 @@ Http2ConnectionState::send_headers_frame(Http2Stream *stream)
     return;
   }
 
-  // xmit event
-  SCOPED_MUTEX_LOCK(lock, this->ua_session->mutex, this_ethread());
-  this->ua_session->handleEvent(HTTP2_SESSION_EVENT_XMIT, &headers);
+  this->ua_session->xmit(&headers);
   uint64_t sent = payload_length;
 
   // Send CONTINUATION frames
