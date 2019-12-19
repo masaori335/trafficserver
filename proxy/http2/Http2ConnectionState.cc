@@ -1458,8 +1458,7 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
   const size_t write_available_size = std::min(buf_len, static_cast<size_t>(window_size));
   payload_length                    = 0;
 
-  uint8_t flags = 0x00;
-  // uint8_t payload_buffer[buf_len];
+  uint8_t flags       = 0x00;
   IOBufferReader *_sm = stream->response_get_data_reader();
 
   SCOPED_MUTEX_LOCK(stream_lock, stream->mutex, this_ethread());

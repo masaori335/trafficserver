@@ -182,7 +182,6 @@ public:
     iobuffer->write(buf, sizeof(buf));
 
     // Write frame payload
-    // It could be empty (e.g. SETTINGS frame with ACK flag)
     if (payload && payload_len > 0) {
       iobuffer->write(payload, payload_len);
     }
@@ -222,10 +221,13 @@ public:
     iobuffer->write(buf, sizeof(buf));
 
     // Write frame payload
-    // It could be empty (e.g. SETTINGS frame with ACK flag)
     if (payload && payload_len > 0) {
-      // FIXME: should we use http2_write_data for endian?
-      iobuffer->write(payload, payload_len);
+      size_t written = 0;
+      // Align IOBufferBlock to buffer reduce SSL_write() calls
+      while (written < payload_len) {
+        size_t len = std::min(payload_len - written, (size_t)payload->block_read_avail());
+        written += iobuffer->write(payload->start(), len);
+      }
     }
   }
 
