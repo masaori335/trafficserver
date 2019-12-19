@@ -6122,14 +6122,15 @@ HttpSM::setup_cache_read_transfer()
   } else {
     // Now dump the header into the buffer
     hdr_size = write_response_header_into_buffer(&t_state.hdr_info.client_response, buf);
+
+    if (doc_size != INT64_MAX) {
+      doc_size += hdr_size;
+    }
   }
+
   client_response_hdr_bytes = cache_response_hdr_bytes = hdr_size;
 
   HTTP_SM_SET_DEFAULT_HANDLER(&HttpSM::tunnel_handler);
-
-  if (doc_size != INT64_MAX) {
-    doc_size += hdr_size;
-  }
 
   HttpTunnelProducer *p = tunnel.add_producer(cache_sm.cache_read_vc, doc_size, buf_start, &HttpSM::tunnel_handler_cache_read,
                                               HT_CACHE_READ, "cache read");
@@ -6307,10 +6308,15 @@ HttpSM::setup_internal_transfer(HttpSMHandler handler_arg)
 
   MIOBuffer *buf            = new_MIOBuffer(buffer_size_to_index(buf_size));
   IOBufferReader *buf_start = buf->alloc_reader();
-
+  int64_t nbytes            = 0;
   // First write the client response header into the buffer
-  client_response_hdr_bytes = write_response_header_into_buffer(&t_state.hdr_info.client_response, buf);
-  int64_t nbytes            = client_response_hdr_bytes;
+  if (client_protocol && strncmp(client_protocol, "http/2", 6) == 0) {
+    ua_txn->write_response_header(&t_state.hdr_info.client_response);
+    client_response_hdr_bytes = t_state.hdr_info.client_response.length_get();
+  } else {
+    client_response_hdr_bytes = write_response_header_into_buffer(&t_state.hdr_info.client_response, buf);
+    nbytes += client_response_hdr_bytes;
+  }
 
   // Next append the message onto the MIOBuffer
 
@@ -6592,9 +6598,18 @@ HttpSM::setup_server_transfer()
   }
   // Now dump the header into the buffer
   ink_assert(t_state.hdr_info.client_response.status_get() != HTTP_STATUS_NOT_MODIFIED);
-  client_response_hdr_bytes = hdr_size = write_response_header_into_buffer(&t_state.hdr_info.client_response, buf);
 
-  nbytes = server_transfer_init(buf, hdr_size);
+  if (client_protocol && strncmp(client_protocol, "http/2", 6) == 0) {
+    // Bypass resposne header dump to avoid duplicated header parse
+    ua_txn->write_response_header(&t_state.hdr_info.client_response);
+    hdr_size = t_state.hdr_info.client_response.length_get();
+    nbytes   = server_transfer_init(buf, hdr_size);
+    nbytes -= hdr_size;
+  } else {
+    hdr_size = write_response_header_into_buffer(&t_state.hdr_info.client_response, buf);
+    nbytes   = server_transfer_init(buf, hdr_size);
+  }
+  client_response_hdr_bytes = hdr_size;
 
   if (t_state.negative_caching && t_state.hdr_info.server_response.status_get() == HTTP_STATUS_NO_CONTENT) {
     int s = sizeof("No Content") - 1;
