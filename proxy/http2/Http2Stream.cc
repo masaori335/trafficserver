@@ -574,9 +574,11 @@ Http2Stream::update_write_request(IOBufferReader *buf_reader, int64_t write_len,
     }
   }
 
-  Http2StreamDebug("write_vio.nbytes=%" PRId64 ", write_vio.ndone=%" PRId64 ", write_vio.write_avail=%" PRId64
-                   ", reader.read_avail=%" PRId64,
-                   write_vio.nbytes, write_vio.ndone, write_vio.get_writer()->write_avail(), bytes_avail);
+  if (is_debug_tag_set("http2")) {
+    Http2StreamDebug("write_vio.nbytes=%" PRId64 " write_vio.ndone=%" PRId64 " write_vio.current_write_avail=%" PRId64
+                     " reader.read_avail=%" PRId64,
+                     write_vio.nbytes, write_vio.ndone, write_vio.get_writer()->current_write_avail(), bytes_avail);
+  }
 
   if (bytes_avail <= 0) {
     return;
@@ -626,10 +628,6 @@ void
 Http2Stream::signal_write_event(bool call_update)
 {
   if (this->write_vio.cont == nullptr || this->write_vio.op == VIO::NONE) {
-    return;
-  }
-
-  if (this->write_vio.get_writer()->write_avail() == 0) {
     return;
   }
 
