@@ -771,7 +771,7 @@ Http2Stream::set_active_timeout(ink_hrtime timeout_in)
   active_timeout = timeout_in;
   clear_active_timer();
   if (active_timeout > 0) {
-    active_event = this_ethread()->schedule_in(this, active_timeout);
+    // active_event = this_ethread()->schedule_in(this, active_timeout);
   }
 }
 
@@ -782,7 +782,7 @@ Http2Stream::set_inactivity_timeout(ink_hrtime timeout_in)
   if (inactive_timeout > 0) {
     inactive_timeout_at = Thread::get_hrtime() + inactive_timeout;
     if (!inactive_event) {
-      inactive_event = this_ethread()->schedule_every(this, HRTIME_SECONDS(1));
+      // inactive_event = this_ethread()->schedule_every(this, HRTIME_SECONDS(1));
     }
   } else {
     clear_inactive_timer();
