@@ -599,7 +599,7 @@ Http2Stream::write_response_header(HTTPHdr *hdr)
   if (field) {
     int len;
     const char *value = field->value_get(&len);
-    if (memcmp(HTTP_VALUE_CLOSE, value, HTTP_LEN_CLOSE) == 0) {
+    if (len == HTTP_LEN_CLOSE && memcmp(HTTP_VALUE_CLOSE, value, HTTP_LEN_CLOSE) == 0) {
       SCOPED_MUTEX_LOCK(lock, h2_proxy_ssn->connection_state.mutex, this_ethread());
       if (h2_proxy_ssn->connection_state.get_shutdown_state() == HTTP2_SHUTDOWN_NONE) {
         h2_proxy_ssn->connection_state.set_shutdown_state(HTTP2_SHUTDOWN_NOT_INITIATED, Http2ErrorCode::HTTP2_ERROR_NO_ERROR);
