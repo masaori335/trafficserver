@@ -118,21 +118,20 @@ public:
 
   ProxyError rx_error_code;
   ProxyError tx_error_code;
-  Http2ClientSession *ua_session   = nullptr;
-  HpackHandle *local_hpack_handle  = nullptr;
-  HpackHandle *remote_hpack_handle = nullptr;
-  DependencyTree *dependency_tree  = nullptr;
+  Http2ClientSession *ua_session  = nullptr;
+  DependencyTree *dependency_tree = nullptr;
 
-  // Settings.
+  // Settings
   Http2ConnectionSettings server_settings;
   Http2ConnectionSettings client_settings;
+
+  // HPACK
+  HpackHandle local_hpack_handle{HTTP2_HEADER_TABLE_SIZE, HPACK::Context::DECODING};
+  HpackHandle remote_hpack_handle{HTTP2_HEADER_TABLE_SIZE, HPACK::Context::ENCODING};
 
   void
   init()
   {
-    // TODO:: Make these hanldes member of ConnectionState
-    local_hpack_handle  = new HpackHandle(HTTP2_HEADER_TABLE_SIZE, HpackHandle::Context::DECODING);
-    remote_hpack_handle = new HpackHandle(HTTP2_HEADER_TABLE_SIZE, HpackHandle::Context::ENCODING);
     if (Http2::stream_priority_enabled) {
       dependency_tree = new DependencyTree(Http2::max_concurrent_streams_in);
     }
@@ -152,10 +151,6 @@ public:
     }
     cleanup_streams();
 
-    delete local_hpack_handle;
-    local_hpack_handle = nullptr;
-    delete remote_hpack_handle;
-    remote_hpack_handle = nullptr;
     delete dependency_tree;
     dependency_tree  = nullptr;
     this->ua_session = nullptr;

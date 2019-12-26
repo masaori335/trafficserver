@@ -314,7 +314,7 @@ REGRESSION_TEST(HPACK_EncodeLiteralHeaderField)(RegressionTest *t, int, int *pst
 
   uint8_t buf[BUFSIZE_FOR_REGRESSION_TEST];
   int len;
-  HpackIndexingTable indexing_table(4096, HpackIndexingTable::Context::ENCODING);
+  HPACK indexing_table(4096, HPACK::Context::ENCODING);
 
   for (unsigned int i = 9; i < sizeof(literal_test_case) / sizeof(literal_test_case[0]); i++) {
     memset(buf, 0, BUFSIZE_FOR_REGRESSION_TEST);
@@ -347,7 +347,7 @@ REGRESSION_TEST(HPACK_Encode)(RegressionTest *t, int, int *pstatus)
   box = REGRESSION_TEST_PASSED;
 
   uint8_t buf[BUFSIZE_FOR_REGRESSION_TEST];
-  HpackIndexingTable indexing_table(4096, HpackIndexingTable::Context::ENCODING);
+  HPACK indexing_table(4096, HPACK::Context::ENCODING);
   indexing_table.update_maximum_size(DYNAMIC_TABLE_SIZE_FOR_REGRESSION_TEST);
 
   for (unsigned int i = 0; i < sizeof(encoded_field_response_test_case) / sizeof(encoded_field_response_test_case[0]); i++) {
@@ -421,7 +421,7 @@ REGRESSION_TEST(HPACK_DecodeIndexedHeaderField)(RegressionTest *t, int, int *pst
   TestBox box(t, pstatus);
   box = REGRESSION_TEST_PASSED;
 
-  HpackIndexingTable indexing_table(4096, HpackIndexingTable::Context::DECODING);
+  HPACK indexing_table(4096, HPACK::Context::DECODING);
 
   for (const auto &i : indexed_test_case) {
     ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);
@@ -448,7 +448,7 @@ REGRESSION_TEST(HPACK_DecodeLiteralHeaderField)(RegressionTest *t, int, int *pst
   TestBox box(t, pstatus);
   box = REGRESSION_TEST_PASSED;
 
-  HpackIndexingTable indexing_table(4096, HpackIndexingTable::Context::DECODING);
+  HPACK indexing_table(4096, HPACK::Context::DECODING);
 
   for (const auto &i : literal_test_case) {
     ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);
@@ -475,7 +475,7 @@ REGRESSION_TEST(HPACK_Decode)(RegressionTest *t, int, int *pstatus)
   TestBox box(t, pstatus);
   box = REGRESSION_TEST_PASSED;
 
-  HpackIndexingTable indexing_table(4096, HpackIndexingTable::Context::DECODING);
+  HPACK indexing_table(4096, HPACK::Context::DECODING);
 
   for (unsigned int i = 0; i < sizeof(encoded_field_request_test_case) / sizeof(encoded_field_request_test_case[0]); i++) {
     ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);

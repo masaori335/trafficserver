@@ -29,7 +29,8 @@
 // its value's length in octets, and 32.
 const static unsigned ADDITIONAL_OCTETS = 32;
 
-static constexpr uint32_t TS_HPACK_STATIC_TABLE_ENTRY_NUM = static_cast<uint32_t>(HpackStaticTableIndex::MAX);
+// TODO: masaori: refer statictable::max
+static constexpr uint32_t TS_HPACK_STATIC_TABLE_ENTRY_NUM = 61;
 
 struct StaticTable {
   StaticTable(const char *n, const char *v) : name(n), value(v), name_size(strlen(name)), value_size(strlen(value)) {}
@@ -131,7 +132,7 @@ hpack_field_is_literal(HpackField ftype)
 // kind of field it is. Field types are specified in the high 4 bits
 // and all bits are defined, so there's no way to get an invalid field type.
 //
-HpackField
+static HpackField
 hpack_parse_field_type(uint8_t ftype)
 {
   if (ftype & 0x80) {
@@ -154,11 +155,11 @@ hpack_parse_field_type(uint8_t ftype)
   return HpackField::NOINDEX_LITERAL;
 }
 
-/************************
- * HpackIndexingTable
- ************************/
+//
+// HPACK
+//
 HpackLookupResult
-HpackIndexingTable::lookup(const MIMEFieldWrapper &field) const
+HPACK::lookup(const MIMEFieldWrapper &field) const
 {
   int target_name_len = 0, target_value_len = 0;
   const char *target_name  = field.name_get(&target_name_len);
@@ -173,10 +174,10 @@ HpackIndexingTable::lookup(const MIMEFieldWrapper &field) const
    For the HTTP/2 connection to the origin server, we need to figure out how to deal with well known string tokens.
  */
 HpackLookupResult
-HpackIndexingTable::lookup(const char *name, int name_len, const char *value, int value_len) const
+HPACK::lookup(const char *name, int name_len, const char *value, int value_len) const
 {
   // static table
-  HpackLookupResult result = this->_lookup_static_table(name, name_len, value, value_len);
+  HpackLookupResult result = HPACK::StaticTable::lookup(name, name_len, value, value_len);
 
   // if match type is NAME, lookup dynamic table for exact match
   if (result.match_type == HpackMatch::EXACT) {
@@ -184,7 +185,7 @@ HpackIndexingTable::lookup(const char *name, int name_len, const char *value, in
   }
 
   // dynamic table
-  if (HpackLookupResult dt_result = this->_dynamic_table->lookup(name, name_len, value, value_len);
+  if (HpackLookupResult dt_result = this->_dynamic_table.lookup(name, name_len, value, value_len);
       dt_result.match_type == HpackMatch::EXACT) {
     // Convert index from dynamic table space to indexing table space
     dt_result.index += TS_HPACK_STATIC_TABLE_ENTRY_NUM;
@@ -196,7 +197,7 @@ HpackIndexingTable::lookup(const char *name, int name_len, const char *value, in
 }
 
 int
-HpackIndexingTable::get_header_field(uint32_t index, MIMEFieldWrapper &field) const
+HPACK::get_header_field(uint32_t index, MIMEFieldWrapper &field) const
 {
   // Index Address Space starts at 1, so index == 0 is invalid.
   if (!index) {
@@ -207,9 +208,9 @@ HpackIndexingTable::get_header_field(uint32_t index, MIMEFieldWrapper &field) co
     // static table
     field.name_set(STATIC_TABLE[index].name, STATIC_TABLE[index].name_size);
     field.value_set(STATIC_TABLE[index].value, STATIC_TABLE[index].value_size);
-  } else if (index < TS_HPACK_STATIC_TABLE_ENTRY_NUM + _dynamic_table->length()) {
+  } else if (index < TS_HPACK_STATIC_TABLE_ENTRY_NUM + _dynamic_table.length()) {
     // dynamic table
-    const MIMEField *m_field = _dynamic_table->get_header_field(index - TS_HPACK_STATIC_TABLE_ENTRY_NUM);
+    const MIMEField *m_field = _dynamic_table.get_header_field(index - TS_HPACK_STATIC_TABLE_ENTRY_NUM);
 
     int name_len, value_len;
     const char *name  = m_field->name_get(&name_len);
@@ -228,61 +229,131 @@ HpackIndexingTable::get_header_field(uint32_t index, MIMEFieldWrapper &field) co
 }
 
 void
-HpackIndexingTable::add_header_field(const MIMEField *field)
+HPACK::add_header_field(const MIMEField *field)
 {
-  _dynamic_table->add_header_field(field);
+  _dynamic_table.add_header_field(field);
 }
 
 uint32_t
-HpackIndexingTable::maximum_size() const
+HPACK::maximum_size() const
 {
-  return _dynamic_table->maximum_size();
+  return _dynamic_table.maximum_size();
 }
 
 uint32_t
-HpackIndexingTable::size() const
+HPACK::size() const
 {
-  return _dynamic_table->size();
+  return _dynamic_table.size();
 }
 
 bool
-HpackIndexingTable::update_maximum_size(uint32_t new_size)
+HPACK::update_maximum_size(uint32_t new_size)
 {
-  return _dynamic_table->update_maximum_size(new_size);
+  return _dynamic_table.update_maximum_size(new_size);
 }
 
+//
+// Static Table
+//
+
+enum class HPACK::StaticTable::Index : uint32_t {
+  NONE = 0,
+  AUTHORITY,
+  METHOD_GET,
+  METHOD_POST,
+  PATH_ROOT,
+  PATH_INDEX,
+  SCHEME_HTTP,
+  SCHEME_HTTPS,
+  STATUS_200,
+  STATUS_204,
+  STATUS_206,
+  STATUS_304,
+  STATUS_400,
+  STATUS_404,
+  STATUS_500,
+  ACCEPT_CHARSET,
+  ACCEPT_ENCODING,
+  ACCEPT_LANGUAGE,
+  ACCEPT_RANGES,
+  ACCEPT,
+  ACCESS_CONTROL_ALLOW_ORIGIN,
+  AGE,
+  ALLOW,
+  AUTHORIZATION,
+  CACHE_CONTROL,
+  CONTENT_DISPOSITION,
+  CONTENT_ENCODING,
+  CONTENT_LANGUAGE,
+  CONTENT_LENGTH,
+  CONTENT_LOCATION,
+  CONTENT_RANGE,
+  CONTENT_TYPE,
+  COOKIE,
+  DATE,
+  ETAG,
+  EXPECT,
+  EXPIRES,
+  FROM,
+  HOST,
+  IF_MATCH,
+  IF_MODIFIED_SINCE,
+  IF_NONE_MATCH,
+  IF_RANGE,
+  IF_UNMODIFIED_SINCE,
+  LAST_MODIFIED,
+  LINK,
+  LOCATION,
+  MAX_FORWARDS,
+  PROXY_AUTHENTICATE,
+  PROXY_AUTHORIZATION,
+  RANGE,
+  REFERER,
+  REFRESH,
+  RETRY_AFTER,
+  SERVER,
+  SET_COOKIE,
+  STRICT_TRANSPORT_SECURITY,
+  TRANSFER_ENCODING,
+  USER_AGENT,
+  VARY,
+  VIA,
+  WWW_AUTHENTICATE,
+  MAX,
+};
+
 HpackLookupResult
-HpackIndexingTable::_lookup_static_table(const char *name, int name_len, const char *value, int value_len) const
+HPACK::StaticTable::lookup(const char *name, int name_len, const char *value, int value_len)
 {
-  HpackStaticTableIndex index = this->_lookup_name(name, name_len);
-  if (index == HpackStaticTableIndex::NONE) {
+  Index index = _lookup_name(name, name_len);
+  if (index == Index::NONE) {
     return {0, HpackIndex::NONE, HpackMatch::NONE};
   }
 
   HpackLookupResult result;
 
   switch (index) {
-  case HpackStaticTableIndex::METHOD_GET:
-    if (HpackStaticTableIndex r = this->_lookup_value(index, HpackStaticTableIndex::METHOD_POST, value, value_len);
-        r != HpackStaticTableIndex::NONE) {
+  case HPACK::StaticTable::Index::METHOD_GET:
+    if (HPACK::StaticTable::Index r = _lookup_value(index, HPACK::StaticTable::Index::METHOD_POST, value, value_len);
+        r != HPACK::StaticTable::Index::NONE) {
       return {static_cast<uint32_t>(r), HpackIndex::STATIC, HpackMatch::EXACT};
     }
     break;
-  case HpackStaticTableIndex::PATH_ROOT:
-    if (HpackStaticTableIndex r = this->_lookup_value(index, HpackStaticTableIndex::PATH_INDEX, value, value_len);
-        r != HpackStaticTableIndex::NONE) {
+  case HPACK::StaticTable::Index::PATH_ROOT:
+    if (HPACK::StaticTable::Index r = _lookup_value(index, HPACK::StaticTable::Index::PATH_INDEX, value, value_len);
+        r != HPACK::StaticTable::Index::NONE) {
       return {static_cast<uint32_t>(r), HpackIndex::STATIC, HpackMatch::EXACT};
     }
     break;
-  case HpackStaticTableIndex::SCHEME_HTTP:
-    if (HpackStaticTableIndex r = this->_lookup_value(index, HpackStaticTableIndex::SCHEME_HTTPS, value, value_len);
-        r != HpackStaticTableIndex::NONE) {
+  case HPACK::StaticTable::Index::SCHEME_HTTP:
+    if (HPACK::StaticTable::Index r = _lookup_value(index, HPACK::StaticTable::Index::SCHEME_HTTPS, value, value_len);
+        r != HPACK::StaticTable::Index::NONE) {
       return {static_cast<uint32_t>(r), HpackIndex::STATIC, HpackMatch::EXACT};
     }
     break;
-  case HpackStaticTableIndex::STATUS_200:
-    if (HpackStaticTableIndex r = this->_lookup_value(index, HpackStaticTableIndex::STATUS_500, value, value_len);
-        r != HpackStaticTableIndex::NONE) {
+  case HPACK::StaticTable::Index::STATUS_200:
+    if (HPACK::StaticTable::Index r = _lookup_value(index, HPACK::StaticTable::Index::STATUS_500, value, value_len);
+        r != HPACK::StaticTable::Index::NONE) {
       return {static_cast<uint32_t>(r), HpackIndex::STATIC, HpackMatch::EXACT};
     }
     break;
@@ -300,20 +371,20 @@ HpackIndexingTable::_lookup_static_table(const char *name, int name_len, const c
    This is based on logic of nghttp2 hapck header lookup.
    https://github.com/nghttp2/nghttp2
  */
-HpackStaticTableIndex
-HpackIndexingTable::_lookup_name(const char *name, int name_len) const
+HPACK::StaticTable::Index
+HPACK::StaticTable::_lookup_name(const char *name, int name_len)
 {
   switch (name_len) {
   case 3:
     switch (name[2]) {
     case 'a':
-      if (strncasecmp("vi", name, 2) == 0) {
-        return HpackStaticTableIndex::VIA;
+      if (memcmp("vi", name, 2) == 0) {
+        return HPACK::StaticTable::Index::VIA;
       }
       break;
     case 'e':
-      if (strncasecmp("ag", name, 2) == 0) {
-        return HpackStaticTableIndex::AGE;
+      if (memcmp("ag", name, 2) == 0) {
+        return HPACK::StaticTable::Index::AGE;
       }
       break;
     }
@@ -321,33 +392,33 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 4:
     switch (name[3]) {
     case 'e':
-      if (strncasecmp("dat", name, 3) == 0) {
-        return HpackStaticTableIndex::DATE;
+      if (memcmp("dat", name, 3) == 0) {
+        return HPACK::StaticTable::Index::DATE;
       }
       break;
     case 'g':
-      if (strncasecmp("eta", name, 3) == 0) {
-        return HpackStaticTableIndex::ETAG;
+      if (memcmp("eta", name, 3) == 0) {
+        return HPACK::StaticTable::Index::ETAG;
       }
       break;
     case 'k':
-      if (strncasecmp("lin", name, 3) == 0) {
-        return HpackStaticTableIndex::LINK;
+      if (memcmp("lin", name, 3) == 0) {
+        return HPACK::StaticTable::Index::LINK;
       }
       break;
     case 'm':
-      if (strncasecmp("fro", name, 3) == 0) {
-        return HpackStaticTableIndex::FROM;
+      if (memcmp("fro", name, 3) == 0) {
+        return HPACK::StaticTable::Index::FROM;
       }
       break;
     case 't':
-      if (strncasecmp("hos", name, 3) == 0) {
-        return HpackStaticTableIndex::HOST;
+      if (memcmp("hos", name, 3) == 0) {
+        return HPACK::StaticTable::Index::HOST;
       }
       break;
     case 'y':
-      if (strncasecmp("var", name, 3) == 0) {
-        return HpackStaticTableIndex::VARY;
+      if (memcmp("var", name, 3) == 0) {
+        return HPACK::StaticTable::Index::VARY;
       }
       break;
     }
@@ -355,18 +426,18 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 5:
     switch (name[4]) {
     case 'e':
-      if (strncasecmp("rang", name, 4) == 0) {
-        return HpackStaticTableIndex::RANGE;
+      if (memcmp("rang", name, 4) == 0) {
+        return HPACK::StaticTable::Index::RANGE;
       }
       break;
     case 'h':
-      if (strncasecmp(":pat", name, 4) == 0) {
-        return HpackStaticTableIndex::PATH_ROOT;
+      if (memcmp(":pat", name, 4) == 0) {
+        return HPACK::StaticTable::Index::PATH_ROOT;
       }
       break;
     case 'w':
-      if (strncasecmp("allo", name, 4) == 0) {
-        return HpackStaticTableIndex::ALLOW;
+      if (memcmp("allo", name, 4) == 0) {
+        return HPACK::StaticTable::Index::ALLOW;
       }
       break;
     }
@@ -374,21 +445,21 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 6:
     switch (name[5]) {
     case 'e':
-      if (strncasecmp("cooki", name, 5) == 0) {
-        return HpackStaticTableIndex::COOKIE;
+      if (memcmp("cooki", name, 5) == 0) {
+        return HPACK::StaticTable::Index::COOKIE;
       }
       break;
     case 'r':
-      if (strncasecmp("serve", name, 5) == 0) {
-        return HpackStaticTableIndex::SERVER;
+      if (memcmp("serve", name, 5) == 0) {
+        return HPACK::StaticTable::Index::SERVER;
       }
       break;
     case 't':
-      if (strncasecmp("accep", name, 5) == 0) {
-        return HpackStaticTableIndex::ACCEPT;
+      if (memcmp("accep", name, 5) == 0) {
+        return HPACK::StaticTable::Index::ACCEPT;
       }
-      if (strncasecmp("expec", name, 5) == 0) {
-        return HpackStaticTableIndex::EXPECT;
+      if (memcmp("expec", name, 5) == 0) {
+        return HPACK::StaticTable::Index::EXPECT;
       }
       break;
     }
@@ -396,32 +467,32 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 7:
     switch (name[6]) {
     case 'd':
-      if (strncasecmp(":metho", name, 6) == 0) {
-        return HpackStaticTableIndex::METHOD_GET;
+      if (memcmp(":metho", name, 6) == 0) {
+        return HPACK::StaticTable::Index::METHOD_GET;
       }
       break;
     case 'e':
-      if (strncasecmp(":schem", name, 6) == 0) {
-        return HpackStaticTableIndex::SCHEME_HTTP;
+      if (memcmp(":schem", name, 6) == 0) {
+        return HPACK::StaticTable::Index::SCHEME_HTTP;
       }
       break;
     case 'h':
-      if (strncasecmp("refres", name, 6) == 0) {
-        return HpackStaticTableIndex::REFRESH;
+      if (memcmp("refres", name, 6) == 0) {
+        return HPACK::StaticTable::Index::REFRESH;
       }
       break;
     case 'r':
-      if (strncasecmp("refere", name, 6) == 0) {
-        return HpackStaticTableIndex::REFERER;
+      if (memcmp("refere", name, 6) == 0) {
+        return HPACK::StaticTable::Index::REFERER;
       }
       break;
     case 's':
-      if (strncasecmp(":statu", name, 6) == 0) {
+      if (memcmp(":statu", name, 6) == 0) {
         // TODO: check value
-        return HpackStaticTableIndex::STATUS_200;
+        return HPACK::StaticTable::Index::STATUS_200;
       }
-      if (strncasecmp("expire", name, 6) == 0) {
-        return HpackStaticTableIndex::EXPIRES;
+      if (memcmp("expire", name, 6) == 0) {
+        return HPACK::StaticTable::Index::EXPIRES;
       }
       break;
     }
@@ -429,18 +500,18 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 8:
     switch (name[7]) {
     case 'e':
-      if (strncasecmp("if-rang", name, 7) == 0) {
-        return HpackStaticTableIndex::IF_RANGE;
+      if (memcmp("if-rang", name, 7) == 0) {
+        return HPACK::StaticTable::Index::IF_RANGE;
       }
       break;
     case 'h':
-      if (strncasecmp("if-matc", name, 7) == 0) {
-        return HpackStaticTableIndex::IF_MATCH;
+      if (memcmp("if-matc", name, 7) == 0) {
+        return HPACK::StaticTable::Index::IF_MATCH;
       }
       break;
     case 'n':
-      if (strncasecmp("locatio", name, 7) == 0) {
-        return HpackStaticTableIndex::LOCATION;
+      if (memcmp("locatio", name, 7) == 0) {
+        return HPACK::StaticTable::Index::LOCATION;
       }
       break;
     }
@@ -448,18 +519,18 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 10:
     switch (name[9]) {
     case 'e':
-      if (strncasecmp("set-cooki", name, 9) == 0) {
-        return HpackStaticTableIndex::SET_COOKIE;
+      if (memcmp("set-cooki", name, 9) == 0) {
+        return HPACK::StaticTable::Index::SET_COOKIE;
       }
       break;
     case 't':
-      if (strncasecmp("user-agen", name, 9) == 0) {
-        return HpackStaticTableIndex::USER_AGENT;
+      if (memcmp("user-agen", name, 9) == 0) {
+        return HPACK::StaticTable::Index::USER_AGENT;
       }
       break;
     case 'y':
-      if (strncasecmp(":authorit", name, 9) == 0) {
-        return HpackStaticTableIndex::AUTHORITY;
+      if (memcmp(":authorit", name, 9) == 0) {
+        return HPACK::StaticTable::Index::AUTHORITY;
       }
       break;
     }
@@ -467,8 +538,8 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 11:
     switch (name[10]) {
     case 'r':
-      if (strncasecmp("retry-afte", name, 10) == 0) {
-        return HpackStaticTableIndex::RETRY_AFTER;
+      if (memcmp("retry-afte", name, 10) == 0) {
+        return HPACK::StaticTable::Index::RETRY_AFTER;
       }
       break;
     }
@@ -476,13 +547,13 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 12:
     switch (name[11]) {
     case 'e':
-      if (strncasecmp("content-typ", name, 11) == 0) {
-        return HpackStaticTableIndex::CONTENT_TYPE;
+      if (memcmp("content-typ", name, 11) == 0) {
+        return HPACK::StaticTable::Index::CONTENT_TYPE;
       }
       break;
     case 's':
-      if (strncasecmp("max-forward", name, 11) == 0) {
-        return HpackStaticTableIndex::MAX_FORWARDS;
+      if (memcmp("max-forward", name, 11) == 0) {
+        return HPACK::StaticTable::Index::MAX_FORWARDS;
       }
       break;
     }
@@ -490,33 +561,33 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 13:
     switch (name[12]) {
     case 'd':
-      if (strncasecmp("last-modifie", name, 12) == 0) {
-        return HpackStaticTableIndex::LAST_MODIFIED;
+      if (memcmp("last-modifie", name, 12) == 0) {
+        return HPACK::StaticTable::Index::LAST_MODIFIED;
       }
       break;
     case 'e':
-      if (strncasecmp("content-rang", name, 12) == 0) {
-        return HpackStaticTableIndex::CONTENT_RANGE;
+      if (memcmp("content-rang", name, 12) == 0) {
+        return HPACK::StaticTable::Index::CONTENT_RANGE;
       }
       break;
     case 'h':
-      if (strncasecmp("if-none-matc", name, 12) == 0) {
-        return HpackStaticTableIndex::IF_NONE_MATCH;
+      if (memcmp("if-none-matc", name, 12) == 0) {
+        return HPACK::StaticTable::Index::IF_NONE_MATCH;
       }
       break;
     case 'l':
-      if (strncasecmp("cache-contro", name, 12) == 0) {
-        return HpackStaticTableIndex::CACHE_CONTROL;
+      if (memcmp("cache-contro", name, 12) == 0) {
+        return HPACK::StaticTable::Index::CACHE_CONTROL;
       }
       break;
     case 'n':
-      if (strncasecmp("authorizatio", name, 12) == 0) {
-        return HpackStaticTableIndex::AUTHORIZATION;
+      if (memcmp("authorizatio", name, 12) == 0) {
+        return HPACK::StaticTable::Index::AUTHORIZATION;
       }
       break;
     case 's':
-      if (strncasecmp("accept-range", name, 12) == 0) {
-        return HpackStaticTableIndex::ACCEPT_RANGES;
+      if (memcmp("accept-range", name, 12) == 0) {
+        return HPACK::StaticTable::Index::ACCEPT_RANGES;
       }
       break;
     }
@@ -524,13 +595,13 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 14:
     switch (name[13]) {
     case 'h':
-      if (strncasecmp("content-lengt", name, 13) == 0) {
-        return HpackStaticTableIndex::CONTENT_LENGTH;
+      if (memcmp("content-lengt", name, 13) == 0) {
+        return HPACK::StaticTable::Index::CONTENT_LENGTH;
       }
       break;
     case 't':
-      if (strncasecmp("accept-charse", name, 13) == 0) {
-        return HpackStaticTableIndex::ACCEPT_CHARSET;
+      if (memcmp("accept-charse", name, 13) == 0) {
+        return HPACK::StaticTable::Index::ACCEPT_CHARSET;
       }
       break;
     }
@@ -538,13 +609,13 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 15:
     switch (name[14]) {
     case 'e':
-      if (strncasecmp("accept-languag", name, 14) == 0) {
-        return HpackStaticTableIndex::ACCEPT_LANGUAGE;
+      if (memcmp("accept-languag", name, 14) == 0) {
+        return HPACK::StaticTable::Index::ACCEPT_LANGUAGE;
       }
       break;
     case 'g':
-      if (strncasecmp("accept-encodin", name, 14) == 0) {
-        return HpackStaticTableIndex::ACCEPT_ENCODING;
+      if (memcmp("accept-encodin", name, 14) == 0) {
+        return HPACK::StaticTable::Index::ACCEPT_ENCODING;
       }
       break;
     }
@@ -552,21 +623,21 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 16:
     switch (name[15]) {
     case 'e':
-      if (strncasecmp("content-languag", name, 15) == 0) {
-        return HpackStaticTableIndex::CONTENT_LANGUAGE;
+      if (memcmp("content-languag", name, 15) == 0) {
+        return HPACK::StaticTable::Index::CONTENT_LANGUAGE;
       }
-      if (strncasecmp("www-authenticat", name, 15) == 0) {
-        return HpackStaticTableIndex::WWW_AUTHENTICATE;
+      if (memcmp("www-authenticat", name, 15) == 0) {
+        return HPACK::StaticTable::Index::WWW_AUTHENTICATE;
       }
       break;
     case 'g':
-      if (strncasecmp("content-encodin", name, 15) == 0) {
-        return HpackStaticTableIndex::CONTENT_ENCODING;
+      if (memcmp("content-encodin", name, 15) == 0) {
+        return HPACK::StaticTable::Index::CONTENT_ENCODING;
       }
       break;
     case 'n':
-      if (strncasecmp("content-locatio", name, 15) == 0) {
-        return HpackStaticTableIndex::CONTENT_LOCATION;
+      if (memcmp("content-locatio", name, 15) == 0) {
+        return HPACK::StaticTable::Index::CONTENT_LOCATION;
       }
       break;
     }
@@ -574,13 +645,13 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 17:
     switch (name[16]) {
     case 'e':
-      if (strncasecmp("if-modified-sinc", name, 16) == 0) {
-        return HpackStaticTableIndex::IF_MODIFIED_SINCE;
+      if (memcmp("if-modified-sinc", name, 16) == 0) {
+        return HPACK::StaticTable::Index::IF_MODIFIED_SINCE;
       }
       break;
     case 'g':
-      if (strncasecmp("transfer-encodin", name, 16) == 0) {
-        return HpackStaticTableIndex::TRANSFER_ENCODING;
+      if (memcmp("transfer-encodin", name, 16) == 0) {
+        return HPACK::StaticTable::Index::TRANSFER_ENCODING;
       }
       break;
     }
@@ -588,8 +659,8 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 18:
     switch (name[17]) {
     case 'e':
-      if (strncasecmp("proxy-authenticat", name, 17) == 0) {
-        return HpackStaticTableIndex::PROXY_AUTHENTICATE;
+      if (memcmp("proxy-authenticat", name, 17) == 0) {
+        return HPACK::StaticTable::Index::PROXY_AUTHENTICATE;
       }
       break;
     }
@@ -597,16 +668,16 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 19:
     switch (name[18]) {
     case 'e':
-      if (strncasecmp("if-unmodified-sinc", name, 18) == 0) {
-        return HpackStaticTableIndex::IF_UNMODIFIED_SINCE;
+      if (memcmp("if-unmodified-sinc", name, 18) == 0) {
+        return HPACK::StaticTable::Index::IF_UNMODIFIED_SINCE;
       }
       break;
     case 'n':
-      if (strncasecmp("content-dispositio", name, 18) == 0) {
-        return HpackStaticTableIndex::CONTENT_DISPOSITION;
+      if (memcmp("content-dispositio", name, 18) == 0) {
+        return HPACK::StaticTable::Index::CONTENT_DISPOSITION;
       }
-      if (strncasecmp("proxy-authorizatio", name, 18) == 0) {
-        return HpackStaticTableIndex::PROXY_AUTHORIZATION;
+      if (memcmp("proxy-authorizatio", name, 18) == 0) {
+        return HPACK::StaticTable::Index::PROXY_AUTHORIZATION;
       }
       break;
     }
@@ -614,8 +685,8 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 25:
     switch (name[24]) {
     case 'y':
-      if (strncasecmp("strict-transport-securit", name, 24) == 0) {
-        return HpackStaticTableIndex::STRICT_TRANSPORT_SECURITY;
+      if (memcmp("strict-transport-securit", name, 24) == 0) {
+        return HPACK::StaticTable::Index::STRICT_TRANSPORT_SECURITY;
       }
       break;
     }
@@ -623,36 +694,45 @@ HpackIndexingTable::_lookup_name(const char *name, int name_len) const
   case 27:
     switch (name[26]) {
     case 'n':
-      if (strncasecmp("access-control-allow-origi", name, 26) == 0) {
-        return HpackStaticTableIndex::ACCESS_CONTROL_ALLOW_ORIGIN;
+      if (memcmp("access-control-allow-origi", name, 26) == 0) {
+        return HPACK::StaticTable::Index::ACCESS_CONTROL_ALLOW_ORIGIN;
       }
       break;
     }
     break;
   }
 
-  return HpackStaticTableIndex::NONE;
+  return HPACK::StaticTable::Index::NONE;
 }
 
 /**
    Lookup given rage (from @begin to @end) of static table by value
  */
-HpackStaticTableIndex
-HpackIndexingTable::_lookup_value(HpackStaticTableIndex begin, HpackStaticTableIndex end, const char *value, int value_len) const
+HPACK::StaticTable::Index
+HPACK::StaticTable::_lookup_value(HPACK::StaticTable::Index begin, HPACK::StaticTable::Index end, const char *value, int value_len)
 {
   for (uint32_t i = static_cast<uint32_t>(begin); i <= static_cast<uint32_t>(end); ++i) {
     if (STATIC_TABLE[i].value_size == value_len && strncasecmp(STATIC_TABLE[i].value, value, value_len) == 0) {
-      return static_cast<HpackStaticTableIndex>(i);
+      return static_cast<HPACK::StaticTable::Index>(i);
     }
   }
 
-  return HpackStaticTableIndex::NONE;
+  return HPACK::StaticTable::Index::NONE;
 }
 
 //
 // HpackDynamicTable
 //
-HpackIndexingTable::HpackDynamicTable::~HpackDynamicTable()
+HPACK::DynamicTable::DynamicTable(uint32_t size, Context c) : _maximum_size(size), _context(c)
+{
+  _mhdr = new MIMEHdr();
+  _mhdr->create();
+
+  // TODO: masaori: adjust reserve number
+  this->_lookup_table.reserve(1000);
+}
+
+HPACK::DynamicTable::~DynamicTable()
 {
   this->_headers.clear();
 
@@ -668,13 +748,13 @@ HpackIndexingTable::HpackDynamicTable::~HpackDynamicTable()
 }
 
 const MIMEField *
-HpackIndexingTable::HpackDynamicTable::get_header_field(uint32_t index) const
+HPACK::DynamicTable::get_header_field(uint32_t index) const
 {
   return this->_headers.at(index);
 }
 
 void
-HpackIndexingTable::HpackDynamicTable::add_header_field(const MIMEField *field)
+HPACK::DynamicTable::add_header_field(const MIMEField *field)
 {
   std::string_view name  = field->name_get();
   std::string_view value = field->value_get();
@@ -699,7 +779,7 @@ HpackIndexingTable::HpackDynamicTable::add_header_field(const MIMEField *field)
     this->_headers.push_front(new_field);
 
     // TODO: figure out deal with wks
-    if (this->_context == HpackIndexingTable::Context::ENCODING) {
+    if (this->_context == HPACK::Context::ENCODING) {
       uint32_t index = this->_abs_index++;
 
       // Get pointers of pushed header field
@@ -709,15 +789,15 @@ HpackIndexingTable::HpackDynamicTable::add_header_field(const MIMEField *field)
       Debug("hpack_encode", "name=%.*s value=%.*s index=%" PRId32, static_cast<int>(new_name.size()), new_name.data(),
             static_cast<int>(new_value.size()), new_value.data(), index);
 
-      this->_lookup_table.insert(std::make_pair(new_name, std::make_pair(new_value, index)));
+      this->_lookup_table.emplace(std::make_pair(new_name, std::make_pair(new_value, index)));
     }
   }
 }
 
 HpackLookupResult
-HpackIndexingTable::HpackDynamicTable::lookup(const char *name, int name_len, const char *value, int value_len) const
+HPACK::DynamicTable::lookup(const char *name, int name_len, const char *value, int value_len) const
 {
-  ink_assert(this->_context == HpackIndexingTable::Context::ENCODING);
+  ink_assert(this->_context == HPACK::Context::ENCODING);
 
   auto range = this->_lookup_table.equal_range(std::string_view(name, name_len));
   if (range.first == this->_lookup_table.end()) {
@@ -740,13 +820,13 @@ HpackIndexingTable::HpackDynamicTable::lookup(const char *name, int name_len, co
 }
 
 uint32_t
-HpackIndexingTable::HpackDynamicTable::maximum_size() const
+HPACK::DynamicTable::maximum_size() const
 {
   return _maximum_size;
 }
 
 uint32_t
-HpackIndexingTable::HpackDynamicTable::size() const
+HPACK::DynamicTable::size() const
 {
   return _current_size;
 }
@@ -759,20 +839,20 @@ HpackIndexingTable::HpackDynamicTable::size() const
 // header table is less than or equal to the maximum size.
 //
 bool
-HpackIndexingTable::HpackDynamicTable::update_maximum_size(uint32_t new_size)
+HPACK::DynamicTable::update_maximum_size(uint32_t new_size)
 {
   this->_maximum_size = new_size;
   return this->_evict_overflowed_entries();
 }
 
 uint32_t
-HpackIndexingTable::HpackDynamicTable::length() const
+HPACK::DynamicTable::length() const
 {
   return this->_headers.size();
 }
 
 bool
-HpackIndexingTable::HpackDynamicTable::_evict_overflowed_entries()
+HPACK::DynamicTable::_evict_overflowed_entries()
 {
   if (this->_current_size <= this->_maximum_size) {
     // Do nothing
@@ -790,7 +870,7 @@ HpackIndexingTable::HpackDynamicTable::_evict_overflowed_entries()
     this->_mhdr->field_delete(*h, false);
     this->_headers.pop_back();
 
-    if (this->_context == HpackIndexingTable::Context::ENCODING) {
+    if (this->_context == HPACK::Context::ENCODING) {
       auto range = this->_lookup_table.equal_range(name);
       for (auto it = range.first; it != range.second; ++it) {
         if (it->second.first.compare(value) == 0) {
@@ -820,7 +900,7 @@ HpackIndexingTable::HpackDynamicTable::_evict_overflowed_entries()
    The old MIMEHdr and HdrHeap will be freed, when all MIMEFiled are deleted by HPACK Entry Eviction.
  */
 void
-HpackIndexingTable::HpackDynamicTable::_mime_hdr_gc()
+HPACK::DynamicTable::_mime_hdr_gc()
 {
   if (this->_mhdr_old == nullptr) {
     if (this->_mhdr->m_heap->total_used_size() >= HPACK_HDR_HEAP_THRESHOLD) {
@@ -840,13 +920,16 @@ HpackIndexingTable::HpackDynamicTable::_mime_hdr_gc()
    Calculate dynamic table index from absolute @index & offset
  */
 uint32_t
-HpackIndexingTable::HpackDynamicTable::_index(uint32_t index) const
+HPACK::DynamicTable::_index(uint32_t index) const
 {
   ink_assert(this->_offset + this->length() >= index + 1);
 
   return this->_offset + this->length() - index - 1;
 }
 
+//
+// Low level interfaces
+//
 int64_t
 encode_indexed_header_field(uint8_t *buf_start, const uint8_t *buf_end, uint32_t index)
 {
@@ -876,7 +959,7 @@ encode_indexed_header_field(uint8_t *buf_start, const uint8_t *buf_end, uint32_t
 
 int64_t
 encode_literal_header_field_with_indexed_name(uint8_t *buf_start, const uint8_t *buf_end, const MIMEFieldWrapper &header,
-                                              uint32_t index, HpackIndexingTable &indexing_table, HpackField type)
+                                              uint32_t index, HPACK &indexing_table, HpackField type)
 {
   uint8_t *p = buf_start;
   int64_t len;
@@ -931,7 +1014,7 @@ encode_literal_header_field_with_indexed_name(uint8_t *buf_start, const uint8_t 
 
 int64_t
 encode_literal_header_field_with_new_name(uint8_t *buf_start, const uint8_t *buf_end, const MIMEFieldWrapper &header,
-                                          HpackIndexingTable &indexing_table, HpackField type)
+                                          HPACK &indexing_table, HpackField type)
 {
   uint8_t *p = buf_start;
   int64_t len;
@@ -1005,8 +1088,7 @@ encode_dynamic_table_size_update(uint8_t *buf_start, const uint8_t *buf_end, uin
 // [RFC 7541] 6.1. Indexed Header Field Representation
 //
 int64_t
-decode_indexed_header_field(MIMEFieldWrapper &header, const uint8_t *buf_start, const uint8_t *buf_end,
-                            HpackIndexingTable &indexing_table)
+decode_indexed_header_field(MIMEFieldWrapper &header, const uint8_t *buf_start, const uint8_t *buf_end, HPACK &indexing_table)
 {
   uint64_t index = 0;
   int64_t len    = 0;
@@ -1039,8 +1121,7 @@ decode_indexed_header_field(MIMEFieldWrapper &header, const uint8_t *buf_start, 
 // Decode Literal Header Field Representation based on HpackFieldType
 //
 int64_t
-decode_literal_header_field(MIMEFieldWrapper &header, const uint8_t *buf_start, const uint8_t *buf_end,
-                            HpackIndexingTable &indexing_table)
+decode_literal_header_field(MIMEFieldWrapper &header, const uint8_t *buf_start, const uint8_t *buf_end, HPACK &indexing_table)
 {
   const uint8_t *p         = buf_start;
   bool isIncremental       = false;
@@ -1132,8 +1213,7 @@ decode_literal_header_field(MIMEFieldWrapper &header, const uint8_t *buf_start, 
 // [RFC 7541] 6.3. Dynamic Table Size Update
 //
 int64_t
-update_dynamic_table_size(const uint8_t *buf_start, const uint8_t *buf_end, HpackIndexingTable &indexing_table,
-                          uint32_t maximum_table_size)
+update_dynamic_table_size(const uint8_t *buf_start, const uint8_t *buf_end, HPACK &indexing_table, uint32_t maximum_table_size)
 {
   if (buf_start == buf_end) {
     return HPACK_ERROR_COMPRESSION_ERROR;
@@ -1157,8 +1237,11 @@ update_dynamic_table_size(const uint8_t *buf_start, const uint8_t *buf_end, Hpac
   return len;
 }
 
+//
+// High level interfaces
+//
 int64_t
-hpack_decode_header_block(HpackIndexingTable &indexing_table, HTTPHdr *hdr, const uint8_t *in_buf, const size_t in_buf_len,
+hpack_decode_header_block(HPACK &indexing_table, HTTPHdr *hdr, const uint8_t *in_buf, const size_t in_buf_len,
                           uint32_t max_header_size, uint32_t maximum_table_size)
 {
   const uint8_t *cursor           = in_buf;
@@ -1235,7 +1318,7 @@ hpack_decode_header_block(HpackIndexingTable &indexing_table, HTTPHdr *hdr, cons
 }
 
 int64_t
-hpack_encode_header_block(HpackIndexingTable &indexing_table, uint8_t *out_buf, const size_t out_buf_len, HTTPHdr *hdr,
+hpack_encode_header_block(HPACK &indexing_table, uint8_t *out_buf, const size_t out_buf_len, HTTPHdr *hdr,
                           int32_t maximum_table_size)
 {
   uint8_t *cursor                  = out_buf;
@@ -1303,7 +1386,7 @@ hpack_encode_header_block(HpackIndexingTable &indexing_table, uint8_t *out_buf, 
 }
 
 int32_t
-hpack_get_maximum_table_size(HpackIndexingTable &indexing_table)
+hpack_get_maximum_table_size(HPACK &indexing_table)
 {
   return indexing_table.maximum_size();
 }
