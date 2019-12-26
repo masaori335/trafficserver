@@ -714,7 +714,7 @@ HpackIndexingTable::HpackDynamicTable::add_header_field(const MIMEField *field)
       // Debug("hpack_encode", "name=%.*s value=%.*s index=%" PRId32, static_cast<int>(new_name.size()), new_name.data(),
       //       static_cast<int>(new_value.size()), new_value.data(), index);
 
-      this->_lookup_table.insert(std::make_pair(new_name, std::make_pair(new_value, index)));
+      this->_lookup_table.emplace(std::make_pair(new_name, std::make_pair(new_value, index)));
     }
   }
 }
