@@ -207,7 +207,8 @@ Http2ClientSession::new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOB
   this->read_buffer->water_mark = connection_state.server_settings.get(HTTP2_SETTINGS_MAX_FRAME_SIZE);
   this->_reader                 = reader ? reader : this->read_buffer->alloc_reader();
 
-  this->write_buffer = new_MIOBuffer(HTTP2_HEADER_BUFFER_SIZE_INDEX);
+  // Syncronize write buffer size to max size of TLS record (16KB)
+  this->write_buffer = new_MIOBuffer(BUFFER_SIZE_INDEX_16K);
   this->sm_writer    = this->write_buffer->alloc_reader();
 
   do_api_callout(TS_HTTP_SSN_START_HOOK);
