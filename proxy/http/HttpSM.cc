@@ -3501,6 +3501,9 @@ HttpSM::tunnel_handler_post_ua(int event, HttpTunnelProducer *p)
       SMDebug("http_tunnel", "send 408 response to client to vc %p, tunnel vc %p", ua_txn->get_netvc(), p->vc);
 
       tunnel.chain_abort_all(p);
+      if (server_entry) {
+        server_entry->in_tunnel = false;
+      }
       server_session = nullptr;
       // Reset the inactivity timeout, otherwise the InactivityCop will callback again in the next second.
       ua_txn->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
@@ -3523,7 +3526,11 @@ HttpSM::tunnel_handler_post_ua(int event, HttpTunnelProducer *p)
     set_ua_abort(HttpTransact::ABORTED, event);
     p->vc->do_io_write(nullptr, 0, nullptr);
     p->vc->do_io_shutdown(IO_SHUTDOWN_READ);
+
     tunnel.chain_abort_all(p);
+    if (server_entry) {
+      server_entry->in_tunnel = false;
+    }
     server_session = nullptr;
     // the in_tunnel status on both the ua & and
     //   it's consumer must already be set to true.  Previously
