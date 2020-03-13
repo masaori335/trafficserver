@@ -97,3 +97,11 @@ https://github.com/facebook/folly
 
 yaml-cpp: A YAML parser and emitter in C++
 https://github.com/jbeder/yaml-cpp
+
+~~
+
+HpackStaticTable::lookup_by_name() is based on a function of nghttp2
+
+https://github.com/nghttp2/nghttp2/blob/v1.40.0/lib/nghttp2_hd.c#L120
+Copyright (c) 2012, 2014, 2015, 2016 Tatsuhiro Tsujikawa
+Copyright (c) 2012, 2014, 2015, 2016 nghttp2 contributors

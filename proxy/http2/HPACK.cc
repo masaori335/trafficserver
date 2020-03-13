@@ -31,72 +31,6 @@ namespace
 // its value's length in octets, and 32.
 const static unsigned ADDITIONAL_OCTETS = 32;
 
-typedef enum {
-  TS_HPACK_STATIC_TABLE_0 = 0,
-  TS_HPACK_STATIC_TABLE_AUTHORITY,
-  TS_HPACK_STATIC_TABLE_METHOD_GET,
-  TS_HPACK_STATIC_TABLE_METHOD_POST,
-  TS_HPACK_STATIC_TABLE_PATH_ROOT,
-  TS_HPACK_STATIC_TABLE_PATH_INDEX,
-  TS_HPACK_STATIC_TABLE_SCHEME_HTTP,
-  TS_HPACK_STATIC_TABLE_SCHEME_HTTPS,
-  TS_HPACK_STATIC_TABLE_STATUS_200,
-  TS_HPACK_STATIC_TABLE_STATUS_204,
-  TS_HPACK_STATIC_TABLE_STATUS_206,
-  TS_HPACK_STATIC_TABLE_STATUS_304,
-  TS_HPACK_STATIC_TABLE_STATUS_400,
-  TS_HPACK_STATIC_TABLE_STATUS_404,
-  TS_HPACK_STATIC_TABLE_STATUS_500,
-  TS_HPACK_STATIC_TABLE_ACCEPT_CHARSET,
-  TS_HPACK_STATIC_TABLE_ACCEPT_ENCODING,
-  TS_HPACK_STATIC_TABLE_ACCEPT_LANGUAGE,
-  TS_HPACK_STATIC_TABLE_ACCEPT_RANGES,
-  TS_HPACK_STATIC_TABLE_ACCEPT,
-  TS_HPACK_STATIC_TABLE_ACCESS_CONTROL_ALLOW_ORIGIN,
-  TS_HPACK_STATIC_TABLE_AGE,
-  TS_HPACK_STATIC_TABLE_ALLOW,
-  TS_HPACK_STATIC_TABLE_AUTHORIZATION,
-  TS_HPACK_STATIC_TABLE_CACHE_CONTROL,
-  TS_HPACK_STATIC_TABLE_CONTENT_DISPOSITION,
-  TS_HPACK_STATIC_TABLE_CONTENT_ENCODING,
-  TS_HPACK_STATIC_TABLE_CONTENT_LANGUAGE,
-  TS_HPACK_STATIC_TABLE_CONTENT_LENGTH,
-  TS_HPACK_STATIC_TABLE_CONTENT_LOCATION,
-  TS_HPACK_STATIC_TABLE_CONTENT_RANGE,
-  TS_HPACK_STATIC_TABLE_CONTENT_TYPE,
-  TS_HPACK_STATIC_TABLE_COOKIE,
-  TS_HPACK_STATIC_TABLE_DATE,
-  TS_HPACK_STATIC_TABLE_ETAG,
-  TS_HPACK_STATIC_TABLE_EXPECT,
-  TS_HPACK_STATIC_TABLE_EXPIRES,
-  TS_HPACK_STATIC_TABLE_FROM,
-  TS_HPACK_STATIC_TABLE_HOST,
-  TS_HPACK_STATIC_TABLE_IF_MATCH,
-  TS_HPACK_STATIC_TABLE_IF_MODIFIED_SINCE,
-  TS_HPACK_STATIC_TABLE_IF_NONE_MATCH,
-  TS_HPACK_STATIC_TABLE_IF_RANGE,
-  TS_HPACK_STATIC_TABLE_IF_UNMODIFIED_SINCE,
-  TS_HPACK_STATIC_TABLE_LAST_MODIFIED,
-  TS_HPACK_STATIC_TABLE_LINK,
-  TS_HPACK_STATIC_TABLE_LOCATION,
-  TS_HPACK_STATIC_TABLE_MAX_FORWARDS,
-  TS_HPACK_STATIC_TABLE_PROXY_AUTHENTICATE,
-  TS_HPACK_STATIC_TABLE_PROXY_AUTHORIZATION,
-  TS_HPACK_STATIC_TABLE_RANGE,
-  TS_HPACK_STATIC_TABLE_REFERER,
-  TS_HPACK_STATIC_TABLE_REFRESH,
-  TS_HPACK_STATIC_TABLE_RETRY_AFTER,
-  TS_HPACK_STATIC_TABLE_SERVER,
-  TS_HPACK_STATIC_TABLE_SET_COOKIE,
-  TS_HPACK_STATIC_TABLE_STRICT_TRANSPORT_SECURITY,
-  TS_HPACK_STATIC_TABLE_TRANSFER_ENCODING,
-  TS_HPACK_STATIC_TABLE_USER_AGENT,
-  TS_HPACK_STATIC_TABLE_VARY,
-  TS_HPACK_STATIC_TABLE_VIA,
-  TS_HPACK_STATIC_TABLE_WWW_AUTHENTICATE,
-  TS_HPACK_STATIC_TABLE_ENTRY_NUM
-} TS_HPACK_STATIC_TABLE_ENTRY;
-
 const HpackHeaderField STATIC_TABLE[] = {{"", ""},
                                          {":authority", ""},
                                          {":method", "GET"},
@@ -160,11 +94,6 @@ const HpackHeaderField STATIC_TABLE[] = {{"", ""},
                                          {"via", ""},
                                          {"www-authenticate", ""}};
 
-const char *HPACK_HDR_FIELD_COOKIE        = STATIC_TABLE[TS_HPACK_STATIC_TABLE_COOKIE].name;
-const int HPACK_HDR_LEN_COOKIE            = STATIC_TABLE[TS_HPACK_STATIC_TABLE_COOKIE].name_len;
-const char *HPACK_HDR_FIELD_AUTHORIZATION = STATIC_TABLE[TS_HPACK_STATIC_TABLE_AUTHORIZATION].name;
-const int HPACK_HDR_LEN_AUTHORIZATION     = STATIC_TABLE[TS_HPACK_STATIC_TABLE_AUTHORIZATION].name_len;
-
 /**
   Threshold for total HdrHeap size which used by HPAK Dynamic Table.
   The HdrHeap is filled by MIMEHdrImpl and MIMEFieldBlockImpl like below.
@@ -222,35 +151,572 @@ hpack_parse_field_type(uint8_t ftype)
 //
 namespace HpackStaticTable
 {
+  enum class Index : uint32_t {
+    NONE = 0,
+    AUTHORITY,
+    METHOD_GET,
+    METHOD_POST,
+    PATH_ROOT,
+    PATH_INDEX,
+    SCHEME_HTTP,
+    SCHEME_HTTPS,
+    STATUS_200,
+    STATUS_204,
+    STATUS_206,
+    STATUS_304,
+    STATUS_400,
+    STATUS_404,
+    STATUS_500,
+    ACCEPT_CHARSET,
+    ACCEPT_ENCODING,
+    ACCEPT_LANGUAGE,
+    ACCEPT_RANGES,
+    ACCEPT,
+    ACCESS_CONTROL_ALLOW_ORIGIN,
+    AGE,
+    ALLOW,
+    AUTHORIZATION,
+    CACHE_CONTROL,
+    CONTENT_DISPOSITION,
+    CONTENT_ENCODING,
+    CONTENT_LANGUAGE,
+    CONTENT_LENGTH,
+    CONTENT_LOCATION,
+    CONTENT_RANGE,
+    CONTENT_TYPE,
+    COOKIE,
+    DATE,
+    ETAG,
+    EXPECT,
+    EXPIRES,
+    FROM,
+    HOST,
+    IF_MATCH,
+    IF_MODIFIED_SINCE,
+    IF_NONE_MATCH,
+    IF_RANGE,
+    IF_UNMODIFIED_SINCE,
+    LAST_MODIFIED,
+    LINK,
+    LOCATION,
+    MAX_FORWARDS,
+    PROXY_AUTHENTICATE,
+    PROXY_AUTHORIZATION,
+    RANGE,
+    REFERER,
+    REFRESH,
+    RETRY_AFTER,
+    SERVER,
+    SET_COOKIE,
+    STRICT_TRANSPORT_SECURITY,
+    TRANSFER_ENCODING,
+    USER_AGENT,
+    VARY,
+    VIA,
+    WWW_AUTHENTICATE,
+    MAX,
+  };
+
+  /**
+    This is based on lookup function of nghttp2.
+
+    ```
+    static int32_t lookup_token(const uint8_t *name, size_t namelen)
+    ```
+
+    https://github.com/nghttp2/nghttp2/blob/v1.40.0/lib/nghttp2_hd.c#L120
+   */
+  Index
+  lookup_by_name(const char *name, int name_len)
+  {
+    switch (name_len) {
+    case 3:
+      switch (name[2]) {
+      case 'a':
+        if (memcmp("vi", name, 2) == 0) {
+          return Index::VIA;
+        }
+        break;
+      case 'e':
+        if (memcmp("ag", name, 2) == 0) {
+          return Index::AGE;
+        }
+        break;
+      }
+      break;
+    case 4:
+      switch (name[3]) {
+      case 'e':
+        if (memcmp("dat", name, 3) == 0) {
+          return Index::DATE;
+        }
+        break;
+      case 'g':
+        if (memcmp("eta", name, 3) == 0) {
+          return Index::ETAG;
+        }
+        break;
+      case 'k':
+        if (memcmp("lin", name, 3) == 0) {
+          return Index::LINK;
+        }
+        break;
+      case 'm':
+        if (memcmp("fro", name, 3) == 0) {
+          return Index::FROM;
+        }
+        break;
+      case 't':
+        if (memcmp("hos", name, 3) == 0) {
+          return Index::HOST;
+        }
+        break;
+      case 'y':
+        if (memcmp("var", name, 3) == 0) {
+          return Index::VARY;
+        }
+        break;
+      }
+      break;
+    case 5:
+      switch (name[4]) {
+      case 'e':
+        if (memcmp("rang", name, 4) == 0) {
+          return Index::RANGE;
+        }
+        break;
+      case 'h':
+        if (memcmp(":pat", name, 4) == 0) {
+          return Index::PATH_ROOT;
+        }
+        break;
+      case 'w':
+        if (memcmp("allo", name, 4) == 0) {
+          return Index::ALLOW;
+        }
+        break;
+      }
+      break;
+    case 6:
+      switch (name[5]) {
+      case 'e':
+        if (memcmp("cooki", name, 5) == 0) {
+          return Index::COOKIE;
+        }
+        break;
+      case 'r':
+        if (memcmp("serve", name, 5) == 0) {
+          return Index::SERVER;
+        }
+        break;
+      case 't':
+        if (memcmp("accep", name, 5) == 0) {
+          return Index::ACCEPT;
+        }
+        if (memcmp("expec", name, 5) == 0) {
+          return Index::EXPECT;
+        }
+        break;
+      }
+      break;
+    case 7:
+      switch (name[6]) {
+      case 'd':
+        if (memcmp(":metho", name, 6) == 0) {
+          return Index::METHOD_GET;
+        }
+        break;
+      case 'e':
+        if (memcmp(":schem", name, 6) == 0) {
+          return Index::SCHEME_HTTP;
+        }
+        break;
+      case 'h':
+        if (memcmp("refres", name, 6) == 0) {
+          return Index::REFRESH;
+        }
+        break;
+      case 'r':
+        if (memcmp("refere", name, 6) == 0) {
+          return Index::REFERER;
+        }
+        break;
+      case 's':
+        if (memcmp(":statu", name, 6) == 0) {
+          return Index::STATUS_200;
+        }
+        if (memcmp("expire", name, 6) == 0) {
+          return Index::EXPIRES;
+        }
+        break;
+      }
+      break;
+    case 8:
+      switch (name[7]) {
+      case 'e':
+        if (memcmp("if-rang", name, 7) == 0) {
+          return Index::IF_RANGE;
+        }
+        break;
+      case 'h':
+        if (memcmp("if-matc", name, 7) == 0) {
+          return Index::IF_MATCH;
+        }
+        break;
+      case 'n':
+        if (memcmp("locatio", name, 7) == 0) {
+          return Index::LOCATION;
+        }
+        break;
+      }
+      break;
+    case 10:
+      switch (name[9]) {
+      case 'e':
+        if (memcmp("set-cooki", name, 9) == 0) {
+          return Index::SET_COOKIE;
+        }
+        break;
+      case 't':
+        if (memcmp("user-agen", name, 9) == 0) {
+          return Index::USER_AGENT;
+        }
+        break;
+      case 'y':
+        if (memcmp(":authorit", name, 9) == 0) {
+          return Index::AUTHORITY;
+        }
+        break;
+      }
+      break;
+    case 11:
+      switch (name[10]) {
+      case 'r':
+        if (memcmp("retry-afte", name, 10) == 0) {
+          return Index::RETRY_AFTER;
+        }
+        break;
+      }
+      break;
+    case 12:
+      switch (name[11]) {
+      case 'e':
+        if (memcmp("content-typ", name, 11) == 0) {
+          return Index::CONTENT_TYPE;
+        }
+        break;
+      case 's':
+        if (memcmp("max-forward", name, 11) == 0) {
+          return Index::MAX_FORWARDS;
+        }
+        break;
+      }
+      break;
+    case 13:
+      switch (name[12]) {
+      case 'd':
+        if (memcmp("last-modifie", name, 12) == 0) {
+          return Index::LAST_MODIFIED;
+        }
+        break;
+      case 'e':
+        if (memcmp("content-rang", name, 12) == 0) {
+          return Index::CONTENT_RANGE;
+        }
+        break;
+      case 'h':
+        if (memcmp("if-none-matc", name, 12) == 0) {
+          return Index::IF_NONE_MATCH;
+        }
+        break;
+      case 'l':
+        if (memcmp("cache-contro", name, 12) == 0) {
+          return Index::CACHE_CONTROL;
+        }
+        break;
+      case 'n':
+        if (memcmp("authorizatio", name, 12) == 0) {
+          return Index::AUTHORIZATION;
+        }
+        break;
+      case 's':
+        if (memcmp("accept-range", name, 12) == 0) {
+          return Index::ACCEPT_RANGES;
+        }
+        break;
+      }
+      break;
+    case 14:
+      switch (name[13]) {
+      case 'h':
+        if (memcmp("content-lengt", name, 13) == 0) {
+          return Index::CONTENT_LENGTH;
+        }
+        break;
+      case 't':
+        if (memcmp("accept-charse", name, 13) == 0) {
+          return Index::ACCEPT_CHARSET;
+        }
+        break;
+      }
+      break;
+    case 15:
+      switch (name[14]) {
+      case 'e':
+        if (memcmp("accept-languag", name, 14) == 0) {
+          return Index::ACCEPT_LANGUAGE;
+        }
+        break;
+      case 'g':
+        if (memcmp("accept-encodin", name, 14) == 0) {
+          return Index::ACCEPT_ENCODING;
+        }
+        break;
+      }
+      break;
+    case 16:
+      switch (name[15]) {
+      case 'e':
+        if (memcmp("content-languag", name, 15) == 0) {
+          return Index::CONTENT_LANGUAGE;
+        }
+        if (memcmp("www-authenticat", name, 15) == 0) {
+          return Index::WWW_AUTHENTICATE;
+        }
+        break;
+      case 'g':
+        if (memcmp("content-encodin", name, 15) == 0) {
+          return Index::CONTENT_ENCODING;
+        }
+        break;
+      case 'n':
+        if (memcmp("content-locatio", name, 15) == 0) {
+          return Index::CONTENT_LOCATION;
+        }
+        break;
+      }
+      break;
+    case 17:
+      switch (name[16]) {
+      case 'e':
+        if (memcmp("if-modified-sinc", name, 16) == 0) {
+          return Index::IF_MODIFIED_SINCE;
+        }
+        break;
+      case 'g':
+        if (memcmp("transfer-encodin", name, 16) == 0) {
+          return Index::TRANSFER_ENCODING;
+        }
+        break;
+      }
+      break;
+    case 18:
+      switch (name[17]) {
+      case 'e':
+        if (memcmp("proxy-authenticat", name, 17) == 0) {
+          return Index::PROXY_AUTHENTICATE;
+        }
+        break;
+      }
+      break;
+    case 19:
+      switch (name[18]) {
+      case 'e':
+        if (memcmp("if-unmodified-sinc", name, 18) == 0) {
+          return Index::IF_UNMODIFIED_SINCE;
+        }
+        break;
+      case 'n':
+        if (memcmp("content-dispositio", name, 18) == 0) {
+          return Index::CONTENT_DISPOSITION;
+        }
+        if (memcmp("proxy-authorizatio", name, 18) == 0) {
+          return Index::PROXY_AUTHORIZATION;
+        }
+        break;
+      }
+      break;
+    case 25:
+      switch (name[24]) {
+      case 'y':
+        if (memcmp("strict-transport-securit", name, 24) == 0) {
+          return Index::STRICT_TRANSPORT_SECURITY;
+        }
+        break;
+      }
+      break;
+    case 27:
+      switch (name[26]) {
+      case 'n':
+        if (memcmp("access-control-allow-origi", name, 26) == 0) {
+          return Index::ACCESS_CONTROL_ALLOW_ORIGIN;
+        }
+        break;
+      }
+      break;
+    }
+
+    return Index::NONE;
+  }
+
+  bool
+  is_value_eq(Index index, const char *value, int value_len)
+  {
+    return memcmp(STATIC_TABLE[static_cast<uint32_t>(index)].value, value, value_len) == 0;
+  }
+
+  /**
+     Special cases for name is not unique
+
+     @return Index if value is exactly matched.
+   */
+  Index
+  lookup_by_value(Index name_index, const char *value, int value_len)
+  {
+    switch (name_index) {
+    case Index::METHOD_GET:
+      switch (value_len) {
+      case 3:
+        if (is_value_eq(Index::METHOD_GET, value, value_len)) {
+          return Index::METHOD_GET;
+        }
+        break;
+      case 4:
+        if (is_value_eq(Index::METHOD_POST, value, value_len)) {
+          return Index::METHOD_POST;
+        }
+      }
+      break;
+    case Index::PATH_ROOT:
+      switch (value_len) {
+      case 1:
+        if (is_value_eq(Index::PATH_ROOT, value, value_len)) {
+          return Index::PATH_ROOT;
+        }
+        break;
+      case 11:
+        if (is_value_eq(Index::PATH_INDEX, value, value_len)) {
+          return Index::PATH_INDEX;
+        }
+      }
+      break;
+    case Index::SCHEME_HTTP:
+      switch (value_len) {
+      case 4:
+        if (is_value_eq(Index::SCHEME_HTTP, value, value_len)) {
+          return Index::SCHEME_HTTP;
+        }
+        break;
+      case 5:
+        if (is_value_eq(Index::SCHEME_HTTPS, value, value_len)) {
+          return Index::SCHEME_HTTPS;
+        }
+      }
+      break;
+    case Index::STATUS_200:
+      switch (value_len) {
+      case 3:
+        switch (value[0]) {
+        case '2':
+          switch (value[2]) {
+          case '0':
+            if (is_value_eq(Index::STATUS_200, value, value_len)) {
+              return Index::STATUS_200;
+            }
+            break;
+          case '4':
+            if (is_value_eq(Index::STATUS_204, value, value_len)) {
+              return Index::STATUS_204;
+            }
+            break;
+          case '6':
+            if (is_value_eq(Index::STATUS_206, value, value_len)) {
+              return Index::STATUS_206;
+            }
+            break;
+          }
+          break;
+        case '3':
+          if (is_value_eq(Index::STATUS_304, value, value_len)) {
+            return Index::STATUS_304;
+          }
+          break;
+        case '4':
+          switch (value[2]) {
+          case '0':
+            if (is_value_eq(Index::STATUS_400, value, value_len)) {
+              return Index::STATUS_200;
+            }
+          case '4':
+            if (is_value_eq(Index::STATUS_404, value, value_len)) {
+              return Index::STATUS_200;
+            }
+            break;
+          case '5':
+            if (is_value_eq(Index::STATUS_500, value, value_len)) {
+              return Index::STATUS_500;
+            }
+            break;
+          }
+          break;
+        }
+        break;
+      }
+      break;
+    default:
+      // do nothing
+      break;
+    }
+
+    return Index::NONE;
+  }
+
+  /**
+    Lookup HPACK Static Table
+
+    1. lookup static table by name
+    2. if found entry "name" is not unique, lookup by value
+   */
   HpackLookupResult
   lookup(const HpackHeaderField &header)
   {
     HpackLookupResult result;
+    Index index = lookup_by_name(header.name, header.name_len);
 
-    for (unsigned int index = 1; index < TS_HPACK_STATIC_TABLE_ENTRY_NUM; ++index) {
-      const char *table_name  = STATIC_TABLE[index].name;
-      int table_name_len      = STATIC_TABLE[index].name_len;
-      const char *table_value = STATIC_TABLE[index].value;
-      int table_value_len     = STATIC_TABLE[index].value_len;
+    if (index == Index::NONE) {
+      return result;
+    }
 
-      // Check whether name (and value) are matched
-      if (header.name_len == table_name_len && memcmp(header.name, table_name, table_name_len) == 0) {
-        if (header.value_len == table_value_len && memcmp(header.value, table_value, table_value_len) == 0) {
-          result.index      = index;
-          result.index_type = HpackIndex::STATIC;
-          result.match_type = HpackMatch::EXACT;
-          break;
-        } else if (!result.index) {
-          result.index      = index;
-          result.index_type = HpackIndex::STATIC;
-          result.match_type = HpackMatch::NAME;
-        }
+    // Check value to see match type is EXACT or NAME
+    switch (index) {
+    case Index::METHOD_GET:
+    case Index::PATH_ROOT:
+    case Index::SCHEME_HTTP:
+    case Index::STATUS_200:
+      // Name is not unique
+      if (Index r = lookup_by_value(index, header.value, header.value_len); r != Index::NONE) {
+        return {static_cast<uint32_t>(r), HpackIndex::STATIC, HpackMatch::EXACT};
+      }
+      break;
+    default:
+      // Name is unique
+      uint32_t i = static_cast<uint32_t>(index);
+      if (STATIC_TABLE[i].value_len == header.value_len && is_value_eq(index, header.value, header.value_len)) {
+        return {i, HpackIndex::STATIC, HpackMatch::EXACT};
       }
     }
 
-    return result;
+    return {static_cast<uint32_t>(index), HpackIndex::STATIC, HpackMatch::NAME};
   }
 } // namespace HpackStaticTable
+
+const int TS_HPACK_STATIC_TABLE_ENTRY_NUM = static_cast<int>(HpackStaticTable::Index::MAX);
+
+const char *HPACK_HDR_FIELD_COOKIE        = STATIC_TABLE[static_cast<int>(HpackStaticTable::Index::COOKIE)].name;
+const int HPACK_HDR_LEN_COOKIE            = STATIC_TABLE[static_cast<int>(HpackStaticTable::Index::COOKIE)].name_len;
+const char *HPACK_HDR_FIELD_AUTHORIZATION = STATIC_TABLE[static_cast<int>(HpackStaticTable::Index::AUTHORIZATION)].name;
+const int HPACK_HDR_LEN_AUTHORIZATION     = STATIC_TABLE[static_cast<int>(HpackStaticTable::Index::AUTHORIZATION)].name_len;
+
 } // namespace
 
 //
