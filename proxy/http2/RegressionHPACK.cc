@@ -316,20 +316,14 @@ REGRESSION_TEST(HPACK_EncodeLiteralHeaderField)(RegressionTest *t, int, int *pst
   for (unsigned int i = 9; i < sizeof(literal_test_case) / sizeof(literal_test_case[0]); i++) {
     memset(buf, 0, BUFSIZE_FOR_REGRESSION_TEST);
 
-    ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);
-    headers->create(HTTP_TYPE_RESPONSE);
-    MIMEField *field = mime_field_create(headers->m_heap, headers->m_http->m_fields_impl);
-    MIMEFieldWrapper header(field, headers->m_heap, headers->m_http->m_fields_impl);
+    HpackHeaderField header{literal_test_case[i].raw_name, static_cast<int>(strlen(literal_test_case[i].raw_name)),
+                            literal_test_case[i].raw_value, static_cast<int>(strlen(literal_test_case[i].raw_value))};
 
-    header.name_set(literal_test_case[i].raw_name, strlen(literal_test_case[i].raw_name));
-    header.value_set(literal_test_case[i].raw_value, strlen(literal_test_case[i].raw_value));
     if (literal_test_case[i].index > 0) {
-      len = encode_literal_header_field_with_indexed_name(buf, buf + BUFSIZE_FOR_REGRESSION_TEST, header,
-                                                          literal_test_case[i].index, indexing_table, literal_test_case[i].type);
+      len = encode_literal_header_field_with_indexed_name(buf, buf + BUFSIZE_FOR_REGRESSION_TEST, literal_test_case[i].index,
+                                                          header, literal_test_case[i].type);
     } else {
-      header.name_set(literal_test_case[i].raw_name, strlen(literal_test_case[i].raw_name));
-      len = encode_literal_header_field_with_new_name(buf, buf + BUFSIZE_FOR_REGRESSION_TEST, header, indexing_table,
-                                                      literal_test_case[i].type);
+      len = encode_literal_header_field_with_new_name(buf, buf + BUFSIZE_FOR_REGRESSION_TEST, header, literal_test_case[i].type);
     }
 
     box.check(len == literal_test_case[i].encoded_field_len, "encoded length was %d, expecting %d", len,
@@ -390,9 +384,10 @@ REGRESSION_TEST(HPACK_Encode)(RegressionTest *t, int, int *pstatus)
         break;
       }
 
-      HpackLookupResult lookupResult = indexing_table.lookup(expected_name, expected_name_len, expected_value, expected_value_len);
+      HpackHeaderField expected_header{expected_name, expected_name_len, expected_value, expected_value_len};
+      HpackLookupResult lookupResult = indexing_table.lookup(expected_header);
       box.check(lookupResult.match_type == HpackMatch::EXACT && lookupResult.index_type == HpackIndex::DYNAMIC,
-                "the header field is not indexed");
+                "the header field is not indexed (%s: %s)", expected_name, expected_value);
 
       expected_dynamic_table_size += dynamic_table_response_test_case[i][j].size;
     }
