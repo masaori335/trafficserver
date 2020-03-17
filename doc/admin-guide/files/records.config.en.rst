@@ -193,7 +193,7 @@ System Variables
 
 .. ts:cv:: CONFIG proxy.config.proxy_binary_opts STRING -M
 
-   The command-line options for starting |TS|.
+   The :ref:`command-line options <traffic_server>` for starting |TS|.
 
 .. ts:cv:: CONFIG proxy.config.manager_binary STRING traffic_manager
 
@@ -272,30 +272,6 @@ System Variables
    Specifies the minimum count of rolled output logs to keep. This value will be used to decide the
    order of auto-deletion (if enabled). A default value of 0 means auto-deletion will try to keep
    output logs as much as possible. See :doc:`../logging/rotation.en` for guidance.
-
-.. ts:cv:: CONFIG proxy.config.output.logfile.rolling_max_count INT 0
-   :reloadable:
-
-   Specifies the maximum count of rolled output logs to keep. This value will be used by the
-   auto-deletion (if enabled) to trim the number of rolled log files every time the log is rolled.
-   A default value of 0 means auto-deletion will not try to limit the number of output logs.
-   See :doc:`../logging/rotation.en` for an use-case for this option.
-
-.. ts:cv:: CONFIG proxy.config.output.logfile.rolling_allow_empty INT 0
-   :reloadable:
-
-   While rolling default behavior is to rename, close and re-open the log file *only* when/if there is
-   something to log to the log file. This option opens a new log file right after rolling even if there
-   is nothing to log (i.e. nothing to be logged due to lack of requests to the server)
-   which may lead to 0-sized log files while rolling. See :doc:`../logging/rotation.en` for an use-case
-   for this option.
-
-   ===== ======================================================================
-   Value Description
-   ===== ======================================================================
-   ``0`` No empty log files created and rolled if there was nothing to log
-   ``1`` Allow empty log files to be created and  rolled even if there was nothing to log
-   ===== ======================================================================
 
 
 Thread Variables
@@ -567,7 +543,23 @@ Local Manager
    root processes.
 
    This setting is not reloadable, since it is must be applied when
-   program:`traffic_manager` initializes.
+   :program:`traffic_manager` initializes.
+
+.. ts:cv:: CONFIG proxy.node.config.manager_exponential_sleep_ceiling INT 60
+
+   In case of :program:`traffic_manager` is unable to start :program:`traffic_server`,
+   this setting specifies the maximum amount of seconds that the :program:`traffic_manager`
+   process should wait until it tries again to restart :program:`traffic_server`.
+   In case of :program:`traffic_manager` failing to start :program:`traffic_server`, it will
+   retry exponentially until it reaches the ceiling time.
+
+.. ts:cv:: CONFIG proxy.node.config.manager_retry_cap INT 5
+
+   This setting specifies the number of times that :program:`traffic_manager` will retry
+   to restart :program:`traffic_server` once the  maximum ceiling time is reached.
+
+.. note::
+   If set to ``0``, no cap will take place.
 
 Alarm Configuration
 ===================
@@ -1473,7 +1465,7 @@ Origin Server Connect Attempts
    Frequency of alerts
       See :ts:cv:`proxy.config.http.per_server.connection.alert_delay`.
 
-.. ts:cv:: CONFIG proxy.config.http.per_server.connection.match STRING ip
+.. ts:cv:: CONFIG proxy.config.http.per_server.connection.match STRING both
    :reloadable:
    :overridable:
 
@@ -1843,6 +1835,24 @@ Security
          formed requests can cause excessive resource consumption on the server.
    ``2`` Similar to 0, except return a 416 error code and no response body.
    ===== ======================================================================
+
+.. ts:cv:: CONFIG proxy.config.http.host_sni_policy INT 2
+
+   This option controls how host header and SNI name mismatches are handled.  Mismatches
+   may result in SNI-based policies defined in :file:`sni.yaml` being avoided.  For example, ``foo.com``
+   may be the fqdn value in :file:`sni.yaml` which defines that client certificates are required.
+   The user could specify ``bar.com`` as the SNI to avoid the policy requiring the client certificate
+   but specify ``foo.com`` as the HTTP host header to still access the same object.
+
+   Therefore, if a host header would have triggered a SNI policy, it is possible that the user is
+   trying to bypass a SNI policy if the host header and SNI values do not match.
+
+   If this setting is 0, no checking is performed.  If this setting is 1 or 2, the host header and SNI values
+   are compared if the host header value would have triggered a SNI policy.  If there is a mismatch and the value
+   is 1, a warning is generated but the transaction is allowed to proceed.  If the value is 2 and there is a
+   mismatch, a warning is generated and a status 403 is returned.
+
+   You can override this global setting on a per domain basis in the :file:`sni.yaml` file using the :ref:`host_sni_policy attribute<override-host-sni-policy>` action.
 
 Cache Control
 =============
@@ -2854,6 +2864,30 @@ Logging Configuration
    order of auto-deletion (if enabled). A default value of 0 means auto-deletion will try to keep
    logs as much as possible. This value can be and should be overridden in logging.yaml. See :doc:`../logging/rotation.en` for guidance.
 
+.. ts:cv:: CONFIG proxy.config.log.rolling_max_count INT 0
+   :reloadable:
+
+   Specifies the maximum count of rolled output logs to keep. This value will be used by the
+   auto-deletion (if enabled) to trim the number of rolled log files every time the log is rolled.
+   A default value of 0 means auto-deletion will not try to limit the number of output logs.
+   See :doc:`../logging/rotation.en` for an use-case for this option.
+
+.. ts:cv:: CONFIG proxy.config.log.rolling_allow_empty INT 0
+   :reloadable:
+
+   While rolling default behavior is to rename, close and re-open the log file *only* when/if there is
+   something to log to the log file. This option opens a new log file right after rolling even if there
+   is nothing to log (i.e. nothing to be logged due to lack of requests to the server)
+   which may lead to 0-sized log files while rolling. See :doc:`../logging/rotation.en` for an use-case
+   for this option.
+
+   ===== ======================================================================
+   Value Description
+   ===== ======================================================================
+   ``0`` No empty log files created and rolled if there was nothing to log
+   ``1`` Allow empty log files to be created and  rolled even if there was nothing to log
+   ===== ======================================================================
+
 .. ts:cv:: CONFIG proxy.config.log.auto_delete_rolled_files INT 1
    :reloadable:
 
@@ -2915,6 +2949,43 @@ Logging Configuration
    This configuration value specifies the path to the
    :file:`logging.yaml` configuration file. If this is a relative
    path, |TS| loads it relative to the ``SYSCONFDIR`` directory.
+
+.. ts:cv:: CONFIG proxy.config.log.max_line_size INT 9216
+   :units: bytes
+
+   This controls the maximum line length for ``ASCII`` formatted log entries.
+   This applies to ``ASCII_PIPE`` and ``ASCII`` file logs, *unless*
+   :ts:cv:`proxy.config.log.ascii_buffer_size` is also specified and the value
+   of ``ascii_buffer_size`` is larger than ``max_line_size``: in that case,
+   ``max_line_size`` only applies to ``ASCII_PIPE`` logs while
+   ``ascii_buffer_size`` will apply to ``ASCII`` (non-pipe) log files.
+
+.. ts:cv:: CONFIG proxy.config.log.ascii_buffer_size INT 36864
+   :units: bytes
+
+   This controls the maximum line length for ``ASCII`` formatted log entries
+   that are non-pipe log files. If this value is smaller than
+   :ts:cv:`proxy.config.log.max_line_size`, then the latter will be used for
+   both ``ASCII`` and ``ASCII_PIPE`` log files. If both ``max_line_size`` and
+   ``ascii_buffer_size`` are set, then ``max_line_size`` will be used for
+   ``ASCII_PIPE`` logs while ``ascii_buffer_size`` will be used for ``ASCII``
+   (non-pipe) log files.  This all might seem complicated, but just keep in
+   mind that the intention of ``ascii_buffer_size`` is to simply provide a way
+   for the user to configure different ``ASCII`` and ``ASCII_PIPE`` maximum
+   line lengths.
+
+.. ts:cv:: CONFIG proxy.config.log.log_buffer_size INT 9216
+   :reloadable:
+   :units: bytes
+
+   This is an orthogonal mechanism from :ts:cv:`proxy.config.log.max_line_size`
+   and :ts:cv:`proxy.config.log.ascii_buffer_size` for limiting line length
+   size by constraining the log entry buffer to a particular amount of memory.
+   Unlike the above two configurations, ``log_buffer_size`` applies to both
+   binary and ``ASCII`` log file entries.  For ``ASCII`` log files, if a maximum
+   log size is set via both the above mechanisms and by ``log_buffer_size``,
+   then the smaller of the two configurations will be applied to the line
+   length.
 
 Diagnostic Logging Configuration
 ================================
@@ -3121,6 +3192,13 @@ SSL Termination
 
    By default (``1``) |TS| will use the server's cipher suites preferences instead of the client preferences.
    By disabling it (``0``) |TS| will use client's cipher suites preferences.
+
+.. ts:cv:: CONFIG proxy.config.ssl.server.prioritize_chacha INT 0
+
+   By enabling it (``1``) |TS| will temporarily reprioritize ChaCha20-Poly1305 ciphers to the top of the
+   server cipher list if a ChaCha20-Poly1305 cipher is at the top of the client cipher list.
+
+   This configuration works with OpenSSL v1.1.1 and above.
 
 .. ts:cv:: CONFIG proxy.config.ssl.client.TLSv1_3.cipher_suites STRING <See notes under proxy.config.ssl.server.tls.cipher_suites>
 
@@ -3528,6 +3606,24 @@ Client-Related Configuration
    Specify the location of the openssl config file used to load dynamic crypto
    engines. This setting assumes an absolute path.  An example config file is at
    :ts:git:`contrib/openssl/load_engine.cnf`.
+
+TLS v1.3 0-RTT Configuration
+----------------------------
+
+.. note::
+   TLS v1.3 must be enabled in order to utilize 0-RTT early data.
+
+.. ts:cv:: CONFIG proxy.config.ssl.server.max_early_data INT 0
+
+   Specifies the maximum amount of early data in bytes that is permitted to be sent on a single connection.
+
+   The minimum value that enables early data, and the suggested value for this option are both 16384 (16KB).
+
+   Setting to ``0`` effectively disables 0-RTT.
+
+.. ts:cv:: CONFIG proxy.config.ssl.server.allow_early_data_params INT 0
+
+   Set to ``1`` to allow HTTP parameters on early data requests.
 
 OCSP Stapling Configuration
 ===========================
@@ -3969,6 +4065,11 @@ Plug-in Configuration
 .. ts:cv:: CONFIG proxy.config.plugin.plugin_dir STRING config/plugins
 
    Specifies the location of |TS| plugins.
+
+.. ts:cv:: CONFIG proxy.config.plugin.dynamic_reload_mode INT 1
+
+   Enables (``1``) or disables (``0``) the dynamic reload feature for remap
+   plugins (`remap.config`). Global plugins (`plugin.config`) do not have dynamic reload feature yet.
 
 SOCKS Processor
 ===============

@@ -92,7 +92,6 @@ extern "C" int plock(int);
 #include "HuffmanCodec.h"
 #include "Plugin.h"
 #include "DiagsConfig.h"
-#include "CoreUtils.h"
 #include "RemapConfig.h"
 #include "RemapPluginInfo.h"
 #include "RemapProcessor.h"
@@ -143,7 +142,6 @@ static int num_task_threads   = 0;
 
 static char *http_accept_port_descriptor;
 int http_accept_file_descriptor = NO_FD;
-static char core_file[255]      = "";
 static bool enable_core_file_p  = false; // Enable core file dump?
 int command_flag                = DEFAULT_COMMAND_FLAG;
 int command_index               = -1;
@@ -216,10 +214,6 @@ static ArgumentDescription argument_descriptions[] = {
   {"clear_cache", 'K', "Clear Cache on Startup", "F", &cacheProcessor.auto_clear_flag, "PROXY_CLEAR_CACHE", nullptr},
   {"bind_stdout", '-', "Regular file to bind stdout to", "S512", &bind_stdout, "PROXY_BIND_STDOUT", nullptr},
   {"bind_stderr", '-', "Regular file to bind stderr to", "S512", &bind_stderr, "PROXY_BIND_STDERR", nullptr},
-#if defined(linux)
-  {"read_core", 'c', "Read Core file", "S255", &core_file, nullptr, nullptr},
-#endif
-
   {"accept_mss", '-', "MSS for client connections", "I", &accept_mss, nullptr, nullptr},
   {"poll_timeout", 't', "poll timeout in milliseconds", "I", &poll_timeout, nullptr, nullptr},
   HELP_ARGUMENT_DESCRIPTION(),
@@ -1641,27 +1635,27 @@ change_uid_gid(const char *user)
  * This must work without the ability to elevate privilege if the files are accessible without.
  */
 void
-bind_outputs(const char *bind_stdout, const char *bind_stderr)
+bind_outputs(const char *bind_stdout_p, const char *bind_stderr_p)
 {
   int log_fd;
   unsigned int flags = O_WRONLY | O_APPEND | O_CREAT | O_SYNC;
 
-  if (*bind_stdout != 0) {
-    Debug("log", "binding stdout to %s", bind_stdout);
-    log_fd = elevating_open(bind_stdout, flags, 0644);
+  if (*bind_stdout_p != 0) {
+    Debug("log", "binding stdout to %s", bind_stdout_p);
+    log_fd = elevating_open(bind_stdout_p, flags, 0644);
     if (log_fd < 0) {
-      fprintf(stdout, "[Warning]: TS unable to open log file \"%s\" [%d '%s']\n", bind_stdout, errno, strerror(errno));
+      fprintf(stdout, "[Warning]: TS unable to open log file \"%s\" [%d '%s']\n", bind_stdout_p, errno, strerror(errno));
     } else {
       Debug("log", "duping stdout");
       dup2(log_fd, STDOUT_FILENO);
       close(log_fd);
     }
   }
-  if (*bind_stderr != 0) {
-    Debug("log", "binding stderr to %s", bind_stderr);
-    log_fd = elevating_open(bind_stderr, O_WRONLY | O_APPEND | O_CREAT | O_SYNC, 0644);
+  if (*bind_stderr_p != 0) {
+    Debug("log", "binding stderr to %s", bind_stderr_p);
+    log_fd = elevating_open(bind_stderr_p, O_WRONLY | O_APPEND | O_CREAT | O_SYNC, 0644);
     if (log_fd < 0) {
-      fprintf(stdout, "[Warning]: TS unable to open log file \"%s\" [%d '%s']\n", bind_stderr, errno, strerror(errno));
+      fprintf(stdout, "[Warning]: TS unable to open log file \"%s\" [%d '%s']\n", bind_stderr_p, errno, strerror(errno));
     } else {
       Debug("log", "duping stderr");
       dup2(log_fd, STDERR_FILENO);
@@ -1860,12 +1854,6 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   }
 #endif
 
-  // Check for core file
-  if (core_file[0] != '\0') {
-    process_core(core_file);
-    ::exit(0);
-  }
-
   // setup callback for tracking remap included files
   load_remap_file_cb = load_remap_file_callback;
 
@@ -2042,6 +2030,8 @@ main(int /* argc ATS_UNUSED */, const char **argv)
     // initialize logging (after event and net processor)
     Log::init(remote_management_flag ? 0 : Log::NO_REMOTE_MANAGEMENT);
 
+    (void)parsePluginConfig();
+
     // Init plugins as soon as logging is ready.
     (void)plugin_init(); // plugin.config
 
@@ -2160,21 +2150,6 @@ main(int /* argc ATS_UNUSED */, const char **argv)
 
   delete main_thread;
 }
-
-#if TS_HAS_TESTS
-//////////////////////////////
-// Unit Regression Test Hook //
-//////////////////////////////
-
-#include "HdrTest.h"
-
-REGRESSION_TEST(Hdrs)(RegressionTest *t, int atype, int *pstatus)
-{
-  HdrTest ht;
-  *pstatus = ht.go(t, atype);
-  return;
-}
-#endif
 
 static void mgmt_restart_shutdown_callback(ts::MemSpan<void>)
 {

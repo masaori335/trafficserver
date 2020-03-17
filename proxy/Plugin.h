@@ -26,6 +26,13 @@
 #include <string>
 #include "tscore/List.h"
 
+typedef enum { RELOAD_OFF, RELOAD_ON, RELOAD_COUNT } PluginDynamicReloadMode;
+
+// read records.config to parse plugin related configs
+void parsePluginConfig();
+
+bool isPluginDynamicReloadEnabled();
+
 struct PluginRegInfo {
   PluginRegInfo();
   ~PluginRegInfo();

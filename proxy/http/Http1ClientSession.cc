@@ -74,7 +74,6 @@ Http1ClientSession::destroy()
     in_destroy = true;
 
     HttpSsnDebug("[%" PRId64 "] session destroy", con_id);
-    ink_release_assert(!client_vc);
     ink_assert(read_buffer);
     ink_release_assert(transact_count == released_transactions);
     do_api_callout(TS_HTTP_SSN_CLOSE_HOOK);
@@ -139,6 +138,12 @@ Http1ClientSession::new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOB
   ssn_start_time = Thread::get_hrtime();
   in_destroy     = false;
 
+  SSLNetVConnection *ssl_vc = dynamic_cast<SSLNetVConnection *>(new_vc);
+  if (ssl_vc != nullptr) {
+    read_from_early_data = ssl_vc->read_from_early_data;
+    Debug("ssl_early_data", "read_from_early_data = %" PRId64, read_from_early_data);
+  }
+
   MUTEX_TRY_LOCK(lock, mutex, this_ethread());
   ink_assert(lock.is_locked());
 
@@ -188,6 +193,8 @@ Http1ClientSession::new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOB
   read_buffer = iobuf ? iobuf : new_MIOBuffer(HTTP_HEADER_BUFFER_SIZE_INDEX);
   _reader     = reader ? reader : read_buffer->alloc_reader();
   trans.set_reader(_reader);
+
+  _handle_if_ssl(new_vc);
 
   // INKqa11186: Use a local pointer to the mutex as
   // when we return from do_api_callout, the ClientSession may
@@ -246,6 +253,10 @@ Http1ClientSession::do_io_close(int alerrno)
   if (transact_count == released_transactions) {
     half_close = false;
   }
+
+  // Clean up the write VIO in case of inactivity timeout
+  this->do_io_write(nullptr, 0, nullptr);
+
   if (half_close && this->trans.get_sm()) {
     read_state = HCS_HALF_CLOSED;
     SET_HANDLER(&Http1ClientSession::state_wait_for_close);
@@ -279,10 +290,6 @@ Http1ClientSession::do_io_close(int alerrno)
     HTTP_SUM_DYN_STAT(http_transactions_per_client_con, transact_count);
     HTTP_DECREMENT_DYN_STAT(http_current_client_connections_stat);
     conn_decrease = false;
-    if (client_vc) {
-      client_vc->do_io_close();
-      client_vc = nullptr;
-    }
   }
   if (transact_count == released_transactions) {
     this->destroy();
@@ -309,6 +316,10 @@ Http1ClientSession::state_wait_for_close(int event, void *data)
   case VC_EVENT_INACTIVITY_TIMEOUT:
     half_close = false;
     this->do_io_close();
+    if (client_vc != nullptr) {
+      client_vc->do_io_close();
+      client_vc = nullptr;
+    }
     break;
   case VC_EVENT_READ_READY:
     // Drain any data read
@@ -385,6 +396,10 @@ Http1ClientSession::state_keep_alive(int event, void *data)
 
   case VC_EVENT_EOS:
     this->do_io_close();
+    if (client_vc != nullptr) {
+      client_vc->do_io_close();
+      client_vc = nullptr;
+    }
     break;
 
   case VC_EVENT_READ_COMPLETE:
@@ -460,7 +475,7 @@ Http1ClientSession::new_transaction()
   transact_count++;
 
   client_vc->add_to_active_queue();
-  trans.new_transaction();
+  trans.new_transaction(read_from_early_data > 0 ? true : false);
 }
 
 void
@@ -596,4 +611,10 @@ const char *
 Http1ClientSession::get_protocol_string() const
 {
   return "http";
+}
+
+bool
+Http1ClientSession::support_sni() const
+{
+  return client_vc ? client_vc->support_sni() : false;
 }

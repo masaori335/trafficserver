@@ -1178,8 +1178,9 @@ HostDBContinuation::dnsEvent(int event, HostEnt *e)
   if (event == EVENT_INTERVAL) {
     if (!action.continuation) {
       // give up on insert, it has been too long
+      // remove_trigger_pending_dns will notify and clean up all requests
+      // including this one.
       remove_trigger_pending_dns();
-      hostdb_cont_free(this);
       return EVENT_DONE;
     }
     MUTEX_TRY_LOCK(lock, action.mutex, thread);
@@ -1288,9 +1289,11 @@ HostDBContinuation::dnsEvent(int event, HostEnt *e)
     // If the DNS lookup failed (errors such as SERVFAIL, etc.) but we have an old record
     // which is okay with being served stale-- lets continue to serve the stale record as long as
     // the record is willing to be served.
+    bool serve_stale = false;
     if (failed && old_r && old_r->serve_stale_but_revalidate()) {
       r->free();
-      r = old_r.get();
+      r           = old_r.get();
+      serve_stale = true;
     } else if (is_byname()) {
       if (first_record) {
         ip_addr_set(tip, af, first_record);
@@ -1400,7 +1403,11 @@ HostDBContinuation::dnsEvent(int event, HostEnt *e)
     ink_assert(!r || !r->round_robin || !r->reverse_dns);
     ink_assert(failed || !r->round_robin || r->app.rr.offset);
 
-    hostDB.refcountcache->put(hash.hash.fold(), r, allocSize, r->expiry_time());
+    if (!serve_stale) {
+      hostDB.refcountcache->put(hash.hash.fold(), r, allocSize, r->expiry_time());
+    } else {
+      Warning("Fallback to serving stale record, skip re-update of hostdb for %s", aname);
+    }
 
     // try to callback the user
     //
@@ -1434,18 +1441,18 @@ HostDBContinuation::dnsEvent(int event, HostEnt *e)
         }
       }
       if (need_to_reschedule) {
-        remove_trigger_pending_dns();
         SET_HANDLER((HostDBContHandler)&HostDBContinuation::probeEvent);
-        thread->schedule_in(this, HOST_DB_RETRY_PERIOD);
+        // remove_trigger_pending_dns should kick off the current hostDB too
+        // No need to explicitly reschedule
+        remove_trigger_pending_dns();
         return EVENT_CONT;
       }
     }
     // wake up everyone else who is waiting
     remove_trigger_pending_dns();
 
-    // all done
+    // all done, or at least scheduled to be all done
     //
-    hostdb_cont_free(this);
     return EVENT_DONE;
   }
 }
@@ -2209,7 +2216,7 @@ ParseHostLine(Ptr<RefCountedHostsFileMap> &map, char *l)
 }
 
 void
-ParseHostFile(const char *path, unsigned int hostdb_hostfile_check_interval)
+ParseHostFile(const char *path, unsigned int hostdb_hostfile_check_interval_parse)
 {
   Ptr<RefCountedHostsFileMap> parsed_hosts_file_ptr;
 
@@ -2229,7 +2236,7 @@ ParseHostFile(const char *path, unsigned int hostdb_hostfile_check_interval)
         int64_t size = info.st_size + 1;
 
         parsed_hosts_file_ptr                 = new RefCountedHostsFileMap;
-        parsed_hosts_file_ptr->next_sync_time = ink_time() + hostdb_hostfile_check_interval;
+        parsed_hosts_file_ptr->next_sync_time = ink_time() + hostdb_hostfile_check_interval_parse;
         parsed_hosts_file_ptr->HostFileText   = static_cast<char *>(ats_malloc(size));
         if (parsed_hosts_file_ptr->HostFileText) {
           char *base = parsed_hosts_file_ptr->HostFileText;

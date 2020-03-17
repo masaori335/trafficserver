@@ -24,11 +24,9 @@
 #include "HttpConfig.h"
 #include "HttpDebugNames.h"
 #include "ProxySession.h"
+#include "P_SSLNetVConnection.h"
 
-ProxySession::ProxySession() : VConnection(nullptr)
-{
-  ink_zero(this->user_args);
-}
+ProxySession::ProxySession() : VConnection(nullptr) {}
 
 void
 ProxySession::set_session_active()
@@ -79,6 +77,7 @@ ProxySession::free()
   this->api_hooks.clear();
   this->mutex.clear();
   this->acl.clear();
+  this->_ssl.reset();
 }
 
 int
@@ -108,7 +107,7 @@ ProxySession::state_api_callout(int event, void *data)
         if (!schedule_event) { // Don't bother if there is already one
           schedule_event = mutex->thread_holding->schedule_in(this, HRTIME_MSECONDS(10));
         }
-        return 0;
+        return -1;
       }
 
       cur_hook = nullptr; // mark current callback at dispatched.
@@ -132,7 +131,7 @@ ProxySession::state_api_callout(int event, void *data)
   return 0;
 }
 
-void
+int
 ProxySession::do_api_callout(TSHttpHookID id)
 {
   ink_assert(id == TS_HTTP_SSN_START_HOOK || id == TS_HTTP_SSN_CLOSE_HOOK);
@@ -141,10 +140,11 @@ ProxySession::do_api_callout(TSHttpHookID id)
   cur_hook = hook_state.getNext();
   if (nullptr != cur_hook) {
     SET_HANDLER(&ProxySession::state_api_callout);
-    this->state_api_callout(EVENT_NONE, nullptr);
+    return this->state_api_callout(EVENT_NONE, nullptr);
   } else {
     this->handle_api_return(TS_EVENT_HTTP_CONTINUE);
   }
+  return 0;
 }
 
 void
@@ -244,9 +244,20 @@ ProxySession::get_client_addr()
   NetVConnection *netvc = get_netvc();
   return netvc ? netvc->get_remote_addr() : nullptr;
 }
+
 sockaddr const *
 ProxySession::get_local_addr()
 {
   NetVConnection *netvc = get_netvc();
   return netvc ? netvc->get_local_addr() : nullptr;
+}
+
+void
+ProxySession::_handle_if_ssl(NetVConnection *new_vc)
+{
+  auto ssl_vc = dynamic_cast<SSLNetVConnection *>(new_vc);
+  if (ssl_vc) {
+    _ssl = std::make_unique<SSLProxySession>();
+    _ssl.get()->init(*ssl_vc);
+  }
 }

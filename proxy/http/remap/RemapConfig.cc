@@ -31,6 +31,7 @@
 #include "tscore/ink_cap.h"
 #include "tscore/ink_file.h"
 #include "tscore/Tokenizer.h"
+#include "tscore/ts_file.h"
 #include "IPAllow.h"
 #include "PluginFactory.h"
 
@@ -817,7 +818,8 @@ remap_load_plugin(const char **argv, int argc, url_mapping *mp, char *errbuf, in
     REC_ReadConfigInteger(elevate_access, "proxy.config.plugin.load_elevated");
     ElevateAccess access(elevate_access ? ElevateAccess::FILE_PRIVILEGE : 0);
 
-    pi = rewrite->pluginFactory.getRemapPlugin(ts::file::path(const_cast<const char *>(c)), parc, pargv, error);
+    pi = rewrite->pluginFactory.getRemapPlugin(ts::file::path(const_cast<const char *>(c)), parc, pargv, error,
+                                               isPluginDynamicReloadEnabled());
   } // done elevating access
 
   bool result = true;
@@ -845,7 +847,6 @@ process_regex_mapping_config(const char *from_host_lower, url_mapping *new_mappi
   const char *to_host;
   int to_host_len;
   int substitution_id;
-  int substitution_count = 0;
   int captures;
 
   reg_map->to_url_host_template     = nullptr;
@@ -875,10 +876,6 @@ process_regex_mapping_config(const char *from_host_lower, url_mapping *new_mappi
   to_host = new_mapping->toURL.host_get(&to_host_len);
   for (int i = 0; i < (to_host_len - 1); ++i) {
     if (to_host[i] == '$') {
-      if (substitution_count > UrlRewrite::MAX_REGEX_SUBS) {
-        Warning("Cannot have more than %d substitutions in mapping with host [%s]", UrlRewrite::MAX_REGEX_SUBS, from_host_lower);
-        goto lFail;
-      }
       substitution_id = to_host[i + 1] - '0';
       if ((substitution_id < 0) || (substitution_id > captures)) {
         Warning("Substitution id [%c] has no corresponding capture pattern in regex [%s]", to_host[i + 1], from_host_lower);
@@ -945,15 +942,22 @@ remap_parse_config_bti(const char *path, BUILD_TABLE_INFO *bti)
   bool is_cur_mapping_regex;
   const char *type_id_str;
 
-  ats_scoped_str file_buf(readIntoBuffer(path, modulePrefix, nullptr));
-  if (!file_buf) {
-    Warning("can't load remapping configuration file %s", path);
-    return false;
+  std::error_code ec;
+  std::string content{ts::file::load(ts::file::path{path}, ec)};
+  if (ec) {
+    switch (ec.value()) {
+    case ENOENT:
+      Warning("Can't open remapping configuration file %s - %s", path, strerror(ec.value()));
+      break;
+    default:
+      Error("Failed load remapping configuration file %s - %s", path, strerror(ec.value()));
+      return false;
+    }
   }
 
   Debug("url_rewrite", "[BuildTable] UrlRewrite::BuildTable()");
 
-  for (cur_line = tokLine(file_buf, &tok_state, '\\'); cur_line != nullptr;) {
+  for (cur_line = tokLine(content.data(), &tok_state, '\\'); cur_line != nullptr;) {
     reg_map      = nullptr;
     new_mapping  = nullptr;
     errStrBuf[0] = 0;

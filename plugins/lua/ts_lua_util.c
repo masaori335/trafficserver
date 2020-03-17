@@ -264,8 +264,6 @@ ts_lua_add_module(ts_lua_instance_conf *conf, ts_lua_main_ctx *arr, int n, int a
     lua_newtable(L);
     lua_replace(L, LUA_GLOBALSINDEX); /* L[GLOBAL] = EMPTY */
 
-    lua_gc(L, LUA_GCCOLLECT, 0);
-
     TSMutexUnlock(arr[i].mutexp);
   }
 
@@ -305,8 +303,6 @@ ts_lua_del_module(ts_lua_instance_conf *conf, ts_lua_main_ctx *arr, int n)
 
     lua_newtable(L);
     lua_replace(L, LUA_GLOBALSINDEX); /* L[GLOBAL] = EMPTY  */
-
-    lua_gc(L, LUA_GCCOLLECT, 0);
 
     TSMutexUnlock(arr[i].mutexp);
   }
@@ -368,8 +364,6 @@ ts_lua_reload_module(ts_lua_instance_conf *conf, ts_lua_main_ctx *arr, int n)
 
     lua_newtable(L);
     lua_replace(L, LUA_GLOBALSINDEX); /* L[GLOBAL] = EMPTY */
-
-    lua_gc(L, LUA_GCCOLLECT, 0);
 
     TSMutexUnlock(arr[i].mutexp);
   }
@@ -856,6 +850,7 @@ ts_lua_http_cont_handler(TSCont contp, TSEvent ev, void *edata)
     // to allow API(s) to fetch the pointers again when it re-enters the hook
     if (http_ctx->client_response_hdrp != NULL) {
       TSHandleMLocRelease(http_ctx->client_response_bufp, TS_NULL_MLOC, http_ctx->client_response_hdrp);
+      http_ctx->client_response_bufp = NULL;
       http_ctx->client_response_hdrp = NULL;
     }
 
@@ -863,6 +858,12 @@ ts_lua_http_cont_handler(TSCont contp, TSEvent ev, void *edata)
 
     if (lua_type(L, -1) == LUA_TFUNCTION) {
       ret = lua_resume(L, 0);
+    }
+
+    if (http_ctx->client_response_hdrp != NULL) {
+      TSHandleMLocRelease(http_ctx->client_response_bufp, TS_NULL_MLOC, http_ctx->client_response_hdrp);
+      http_ctx->client_response_bufp = NULL;
+      http_ctx->client_response_hdrp = NULL;
     }
 
     break;
@@ -916,7 +917,7 @@ ts_lua_http_cont_handler(TSCont contp, TSEvent ev, void *edata)
     lua_getglobal(L, TS_LUA_FUNCTION_TXN_CLOSE);
     if (lua_type(L, -1) == LUA_TFUNCTION) {
       if (lua_pcall(L, 0, 1, 0)) {
-        TSError("[ts_lua] lua_pcall failed: %s", lua_tostring(L, -1));
+        TSError("[ts_lua][%s] lua_pcall failed: %s", __FUNCTION__, lua_tostring(L, -1));
       }
     }
 
@@ -945,7 +946,7 @@ ts_lua_http_cont_handler(TSCont contp, TSEvent ev, void *edata)
     break;
 
   default: // coroutine failed
-    TSError("[ts_lua] lua_resume failed: %s", lua_tostring(L, -1));
+    TSError("[ts_lua][%s] lua_resume failed: %s", __FUNCTION__, lua_tostring(L, -1));
     rc = -1;
     lua_pop(L, 1);
     break;

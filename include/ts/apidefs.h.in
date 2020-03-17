@@ -824,9 +824,7 @@ typedef enum {
   TS_THREAD_POOL_NET,
   TS_THREAD_POOL_TASK,
   /* unlikely you should use these */
-  TS_THREAD_POOL_SSL,
   TS_THREAD_POOL_DNS,
-  TS_THREAD_POOL_REMAP,
   TS_THREAD_POOL_UDP
 } TSThreadPool;
 
@@ -879,6 +877,15 @@ typedef enum {
   TS_MGMT_SOURCE_EXPLICIT, ///< Set by administrator (config file, external API, etc.)
   TS_MGMT_SOURCE_ENV       ///< Process environment variable.
 } TSMgmtSource;
+
+/// The User Arg type, used for Txn/Ssn/VConn user argument slots
+typedef enum {
+  TS_USER_ARGS_TXN,   ///< Transaction based.
+  TS_USER_ARGS_SSN,   ///< Session based
+  TS_USER_ARGS_VCONN, ///< VConnection based
+  TS_USER_ARGS_GLB,   ///< Global based
+  TS_USER_ARGS_COUNT  ///< Fake enum, # of valid entries.
+} TSUserArgType;
 
 typedef struct tsapi_file *TSFile;
 

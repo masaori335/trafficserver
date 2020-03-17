@@ -16,8 +16,8 @@
   limitations under the License.
 */
 
-#include "tscore/ink_platform.h"
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include "ts_lua_util.h"
 
 #define TS_LUA_CHECK_SERVER_REQUEST_HDR(http_ctx)                                                                                \
@@ -699,7 +699,7 @@ ts_lua_server_request_set_version(lua_State *L)
 {
   const char *version;
   size_t len;
-  int major, minor;
+  unsigned int major, minor;
 
   ts_lua_http_ctx *http_ctx;
 

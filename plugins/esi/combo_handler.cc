@@ -29,7 +29,6 @@
 #include <algorithm>
 #include <ctime>
 #include <fstream>
-#include <pthread.h>
 #include <arpa/inet.h>
 #include <limits>
 #include <getopt.h>
@@ -340,9 +339,6 @@ static bool writeStandardHeaderFields(InterceptData &int_data, int &n_bytes_writ
 static void prepareResponse(InterceptData &int_data, ByteBlockList &body_blocks, string &resp_header_fields);
 static bool getDefaultBucket(TSHttpTxn txnp, TSMBuffer bufp, TSMLoc hdr_obj, ClientRequest &creq);
 
-// libesi TLS key.
-pthread_key_t threadKey = 0;
-
 void
 TSPluginInit(int argc, const char *argv[])
 {
@@ -434,8 +430,6 @@ TSPluginInit(int argc, const char *argv[])
   }
   ++optind;
 
-  TSReleaseAssert(pthread_key_create(&threadKey, nullptr) == 0);
-
   TSCont rrh_contp = TSContCreate(handleReadRequestHeader, nullptr);
   if (!rrh_contp) {
     LOG_ERROR("Could not create read request header continuation");
@@ -444,7 +438,7 @@ TSPluginInit(int argc, const char *argv[])
 
   TSHttpHookAdd(TS_HTTP_OS_DNS_HOOK, rrh_contp);
 
-  if (TSHttpTxnArgIndexReserve(DEBUG_TAG, "will save plugin-enable flag here", &arg_idx) != TS_SUCCESS) {
+  if (TSUserArgIndexReserve(TS_USER_ARGS_TXN, DEBUG_TAG, "will save plugin-enable flag here", &arg_idx) != TS_SUCCESS) {
     LOG_ERROR("failed to reserve private data slot");
     return;
   } else {
@@ -475,7 +469,7 @@ handleReadRequestHeader(TSCont /* contp ATS_UNUSED */, TSEvent event, void *edat
     return 0;
   }
 
-  if (1 != reinterpret_cast<intptr_t>(TSHttpTxnArgGet(txnp, arg_idx))) {
+  if (1 != reinterpret_cast<intptr_t>(TSUserArgGet(txnp, arg_idx))) {
     LOG_DEBUG("combo is disabled for this channel");
     TSHttpTxnReenable(txnp, TS_EVENT_HTTP_CONTINUE);
     return 0;
@@ -1063,7 +1057,8 @@ prepareResponse(InterceptData &int_data, ByteBlockList &body_blocks, string &res
             resp_header_fields.append("Expires: 0\r\n");
           } else {
             char line_buf[128];
-            int line_size = strftime(line_buf, 128, "Expires: %a, %d %b %Y %T GMT\r\n", gmtime(&expires_time));
+            struct tm gm_expires_time;
+            int line_size = strftime(line_buf, 128, "Expires: %a, %d %b %Y %T GMT\r\n", gmtime_r(&expires_time, &gm_expires_time));
             resp_header_fields.append(line_buf, line_size);
           }
         }
@@ -1194,7 +1189,9 @@ writeStandardHeaderFields(InterceptData &int_data, int &n_bytes_written)
   if (find(HEADER_WHITELIST.begin(), HEADER_WHITELIST.end(), TS_MIME_FIELD_LAST_MODIFIED) == HEADER_WHITELIST.end()) {
     time_t time_now = static_cast<time_t>(TShrtime() / 1000000000); // it returns nanoseconds!
     char last_modified_line[128];
-    int last_modified_line_size = strftime(last_modified_line, 128, "Last-Modified: %a, %d %b %Y %T GMT\r\n", gmtime(&time_now));
+    struct tm gmnow;
+    int last_modified_line_size =
+      strftime(last_modified_line, 128, "Last-Modified: %a, %d %b %Y %T GMT\r\n", gmtime_r(&time_now, &gmnow));
     if (TSIOBufferWrite(int_data.output.buffer, last_modified_line, last_modified_line_size) == TS_ERROR) {
       LOG_ERROR("Error while writing last-modified fields");
       return false;
@@ -1231,8 +1228,8 @@ writeErrorResponse(InterceptData &int_data, int &n_bytes_written)
 TSRemapStatus
 TSRemapDoRemap(void *ih, TSHttpTxn rh, TSRemapRequestInfo *rri)
 {
-  TSHttpTxnArgSet(rh, arg_idx, (void *)1); /* Save for later hooks */
-  return TSREMAP_NO_REMAP;                 /* Continue with next remap plugin in chain */
+  TSUserArgSet(rh, arg_idx, (void *)1); /* Save for later hooks */
+  return TSREMAP_NO_REMAP;              /* Continue with next remap plugin in chain */
 }
 
 /*

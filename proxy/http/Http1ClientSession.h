@@ -89,6 +89,8 @@ public:
   void increment_current_active_client_connections_stat() override;
   void decrement_current_active_client_connections_stat() override;
 
+  bool support_sni() const override;
+
 private:
   Http1ClientSession(Http1ClientSession &);
 
@@ -123,6 +125,8 @@ private:
   Http1ServerSession *bound_ss = nullptr;
 
   int released_transactions = 0;
+
+  int64_t read_from_early_data = 0;
 
 public:
   // Link<Http1ClientSession> debug_link;

@@ -30,6 +30,8 @@ configuration reload, i.e.::
 
   traffic_ctl config reload
 
+This feature is enabled by default. It can be turned off by setting the configuration variable :ts:cv:`proxy.config.plugin.dynamic_reload_mode` to ``0`` in :file:`records.config`. When the feature is turned off, once ATS is started one will be able load only one version of a plugin, and re-loading the same plugin would do nothing.
+
 Although plugin reloading should be transparent to plugin developers, the following are some design considerations
 and implementation details for this feature.
 
@@ -126,17 +128,17 @@ The continuations created by the plugin will have a context member added to them
 reference counting, when continuations are destroyed, and to handle events.
 
 
-TSHttpArgs
+TSUserArgs
 ----------
 
-|TS| sessions and transactions provide a fixed array of void pointers that can be used by plugins
-to store information. To avoid collisions between plugins a plugin should first *reserve* an index in the array.
+|TS| sessions, transactions, virtual connections and globally provide a fixed array of void pointers that
+can be used by plugins to store information. To avoid collisions between plugins a plugin should first
+*reserve* an index in the array.
 
-Since :c:func:`TSHttpTxnArgIndexReserve` and :c:func:`TSHttpSsnArgIndexReserve` are meant to be called during plugin
-initialization we could end up "leaking" indices during plugin reload.
-Hence it is necessary to make sure only one index is allocated per "plugin identifying name", current
-:c:func:`TSHttpTxnArgIndexNameLookup` and :c:func:`TSHttpTxnArgIndexNameLookup` implementation assumes 1-1
-index-to-name relationship as well.
+Since :c:func:`TSUserArgIndexReserve` is meant to be called during plugin initialization we could end up
+"leaking" indices during plugin reload. Hence it is necessary to make sure only one index is allocated per
+"plugin identifying name", current :c:func:`TSUserArgIndexNameLookup` and
+:c:func:`TSUserArgIndexLookup` implementation assumes 1-1 index-to-name relationship as well.
 
 
 PluginFactory
@@ -175,3 +177,7 @@ be reused by 'global' plugins in the future.
 To make sure plugins are still loaded while their code is still in use there is reference counting done around ``PluginDso``
 which inherits ``RefCountObj`` and implements ``acquire()`` and ``release()`` methods which are called by ``TSCreateCont``,
 ``TSVConnCreate`` and ``TSDestroyCont``.
+
+Other notes
+-----------
+When this feature for dynamic plugin reload is turned on (:ts:cv:`proxy.config.plugin.dynamic_reload_mode` is set to ``1``), there is one pitfall users should be aware of. Since "global" plugins do not support this feature while the "remap" plugins do, if a plugin is used as a global plugin as well as a remap plugin, there will be two different copies of the plugin loaded in memory with no state shared between them.

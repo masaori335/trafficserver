@@ -579,6 +579,7 @@ cqtx  Client Request The full HTTP client request text, minus headers, e.g.
 SSL / Encryption
 ~~~~~~~~~~~~~~~~
 
+.. _cssn:
 .. _cqssl:
 .. _cqssr:
 .. _cqssv:
@@ -592,6 +593,10 @@ features.
 ===== ============== ==========================================================
 Field Source         Description
 ===== ============== ==========================================================
+cssn  Client TLS     SNI server name in client Hello message in TLS handshake.
+      Hello          If no server name present in Hello, or the transaction
+                     was not over TLS (over TCP), this field will contain
+                     ``-``.
 cqssl Client Request SSL client request status indicates if this client
                      connection is over SSL.
 cqssr Client Request SSL session ticket reused status; indicates if the current
@@ -791,6 +796,17 @@ cquup Client Request Canonical (prior to remapping) path component from the
                      client request. Compare with cqup_.
 cquuh Client Request Unmapped URL host from the client request.
 ===== ============== ==========================================================
+
+Line Length
+===========
+
+The maximum line size for a log entry can be configured via the following
+parameters, the details of which are documented in the linked
+:file:`records.config` descriptions:
+
+- :ts:cv:`proxy.config.log.max_line_size`
+- :ts:cv:`proxy.config.log.ascii_buffer_size`
+- :ts:cv:`proxy.config.log.log_buffer_size`
 
 Log Field Slicing
 =================

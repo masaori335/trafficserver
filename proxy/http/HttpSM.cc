@@ -40,6 +40,7 @@
 #include "RemapProcessor.h"
 #include "Transform.h"
 #include "P_SSLConfig.h"
+#include "P_SSLSNI.h"
 #include "HttpPages.h"
 #include "IPAllow.h"
 #include "tscore/I_Layout.h"
@@ -344,9 +345,11 @@ HttpSM::destroy()
 }
 
 void
-HttpSM::init()
+HttpSM::init(bool from_early_data)
 {
   milestones[TS_MILESTONE_SM_START] = Thread::get_hrtime();
+
+  _from_early_data = from_early_data;
 
   magic = HTTP_SM_MAGIC_ALIVE;
 
@@ -390,13 +393,14 @@ HttpSM::set_ua_half_close_flag()
   ua_txn->set_half_close_flag(true);
 }
 
-inline void
+inline int
 HttpSM::do_api_callout()
 {
   if (hooks_set) {
-    do_api_callout_internal();
+    return do_api_callout_internal();
   } else {
     handle_api_return();
+    return 0;
   }
 }
 
@@ -422,7 +426,16 @@ HttpSM::state_add_to_list(int event, void * /* data ATS_UNUSED */)
   }
 
   t_state.api_next_action = HttpTransact::SM_ACTION_API_SM_START;
-  do_api_callout();
+  if (do_api_callout() < 0) {
+    // Didn't get the hook continuation lock. Clear the read and wait for next event
+    if (ua_entry->read_vio) {
+      // Seems like ua_entry->read_vio->disable(); should work, but that was
+      // not sufficient to stop the state machine from processing IO events until the
+      // TXN_START hooks had completed
+      ua_entry->read_vio = ua_entry->vc->do_io_read(nullptr, 0, nullptr);
+    }
+    return EVENT_CONT;
+  }
   return EVENT_DONE;
 }
 
@@ -580,6 +593,7 @@ HttpSM::attach_client_session(ProxyTransaction *client_vc, IOBufferReader *buffe
   ++reentrancy_count;
   // Add our state sm to the sm list
   state_add_to_list(EVENT_NONE, nullptr);
+
   // This is another external entry point and it is possible for the state machine to get terminated
   // while down the call chain from @c state_add_to_list. So we need to use the reentrancy_count to
   // prevent cleanup there and do it here as we return to the external caller.
@@ -707,7 +721,7 @@ HttpSM::state_read_client_request_header(int event, void *data)
   }
 
   // We need to handle EOS as well as READ_READY because the client
-  // may have sent all of the data already followed by a fIN and that
+  // may have sent all of the data already followed by a FIN and that
   // should be OK.
   if (ua_raw_buffer_reader != nullptr) {
     bool do_blind_tunnel = false;
@@ -797,6 +811,24 @@ HttpSM::state_read_client_request_header(int event, void *data)
     }
   case PARSE_RESULT_DONE:
     SMDebug("http", "[%" PRId64 "] done parsing client request header", sm_id);
+
+    if (_from_early_data) {
+      // Only allow early data for safe methods defined in RFC7231 Section 4.2.1.
+      // https://tools.ietf.org/html/rfc7231#section-4.2.1
+      SMDebug("ssl_early_data", "%d", t_state.hdr_info.client_request.method_get_wksidx());
+      if (!HttpTransactHeaders::is_method_safe(t_state.hdr_info.client_request.method_get_wksidx())) {
+        SMDebug("http", "client request was from early data but is NOT safe");
+        call_transact_and_set_next_state(HttpTransact::TooEarly);
+        return 0;
+      } else if (!SSLConfigParams::server_allow_early_data_params &&
+                 (t_state.hdr_info.client_request.m_http->u.req.m_url_impl->m_len_params > 0 ||
+                  t_state.hdr_info.client_request.m_http->u.req.m_url_impl->m_len_query > 0)) {
+        SMDebug("http", "client request was from early data but HAS parameters");
+        call_transact_and_set_next_state(HttpTransact::TooEarly);
+        return 0;
+      }
+      t_state.hdr_info.client_request.mark_early_data();
+    }
 
     ua_txn->set_session_active();
 
@@ -1461,7 +1493,7 @@ plugins required to work with sni_routing.
         HTTP_SM_SET_DEFAULT_HANDLER(&HttpSM::state_api_callout);
         ink_assert(pending_action == nullptr);
         pending_action = mutex->thread_holding->schedule_in(this, HRTIME_MSECONDS(10));
-        return 0;
+        return -1;
       }
 
       SMDebug("http", "[%" PRId64 "] calling plugin on hook %s at hook %p", sm_id, HttpDebugNames::get_api_hook_name(cur_hook_id),
@@ -2761,6 +2793,8 @@ HttpSM::tunnel_handler_post(int event, void *data)
     handle_post_failure();
     break;
   case HTTP_SM_POST_UA_FAIL:
+    // Client side failed.  Shutdown and go home.  No need to communicate back to UA
+    terminate_sm = true;
     break;
   case HTTP_SM_POST_SUCCESS:
     // It's time to start reading the response
@@ -3501,9 +3535,7 @@ HttpSM::tunnel_handler_post_ua(int event, HttpTunnelProducer *p)
     hsm_release_assert(ua_entry->in_tunnel == true);
     if (p->consumer_list.head && p->consumer_list.head->vc_type == HT_TRANSFORM) {
       hsm_release_assert(post_transform_info.entry->in_tunnel == true);
-    } else if (server_entry != nullptr) {
-      hsm_release_assert(server_entry->in_tunnel == true);
-    }
+    } // server side may have completed before the user agent side, so it may no longer be in tunnel
     break;
 
   case VC_EVENT_READ_COMPLETE:
@@ -3638,7 +3670,8 @@ HttpSM::tunnel_handler_post_server(int event, HttpTunnelConsumer *c)
 
   case VC_EVENT_WRITE_COMPLETE:
     // Completed successfully
-    c->write_success = true;
+    c->write_success        = true;
+    server_entry->in_tunnel = false;
     break;
   default:
     ink_release_assert(0);
@@ -3965,12 +3998,57 @@ HttpSM::state_remap_request(int event, void * /* data ATS_UNUSED */)
   return 0;
 }
 
+// This check must be called before remap.  Otherwise, the client_request host
+// name may be changed.
+void
+HttpSM::check_sni_host()
+{
+  // Check that the SNI and host name fields match, if it matters
+  // Issue warning or mark the transaction to be terminated as necessary
+  int host_len;
+  const char *host_name = t_state.hdr_info.client_request.host_get(&host_len);
+  if (host_name && host_len) {
+    if (ua_txn->support_sni()) {
+      int host_sni_policy   = t_state.http_config_param->http_host_sni_policy;
+      NetVConnection *netvc = ua_txn->get_netvc();
+      if (netvc) {
+        IpEndpoint ip = netvc->get_remote_endpoint();
+        if (SNIConfig::TestClientAction(std::string{host_name, static_cast<size_t>(host_len)}.c_str(), ip, host_sni_policy) &&
+            host_sni_policy > 0) {
+          // In a SNI/Host mismatch where the Host would have triggered SNI policy, mark the transaction
+          // to be considered for rejection after the remap phase passes.  Gives the opportunity to conf_remap
+          // override the policy.:w
+          //
+          //
+          // to be rejected
+          // in the end_remap logic
+          const char *sni_value    = netvc->get_server_name();
+          const char *action_value = host_sni_policy == 2 ? "terminate" : "continue";
+          if (!sni_value || sni_value[0] == '\0') { // No SNI
+            Warning("No SNI for TLS request with hostname %.*s action=%s", host_len, host_name, action_value);
+            if (host_sni_policy == 2) {
+              this->t_state.client_connection_enabled = false;
+            }
+          } else if (strncmp(host_name, sni_value, host_len) != 0) { // Name mismatch
+            Warning("SNI/hostname mismatch sni=%s host=%.*s action=%s", sni_value, host_len, host_name, action_value);
+            if (host_sni_policy == 2) {
+              this->t_state.client_connection_enabled = false;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 void
 HttpSM::do_remap_request(bool run_inline)
 {
   SMDebug("http_seq", "[HttpSM::do_remap_request] Remapping request");
   SMDebug("url_rewrite", "Starting a possible remapping for request [%" PRId64 "]", sm_id);
   bool ret = remapProcessor.setup_for_remap(&t_state, m_remap);
+
+  check_sni_host();
 
   // Preserve effective url before remap
   t_state.unmapped_url.create(t_state.hdr_info.client_request.url_get()->m_heap);
@@ -4285,7 +4363,7 @@ HttpSM::parse_range_and_compare(MIMEField *field, int64_t content_length)
         ;
       }
 
-      if (s < e || start < 0) {
+      if (s < e) {
         t_state.range_setup = HttpTransact::RANGE_NONE;
         goto Lfaild;
       }
@@ -4325,7 +4403,7 @@ HttpSM::parse_range_and_compare(MIMEField *field, int64_t content_length)
         ;
       }
 
-      if (s < e || end < 0) {
+      if (s < e) {
         t_state.range_setup = HttpTransact::RANGE_NONE;
         goto Lfaild;
       }
@@ -5097,7 +5175,7 @@ HttpSM::do_http_server_open(bool raw)
   return;
 }
 
-void
+int
 HttpSM::do_api_callout_internal()
 {
   switch (t_state.api_next_action) {
@@ -5138,7 +5216,7 @@ HttpSM::do_api_callout_internal()
   case HttpTransact::SM_ACTION_API_SM_SHUTDOWN:
     if (callout_state == HTTP_API_IN_CALLOUT || callout_state == HTTP_API_DEFERED_SERVER_ERROR) {
       callout_state = HTTP_API_DEFERED_CLOSE;
-      return;
+      return 0;
     } else {
       cur_hook_id = TS_HTTP_TXN_CLOSE_HOOK;
     }
@@ -5151,7 +5229,7 @@ HttpSM::do_api_callout_internal()
   hook_state.init(cur_hook_id, http_global_hooks, ua_txn ? ua_txn->feature_hooks() : nullptr, &api_hooks);
   cur_hook  = nullptr;
   cur_hooks = 0;
-  state_api_callout(0, nullptr);
+  return state_api_callout(0, nullptr);
 }
 
 VConnection *
@@ -6836,7 +6914,12 @@ HttpSM::kill_this()
     //  the terminate_flag
     terminate_sm            = false;
     t_state.api_next_action = HttpTransact::SM_ACTION_API_SM_SHUTDOWN;
-    do_api_callout();
+    if (do_api_callout() < 0) { // Failed to get a continuation lock
+      // Need to hang out until we can complete the TXN_CLOSE hook
+      terminate_sm = false;
+      reentrancy_count--;
+      return;
+    }
   }
   // The reentrancy_count is still valid up to this point since
   //   the api shutdown hook is asynchronous and double frees can
@@ -7598,13 +7681,6 @@ HttpSM::set_next_state()
   }
   }
 }
-
-void
-clear_http_handler_times()
-{
-}
-
-// YTS Team, yamsat Plugin
 
 void
 HttpSM::do_redirect()

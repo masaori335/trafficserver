@@ -36,6 +36,8 @@
 #include "tscore/ink_platform.h"
 #include "ts/apidefs.h"
 #include <string_view>
+#include <cstring>
+#include <memory>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -399,12 +401,18 @@ public:
   // The serverName is either a pointer to the (null-terminated) name fetched from the
   // SSL object or the empty string.
   const char *
-  get_server_name() const
+  get_server_name() const override
   {
     return _serverName.get() ? _serverName.get() : "";
   }
 
   void set_server_name(std::string_view name);
+
+  bool
+  support_sni() const override
+  {
+    return true;
+  }
 
   /// Set by asynchronous hooks to request a specific operation.
   SslVConnOp hookOpRequested = SSL_HOOK_OP_DEFAULT;
@@ -415,6 +423,12 @@ public:
 
   bool protocol_mask_set = false;
   unsigned long protocol_mask;
+
+  // early data related stuff
+  bool early_data_finish            = false;
+  MIOBuffer *early_data_buf         = nullptr;
+  IOBufferReader *early_data_reader = nullptr;
+  int64_t read_from_early_data      = 0;
 
   // Only applies during the VERIFY certificate hooks (client and server side)
   // Means to give the plugin access to the data structure passed in during the underlying
@@ -474,6 +488,7 @@ private:
   bool tunnel_decrypt         = false;
   X509_STORE_CTX *verify_cert = nullptr;
 
+  // Null-terminated string, or nullptr if there is no SNI server name.
   std::unique_ptr<char[]> _serverName;
 };
 

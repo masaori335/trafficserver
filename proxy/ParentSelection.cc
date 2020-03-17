@@ -106,12 +106,6 @@ ParentConfigParams::findParent(HttpRequestData *rdata, ParentResult *result, uns
   ParentRecord *defaultPtr = DefaultParent;
   ParentRecord *rec;
 
-  Debug("parent_select", "In ParentConfigParams::findParent(): parent_table: %p.", parent_table);
-  ink_assert(result->result == PARENT_UNDEFINED);
-
-  // Initialize the result structure
-  result->reset();
-
   // Check to see if the parent was set through the
   //   api
   if (apiParentExists(rdata)) {
@@ -125,6 +119,9 @@ ParentConfigParams::findParent(HttpRequestData *rdata, ParentResult *result, uns
     Debug("parent_select", "Result for %s was API set parent %s:%d", rdata->get_host(), result->hostname, result->port);
     return;
   }
+
+  // Initialize the result structure
+  result->reset();
 
   tablePtr->Match(rdata, result);
   rec = result->rec;
@@ -226,17 +223,38 @@ ParentConfigParams::nextParent(HttpRequestData *rdata, ParentResult *result, uns
 bool
 ParentConfigParams::parentExists(HttpRequestData *rdata)
 {
-  unsigned int fail_threshold = policy.FailThreshold;
-  unsigned int retry_time     = policy.ParentRetryTime;
+  P_table *tablePtr = parent_table;
+  ParentRecord *rec = nullptr;
   ParentResult result;
 
-  findParent(rdata, &result, fail_threshold, retry_time);
+  // Initialize the result structure;
+  result.reset();
 
-  if (result.result == PARENT_SPECIFIED) {
-    return true;
-  } else {
+  tablePtr->Match(rdata, &result);
+  rec = result.rec;
+
+  if (rec == nullptr) {
+    Debug("parent_select", "No matching parent record was found for the request.");
     return false;
   }
+
+  if (rec->num_parents > 0) {
+    for (int ii = 0; ii < rec->num_parents; ii++) {
+      if (rec->parents[ii].available) {
+        Debug("parent_select", "found available parent: %s", rec->parents[ii].hostname);
+        return true;
+      }
+    }
+  }
+  if (rec->secondary_parents && rec->num_secondary_parents > 0) {
+    for (int ii = 0; ii < rec->num_secondary_parents; ii++) {
+      if (rec->secondary_parents[ii].available) {
+        Debug("parent_select", "found available parent: %s", rec->secondary_parents[ii].hostname);
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 int ParentConfig::m_id = 0;
@@ -415,7 +433,6 @@ ParentRecord::ProcessParents(char *val, bool isPrimary)
   if (numTok == 0) {
     return "No parents specified";
   }
-  HostStatus &hs = HostStatus::instance();
   // Allocate the parents array
   if (isPrimary) {
     this->parents = static_cast<pRecord *>(ats_malloc(sizeof(pRecord) * numTok));
@@ -499,10 +516,6 @@ ParentRecord::ProcessParents(char *val, bool isPrimary)
         memcpy(this->parents[i].hash_string, tmp3 + 1, strlen(tmp3));
         this->parents[i].name = this->parents[i].hash_string;
       }
-      HostStatRec *hst = hs.getHostStatus(this->parents[i].hostname);
-      if (hst == nullptr) {
-        hs.setHostStatus(this->parents[i].hostname, HOST_STATUS_UP, 0, Reason::MANUAL);
-      }
     } else {
       memcpy(this->secondary_parents[i].hostname, current, tmp - current);
       this->secondary_parents[i].hostname[tmp - current] = '\0';
@@ -517,10 +530,6 @@ ParentRecord::ProcessParents(char *val, bool isPrimary)
       if (tmp3) {
         memcpy(this->secondary_parents[i].hash_string, tmp3 + 1, strlen(tmp3));
         this->secondary_parents[i].name = this->secondary_parents[i].hash_string;
-      }
-      HostStatRec *hst = hs.getHostStatus(this->secondary_parents[i].hostname);
-      if (hst == nullptr) {
-        hs.setHostStatus(this->secondary_parents[i].hostname, HOST_STATUS_UP, 0, Reason::MANUAL);
       }
     }
     tmp3 = nullptr;

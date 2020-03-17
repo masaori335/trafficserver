@@ -332,7 +332,7 @@ struct NetVCOptions {
   stream IO to be done based on a single read or write call.
 
 */
-class NetVConnection : public AnnotatedVConnection
+class NetVConnection : public VConnection, public PluginUserArgs<TS_USER_ARGS_VCONN>
 {
 public:
   // How many bytes have been queued to the OS for sending by haven't been sent yet
@@ -455,6 +455,15 @@ public:
 
   */
   virtual Action *send_OOB(Continuation *cont, char *buf, int len);
+
+  /**
+    Return the server name that is appropriate for the network VC type
+  */
+  virtual const char *
+  get_server_name() const
+  {
+    return nullptr;
+  }
 
   /**
     Cancels a scheduled send_OOB. Part of the message could have
@@ -626,6 +635,16 @@ public:
   get_context() const
   {
     return netvc_context;
+  }
+
+  /**
+   * Returns true if the network protocol
+   * supports a client provided SNI value
+   */
+  virtual bool
+  support_sni() const
+  {
+    return false;
   }
 
   /** Structure holding user options. */
@@ -869,7 +888,7 @@ protected:
   NetVConnectionContext_t netvc_context = NET_VCONNECTION_UNSET;
 };
 
-inline NetVConnection::NetVConnection() : AnnotatedVConnection(nullptr)
+inline NetVConnection::NetVConnection() : VConnection(nullptr)
 
 {
   ink_zero(local_addr);

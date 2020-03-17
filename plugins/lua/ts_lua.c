@@ -20,6 +20,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <getopt.h>
+#include <inttypes.h>
 
 #include "ts_lua_util.h"
 
@@ -130,7 +131,9 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char *errbuf, int errbuf_s
     TSDebug(TS_LUA_DEBUG_TAG, "[%s] checking if script has been registered", __FUNCTION__);
 
     // we only need to check the first lua VM for script registration
+    TSMutexLock(ts_lua_main_ctx_array[0].mutexp);
     conf = ts_lua_script_registered(ts_lua_main_ctx_array[0].lua, script);
+    TSMutexUnlock(ts_lua_main_ctx_array[0].mutexp);
   }
 
   if (!conf) {
@@ -165,7 +168,9 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char *errbuf, int errbuf_s
     // register the script only if it is from a file and has no __init__ function
     if (fn && !conf->init_func) {
       // we only need to register the script for the first lua VM
+      TSMutexLock(ts_lua_main_ctx_array[0].mutexp);
       ts_lua_script_register(ts_lua_main_ctx_array[0].lua, conf->script, conf);
+      TSMutexUnlock(ts_lua_main_ctx_array[0].mutexp);
     }
   }
 
@@ -239,7 +244,7 @@ ts_lua_remap_plugin_init(void *ih, TSHttpTxn rh, TSRemapRequestInfo *rri)
 
   ts_lua_set_cont_info(L, NULL);
   if (lua_pcall(L, 0, 1, 0) != 0) {
-    TSError("[ts_lua] lua_pcall failed: %s", lua_tostring(L, -1));
+    TSError("[ts_lua][%s] lua_pcall failed: %s", __FUNCTION__, lua_tostring(L, -1));
     ret = TSREMAP_NO_REMAP;
 
   } else {
@@ -364,6 +369,7 @@ globalHookHandler(TSCont contp, TSEvent event ATS_UNUSED, void *edata)
     // to allow API(s) to fetch the pointers again when it re-enters the hook
     if (http_ctx->client_response_hdrp != NULL) {
       TSHandleMLocRelease(http_ctx->client_response_bufp, TS_NULL_MLOC, http_ctx->client_response_hdrp);
+      http_ctx->client_response_bufp = NULL;
       http_ctx->client_response_hdrp = NULL;
     }
     lua_getglobal(l, TS_LUA_FUNCTION_G_SEND_RESPONSE);
@@ -416,11 +422,20 @@ globalHookHandler(TSCont contp, TSEvent event ATS_UNUSED, void *edata)
   ts_lua_set_cont_info(l, NULL);
 
   if (lua_pcall(l, 0, 1, 0) != 0) {
-    TSError("[ts_lua] lua_pcall failed: %s", lua_tostring(l, -1));
+    TSError("[ts_lua][%s] lua_pcall failed: %s", __FUNCTION__, lua_tostring(l, -1));
   }
 
   ret = lua_tointeger(l, -1);
   lua_pop(l, 1);
+
+  // client response can be changed within a transaction
+  // (e.g. due to the follow redirect feature). So, clearing the pointers
+  // to allow API(s) to fetch the pointers again when it re-enters the hook
+  if (http_ctx->client_response_hdrp != NULL) {
+    TSHandleMLocRelease(http_ctx->client_response_bufp, TS_NULL_MLOC, http_ctx->client_response_hdrp);
+    http_ctx->client_response_bufp = NULL;
+    http_ctx->client_response_hdrp = NULL;
+  }
 
   if (http_ctx->has_hook) {
     // add a hook to release resources for context
@@ -452,7 +467,7 @@ TSPluginInit(int argc, const char *argv[])
   info.support_email = "dev@trafficserver.apache.org";
 
   if (TSPluginRegister(&info) != TS_SUCCESS) {
-    TSError("[ts_lua] Plugin registration failed");
+    TSError("[ts_lua][%s] Plugin registration failed", __FUNCTION__);
   }
 
   int ret                 = 0;

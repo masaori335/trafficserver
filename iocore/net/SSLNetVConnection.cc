@@ -34,6 +34,7 @@
 
 #include "P_Net.h"
 #include "P_SSLUtils.h"
+#include "P_SSLNextProtocolSet.h"
 #include "P_SSLConfig.h"
 #include "P_SSLClientUtils.h"
 #include "P_SSLSNI.h"
@@ -176,6 +177,38 @@ make_ssl_connection(SSL_CTX *ctx, SSLNetVConnection *netvc)
       BIO *wbio = BIO_new_fd(netvc->get_socket(), BIO_NOCLOSE);
       BIO_set_mem_eof_return(wbio, -1);
       SSL_set_bio(ssl, rbio, wbio);
+
+#if TS_HAS_TLS_EARLY_DATA
+      // Must disable OpenSSL's internal anti-replay if external cache is used with
+      // 0-rtt, otherwise session reuse will be broken. The freshness check described
+      // in https://tools.ietf.org/html/rfc8446#section-8.3 is still performed. But we
+      // still need to implement something to try to prevent replay atacks.
+      //
+      // We are now also disabling this when using OpenSSL's internal cache, since we
+      // are calling "ssl_accept" non-blocking, it seems to be confusing the anti-replay
+      // mechanism and causing session resumption to fail.
+      SSLConfig::scoped_config params;
+      if (SSL_version(ssl) >= TLS1_3_VERSION && params->server_max_early_data > 0) {
+        bool ret1 = false;
+        bool ret2 = false;
+        if ((ret1 = SSL_set_max_early_data(ssl, params->server_max_early_data)) == 1) {
+          Debug("ssl_early_data", "SSL_set_max_early_data: success");
+        } else {
+          Debug("ssl_early_data", "SSL_set_max_early_data: failed");
+        }
+
+        if ((ret2 = SSL_set_recv_max_early_data(ssl, params->server_recv_max_early_data)) == 1) {
+          Debug("ssl_early_data", "SSL_set_recv_max_early_data: success");
+        } else {
+          Debug("ssl_early_data", "SSL_set_recv_max_early_data: failed");
+        }
+
+        if (ret1 && ret2) {
+          Debug("ssl_early_data", "Must disable anti-replay if 0-rtt is enabled.");
+          SSL_set_options(ssl, SSL_OP_NO_ANTI_REPLAY);
+        }
+      }
+#endif
     }
 
     SSLNetVCAttach(ssl, netvc);
@@ -445,7 +478,7 @@ bool
 SSLNetVConnection::update_rbio(bool move_to_socket)
 {
   bool retval = false;
-  if (BIO_eof(SSL_get_rbio(this->ssl))) {
+  if (BIO_eof(SSL_get_rbio(this->ssl)) && this->handShakeReader != nullptr) {
     this->handShakeReader->consume(this->handShakeBioStored);
     this->handShakeBioStored = 0;
     // Load up the next block if present
@@ -568,7 +601,6 @@ SSLNetVConnection::net_read_io(NetHandler *nh, EThread *lthread)
       this->read.triggered = 0;
       readSignalError(nh, err);
     } else if (ret == SSL_HANDSHAKE_WANT_READ || ret == SSL_HANDSHAKE_WANT_ACCEPT) {
-      ink_assert(this->handShakeReader != nullptr);
       if (SSLConfigParams::ssl_handshake_timeout_in > 0) {
         double handshake_time = (static_cast<double>(Thread::get_hrtime() - sslHandshakeBeginTime) / 1000000000);
         Debug("ssl", "ssl handshake for vc %p, took %.3f seconds, configured handshake_timer: %d", this, handshake_time,
@@ -582,7 +614,7 @@ SSLNetVConnection::net_read_io(NetHandler *nh, EThread *lthread)
         }
       }
       // move over to the socket if we haven't already
-      if (this->handShakeBuffer) {
+      if (this->handShakeBuffer != nullptr) {
         read.triggered = update_rbio(true);
       } else {
         read.triggered = 0;
@@ -925,6 +957,17 @@ SSLNetVConnection::free(EThread *t)
   con.close();
 
   ats_free(tunnel_host);
+
+  if (early_data_reader != nullptr) {
+    early_data_reader->dealloc();
+  }
+
+  if (early_data_buf != nullptr) {
+    free_MIOBuffer(early_data_buf);
+  }
+
+  early_data_reader = nullptr;
+  early_data_buf    = nullptr;
 
   clear();
   SET_CONTINUATION_HANDLER(this, (SSLNetVConnHandler)&SSLNetVConnection::startEvent);
