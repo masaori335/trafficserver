@@ -233,9 +233,8 @@ namespace HpackStaticTable
       const char *table_value = STATIC_TABLE[index].value;
       int table_value_len     = STATIC_TABLE[index].value_len;
 
-      // TODO: replace `ptr_len_casecmp()` with `memcmp()`
       // Check whether name (and value) are matched
-      if (ptr_len_casecmp(header.name, header.name_len, table_name, table_name_len) == 0) {
+      if (header.name_len == table_name_len && memcmp(header.name, table_name, table_name_len) == 0) {
         if (header.value_len == table_value_len && memcmp(header.value, table_value, table_value_len) == 0) {
           result.index      = index;
           result.index_type = HpackIndex::STATIC;
@@ -623,18 +622,8 @@ encode_literal_header_field_with_new_name(uint8_t *buf_start, const uint8_t *buf
   }
   *(p++) = flag;
 
-  // Convert field name to lower case to follow HTTP2 spec.
-  // This conversion is needed because WKSs in MIMEFields is old fashioned
-  Arena arena;
-  int name_len     = header.name_len;
-  const char *name = header.name;
-  char *lower_name = arena.str_store(name, name_len);
-  for (int i = 0; i < name_len; i++) {
-    lower_name[i] = ParseRules::ink_tolower(lower_name[i]);
-  }
-
   // Name String
-  len = xpack_encode_string(p, buf_end, lower_name, name_len);
+  len = xpack_encode_string(p, buf_end, header.name, header.name_len);
   if (len == -1) {
     return -1;
   }
@@ -648,7 +637,7 @@ encode_literal_header_field_with_new_name(uint8_t *buf_start, const uint8_t *buf
 
   p += len;
 
-  Debug("hpack_encode", "Encoded field: %.*s: %.*s", name_len, lower_name, header.value_len, header.value);
+  Debug("hpack_encode", "Encoded field: %.*s: %.*s", header.name_len, header.name, header.value_len, header.value);
   return p - buf_start;
 }
 
@@ -916,10 +905,20 @@ hpack_encode_header_block(HpackIndexingTable &indexing_table, uint8_t *out_buf, 
     cursor += written;
   }
 
+  // TODO: get rid of Arena
+  Arena arena;
   MIMEFieldIter field_iter;
   for (MIMEField *field = hdr->iter_get_first(&field_iter); field != nullptr; field = hdr->iter_get_next(&field_iter)) {
     int name_len;
-    const char *name = field->name_get(&name_len);
+    const char *original_name = field->name_get(&name_len);
+
+    // Convert field name to lower case to follow HTTP2 spec.
+    // This conversion is needed because WKSs in MIMEFields is old fashioned
+    char *name = arena.str_alloc(name_len);
+    for (int i = 0; i < name_len; i++) {
+      name[i] = ParseRules::ink_tolower(original_name[i]);
+    }
+
     int value_len;
     const char *value = field->value_get(&value_len);
 
@@ -929,9 +928,10 @@ hpack_encode_header_block(HpackIndexingTable &indexing_table, uint8_t *out_buf, 
     // - Authorization header obviously should not be indexed
     // - Short Cookie header should not be indexed because of low entropy
     HpackField field_type;
-    // TODO: replace `ptr_len_casecmp()` with `memcmp()`
-    if ((ptr_len_casecmp(header.name, header.name_len, HPACK_HDR_FIELD_COOKIE, HPACK_HDR_LEN_COOKIE) == 0 && value_len < 20) ||
-        (ptr_len_casecmp(header.name, header.name_len, HPACK_HDR_FIELD_AUTHORIZATION, HPACK_HDR_LEN_AUTHORIZATION) == 0)) {
+    if ((header.name_len == HPACK_HDR_LEN_COOKIE && memcmp(header.name, HPACK_HDR_FIELD_COOKIE, HPACK_HDR_LEN_COOKIE) == 0 &&
+         value_len < 20) ||
+        (header.name_len == HPACK_HDR_LEN_AUTHORIZATION &&
+         memcmp(header.name, HPACK_HDR_FIELD_AUTHORIZATION, HPACK_HDR_LEN_AUTHORIZATION) == 0)) {
       field_type = HpackField::NEVERINDEX_LITERAL;
     } else {
       field_type = HpackField::INDEXED_LITERAL;
