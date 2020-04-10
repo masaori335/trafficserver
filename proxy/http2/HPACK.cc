@@ -24,6 +24,8 @@
 #include "HPACK.h"
 #include "HuffmanCodec.h"
 
+#include "tscpp/util/LocalBuffer.h"
+
 // [RFC 7541] 4.1. Calculating Table Size
 // The size of an entry is the sum of its name's length in octets (as defined in Section 5.2),
 // its value's length in octets, and 32.
@@ -647,9 +649,7 @@ decode_indexed_header_field(MIMEFieldWrapper &header, const uint8_t *buf_start, 
     int decoded_value_len;
     const char *decoded_value = header.value_get(&decoded_value_len);
 
-    Arena arena;
-    Debug("hpack_decode", "Decoded field: %s: %s", arena.str_store(decoded_name, decoded_name_len),
-          arena.str_store(decoded_value, decoded_value_len));
+    Debug("hpack_decode", "Decoded field: %.*s: %.*s", decoded_name_len, decoded_name, decoded_value_len, decoded_value);
   }
 
   return len;
@@ -663,39 +663,49 @@ int64_t
 decode_literal_header_field(MIMEFieldWrapper &header, const uint8_t *buf_start, const uint8_t *buf_end,
                             HpackIndexingTable &indexing_table)
 {
-  const uint8_t *p         = buf_start;
-  bool isIncremental       = false;
-  uint64_t index           = 0;
-  int64_t len              = 0;
-  HpackField ftype         = hpack_parse_field_type(*p);
-  bool has_http2_violation = false;
+  const uint8_t *p = buf_start;
 
-  if (ftype == HpackField::INDEXED_LITERAL) {
-    len           = xpack_decode_integer(index, p, buf_end, 6);
-    isIncremental = true;
-  } else if (ftype == HpackField::NEVERINDEX_LITERAL) {
-    len = xpack_decode_integer(index, p, buf_end, 4);
-  } else {
-    ink_assert(ftype == HpackField::NOINDEX_LITERAL);
-    len = xpack_decode_integer(index, p, buf_end, 4);
+  // Decode field type
+  bool is_incremental = false;
+  uint64_t index      = 0;
+  {
+    int64_t len      = 0;
+    HpackField ftype = hpack_parse_field_type(*p);
+
+    if (ftype == HpackField::INDEXED_LITERAL) {
+      len            = xpack_decode_integer(index, p, buf_end, 6);
+      is_incremental = true;
+    } else if (ftype == HpackField::NEVERINDEX_LITERAL) {
+      len = xpack_decode_integer(index, p, buf_end, 4);
+    } else {
+      ink_assert(ftype == HpackField::NOINDEX_LITERAL);
+      len = xpack_decode_integer(index, p, buf_end, 4);
+    }
+
+    if (len == XPACK_ERROR_COMPRESSION_ERROR) {
+      return HPACK_ERROR_COMPRESSION_ERROR;
+    }
+
+    p += len;
   }
-
-  if (len == XPACK_ERROR_COMPRESSION_ERROR) {
-    return HPACK_ERROR_COMPRESSION_ERROR;
-  }
-
-  p += len;
-
-  Arena arena;
 
   // Decode header field name
+  bool has_http2_violation = false;
   if (index) {
     indexing_table.get_header_field(index, header);
   } else {
-    char *name_str        = nullptr;
-    uint64_t name_str_len = 0;
+    XpackStringDecoder decoder(p, buf_end);
 
-    len = xpack_decode_string(arena, &name_str, name_str_len, p, buf_end);
+    size_t buf_len;
+    if (int r = decoder.max_string_len(buf_len); r == XPACK_ERROR_COMPRESSION_ERROR) {
+      return HPACK_ERROR_COMPRESSION_ERROR;
+    }
+
+    ts::LocalBuffer<char> buf(buf_len);
+    char *name_str = buf.data();
+    uint64_t name_str_len;
+
+    int64_t len = decoder.string(name_str, name_str_len);
     if (len == XPACK_ERROR_COMPRESSION_ERROR) {
       return HPACK_ERROR_COMPRESSION_ERROR;
     }
@@ -714,19 +724,29 @@ decode_literal_header_field(MIMEFieldWrapper &header, const uint8_t *buf_start, 
   }
 
   // Decode header field value
-  char *value_str        = nullptr;
-  uint64_t value_str_len = 0;
+  {
+    XpackStringDecoder decoder(p, buf_end);
 
-  len = xpack_decode_string(arena, &value_str, value_str_len, p, buf_end);
-  if (len == XPACK_ERROR_COMPRESSION_ERROR) {
-    return HPACK_ERROR_COMPRESSION_ERROR;
+    size_t buf_len;
+    if (int r = decoder.max_string_len(buf_len); r == XPACK_ERROR_COMPRESSION_ERROR) {
+      return HPACK_ERROR_COMPRESSION_ERROR;
+    }
+
+    ts::LocalBuffer<char> buf(buf_len);
+    char *value_str        = buf.data();
+    uint64_t value_str_len = 0;
+
+    int64_t len = decoder.string(value_str, value_str_len);
+    if (len == XPACK_ERROR_COMPRESSION_ERROR) {
+      return HPACK_ERROR_COMPRESSION_ERROR;
+    }
+
+    p += len;
+    header.value_set(value_str, value_str_len);
   }
 
-  p += len;
-  header.value_set(value_str, value_str_len);
-
   // Incremental Indexing adds header to header table as new entry
-  if (isIncremental) {
+  if (is_incremental) {
     indexing_table.add_header_field(header.field_get());
   }
 
@@ -737,8 +757,7 @@ decode_literal_header_field(MIMEFieldWrapper &header, const uint8_t *buf_start, 
     int decoded_value_len;
     const char *decoded_value = header.value_get(&decoded_value_len);
 
-    Debug("hpack_decode", "Decoded field: %s: %s", arena.str_store(decoded_name, decoded_name_len),
-          arena.str_store(decoded_value, decoded_value_len));
+    Debug("hpack_decode", "Decoded field: %.*s: %.*s", decoded_name_len, decoded_name, decoded_value_len, decoded_value);
   }
 
   if (has_http2_violation) {

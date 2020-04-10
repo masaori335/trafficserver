@@ -147,6 +147,8 @@ hpack_huffman_fin()
   if (HUFFMAN_TREE_ROOT) {
     free_huffman_tree(HUFFMAN_TREE_ROOT);
   }
+
+  HUFFMAN_TREE_ROOT = nullptr;
 }
 
 int64_t

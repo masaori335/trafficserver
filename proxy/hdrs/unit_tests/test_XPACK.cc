@@ -109,15 +109,38 @@ TEST_CASE("XPACK_String", "[xpack]")
     // Decoding string needs huffman tree
     hpack_huffman_init();
 
-    for (const auto &i : string_test_case) {
-      Arena arena;
-      char *actual        = nullptr;
-      uint64_t actual_len = 0;
-      int len             = xpack_decode_string(arena, &actual, actual_len, i.encoded_field, i.encoded_field + i.encoded_field_len);
+    SECTION("with Arena")
+    {
+      for (const auto &i : string_test_case) {
+        Arena arena;
+        char *actual        = nullptr;
+        uint64_t actual_len = 0;
+        int len = xpack_decode_string(arena, &actual, actual_len, i.encoded_field, i.encoded_field + i.encoded_field_len);
 
-      REQUIRE(len == i.encoded_field_len);
-      REQUIRE(actual_len == i.raw_string_len);
-      REQUIRE(memcmp(actual, i.raw_string, actual_len) == 0);
+        REQUIRE(len == i.encoded_field_len);
+        REQUIRE(actual_len == i.raw_string_len);
+        REQUIRE(memcmp(actual, i.raw_string, actual_len) == 0);
+      }
     }
+
+    SECTION("without Arena")
+    {
+      for (const auto &i : string_test_case) {
+        XpackStringDecoder decoder(i.encoded_field, i.encoded_field + i.encoded_field_len);
+
+        size_t buf_len;
+        decoder.max_string_len(buf_len);
+
+        char actual[buf_len];
+        uint64_t actual_len;
+        int len = decoder.string(actual, actual_len);
+
+        REQUIRE(len == i.encoded_field_len);
+        REQUIRE(actual_len == i.raw_string_len);
+        REQUIRE(memcmp(actual, i.raw_string, actual_len) == 0);
+      }
+    }
+
+    hpack_huffman_fin();
   }
 }

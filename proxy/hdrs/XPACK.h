@@ -32,6 +32,40 @@ const static int XPACK_ERROR_SIZE_EXCEEDED_ERROR = -2;
 // These primitives are shared with HPACK and QPACK.
 int64_t xpack_encode_integer(uint8_t *buf_start, const uint8_t *buf_end, uint64_t value, uint8_t n);
 int64_t xpack_decode_integer(uint64_t &dst, const uint8_t *buf_start, const uint8_t *buf_end, uint8_t n);
+
 int64_t xpack_encode_string(uint8_t *buf_start, const uint8_t *buf_end, const char *value, uint64_t value_len, uint8_t n = 7);
 int64_t xpack_decode_string(Arena &arena, char **str, uint64_t &str_length, const uint8_t *buf_start, const uint8_t *buf_end,
                             uint8_t n = 7);
+
+/**
+  Decode XPACK String Literals without Arena
+ */
+class XpackStringDecoder
+{
+public:
+  XpackStringDecoder(const uint8_t *s, const uint8_t *e) : _buf_start(s), _buf_end(e) {}
+  XpackStringDecoder(const uint8_t *s, const uint8_t *e, uint8_t p) : _buf_start(s), _buf_end(e), _prefix(p) {}
+
+  // Don't allocate on heap
+  void *operator new(std::size_t)   = delete;
+  void *operator new[](std::size_t) = delete;
+
+  int max_string_len(std::size_t &buf_len);
+  int64_t string(char *str, uint64_t &str_len);
+
+private:
+  enum class State {
+    NONE,
+    LENGTH_DECODED,
+    DONE,
+    ERROR,
+  };
+
+  State _state = State::NONE;
+  const uint8_t *const _buf_start;
+  const uint8_t *const _buf_end;
+  uint8_t _prefix           = 7;
+  bool _is_huffman          = false;
+  int64_t _length_field_len = 0;
+  uint64_t _data_field_len  = 0;
+};

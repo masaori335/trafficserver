@@ -200,3 +200,69 @@ xpack_encode_string(uint8_t *buf_start, const uint8_t *buf_end, const char *valu
 
   return p - buf_start;
 }
+
+//
+// XpackStringDecoder
+//
+int
+XpackStringDecoder::max_string_len(std::size_t &buf_len)
+{
+  ink_release_assert(_state == State::NONE);
+
+  if (_buf_start >= _buf_end) {
+    _state = State::ERROR;
+    return XPACK_ERROR_COMPRESSION_ERROR;
+  }
+
+  // H
+  _is_huffman = _buf_start[0] & (0x01 << _prefix);
+
+  // String Length (prefix+)
+  int64_t len = xpack_decode_integer(_data_field_len, _buf_start, _buf_end, _prefix);
+  if (len == XPACK_ERROR_COMPRESSION_ERROR) {
+    _state = State::ERROR;
+    return XPACK_ERROR_COMPRESSION_ERROR;
+  }
+
+  if ((_buf_start + len) > _buf_end) {
+    _state = State::ERROR;
+    return XPACK_ERROR_COMPRESSION_ERROR;
+  }
+
+  if (_is_huffman) {
+    buf_len = _data_field_len * 2;
+  } else {
+    buf_len = _data_field_len;
+  }
+
+  _length_field_len = len;
+  _state            = State::LENGTH_DECODED;
+
+  return 0;
+}
+
+int64_t
+XpackStringDecoder::string(char *str, uint64_t &str_len)
+{
+  ink_release_assert(_state == State::LENGTH_DECODED);
+
+  // Skip String Length field
+  const uint8_t *p = _buf_start + _length_field_len;
+
+  // String Data (Length octets)
+  if (_is_huffman) {
+    str_len = huffman_decode(str, p, _data_field_len);
+    if (str_len < 0) {
+      _state = State::ERROR;
+      return XPACK_ERROR_COMPRESSION_ERROR;
+    }
+
+  } else {
+    memcpy(str, p, _data_field_len);
+    str_len = _data_field_len;
+  }
+
+  _state = State::DONE;
+
+  return _length_field_len + _data_field_len;
+}
