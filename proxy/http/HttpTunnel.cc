@@ -479,8 +479,8 @@ HttpTunnel::reset()
 
   num_producers = 0;
   num_consumers = 0;
-  memset(consumers, 0, sizeof(consumers));
-  memset(producers, 0, sizeof(producers));
+  ink_zero(consumers);
+  ink_zero(producers);
 }
 
 void
@@ -905,6 +905,11 @@ HttpTunnel::producer_run(HttpTunnelProducer *p)
   }
   for (c = p->consumer_list.head; c; c = c->link.next) {
     int64_t c_write = consumer_n;
+
+    // Don't bother to set up the consumer if it is dead
+    if (!c->alive) {
+      continue;
+    }
 
     if (!p->alive) {
       // Adjust the amount of chunked data to write if the only data was in the initial read

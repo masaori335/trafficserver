@@ -90,11 +90,7 @@ public:
   // Methods
 
   // Implement VConnection interface
-  VIO *do_io_read(Continuation *c, int64_t nbytes = INT64_MAX, MIOBuffer *buf = nullptr) override;
-  VIO *do_io_write(Continuation *c = nullptr, int64_t nbytes = INT64_MAX, IOBufferReader *buf = 0, bool owner = false) override;
   void do_io_close(int lerrno = -1) override;
-  void do_io_shutdown(ShutdownHowTo_t howto) override;
-  void reenable(VIO *vio) override;
 
   // Implement ProxySession interface
   void new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOBufferReader *reader) override;
@@ -109,7 +105,6 @@ public:
 
   ////////////////////
   // Accessors
-  NetVConnection *get_netvc() const override;
   sockaddr const *get_client_addr() override;
   sockaddr const *get_local_addr() override;
   int get_transact_count() const override;
@@ -134,6 +129,8 @@ public:
   // Record history from Http2ConnectionState
   void remember(const SourceLocation &location, int event, int reentrant = NO_REENTRANT);
 
+  int64_t write_avail();
+
   // noncopyable
   Http2ClientSession(Http2ClientSession &) = delete;
   Http2ClientSession &operator=(const Http2ClientSession &) = delete;
@@ -141,8 +138,6 @@ public:
   ///////////////////
   // Variables
   Http2ConnectionState connection_state;
-
-  bool support_sni() const override;
 
 private:
   int main_event_handler(int, void *);
@@ -161,7 +156,6 @@ private:
 
   int64_t total_write_len        = 0;
   SessionHandler session_handler = nullptr;
-  NetVConnection *client_vc      = nullptr;
   MIOBuffer *read_buffer         = nullptr;
   IOBufferReader *_reader        = nullptr;
   MIOBuffer *write_buffer        = nullptr;
@@ -184,7 +178,7 @@ private:
   bool half_close_local          = false;
   int recursion                  = 0;
 
-  std::unordered_set<std::string> h2_pushed_urls;
+  std::unordered_set<std::string> *_h2_pushed_urls = nullptr;
 
   Event *_reenable_event = nullptr;
   int _n_frame_read      = 0;
@@ -237,7 +231,11 @@ Http2ClientSession::get_half_close_local_flag() const
 inline bool
 Http2ClientSession::is_url_pushed(const char *url, int url_len)
 {
-  return h2_pushed_urls.find(url) != h2_pushed_urls.end();
+  if (_h2_pushed_urls == nullptr) {
+    return false;
+  }
+
+  return _h2_pushed_urls->find(url) != _h2_pushed_urls->end();
 }
 
 inline int64_t

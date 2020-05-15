@@ -128,6 +128,7 @@ public:
   bool has_trailing_header() const;
   void set_request_headers(HTTPHdr &h2_headers);
   MIOBuffer *read_vio_writer() const;
+  int64_t read_vio_read_avail();
 
   //////////////////
   // Variables
@@ -204,8 +205,8 @@ private:
   uint64_t data_length = 0;
   uint64_t bytes_sent  = 0;
 
-  ssize_t _client_rwnd;
-  ssize_t _server_rwnd = Http2::initial_window_size;
+  ssize_t _client_rwnd = 0;
+  ssize_t _server_rwnd = 0;
 
   std::vector<size_t> _recent_rwnd_increment = {SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX};
   int _recent_rwnd_increment_index           = 0;
@@ -279,9 +280,9 @@ Http2Stream::set_request_headers(HTTPHdr &h2_headers)
   _req_header.copy(&h2_headers);
 }
 
-inline // Check entire DATA payload length if content-length: header is exist
-  void
-  Http2Stream::increment_data_length(uint64_t length)
+// Check entire DATA payload length if content-length: header is exist
+inline void
+Http2Stream::increment_data_length(uint64_t length)
 {
   data_length += length;
 }

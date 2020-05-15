@@ -4513,39 +4513,12 @@ TSContDataGet(TSCont contp)
 }
 
 TSAction
-TSContSchedule(TSCont contp, TSHRTime timeout)
-{
-  sdk_assert(sdk_sanity_check_iocore_structure(contp) == TS_SUCCESS);
-
-  FORCE_PLUGIN_SCOPED_MUTEX(contp);
-
-  INKContInternal *i = reinterpret_cast<INKContInternal *>(contp);
-
-  if (ink_atomic_increment(static_cast<int *>(&i->m_event_count), 1) < 0) {
-    ink_assert(!"not reached");
-  }
-
-  EThread *eth = i->getThreadAffinity();
-  if (eth == nullptr) {
-    return nullptr;
-  }
-
-  TSAction action;
-  if (timeout == 0) {
-    action = reinterpret_cast<TSAction>(eth->schedule_imm(i));
-  } else {
-    action = reinterpret_cast<TSAction>(eth->schedule_in(i, HRTIME_MSECONDS(timeout)));
-  }
-
-  /* This is a hack. Should be handled in ink_types */
-  action = (TSAction)((uintptr_t)action | 0x1);
-  return action;
-}
-
-TSAction
 TSContScheduleOnPool(TSCont contp, TSHRTime timeout, TSThreadPool tp)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(contp) == TS_SUCCESS);
+
+  /* ensure we are on a EThread */
+  sdk_assert(sdk_sanity_check_null_ptr((void *)this_ethread()) == TS_SUCCESS);
 
   FORCE_PLUGIN_SCOPED_MUTEX(contp);
 
@@ -4620,34 +4593,12 @@ TSContScheduleOnThread(TSCont contp, TSHRTime timeout, TSEventThread ethread)
 }
 
 TSAction
-TSContScheduleEvery(TSCont contp, TSHRTime every /* millisecs */)
-{
-  sdk_assert(sdk_sanity_check_iocore_structure(contp) == TS_SUCCESS);
-
-  FORCE_PLUGIN_SCOPED_MUTEX(contp);
-
-  INKContInternal *i = reinterpret_cast<INKContInternal *>(contp);
-
-  if (ink_atomic_increment(static_cast<int *>(&i->m_event_count), 1) < 0) {
-    ink_assert(!"not reached");
-  }
-
-  EThread *eth = i->getThreadAffinity();
-  if (eth == nullptr) {
-    return nullptr;
-  }
-
-  TSAction action = reinterpret_cast<TSAction>(eth->schedule_every(i, HRTIME_MSECONDS(every)));
-
-  /* This is a hack. Should be handled in ink_types */
-  action = (TSAction)((uintptr_t)action | 0x1);
-  return action;
-}
-
-TSAction
 TSContScheduleEveryOnPool(TSCont contp, TSHRTime every, TSThreadPool tp)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(contp) == TS_SUCCESS);
+
+  /* ensure we are on a EThread */
+  sdk_assert(sdk_sanity_check_null_ptr((void *)this_ethread()) == TS_SUCCESS);
 
   FORCE_PLUGIN_SCOPED_MUTEX(contp);
 
@@ -7437,7 +7388,7 @@ TSStatFindName(const char *name, int *idp)
 
   sdk_assert(sdk_sanity_check_null_ptr((void *)name) == TS_SUCCESS);
 
-  if (RecGetRecordOrderAndId(name, nullptr, &id) != REC_ERR_OKAY) {
+  if (RecGetRecordOrderAndId(name, nullptr, &id, true, true) != REC_ERR_OKAY) {
     return TS_ERROR;
   }
 
@@ -7902,7 +7853,7 @@ TSFetchPages(TSFetchUrlParams_t *params)
   }
 }
 
-void
+TSFetchSM
 TSFetchUrl(const char *headers, int request_len, sockaddr const *ip, TSCont contp, TSFetchWakeUpOptions callback_options,
            TSFetchEvent events)
 {
@@ -7914,6 +7865,15 @@ TSFetchUrl(const char *headers, int request_len, sockaddr const *ip, TSCont cont
 
   fetch_sm->init((Continuation *)contp, callback_options, events, headers, request_len, ip);
   fetch_sm->httpConnect();
+
+  return reinterpret_cast<TSFetchSM>(fetch_sm);
+}
+
+void
+TSFetchFlagSet(TSFetchSM fetch_sm, int flags)
+{
+  sdk_assert(sdk_sanity_check_fetch_sm(fetch_sm) == TS_SUCCESS);
+  (reinterpret_cast<FetchSM *>(fetch_sm))->set_fetch_flags(flags);
 }
 
 TSFetchSM
@@ -8735,6 +8695,11 @@ TSHttpTxnConfigStringSet(TSHttpTxn txnp, TSOverridableConfigKey conf, const char
       }
     }
     break;
+  case TS_CONFIG_HTTP_SERVER_SESSION_SHARING_MATCH:
+    if (value && length > 0) {
+      HttpConfig::load_server_session_sharing_match(value, s->t_state.my_txn_conf().server_session_sharing_match);
+    }
+    break;
   case TS_CONFIG_SSL_CLIENT_VERIFY_SERVER_POLICY:
     if (value && length > 0) {
       s->t_state.my_txn_conf().ssl_client_verify_server_policy = const_cast<char *>(value);
@@ -8983,6 +8948,30 @@ TSHttpTxnIsCacheable(TSHttpTxn txnp, TSMBuffer request, TSMBuffer response)
 
   // Make sure these are valid response / requests, then verify if it's cacheable.
   return (req->valid() && resp->valid() && HttpTransact::is_response_cacheable(&(sm->t_state), req, resp)) ? 1 : 0;
+}
+
+int
+TSHttpTxnGetMaxAge(TSHttpTxn txnp, TSMBuffer response)
+{
+  sdk_assert(sdk_sanity_check_txn(txnp) == TS_SUCCESS);
+  HttpSM *sm = (HttpSM *)txnp;
+  HTTPHdr *resp;
+
+  if (response) {
+    // Make sure the response we got as a parameter is valid
+    sdk_assert(sdk_sanity_check_mbuffer(response) == TS_SUCCESS);
+    resp = reinterpret_cast<HTTPHdr *>(response);
+  } else {
+    // Use the transactions origin response if the user passed NULL
+    resp = &(sm->t_state.hdr_info.server_response);
+  }
+
+  if (!resp || !resp->valid()) {
+    return -1;
+  }
+
+  // We have a valid response, return max_age
+  return HttpTransact::get_max_age(resp);
 }
 
 // Lookup various debug names for common HTTP types.

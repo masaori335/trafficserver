@@ -28,12 +28,12 @@
 #include "tscore/ink_assert.h"
 #include "tscore/PluginUserArgs.h"
 
-static constexpr std::array<size_t, TS_USER_ARGS_COUNT> MAX_USER_ARGS = {
+static constexpr std::array<size_t, TS_USER_ARGS_COUNT> MAX_USER_ARGS = {{
   16, /* max number of user arguments for TXN */
   8,  /* max number of user arguments for SSN */
   4,  /* max number of user arguments for VCONN */
   128 /* max number of user arguments for GLB */
-};
+}};
 
 /**
   This is a mixin class (sort of), implementing the appropriate APIs and data storage for
@@ -42,6 +42,7 @@ static constexpr std::array<size_t, TS_USER_ARGS_COUNT> MAX_USER_ARGS = {
 class PluginUserArgsMixin
 {
 public:
+  virtual ~PluginUserArgsMixin()                  = default;
   virtual void *get_user_arg(size_t ix) const     = 0;
   virtual void set_user_arg(size_t ix, void *arg) = 0;
 };

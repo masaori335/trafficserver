@@ -280,6 +280,26 @@ is_localhost(const char *name, int len)
   return (len == (sizeof(local) - 1)) && (memcmp(name, local, len) == 0);
 }
 
+inline static bool
+is_response_simple_code(HTTPStatus response_code)
+{
+  if (static_cast<unsigned int>(response_code) < 400 || static_cast<unsigned int>(response_code) > 499) {
+    return false;
+  }
+
+  return true;
+}
+
+inline static bool
+is_response_unavailable_code(HTTPStatus response_code)
+{
+  if (static_cast<unsigned int>(response_code) < 500 || static_cast<unsigned int>(response_code) > 599) {
+    return false;
+  }
+
+  return true;
+}
+
 inline static void
 simple_or_unavailable_server_retry(HttpTransact::State *s)
 {
@@ -288,11 +308,10 @@ simple_or_unavailable_server_retry(HttpTransact::State *s)
 
   TxnDebug("http_trans", "[simple_or_unavailabe_server_retry] server_response = %d, simple_retry_attempts: %d, numParents:%d ",
            server_response, s->current.simple_retry_attempts, numParents(s));
-
   // simple retry is enabled, 0x1
-  if ((retry_type(s) & PARENT_RETRY_SIMPLE) && s->current.simple_retry_attempts < max_retries(s, PARENT_RETRY_SIMPLE) &&
-      server_response == HTTP_STATUS_NOT_FOUND) {
-    TxnDebug("http_trans", "RECEIVED A SIMPLE RETRY RESPONSE");
+  if ((retry_type(s) & PARENT_RETRY_SIMPLE) && is_response_simple_code(server_response) &&
+      s->current.simple_retry_attempts < max_retries(s, PARENT_RETRY_SIMPLE) && response_is_retryable(s, server_response)) {
+    TxnDebug("parent_select", "RECEIVED A SIMPLE RETRY RESPONSE");
     if (s->current.simple_retry_attempts < numParents(s)) {
       s->current.state      = HttpTransact::PARENT_RETRY;
       s->current.retry_type = PARENT_RETRY_SIMPLE;
@@ -303,7 +322,7 @@ simple_or_unavailable_server_retry(HttpTransact::State *s)
     }
   }
   // unavailable server retry is enabled 0x2
-  else if ((retry_type(s) & PARENT_RETRY_UNAVAILABLE_SERVER) &&
+  else if ((retry_type(s) & PARENT_RETRY_UNAVAILABLE_SERVER) && is_response_unavailable_code(server_response) &&
            s->current.unavailable_server_retry_attempts < max_retries(s, PARENT_RETRY_UNAVAILABLE_SERVER) &&
            response_is_retryable(s, server_response)) {
     TxnDebug("parent_select", "RECEIVED A PARENT_RETRY_UNAVAILABLE_SERVER RESPONSE");
@@ -851,6 +870,7 @@ HttpTransact::StartRemapRequest(State *s)
     TxnDebug("http_trans", "Before Remapping:");
     obj_describe(s->hdr_info.client_request.m_http, true);
   }
+  DUMP_HEADER("http_hdrs", &s->hdr_info.client_request, s->state_machine_id, "Incoming Request");
 
   if (s->http_config_param->referer_filter_enabled) {
     s->filter_mask = URL_REMAP_FILTER_REFERER;
@@ -1425,11 +1445,6 @@ HttpTransact::HandleRequest(State *s)
   if (handle_internal_request(s, &s->hdr_info.client_request)) {
     TRANSACT_RETURN(SM_ACTION_INTERNAL_REQUEST, nullptr);
   }
-
-  // this needs to be called after initializing state variables from request
-  // it adds the client-ip to the incoming client request.
-
-  DUMP_HEADER("http_hdrs", &s->hdr_info.client_request, s->state_machine_id, "Incoming Request");
 
   if (s->state_machine->plugin_tunnel_type == HTTP_PLUGIN_AS_INTERCEPT) {
     setup_plugin_request_intercept(s);
@@ -2091,7 +2106,12 @@ HttpTransact::DecideCacheLookup(State *s)
     if (s->redirect_info.redirect_in_process) {
       // without calling out the CACHE_LOOKUP_COMPLETE_HOOK
       if (s->txn_conf->cache_http) {
-        s->cache_info.action = CACHE_DO_WRITE;
+        if (s->cache_info.write_lock_state == CACHE_WL_FAIL) {
+          s->cache_info.action           = CACHE_PREPARE_TO_WRITE;
+          s->cache_info.write_lock_state = HttpTransact::CACHE_WL_INIT;
+        } else if (s->cache_info.write_lock_state == CACHE_WL_SUCCESS) {
+          s->cache_info.action = CACHE_DO_WRITE;
+        }
       }
       LookupSkipOpenServer(s);
     } else {
@@ -3606,7 +3626,7 @@ HttpTransact::handle_response_from_parent(State *s)
         //  us to mark the parent down
         if (s->current.state == CONNECTION_ERROR) {
           HTTP_INCREMENT_DYN_STAT(http_total_parent_marked_down_count);
-          s->parent_params->markParentDown(&s->parent_result, s->txn_conf->parent_fail_threshold, s->txn_conf->parent_retry_time);
+          markParentDown(s);
         }
         // We are done so look for another parent if any
         next_lookup = find_server_and_update_current_info(s);
@@ -3618,7 +3638,7 @@ HttpTransact::handle_response_from_parent(State *s)
       TxnDebug("http_trans", "[handle_response_from_parent] Error. No more retries.");
       if (s->current.state == CONNECTION_ERROR) {
         HTTP_INCREMENT_DYN_STAT(http_total_parent_marked_down_count);
-        s->parent_params->markParentDown(&s->parent_result, s->txn_conf->parent_fail_threshold, s->txn_conf->parent_retry_time);
+        markParentDown(s);
       }
       s->parent_result.result = PARENT_FAIL;
       next_lookup             = HOST_NONE;
@@ -5423,7 +5443,8 @@ HttpTransact::check_request_validity(State *s, HTTPHdr *incoming_hdr)
 HttpTransact::ResponseError_t
 HttpTransact::check_response_validity(State *s, HTTPHdr *incoming_hdr)
 {
-  ink_assert(s->next_hop_scheme == URL_WKSIDX_HTTP || s->next_hop_scheme == URL_WKSIDX_HTTPS);
+  ink_assert(s->next_hop_scheme == URL_WKSIDX_HTTP || s->next_hop_scheme == URL_WKSIDX_HTTPS ||
+             s->next_hop_scheme == URL_WKSIDX_TUNNEL);
 
   if (incoming_hdr == nullptr) {
     return NON_EXISTANT_RESPONSE_HEADER;
@@ -6823,7 +6844,7 @@ HttpTransact::handle_request_keep_alive_headers(State *s, HTTPVersion ver, HTTPH
     case KA_CONNECTION:
       ink_assert(s->current.server->keep_alive != HTTP_NO_KEEPALIVE);
       if (ver == HTTPVersion(1, 0)) {
-        if (s->current.request_to == PARENT_PROXY) {
+        if (s->current.request_to == PARENT_PROXY && s->parent_result.parent_is_proxy()) {
           heads->value_set(MIME_FIELD_PROXY_CONNECTION, MIME_LEN_PROXY_CONNECTION, "keep-alive", 10);
         } else {
           heads->value_set(MIME_FIELD_CONNECTION, MIME_LEN_CONNECTION, "keep-alive", 10);
@@ -6837,7 +6858,7 @@ HttpTransact::handle_request_keep_alive_headers(State *s, HTTPVersion ver, HTTPH
       if (s->current.server->keep_alive != HTTP_NO_KEEPALIVE || (ver == HTTPVersion(1, 1))) {
         /* Had keep-alive */
         s->current.server->keep_alive = HTTP_NO_KEEPALIVE;
-        if (s->current.request_to == PARENT_PROXY) {
+        if (s->current.request_to == PARENT_PROXY && s->parent_result.parent_is_proxy()) {
           heads->value_set(MIME_FIELD_PROXY_CONNECTION, MIME_LEN_PROXY_CONNECTION, "close", 5);
         } else {
           heads->value_set(MIME_FIELD_CONNECTION, MIME_LEN_CONNECTION, "close", 5);
@@ -7122,25 +7143,36 @@ HttpTransact::does_client_request_permit_storing(CacheControlResult *c, HTTPHdr 
 }
 
 int
+HttpTransact::get_max_age(HTTPHdr *response)
+{
+  int max_age      = -1;
+  uint32_t cc_mask = response->get_cooked_cc_mask();
+
+  if (cc_mask & MIME_COOKED_MASK_CC_S_MAXAGE) {
+    // Precedence to s-maxage
+    max_age = static_cast<int>(response->get_cooked_cc_s_maxage());
+  } else if (cc_mask & MIME_COOKED_MASK_CC_MAX_AGE) {
+    // If s-maxage isn't set, try max-age
+    max_age = static_cast<int>(response->get_cooked_cc_max_age());
+  }
+
+  return max_age;
+}
+
+int
 HttpTransact::calculate_document_freshness_limit(State *s, HTTPHdr *response, time_t response_date, bool *heuristic)
 {
   bool expires_set, date_set, last_modified_set;
   time_t date_value, expires_value, last_modified_value;
   MgmtInt min_freshness_bounds, max_freshness_bounds;
   int freshness_limit = 0;
-  uint32_t cc_mask    = response->get_cooked_cc_mask();
+  int max_age         = get_max_age(response);
 
   *heuristic = false;
 
-  if (cc_mask & (MIME_COOKED_MASK_CC_S_MAXAGE | MIME_COOKED_MASK_CC_MAX_AGE)) {
-    if (cc_mask & MIME_COOKED_MASK_CC_S_MAXAGE) {
-      freshness_limit = static_cast<int>(response->get_cooked_cc_s_maxage());
-      TxnDebug("http_match", "calculate_document_freshness_limit --- s_max_age set, freshness_limit = %d", freshness_limit);
-    } else if (cc_mask & MIME_COOKED_MASK_CC_MAX_AGE) {
-      freshness_limit = static_cast<int>(response->get_cooked_cc_max_age());
-      TxnDebug("http_match", "calculate_document_freshness_limit --- max_age set, freshness_limit = %d", freshness_limit);
-    }
-    freshness_limit = std::min(std::max(0, freshness_limit), static_cast<int>(s->txn_conf->cache_guaranteed_max_lifetime));
+  if (max_age >= 0) {
+    freshness_limit = std::min(std::max(0, max_age), static_cast<int>(s->txn_conf->cache_guaranteed_max_lifetime));
+    TxnDebug("http_match", "calculate_document_freshness_limit --- freshness_limit = %d", freshness_limit);
   } else {
     date_set = last_modified_set = false;
 

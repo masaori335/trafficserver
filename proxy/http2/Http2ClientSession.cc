@@ -87,9 +87,9 @@ Http2ClientSession::free()
     this->_reenable_event = nullptr;
   }
 
-  if (client_vc) {
-    client_vc->do_io_close();
-    client_vc = nullptr;
+  if (_vc) {
+    _vc->do_io_close();
+    _vc = nullptr;
   }
 
   // Make sure the we are at the bottom of the stack
@@ -151,8 +151,9 @@ Http2ClientSession::free()
     }
   }
 
-  ink_release_assert(this->client_vc == nullptr);
+  ink_release_assert(this->_vc == nullptr);
 
+  delete _h2_pushed_urls;
   this->connection_state.destroy();
 
   super::free();
@@ -190,9 +191,9 @@ Http2ClientSession::new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOB
   this->_milestones.mark(Http2SsnMilestone::OPEN);
 
   // Unique client session identifier.
-  this->con_id    = ProxySession::next_connection_id();
-  this->client_vc = new_vc;
-  client_vc->set_inactivity_timeout(HRTIME_SECONDS(Http2::accept_no_activity_timeout));
+  this->con_id = ProxySession::next_connection_id();
+  this->_vc    = new_vc;
+  _vc->set_inactivity_timeout(HRTIME_SECONDS(Http2::accept_no_activity_timeout));
   this->schedule_event = nullptr;
   this->mutex          = new_vc->mutex;
   this->in_destroy     = false;
@@ -205,9 +206,9 @@ Http2ClientSession::new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOB
     Debug("ssl_early_data", "read_from_early_data = %" PRId64, this->read_from_early_data);
   }
 
-  Http2SsnDebug("session born, netvc %p", this->client_vc);
+  Http2SsnDebug("session born, netvc %p", this->_vc);
 
-  this->client_vc->set_tcp_congestion_control(CLIENT_SIDE);
+  this->_vc->set_tcp_congestion_control(CLIENT_SIDE);
 
   this->read_buffer             = iobuf ? iobuf : new_MIOBuffer(HTTP2_HEADER_BUFFER_SIZE_INDEX);
   this->read_buffer->water_mark = connection_state.server_settings.get(HTTP2_SETTINGS_MAX_FRAME_SIZE);
@@ -261,32 +262,6 @@ Http2ClientSession::set_upgrade_context(HTTPHdr *h)
   upgrade_context.req_header->field_delete(MIME_FIELD_HTTP2_SETTINGS, MIME_LEN_HTTP2_SETTINGS);
 }
 
-VIO *
-Http2ClientSession::do_io_read(Continuation *c, int64_t nbytes, MIOBuffer *buf)
-{
-  if (client_vc) {
-    return this->client_vc->do_io_read(c, nbytes, buf);
-  } else {
-    return nullptr;
-  }
-}
-
-VIO *
-Http2ClientSession::do_io_write(Continuation *c, int64_t nbytes, IOBufferReader *buf, bool owner)
-{
-  if (client_vc) {
-    return this->client_vc->do_io_write(c, nbytes, buf, owner);
-  } else {
-    return nullptr;
-  }
-}
-
-void
-Http2ClientSession::do_io_shutdown(ShutdownHowTo_t howto)
-{
-  this->client_vc->do_io_shutdown(howto);
-}
-
 // XXX Currently, we don't have a half-closed state, but we will need to
 // implement that. After we send a GOAWAY, there
 // are scenarios where we would like to complete the outstanding streams.
@@ -309,12 +284,6 @@ Http2ClientSession::do_io_close(int alerrno)
 
   // Clean up the write VIO in case of inactivity timeout
   this->do_io_write(nullptr, 0, nullptr);
-}
-
-void
-Http2ClientSession::reenable(VIO *vio)
-{
-  this->client_vc->reenable(vio);
 }
 
 void
@@ -376,19 +345,17 @@ Http2ClientSession::main_event_handler(int event, void *edata)
   case VC_EVENT_EOS:
     this->set_dying_event(event);
     this->do_io_close();
-    if (client_vc != nullptr) {
-      client_vc->do_io_close();
-      client_vc = nullptr;
+    if (_vc != nullptr) {
+      _vc->do_io_close();
+      _vc = nullptr;
     }
     retval = 0;
     break;
 
   case VC_EVENT_WRITE_READY:
-    retval = 0;
-    break;
-
   case VC_EVENT_WRITE_COMPLETE:
-    // Seems as this is being closed already
+    this->connection_state.restart_streams();
+
     retval = 0;
     break;
 
@@ -462,8 +429,8 @@ Http2ClientSession::state_read_connection_preface(int event, void *edata)
     this->_reader->consume(nbytes);
     HTTP2_SET_SESSION_HANDLER(&Http2ClientSession::state_start_frame_read);
 
-    client_vc->set_inactivity_timeout(HRTIME_SECONDS(Http2::no_activity_timeout_in));
-    client_vc->set_active_timeout(HRTIME_SECONDS(Http2::active_timeout_in));
+    _vc->set_inactivity_timeout(HRTIME_SECONDS(Http2::no_activity_timeout_in));
+    _vc->set_active_timeout(HRTIME_SECONDS(Http2::active_timeout_in));
 
     // XXX start the write VIO ...
 
@@ -610,8 +577,8 @@ Http2ClientSession::state_process_frame_read(int event, VIO *vio, bool inside_fr
       ip_port_text_buffer ipb;
       const char *client_ip = ats_ip_ntop(get_client_addr(), ipb, sizeof(ipb));
       Warning("HTTP/2 session error client_ip=%s session_id=%" PRId64
-              " closing a connection, because its stream error rate (%f) is too high",
-              client_ip, connection_id(), this->connection_state.get_stream_error_rate());
+              " closing a connection, because its stream error rate (%f) exceeded the threshold (%f)",
+              client_ip, connection_id(), this->connection_state.get_stream_error_rate(), Http2::stream_error_rate_threshold);
       err = Http2ErrorCode::HTTP2_ERROR_ENHANCE_YOUR_CALM;
     }
 
@@ -677,23 +644,24 @@ Http2ClientSession::_should_do_something_else()
   return (this->_n_frame_read & 0x7F) == 0;
 }
 
-NetVConnection *
-Http2ClientSession::get_netvc() const
-{
-  return client_vc;
-}
-
 sockaddr const *
 Http2ClientSession::get_client_addr()
 {
-  return client_vc ? client_vc->get_remote_addr() : &cached_client_addr.sa;
+  return _vc ? _vc->get_remote_addr() : &cached_client_addr.sa;
 }
 
 sockaddr const *
 Http2ClientSession::get_local_addr()
 {
-  return client_vc ? client_vc->get_local_addr() : &cached_local_addr.sa;
+  return _vc ? _vc->get_local_addr() : &cached_local_addr.sa;
 }
+
+int64_t
+Http2ClientSession::write_avail()
+{
+  return this->write_buffer->write_avail();
+}
+
 void
 Http2ClientSession::write_reenable()
 {
@@ -746,13 +714,13 @@ Http2ClientSession::protocol_contains(std::string_view prefix) const
 void
 Http2ClientSession::add_url_to_pushed_table(const char *url, int url_len)
 {
-  if (h2_pushed_urls.size() < Http2::push_diary_size) {
-    h2_pushed_urls.emplace(url);
+  // Delay std::unordered_set allocation until when it used
+  if (_h2_pushed_urls == nullptr) {
+    this->_h2_pushed_urls = new std::unordered_set<std::string>();
+    this->_h2_pushed_urls->reserve(Http2::push_diary_size);
   }
-}
 
-bool
-Http2ClientSession::support_sni() const
-{
-  return client_vc ? client_vc->support_sni() : false;
+  if (_h2_pushed_urls->size() < Http2::push_diary_size) {
+    _h2_pushed_urls->emplace(url);
+  }
 }

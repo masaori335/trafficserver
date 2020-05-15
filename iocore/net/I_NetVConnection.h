@@ -213,6 +213,8 @@ struct NetVCOptions {
    */
   const char *ssl_client_ca_cert_path = nullptr;
 
+  bool tls_upstream = false;
+
   /// Reset all values to defaults.
 
   /**
@@ -537,7 +539,9 @@ public:
     is currently active. See section on timeout semantics above.
 
    */
-  virtual void set_inactivity_timeout(ink_hrtime timeout_in) = 0;
+  virtual void set_inactivity_timeout(ink_hrtime timeout_in)         = 0;
+  virtual void set_default_inactivity_timeout(ink_hrtime timeout_in) = 0;
+  virtual bool is_default_inactivity_timeout()                       = 0;
 
   /**
     Clears the active timeout. No active timeouts will be sent until
@@ -645,6 +649,12 @@ public:
   support_sni() const
   {
     return false;
+  }
+
+  virtual const char *
+  get_sni_servername() const
+  {
+    return nullptr;
   }
 
   /** Structure holding user options. */

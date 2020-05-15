@@ -21,11 +21,19 @@ import os
 Test.Summary = '''
 Test new log fields
 '''
-# need Curl
+
 Test.SkipUnless(
     Condition.HasCurlFeature('http2')
 )
 
+# ----
+# Setup httpbin Origin Server
+# ----
+httpbin = Test.MakeHttpBinServer("httpbin")
+
+# ----
+# Setup ATS
+# ----
 ts = Test.MakeATSProcess("ts", enable_tls=True)
 
 ts.addSSLfile("../remap/ssl/server.pem")
@@ -38,15 +46,15 @@ ts.Disk.records_config.update({
 })
 
 ts.Disk.remap_config.AddLine(
-    'map http://127.0.0.1:{0} http://httpbin.org/ip'.format(ts.Variables.port)
+    'map http://127.0.0.1:{0} http://127.0.0.1:{1}/ip'.format(ts.Variables.port, httpbin.Variables.Port)
 )
 
 ts.Disk.remap_config.AddLine(
-    'map https://127.0.0.1:{0} https://httpbin.org/ip'.format(ts.Variables.ssl_port)
+    'map https://127.0.0.1:{0} http://127.0.0.1:{1}/ip'.format(ts.Variables.ssl_port, httpbin.Variables.Port)
 )
 
 ts.Disk.remap_config.AddLine(
-    'map https://reallyreallyreallyreallylong.com https://httpbin.org/ip'.format(ts.Variables.ssl_port)
+    'map https://reallyreallyreallyreallylong.com http://127.0.0.1:{1}/ip'.format(ts.Variables.ssl_port, httpbin.Variables.Port)
 )
 
 ts.Disk.ssl_multicert_config.AddLine(
@@ -68,6 +76,7 @@ logging:
 tr = Test.AddTestRun()
 # Delay on readiness of ssl port
 tr.Processes.Default.StartBefore(Test.Processes.ts)
+tr.Processes.Default.StartBefore(httpbin, ready=When.PortOpen(httpbin.Variables.Port))
 #
 tr.Processes.Default.Command = 'curl "http://127.0.0.1:{0}" --verbose'.format(
     ts.Variables.port)
@@ -97,10 +106,18 @@ tr.Processes.Default.Command = (
 ).format(ts.Variables.ssl_port)
 tr.Processes.Default.ReturnCode = 0
 
-# Delay to allow TS to flush report to disk, then validate generated log.
+# Wait for log file to appear, then wait one extra second to make sure TS is done writing it.
+#
+test_run = Test.AddTestRun()
+test_run.Processes.Default.Command = (
+    os.path.join(Test.Variables.AtsTestToolsDir, 'condwait') + ' 60 1 -f ' +
+    os.path.join(ts.Variables.LOGDIR, 'test_new_log_flds.log')
+)
+test_run.Processes.Default.ReturnCode = 0
+
+# Validate generated log.
 #
 tr = Test.AddTestRun()
-tr.DelayStart = 10
 tr.Processes.Default.Command = 'python3 {0} < {1}'.format(
     os.path.join(Test.TestDirectory, 'new_log_flds_observer.py'),
     os.path.join(ts.Variables.LOGDIR, 'test_new_log_flds.log'))

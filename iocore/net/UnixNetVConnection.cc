@@ -1352,12 +1352,23 @@ TS_INLINE void
 UnixNetVConnection::set_inactivity_timeout(ink_hrtime timeout_in)
 {
   Debug("socket", "Set inactive timeout=%" PRId64 ", for NetVC=%p", timeout_in, this);
-  if (timeout_in == 0) {
-    // set default inactivity timeout
-    timeout_in = HRTIME_SECONDS(nh->config.default_inactivity_timeout);
-  }
   inactivity_timeout_in      = timeout_in;
-  next_inactivity_timeout_at = Thread::get_hrtime() + inactivity_timeout_in;
+  next_inactivity_timeout_at = (timeout_in > 0) ? Thread::get_hrtime() + inactivity_timeout_in : 0;
+}
+
+TS_INLINE void
+UnixNetVConnection::set_default_inactivity_timeout(ink_hrtime timeout_in)
+{
+  Debug("socket", "Set default inactive timeout=%" PRId64 ", for NetVC=%p", timeout_in, this);
+  inactivity_timeout_in      = 0;
+  default_inactivity_timeout = true;
+  next_inactivity_timeout_at = Thread::get_hrtime() + timeout_in;
+}
+
+TS_INLINE bool
+UnixNetVConnection::is_default_inactivity_timeout()
+{
+  return (default_inactivity_timeout && inactivity_timeout_in == 0);
 }
 
 /*
@@ -1389,29 +1400,31 @@ UnixNetVConnection::migrateToCurrentThread(Continuation *cont, EThread *t)
   // Go ahead and remove the fd from the original thread's epoll structure, so it is not
   // processed on two threads simultaneously
   this->ep.stop();
-  this->do_io_close();
 
   // Create new VC:
+  UnixNetVConnection *netvc = nullptr;
   if (save_ssl) {
     SSLNetVConnection *sslvc = static_cast<SSLNetVConnection *>(sslNetProcessor.allocate_vc(t));
     if (sslvc->populate(hold_con, cont, save_ssl) != EVENT_DONE) {
       sslvc->do_io_close();
       sslvc = nullptr;
     } else {
+      // Update the SSL fields
       sslvc->set_context(get_context());
     }
-    return sslvc;
-    // Update the SSL fields
+    netvc = sslvc;
   } else {
-    UnixNetVConnection *netvc = static_cast<UnixNetVConnection *>(netProcessor.allocate_vc(t));
+    netvc = static_cast<UnixNetVConnection *>(netProcessor.allocate_vc(t));
     if (netvc->populate(hold_con, cont, save_ssl) != EVENT_DONE) {
       netvc->do_io_close();
       netvc = nullptr;
     } else {
       netvc->set_context(get_context());
     }
-    return netvc;
   }
+  // Do not mark this closed until the end so it does not get freed by the other thread too soon
+  this->do_io_close();
+  return netvc;
 }
 
 void

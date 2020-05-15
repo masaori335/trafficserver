@@ -78,6 +78,7 @@ class ProxySession : public VConnection, public PluginUserArgs<TS_USER_ARGS_SSN>
 {
 public:
   ProxySession();
+  ProxySession(NetVConnection *vc);
 
   // noncopyable
   ProxySession(ProxySession &) = delete;
@@ -99,7 +100,7 @@ public:
   virtual void decrement_current_active_client_connections_stat() = 0;
 
   // Virtual Accessors
-  virtual NetVConnection *get_netvc() const       = 0;
+  NetVConnection *get_netvc() const;
   virtual int get_transact_count() const          = 0;
   virtual const char *get_protocol_string() const = 0;
 
@@ -139,13 +140,19 @@ public:
   TSHttpHookID get_hookid() const;
   bool has_hooks() const;
 
-  virtual bool support_sni() const = 0;
+  virtual bool support_sni() const;
 
   APIHook *hook_get(TSHttpHookID id) const;
   HttpAPIHooks const *feature_hooks() const;
 
   // Returns null pointer if session does not use a TLS connection.
   SSLProxySession const *ssl() const;
+
+  // Implement VConnection interface
+  VIO *do_io_read(Continuation *c, int64_t nbytes = INT64_MAX, MIOBuffer *buf = nullptr) override;
+  VIO *do_io_write(Continuation *c = nullptr, int64_t nbytes = INT64_MAX, IOBufferReader *buf = 0, bool owner = false) override;
+  void do_io_shutdown(ShutdownHowTo_t howto) override;
+  void reenable(VIO *vio) override;
 
   ////////////////////
   // Members
@@ -175,6 +182,8 @@ protected:
   // the new_vc may be an SSLNetVConnection object.
   void _handle_if_ssl(NetVConnection *new_vc);
 
+  NetVConnection *_vc = nullptr; // The netvc associated with the concrete session class
+
 private:
   void handle_api_return(int event);
   int state_api_callout(int event, void *edata);
@@ -189,12 +198,11 @@ private:
   bool m_active = false;
 
   std::unique_ptr<SSLProxySession> _ssl;
+  static inline int64_t next_cs_id = 0;
 };
 
 ///////////////////
 // INLINE
-
-static inline int64_t next_cs_id = 0;
 
 inline int64_t
 ProxySession::next_connection_id()
@@ -267,4 +275,10 @@ inline SSLProxySession const *
 ProxySession::ssl() const
 {
   return _ssl.get();
+}
+
+inline NetVConnection *
+ProxySession::get_netvc() const
+{
+  return _vc;
 }

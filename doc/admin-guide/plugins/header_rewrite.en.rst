@@ -193,7 +193,7 @@ COOKIE
 
     cond %{COOKIE:<name>} <operand>
 
-Value of of the cookie ``<name>``. This does not expose or match against a
+Value of the cookie ``<name>``. This does not expose or match against a
 cookie's expiration, the domain(s) on which it is valid, whether it is protocol
 restricted, or any of the other metadata; simply the current value of the
 cookie as presented by the client.
@@ -913,7 +913,7 @@ READ_RESPONSE_HDR_HOOK
 ~~~~~~~~~~~~~~~~~~~~~~
 
 Rulesets evaluated within this context will process only once the origin server
-response (or cached response) has been read, but prior to |TS| sending that
+response has been read, but prior to |TS| sending that
 response to the client.
 
 This is the default hook condition for all globally-configured rulesets.
