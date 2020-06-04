@@ -113,6 +113,8 @@ Http2ClientSession::free()
           this->_milestones.difference_sec(Http2SsnMilestone::OPEN, Http2SsnMilestone::CLOSE));
   }
 
+  // Workaround fix for #6671, there must be a path of closing active connection
+  this->clear_session_active();
   HTTP2_DECREMENT_THREAD_DYN_STAT(HTTP2_STAT_CURRENT_CLIENT_SESSION_COUNT, this->mutex->thread_holding);
 
   // Update stats on how we died.  May want to eliminate this.  Was useful for
