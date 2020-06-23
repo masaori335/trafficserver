@@ -101,6 +101,8 @@ public:
 
   // more methods
   void write_reenable();
+  void set_write_vio_nbytes(int64_t n);
+
   int64_t xmit(const Http2TxFrame &frame);
 
   ////////////////////

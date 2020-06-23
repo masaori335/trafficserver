@@ -298,13 +298,24 @@ Http2ClientSession::set_half_close_local_flag(bool flag)
   half_close_local = flag;
 }
 
+/**
+   Transmit HTTP/2 Frame
+
+   1. Write given HTTP/2 frame to the write_buffer
+   2. Do re-enable write of underlay VConnection
+
+   Note: the actual write to the socket is asynchronous. It will be done by the event processor.
+ */
 int64_t
 Http2ClientSession::xmit(const Http2TxFrame &frame)
 {
   int64_t len = frame.write_to(this->write_buffer);
-
+  
   if (len > 0) {
     total_write_len += len;
+
+    // To trigger WRITE_COMPLETE
+    write_vio->nbytes = total_write_len;
     write_reenable();
   }
 
@@ -355,9 +366,12 @@ Http2ClientSession::main_event_handler(int event, void *edata)
     retval = 0;
     break;
 
-  case VC_EVENT_WRITE_READY:
   case VC_EVENT_WRITE_COMPLETE:
-    this->connection_state.restart_streams();
+    write_vio->nbytes = INT64_MAX;
+  case VC_EVENT_WRITE_READY:
+    Http2SsnDebug("event=%s(%d) edata=%p", get_vc_event_name(event), event, edata);
+
+    this->connection_state.restart_streams(VC_EVENT_WRITE_READY);
 
     retval = 0;
     break;
@@ -668,8 +682,25 @@ Http2ClientSession::write_avail()
 void
 Http2ClientSession::write_reenable()
 {
+  if (write_vio == nullptr) {
+    return;
+  }
+
+  SCOPED_MUTEX_LOCK(lock, write_vio->mutex, this_ethread());
   write_vio->reenable();
 }
+
+void
+Http2ClientSession::set_write_vio_nbytes(int64_t n)
+{
+  if (write_vio == nullptr) {
+    return;
+  }
+
+  SCOPED_MUTEX_LOCK(lock, write_vio->mutex, this_ethread());
+  write_vio->nbytes = n;
+}
+
 
 int
 Http2ClientSession::get_transact_count() const

@@ -798,8 +798,6 @@ rcv_window_update_frame(Http2ConnectionState &cstate, const Http2Frame &frame)
     if (error != Http2ErrorCode::HTTP2_ERROR_NO_ERROR) {
       return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_CONNECTION, error);
     }
-
-    cstate.restart_streams();
   } else {
     // Stream level window update
     Http2Stream *stream = cstate.find_stream(stream_id);
@@ -832,13 +830,9 @@ rcv_window_update_frame(Http2ConnectionState &cstate, const Http2Frame &frame)
     if (error != Http2ErrorCode::HTTP2_ERROR_NO_ERROR) {
       return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_STREAM, error);
     }
-
-    ssize_t wnd = std::min(cstate.client_rwnd(), stream->client_rwnd());
-    if (!stream->is_closed() && stream->get_state() == Http2StreamState::HTTP2_STREAM_STATE_HALF_CLOSED_REMOTE && wnd > 0) {
-      SCOPED_MUTEX_LOCK(lock, stream->mutex, this_ethread());
-      stream->restart_sending();
-    }
   }
+
+  cstate.ua_session->write_reenable();
 
   return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_NONE);
 }
@@ -1250,7 +1244,7 @@ Http2ConnectionState::find_stream(Http2StreamId id) const
 }
 
 void
-Http2ConnectionState::restart_streams()
+Http2ConnectionState::restart_streams(int event)
 {
   Http2Stream *s = stream_list.head;
   if (s) {
@@ -1273,7 +1267,7 @@ Http2ConnectionState::restart_streams()
       if (!s->is_closed() && s->get_state() == Http2StreamState::HTTP2_STREAM_STATE_HALF_CLOSED_REMOTE &&
           std::min(this->client_rwnd(), s->client_rwnd()) > 0) {
         SCOPED_MUTEX_LOCK(lock, s->mutex, this_ethread());
-        s->restart_sending();
+        s->handleEvent(event);
       }
       ink_assert(s != next);
       s = next;
@@ -1281,7 +1275,7 @@ Http2ConnectionState::restart_streams()
     if (!s->is_closed() && s->get_state() == Http2StreamState::HTTP2_STREAM_STATE_HALF_CLOSED_REMOTE &&
         std::min(this->client_rwnd(), s->client_rwnd()) > 0) {
       SCOPED_MUTEX_LOCK(lock, s->mutex, this_ethread());
-      s->restart_sending();
+      s->handleEvent(event);
     }
 
     ++starting_point;
@@ -1433,6 +1427,8 @@ Http2ConnectionState::release_stream()
       }
     } else if (fini_received) {
       schedule_zombie_event();
+    } else {
+      ua_session->write_reenable();
     }
   }
 }
@@ -1492,7 +1488,8 @@ Http2ConnectionState::send_data_frames_depends_on_priority()
       dependency_tree->update(node, len);
 
       SCOPED_MUTEX_LOCK(stream_lock, stream->mutex, this_ethread());
-      stream->signal_write_event(true);
+      int event = stream->is_write_vio_done() ? VC_EVENT_WRITE_COMPLETE : VC_EVENT_WRITE_READY;
+      stream->signal_write_event(event);
     }
     break;
   }

@@ -189,7 +189,7 @@ public:
   // Stream control interfaces
   Http2Stream *create_stream(Http2StreamId new_id, Http2Error &error);
   Http2Stream *find_stream(Http2StreamId id) const;
-  void restart_streams();
+  void restart_streams(int event);
   bool delete_stream(Http2Stream *stream);
   void release_stream();
   void cleanup_streams();

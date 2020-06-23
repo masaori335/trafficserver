@@ -74,12 +74,9 @@ public:
   void send_request(Http2ConnectionState &cstate);
   void initiating_close();
   void terminate_if_possible();
-  void update_read_request(int64_t read_len, bool send_update, bool check_eos = false);
-  void update_write_request(IOBufferReader *buf_reader, int64_t write_len, bool send_update);
 
   void signal_read_event(int event);
   void signal_write_event(int event);
-  void signal_write_event(bool call_update);
 
   void restart_sending();
   bool push_promise(URL &url, const MIMEField *accept_encoding);
@@ -150,9 +147,13 @@ public:
   Http2DependencyTree::Node *priority_node = nullptr;
 
 private:
+  void update_read_request();
+  void update_write_request(int event);
+
   bool response_is_data_available() const;
   Event *send_tracked_event(Event *event, int send_event, VIO *vio);
-  void send_response_body(bool call_update);
+  void send_response_header();
+  void send_response_body();
 
   /**
    * Check if this thread is the right thread to process events for this
