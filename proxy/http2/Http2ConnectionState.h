@@ -268,8 +268,7 @@ public:
   }
 
   // HTTP/2 frame sender
-  void schedule_stream(Http2Stream *stream);
-  void send_data_frames_depends_on_priority();
+  void send_data_frames_depends_on_priority(Http2Stream *stream);
   void send_data_frames(Http2Stream *stream);
   Http2SendDataFrameResult send_a_data_frame(Http2Stream *stream, size_t &payload_length);
   void send_headers_frame(Http2Stream *stream);
@@ -353,6 +352,9 @@ public:
   Http2ErrorCode decrement_server_rwnd(size_t amount);
 
 private:
+  void _restart_stream_by_rr();
+  void _restart_stream_by_dep_tree();
+
   unsigned _adjust_concurrent_stream();
 
   // NOTE: 'stream_list' has only active streams.
@@ -398,7 +400,6 @@ private:
   //     "If the END_HEADERS bit is not set, this frame MUST be followed by
   //     another CONTINUATION frame."
   Http2StreamId continued_stream_id = 0;
-  bool _scheduled                   = false;
   bool fini_received                = false;
   bool in_destroy                   = false;
   int recursion                     = 0;

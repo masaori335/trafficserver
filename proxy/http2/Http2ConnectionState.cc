@@ -798,8 +798,6 @@ rcv_window_update_frame(Http2ConnectionState &cstate, const Http2Frame &frame)
     if (error != Http2ErrorCode::HTTP2_ERROR_NO_ERROR) {
       return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_CONNECTION, error);
     }
-
-    cstate.restart_streams();
   } else {
     // Stream level window update
     Http2Stream *stream = cstate.find_stream(stream_id);
@@ -833,12 +831,13 @@ rcv_window_update_frame(Http2ConnectionState &cstate, const Http2Frame &frame)
       return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_STREAM, error);
     }
 
-    ssize_t wnd = std::min(cstate.client_rwnd(), stream->client_rwnd());
-    if (!stream->is_closed() && stream->get_state() == Http2StreamState::HTTP2_STREAM_STATE_HALF_CLOSED_REMOTE && wnd > 0) {
-      SCOPED_MUTEX_LOCK(lock, stream->mutex, this_ethread());
-      stream->restart_sending();
+    if (Http2::stream_priority_enabled) {
+      Http2DependencyTree::Node *node = stream->priority_node;
+      cstate.dependency_tree->activate(node);
     }
   }
+
+  cstate.ua_session->write_reenable();
 
   return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_NONE);
 }
@@ -1007,13 +1006,6 @@ Http2ConnectionState::main_event_handler(int event, void *edata)
     cleanup_streams();
     release_stream();
     SET_HANDLER(&Http2ConnectionState::state_closed);
-  } break;
-
-  case HTTP2_SESSION_EVENT_XMIT: {
-    REMEMBER(event, this->recursion);
-    SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
-    send_data_frames_depends_on_priority();
-    _scheduled = false;
   } break;
 
   // Parse received HTTP/2 frames
@@ -1249,8 +1241,29 @@ Http2ConnectionState::find_stream(Http2StreamId id) const
   return nullptr;
 }
 
+/**
+  Select algorithm of stream scheduling
+ */
 void
 Http2ConnectionState::restart_streams()
+{
+  if (stream_list.empty()) {
+    return;
+  }
+
+  if (Http2::stream_priority_enabled) {
+    _restart_stream_by_dep_tree();
+  } else {
+    _restart_stream_by_rr();
+  }
+}
+
+/**
+  Travarse stream list one by one. The starting point is random.
+  When a stream start sending, write data as much as possible.
+ */
+void
+Http2ConnectionState::_restart_stream_by_rr()
 {
   Http2Stream *s = stream_list.head;
   if (s) {
@@ -1285,6 +1298,44 @@ Http2ConnectionState::restart_streams()
     }
 
     ++starting_point;
+  }
+}
+
+/**
+  Pickup a stream by dependency tree. Re-caluculate top node of the tree, after sending a DATA frame
+ */
+void
+Http2ConnectionState::_restart_stream_by_dep_tree()
+{
+  ink_assert(dependency_tree != nullptr);
+
+  if (dependency_tree->top() == nullptr) {
+    std::stringstream output;
+    dependency_tree->dump_tree(output);
+    Http2ConDebug(ua_session, "no node available %s", output.str().c_str());
+  }
+
+  if (_client_rwnd == 0) {
+    ua_session->write_disable();
+    return;
+  }
+
+  for (Http2DependencyTree::Node *node = dependency_tree->top(); node; node = dependency_tree->top()) {
+    if (this->_client_rwnd <= 0 || this->ua_session->write_avail() == 0) {
+      break;
+    }
+
+    Http2Stream *stream = static_cast<Http2Stream *>(node->t);
+    ink_release_assert(stream != nullptr);
+
+    {
+      SCOPED_MUTEX_LOCK(lock, stream->mutex, this_ethread());
+      Http2StreamDebug(ua_session, stream->get_id(), "point=%d", node->point);
+      int ret = stream->restart_sending();
+      if (ret < 0) {
+        dependency_tree->deactivate(node, 0);
+      }
+    }
   }
 }
 
@@ -1448,66 +1499,37 @@ Http2ConnectionState::update_initial_rwnd(Http2WindowSize new_size)
 }
 
 void
-Http2ConnectionState::schedule_stream(Http2Stream *stream)
+Http2ConnectionState::send_data_frames_depends_on_priority(Http2Stream *stream)
 {
-  Http2StreamDebug(ua_session, stream->get_id(), "Scheduled");
-
-  Http2DependencyTree::Node *node = stream->priority_node;
-  ink_release_assert(node != nullptr);
-
-  SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
-  dependency_tree->activate(node);
-
-  if (!_scheduled) {
-    _scheduled = true;
-
-    SET_HANDLER(&Http2ConnectionState::main_event_handler);
-    this_ethread()->schedule_imm_local((Continuation *)this, HTTP2_SESSION_EVENT_XMIT);
-  }
-}
-
-void
-Http2ConnectionState::send_data_frames_depends_on_priority()
-{
-  Http2DependencyTree::Node *node = dependency_tree->top();
-
-  // No node to send or no connection level window left
-  if (node == nullptr || _client_rwnd <= 0) {
-    return;
-  }
-
-  Http2Stream *stream = static_cast<Http2Stream *>(node->t);
-  ink_release_assert(stream != nullptr);
-  Http2StreamDebug(ua_session, stream->get_id(), "top node, point=%d", node->point);
-
   size_t len                      = 0;
   Http2SendDataFrameResult result = send_a_data_frame(stream, len);
+  Http2DependencyTree::Node *node = stream->priority_node;
+
+  Http2StreamDebug(this->ua_session, stream->get_id(), "%d", (int)result);
 
   switch (result) {
-  case Http2SendDataFrameResult::NO_ERROR: {
-    // No response body to send
-    if (len == 0 && !stream->is_write_vio_done()) {
-      dependency_tree->deactivate(node, len);
-    } else {
-      dependency_tree->update(node, len);
-
-      SCOPED_MUTEX_LOCK(stream_lock, stream->mutex, this_ethread());
-      stream->signal_write_event(true);
-    }
+  case Http2SendDataFrameResult::NO_ERROR:
+    dependency_tree->update(node, len);
     break;
-  }
-  case Http2SendDataFrameResult::DONE: {
+  case Http2SendDataFrameResult::DONE:
     dependency_tree->deactivate(node, len);
     stream->initiating_close();
     break;
-  }
-  default:
-    // When no stream level window left, deactivate node once and wait window_update frame
+  case Http2SendDataFrameResult::ERROR:
+  case Http2SendDataFrameResult::NO_PAYLOAD:
     dependency_tree->deactivate(node, len);
+    break;
+  case Http2SendDataFrameResult::NO_WINDOW:
+    // When no stream level window left, deactivate node once and wait window_update frame
+    if (stream->client_rwnd() == 0) {
+      dependency_tree->deactivate(node, len);
+    }
+    break;
+  case Http2SendDataFrameResult::NOT_WRITE_AVAIL:
+  default:
     break;
   }
 
-  this_ethread()->schedule_imm_local((Continuation *)this, HTTP2_SESSION_EVENT_XMIT);
   return;
 }
 
@@ -1559,7 +1581,8 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
     return Http2SendDataFrameResult::NO_PAYLOAD;
   }
 
-  if (stream->is_write_vio_done() && !resp_reader->is_read_avail_more_than(0)) {
+  if ((stream->is_write_vio_done() && !resp_reader->is_read_avail_more_than(0)) ||
+      (stream->write_vio_ntodo() == static_cast<int64_t>(payload_length))) {
     flags |= HTTP2_FLAGS_DATA_END_STREAM;
   }
 

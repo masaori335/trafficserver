@@ -357,12 +357,13 @@ Http2ClientSession::main_event_handler(int event, void *edata)
 
   case VC_EVENT_WRITE_READY:
   case VC_EVENT_WRITE_COMPLETE:
+    Http2SsnDebug("event=%s(%d)", get_vc_event_name(event), event);
+
     this->connection_state.restart_streams();
 
     retval = 0;
     break;
 
-  case HTTP2_SESSION_EVENT_XMIT:
   default:
     Http2SsnDebug("unexpected event=%d edata=%p", event, edata);
     ink_release_assert(0);
@@ -669,6 +670,12 @@ void
 Http2ClientSession::write_reenable()
 {
   write_vio->reenable();
+}
+
+void
+Http2ClientSession::write_disable()
+{
+  write_vio->disable();
 }
 
 int

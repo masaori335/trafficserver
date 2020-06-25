@@ -81,7 +81,7 @@ public:
   void signal_write_event(int event);
   void signal_write_event(bool call_update);
 
-  void restart_sending();
+  int restart_sending();
   bool push_promise(URL &url, const MIMEField *accept_encoding);
 
   // Stream level window size
@@ -119,7 +119,6 @@ public:
 
   void increment_data_length(uint64_t length);
   bool payload_length_is_valid() const;
-  bool is_write_vio_done() const;
   void update_sent_count(unsigned num_bytes);
   Http2StreamId get_id() const;
   Http2StreamState get_state() const;
@@ -127,8 +126,14 @@ public:
   void update_initial_rwnd(Http2WindowSize new_size);
   bool has_trailing_header() const;
   void set_request_headers(HTTPHdr &h2_headers);
+
+  // read_vio
   MIOBuffer *read_vio_writer() const;
   int64_t read_vio_read_avail();
+
+  // write_vio
+  bool is_write_vio_done() const;
+  int64_t write_vio_ntodo() const;
 
   //////////////////
   // Variables
@@ -235,6 +240,12 @@ inline bool
 Http2Stream::is_write_vio_done() const
 {
   return this->write_vio.ntodo() == 0;
+}
+
+inline int64_t
+Http2Stream::write_vio_ntodo() const
+{
+  return write_vio.ntodo();
 }
 
 inline void

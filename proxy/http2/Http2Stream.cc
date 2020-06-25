@@ -526,23 +526,24 @@ Http2Stream::update_read_request(int64_t read_len, bool call_update, bool check_
   }
 }
 
-void
+int
 Http2Stream::restart_sending()
 {
-  if (!this->response_header_done) {
-    return;
+  if (!this->response_header_done || is_closed() || !is_client_state_writeable() || client_rwnd() == 0) {
+    return -1;
   }
 
   IOBufferReader *reader = this->response_get_data_reader();
   if (reader && !reader->is_read_avail_more_than(0)) {
-    return;
+    return -1;
   }
 
   if (this->write_vio.mutex && this->write_vio.ntodo() == 0) {
-    return;
+    return -1;
   }
 
   this->send_response_body(true);
+  return 0;
 }
 
 void
@@ -723,16 +724,16 @@ Http2Stream::send_response_body(bool call_update)
 
   if (Http2::stream_priority_enabled) {
     SCOPED_MUTEX_LOCK(lock, h2_proxy_ssn->connection_state.mutex, this_ethread());
-    h2_proxy_ssn->connection_state.schedule_stream(this);
-    // signal_write_event() will be called from `Http2ConnectionState::send_data_frames_depends_on_priority()`
-    // when write_vio is consumed
+    h2_proxy_ssn->connection_state.dependency_tree->activate(priority_node);
+    h2_proxy_ssn->connection_state.send_data_frames_depends_on_priority(this);
   } else {
     SCOPED_MUTEX_LOCK(lock, h2_proxy_ssn->connection_state.mutex, this_ethread());
     h2_proxy_ssn->connection_state.send_data_frames(this);
-    this->signal_write_event(call_update);
-    // XXX The call to signal_write_event can destroy/free the Http2Stream.
-    // Don't modify the Http2Stream after calling this method.
   }
+
+  this->signal_write_event(call_update);
+  // XXX The call to signal_write_event can destroy/free the Http2Stream.
+  // Don't modify the Http2Stream after calling this method.
 }
 
 void
