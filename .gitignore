@@ -196,6 +196,7 @@ tests/env-test/
 tests/Pipfile.lock
 tests/gold_tests/chunked_encoding/smuggle-client
 tests/gold_tests/tls/ssl-post
+tests/gold_tests/timeout/ssl-delay-server
 
 iocore/cache/test_*
 iocore/cache/test/var/trafficserver/cache.db
