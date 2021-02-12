@@ -382,6 +382,9 @@ public:
     return true;
   }
 
+  void set_outbound_sni_policy(const std::string_view &policy);
+  const std::string_view &get_outbound_sni_policy() const;
+
   /// Set by asynchronous hooks to request a specific operation.
   SslVConnOp hookOpRequested = SSL_HOOK_OP_DEFAULT;
 
@@ -519,6 +522,7 @@ private:
   in_port_t tunnel_port       = 0;
   SNIRoutingType _tunnel_type = SNIRoutingType::NONE;
   X509_STORE_CTX *verify_cert = nullptr;
+  std::string_view _outbound_sni_policy{};
 
   // Null-terminated string, or nullptr if there is no SNI server name.
   std::unique_ptr<char[]> _ca_cert_file;
@@ -561,4 +565,16 @@ inline bool
 SSLNetVConnection::upstream_tls() const
 {
   return _tunnel_type == SNIRoutingType::PARTIAL_BLIND;
+}
+
+inline void
+SSLNetVConnection::set_outbound_sni_policy(const std::string_view &policy)
+{
+  _outbound_sni_policy = policy;
+}
+
+inline const std::string_view &
+SSLNetVConnection::get_outbound_sni_policy() const
+{
+  return _outbound_sni_policy;
 }

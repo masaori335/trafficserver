@@ -104,10 +104,12 @@ std::set<std::string> valid_sni_config_keys = {TS_fqdn,
                                                TS_tunnel_route,
                                                TS_forward_route,
                                                TS_partial_blind_route,
+                                               TS_tunnel_pristine_server_name,
                                                TS_verify_server_policy,
                                                TS_verify_server_properties,
                                                TS_client_cert,
                                                TS_client_key,
+                                               TS_client_sni_policy,
                                                TS_http2,
                                                TS_ip_allow,
 #if TS_USE_HELLO_CB
@@ -239,6 +241,9 @@ template <> struct convert<YamlSNIConfig::Item> {
     }
     if (node[TS_client_key]) {
       item.client_key = node[TS_client_key].as<std::string>();
+    }
+    if (node[TS_client_sni_policy]) {
+      item.client_sni_policy = node[TS_client_sni_policy].as<std::string>();
     }
 
     if (node[TS_ip_allow]) {

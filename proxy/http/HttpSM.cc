@@ -4823,14 +4823,25 @@ HttpSM::get_outbound_cert() const
 std::string_view
 HttpSM::get_outbound_sni() const
 {
+  ink_release_assert(ua_txn != nullptr);
+
   using namespace ts::literals;
   ts::TextView zret;
   ts::TextView policy{t_state.txn_conf->ssl_client_sni_policy, ts::TextView::npos};
+
+  const NetVConnection *netvc = ua_txn->get_netvc();
+  // TODO: avoid this dynamic_cast
+  if (const SSLNetVConnection *sslvc = dynamic_cast<const SSLNetVConnection *>(netvc); sslvc != nullptr) {
+    policy = sslvc->get_outbound_sni_policy();
+  }
+
   if (policy.empty() || !strcmp(policy, "host"_tv)) {
     // By default the host header field value is used for the SNI.
     int len;
     char const *ptr = t_state.hdr_info.server_request.host_get(&len);
     zret.assign(ptr, len);
+  } else if (policy.empty() || !strcmp(policy, "servername"_tv)) {
+    zret.assign(netvc->get_server_name(), ts::TextView::npos);
   } else if (policy.front() == '@') { // guaranteed non-empty from previous clause
     zret = policy.remove_prefix(1);
   } else {

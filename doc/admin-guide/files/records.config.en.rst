@@ -3612,6 +3612,9 @@ Client-Related Configuration
    ``host``
       This is the default. The value of the ``Host`` field in the proxy request is used.
 
+   ``servername``
+      The value of servername in SNI is used.
+
    ``remap``
       The remapped upstream name is used.
 
