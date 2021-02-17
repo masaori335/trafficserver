@@ -1249,7 +1249,7 @@ DNSEntry::mainEvent(int event, Event *e)
 }
 
 Action *
-DNSProcessor::getby(const char *x, int len, int type, Continuation *cont, Options const &opt)
+DNSProcessor::getby(const char *x, int len, int type, Continuation *cont, Options const &opt) const
 {
   Debug("dns", "received query %s type = %d, timeout = %d", x, type, opt.timeout);
   if (type == T_SRV) {

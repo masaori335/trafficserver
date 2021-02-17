@@ -79,13 +79,13 @@ public:
    * This method allows you to increment a stat by a certain amount.
    * @param amount the amount to increment the stat by the default value is 1.
    */
-  void increment(int64_t amount = 1);
+  void increment(int64_t amount = 1) const;
 
   /**
    * This method allows you to decrement a stat by a certain amount.
    * @param amount the amount to decrement the stat by the default value is 1.
    */
-  void decrement(int64_t amount = 1);
+  void decrement(int64_t amount = 1) const;
 
   /**
    * This method returns the current value of the stat.
@@ -96,7 +96,7 @@ public:
   /** This method sets the value of the stat.
    * @param value the value to set the stat to.
    */
-  void set(int64_t value);
+  void set(int64_t value) const;
 
 private:
   int stat_id_ = TS_ERROR; /**< The internal stat ID */

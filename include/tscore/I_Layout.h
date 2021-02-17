@@ -50,7 +50,7 @@ struct Layout {
   /**
    Return file path relative to Layout->prefix
   */
-  std::string relative(std::string_view file);
+  std::string relative(std::string_view file) const;
 
   /**
    update the sysconfdir to a test conf dir

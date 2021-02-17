@@ -241,8 +241,8 @@ public:
 
     iterator() { q.reserve(HOST_TABLE_DEPTH * 2); } // was 6, guessing that was twice the table depth.
 
-    value_type *operator->();
-    value_type &operator*();
+    value_type *operator->() const;
+    value_type &operator*() const;
     bool operator==(self_type const &that) const;
     bool operator!=(self_type const &that) const;
     self_type &operator++();
@@ -389,14 +389,14 @@ CharIndex::end() -> iterator
 }
 
 auto
-CharIndex::iterator::operator->() -> value_type *
+CharIndex::iterator::operator->() const -> value_type *
 {
   ink_assert(state.block != nullptr); // clang!
   return state.block->array[state.index].branch;
 }
 
 auto
-CharIndex::iterator::operator*() -> value_type &
+CharIndex::iterator::operator*() const -> value_type &
 {
   ink_assert(state.block != nullptr); // clang!
   return *(state.block->array[state.index].branch);

@@ -480,7 +480,7 @@ struct HostDBContinuation : public Continuation {
   void remove_trigger_pending_dns();
   int set_check_pending_dns();
 
-  HostDBInfo *insert(unsigned int attl);
+  HostDBInfo *insert(unsigned int attl) const;
 
   /** Optional values for @c init.
    */

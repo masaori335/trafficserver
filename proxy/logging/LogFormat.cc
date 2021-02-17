@@ -798,7 +798,7 @@ LogFormatList::find_by_name(const char *name) const
 }
 
 unsigned
-LogFormatList::count()
+LogFormatList::count() const
 {
   unsigned cnt = 0;
   for (LogFormat *f = first(); f; f = next(f)) {
@@ -808,7 +808,7 @@ LogFormatList::count()
 }
 
 void
-LogFormatList::display(FILE *fd)
+LogFormatList::display(FILE *fd) const
 {
   for (LogFormat *f = first(); f; f = next(f)) {
     f->display(fd);

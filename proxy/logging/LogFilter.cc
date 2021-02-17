@@ -947,7 +947,7 @@ LogFilterList::~LogFilterList()
   -------------------------------------------------------------------------*/
 
 bool
-LogFilterList::operator==(LogFilterList &rhs)
+LogFilterList::operator==(LogFilterList &rhs) const
 {
   if (m_does_conjunction == rhs.does_conjunction()) {
     LogFilter *f    = first();
@@ -1009,7 +1009,7 @@ LogFilterList::add(LogFilter *filter, bool copy)
   -------------------------------------------------------------------------*/
 
 bool
-LogFilterList::wipe_this_entry(LogAccess *lad)
+LogFilterList::wipe_this_entry(LogAccess *lad) const
 {
   bool wipeFlag = false;
   for (LogFilter *f = first(); f; f = next(f)) {
@@ -1024,7 +1024,7 @@ LogFilterList::wipe_this_entry(LogAccess *lad)
   -------------------------------------------------------------------------*/
 
 bool
-LogFilterList::toss_this_entry(LogAccess *lad)
+LogFilterList::toss_this_entry(LogAccess *lad) const
 {
   if (m_does_conjunction) {
     // toss if any filter rejects the entry (all filters should accept)
@@ -1051,7 +1051,7 @@ LogFilterList::toss_this_entry(LogAccess *lad)
   -------------------------------------------------------------------------*/
 
 LogFilter *
-LogFilterList::find_by_name(const char *name)
+LogFilterList::find_by_name(const char *name) const
 {
   for (LogFilter *f = first(); f; f = next(f)) {
     if (strcmp(f->name(), name) == 0) {
@@ -1076,7 +1076,7 @@ LogFilterList::count() const
 }
 
 void
-LogFilterList::display(FILE *fd)
+LogFilterList::display(FILE *fd) const
 {
   for (LogFilter *f = first(); f; f = next(f)) {
     f->display(fd);

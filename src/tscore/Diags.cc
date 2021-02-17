@@ -487,7 +487,7 @@ Diags::error_va(DiagsLevel level, const SourceLocation *loc, const char *format_
  * Returns true on success, false otherwise
  */
 bool
-Diags::setup_diagslog(BaseLogFile *blf)
+Diags::setup_diagslog(BaseLogFile *blf) const
 {
   if (blf != nullptr) {
     if (blf->open_file(diags_logfile_perm) != BaseLogFile::LOG_FILE_NO_ERROR) {

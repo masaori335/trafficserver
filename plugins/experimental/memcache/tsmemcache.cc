@@ -156,7 +156,7 @@ MC::new_connection(NetVConnection *netvc, EThread *thread)
 }
 
 int
-MC::die()
+MC::die() // NOLINT(readability-make-member-function-const)
 {
   if (pending_action && pending_action != ACTION_RESULT_DONE) {
     pending_action->cancel();
@@ -218,7 +218,7 @@ MC::stream_then_read_from_client(int64_t ntowrite)
 }
 
 void
-MC::add_binary_header(uint16_t err, uint8_t hdr_len, uint16_t key_len, uint32_t body_len)
+MC::add_binary_header(uint16_t err, uint8_t hdr_len, uint16_t key_len, uint32_t body_len) const
 {
   protocol_binary_response_header r;
 
@@ -367,7 +367,7 @@ MC::write_to_client(int64_t towrite)
 }
 
 int
-MC::write_binary_response(const void *d, int hlen, int keylen, int dlen)
+MC::write_binary_response(const void *d, int hlen, int keylen, int dlen) const
 {
   if (!f.noreply || binary_header.request.opcode == PROTOCOL_BINARY_CMD_GETQ ||
       binary_header.request.opcode == PROTOCOL_BINARY_CMD_GETKQ) {
@@ -425,7 +425,7 @@ binary_get_key(MC *mc)
 }
 
 int
-MC::cache_read_event(int event, void *data)
+MC::cache_read_event(int event, void *data) // NOLINT(readability-make-member-function-const)
 {
   switch (event) {
   case CACHE_EVENT_OPEN_READ: {

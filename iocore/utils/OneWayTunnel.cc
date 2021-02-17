@@ -385,7 +385,7 @@ OneWayTunnel::reenable_all()
 }
 
 bool
-OneWayTunnel::last_connection()
+OneWayTunnel::last_connection() const
 {
   return n_connections == 1;
 }

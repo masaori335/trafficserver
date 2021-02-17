@@ -136,7 +136,7 @@ public:
   bool is_content_type_compressible(const char *content_type, int content_type_length);
   bool is_status_code_compressible(const TSHttpStatus status_code) const;
   void add_compression_algorithms(std::string &algorithms);
-  int compression_algorithms();
+  int compression_algorithms() const;
 
 private:
   std::string host_;

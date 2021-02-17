@@ -216,7 +216,7 @@ public:
 
   void deactivate_all(DiagsTagType mode = DiagsTagType_Debug);
 
-  bool setup_diagslog(BaseLogFile *blf);
+  bool setup_diagslog(BaseLogFile *blf) const;
   void config_roll_diagslog(RollingEnabledValues re, int ri, int rs);
   void config_roll_outputlog(RollingEnabledValues re, int ri, int rs);
   bool reseat_diagslog();

@@ -115,7 +115,7 @@ RedisPublisher::RedisPublisher(const std::string &conf)
 }
 
 bool
-RedisPublisher::is_good()
+RedisPublisher::is_good() const
 {
   return !err;
 }

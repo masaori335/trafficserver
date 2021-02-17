@@ -540,7 +540,7 @@ QUICNetVConnection::remove_connection_ids()
 
 // called by ET_UDP
 void
-QUICNetVConnection::destroy(EThread *t)
+QUICNetVConnection::destroy(EThread *t) const
 {
   QUICConDebug("Destroy connection");
   /*  TODO: Uncomment these blocks after refactoring read / write process
@@ -1616,7 +1616,7 @@ QUICNetVConnection::_state_closing_send_packet()
 
 Ptr<IOBufferBlock>
 QUICNetVConnection::_store_frame(Ptr<IOBufferBlock> parent_block, size_t &size_added, uint64_t &max_frame_size, QUICFrame &frame,
-                                 std::vector<QUICSentPacketInfo::FrameInfo> &frames)
+                                 std::vector<QUICSentPacketInfo::FrameInfo> &frames) const
 {
   Ptr<IOBufferBlock> new_block = frame.to_io_buffer_block(max_frame_size);
 

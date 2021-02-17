@@ -59,7 +59,7 @@ struct LogSlice {
   // Use the offset and return value, we can locate the
   // string content indicated by this slice.
   //
-  int toStrOffset(int strlen, int *offset);
+  int toStrOffset(int strlen, int *offset) const;
 };
 
 /*-------------------------------------------------------------------------
@@ -135,7 +135,7 @@ public:
   unsigned marshal_agg(char *buf);
   unsigned unmarshal(char **buf, char *dest, int len);
   void display(FILE *fd = stdout);
-  bool operator==(LogField &rhs);
+  bool operator==(LogField &rhs) const;
   void updateField(LogAccess *lad, char *val, int len);
 
   const char *
@@ -231,9 +231,9 @@ public:
   void add(LogField *field, bool copy = true);
   LogField *find_by_name(const char *name) const;
   LogField *find_by_symbol(const char *symbol) const;
-  unsigned marshal_len(LogAccess *lad);
-  unsigned marshal(LogAccess *lad, char *buf);
-  unsigned marshal_agg(char *buf);
+  unsigned marshal_len(LogAccess *lad) const;
+  unsigned marshal(LogAccess *lad, char *buf) const;
+  unsigned marshal_agg(char *buf) const;
 
   LogField *
   first() const
@@ -245,8 +245,8 @@ public:
   {
     return (here->link).next;
   }
-  unsigned count();
-  void display(FILE *fd = stdout);
+  unsigned count() const;
+  void display(FILE *fd = stdout) const;
 
   // Add a bad symbol seen in the log format to the list of bad symbols.
   //

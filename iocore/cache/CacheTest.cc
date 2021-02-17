@@ -272,7 +272,7 @@ CacheTestSM::check_buffer()
 }
 
 int
-CacheTestSM::check_result(int event)
+CacheTestSM::check_result(int event) const
 {
   return initial_event == expect_initial_event && event == expect_event;
 }

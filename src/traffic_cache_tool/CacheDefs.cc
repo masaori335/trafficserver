@@ -135,19 +135,19 @@ URLparser::getPort(std::string &fullURL, int &port_ptr, int &port_len)
 }
 
 uint32_t
-Doc::prefix_len()
+Doc::prefix_len() const
 {
   return sizeof(Doc) + hlen;
 }
 
 uint32_t
-Doc::data_len()
+Doc::data_len() const
 {
   return len - sizeof(Doc) - hlen;
 }
 
 int
-Doc::single_fragment()
+Doc::single_fragment() const
 {
   return data_len() == total_len;
 }
@@ -434,7 +434,7 @@ Stripe::dir_valid(CacheDirEntry *_e)
 }
 
 Bytes
-Stripe::stripe_offset(CacheDirEntry *e)
+Stripe::stripe_offset(CacheDirEntry *e) const
 {
   return this->_content + Bytes((dir_offset(e) * CACHE_BLOCK_SIZE) - CACHE_BLOCK_SIZE);
 }

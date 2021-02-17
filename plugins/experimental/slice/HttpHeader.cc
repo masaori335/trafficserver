@@ -45,7 +45,7 @@ HttpHeader::status() const
 }
 
 bool
-HttpHeader::setStatus(TSHttpStatus const newstatus)
+HttpHeader::setStatus(TSHttpStatus const newstatus) const
 {
   if (!isValid()) {
     return false;
@@ -75,7 +75,7 @@ HttpHeader::urlString(int *const urllen) const
 }
 
 bool
-HttpHeader::setUrl(TSMBuffer const bufurl, TSMLoc const locurl)
+HttpHeader::setUrl(TSMBuffer const bufurl, TSMLoc const locurl) const
 {
   if (!isValid()) {
     return false;
@@ -101,7 +101,7 @@ HttpHeader::setUrl(TSMBuffer const bufurl, TSMLoc const locurl)
 }
 
 bool
-HttpHeader::setReason(char const *const valstr, int const vallen)
+HttpHeader::setReason(char const *const valstr, int const vallen) const
 {
   if (isValid()) {
     return TS_SUCCESS == TSHttpHdrReasonSet(m_buffer, m_lochdr, valstr, vallen);
@@ -147,7 +147,7 @@ HttpHeader::hasKey(char const *const key, int const keylen) const
 }
 
 bool
-HttpHeader::removeKey(char const *const keystr, int const keylen)
+HttpHeader::removeKey(char const *const keystr, int const keylen) const
 {
   if (!isValid()) {
     return false;
@@ -201,7 +201,7 @@ HttpHeader::valueForKey(char const *const keystr, int const keylen, char *const 
 }
 
 bool
-HttpHeader::setKeyVal(char const *const keystr, int const keylen, char const *const valstr, int const vallen, int const index)
+HttpHeader::setKeyVal(char const *const keystr, int const keylen, char const *const valstr, int const vallen, int const index) const
 {
   if (!isValid()) {
     return false;
@@ -257,7 +257,7 @@ HttpHeader::timeForKey(char const *const keystr, int const keylen, time_t *const
 }
 
 bool
-HttpHeader::setKeyTime(char const *const keystr, int const keylen, time_t const timeval)
+HttpHeader::setKeyTime(char const *const keystr, int const keylen, time_t const timeval) const
 {
   if (!isValid()) {
     return false;

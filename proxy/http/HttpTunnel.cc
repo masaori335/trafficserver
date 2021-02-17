@@ -92,7 +92,7 @@ ChunkedHandler::init_by_action(IOBufferReader *buffer_in, Action action)
 }
 
 void
-ChunkedHandler::clear()
+ChunkedHandler::clear() const
 {
   switch (action) {
   case ACTION_DOCHUNK:
@@ -377,7 +377,7 @@ ChunkedHandler::generate_chunked_content()
 HttpTunnelProducer::HttpTunnelProducer() : consumer_list() {}
 
 uint64_t
-HttpTunnelProducer::backlog(uint64_t limit)
+HttpTunnelProducer::backlog(uint64_t limit) const
 {
   uint64_t zret = 0;
   // Calculate the total backlog, the # of bytes inside ATS for this producer.

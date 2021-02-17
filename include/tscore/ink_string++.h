@@ -109,7 +109,7 @@ public:
   Str *new_cell(const char *s, int len_not_counting_nul);
   Str *append_string(const char *s, int len_not_counting_nul);
 
-  void dump(FILE *fp = stderr);
+  void dump(FILE *fp = stderr) const;
 
 private:
   void init();

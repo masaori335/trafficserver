@@ -40,7 +40,7 @@ class NextHopConsistentHash : public NextHopSelectionStrategy
 {
   std::vector<std::shared_ptr<ATSConsistentHash>> rings;
 
-  uint64_t getHashKey(uint64_t sm_id, HttpRequestData *hrdata, ATSHash64 *h);
+  uint64_t getHashKey(uint64_t sm_id, HttpRequestData *hrdata, ATSHash64 *h) const;
 
 public:
   NHHashKeyType hash_key = NH_PATH_HASH_KEY;

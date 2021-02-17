@@ -265,7 +265,7 @@ HostConfiguration::add_compressible_status_codes(string &line)
 }
 
 int
-HostConfiguration::compression_algorithms()
+HostConfiguration::compression_algorithms() const
 {
   return compression_algorithms_;
 }

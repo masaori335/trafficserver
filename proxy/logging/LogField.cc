@@ -112,7 +112,7 @@ LogSlice::LogSlice(char *str)
 }
 
 int
-LogSlice::toStrOffset(int strlen, int *offset)
+LogSlice::toStrOffset(int strlen, int *offset) const
 {
   int i, j, len;
 
@@ -624,7 +624,7 @@ LogField::display(FILE *fd)
   do check on others layter.
   -------------------------------------------------------------------------*/
 bool
-LogField::operator==(LogField &rhs)
+LogField::operator==(LogField &rhs) const
 {
   if (strcmp(name(), rhs.name()) || strcmp(symbol(), rhs.symbol())) {
     return false;
@@ -801,7 +801,7 @@ LogFieldList::find_by_symbol(const char *symbol) const
 }
 
 unsigned
-LogFieldList::marshal_len(LogAccess *lad)
+LogFieldList::marshal_len(LogAccess *lad) const
 {
   int bytes = 0;
   for (LogField *f = first(); f; f = next(f)) {
@@ -815,7 +815,7 @@ LogFieldList::marshal_len(LogAccess *lad)
 }
 
 unsigned
-LogFieldList::marshal(LogAccess *lad, char *buf)
+LogFieldList::marshal(LogAccess *lad, char *buf) const
 {
   char *ptr;
   int bytes = 0;
@@ -828,7 +828,7 @@ LogFieldList::marshal(LogAccess *lad, char *buf)
 }
 
 unsigned
-LogFieldList::marshal_agg(char *buf)
+LogFieldList::marshal_agg(char *buf) const
 {
   char *ptr;
   int bytes = 0;
@@ -840,7 +840,7 @@ LogFieldList::marshal_agg(char *buf)
 }
 
 unsigned
-LogFieldList::count()
+LogFieldList::count() const
 {
   unsigned cnt = 0;
   for (LogField *f = first(); f; f = next(f)) {
@@ -850,7 +850,7 @@ LogFieldList::count()
 }
 
 void
-LogFieldList::display(FILE *fd)
+LogFieldList::display(FILE *fd) const
 {
   for (LogField *f = first(); f; f = next(f)) {
     f->display(fd);

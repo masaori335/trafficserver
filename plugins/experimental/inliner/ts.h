@@ -217,8 +217,8 @@ namespace io
 
     void process();
     SinkPointer branch();
-    Lock lock();
-    void abort();
+    Lock lock() const;
+    void abort() const;
 
   private:
     IOSink(WriteOperationWeakPointer &&p) : operation_(std::move(p)) {}
@@ -289,7 +289,7 @@ namespace io
     Sink(const Sink &) = delete;
     Sink &operator=(const Sink &) = delete;
 
-    SinkPointer branch();
+    SinkPointer branch() const;
 
     Sink &operator<<(std::string &&);
 

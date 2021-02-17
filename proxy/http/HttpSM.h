@@ -178,8 +178,8 @@ public:
 
   void clear();
   void init(IOBufferReader *ua_reader);
-  void copy_partial_post_data();
-  IOBufferReader *get_post_data_buffer_clone_reader();
+  void copy_partial_post_data() const;
+  IOBufferReader *get_post_data_buffer_clone_reader() const;
   void
   set_post_data_buffer_done(bool done)
   {
@@ -249,7 +249,7 @@ public:
 
   // Called by transact to prevent reset problems
   //  failed PUSH requests
-  void set_ua_half_close_flag();
+  void set_ua_half_close_flag() const;
 
   // Called by either state_hostdb_lookup() or directly
   //   by the HostDB in the case of inline completion
@@ -285,14 +285,14 @@ public:
 
   // Debugging routines to dump the SM history, hdrs
   void dump_state_on_assert();
-  void dump_state_hdr(HTTPHdr *h, const char *s);
+  void dump_state_hdr(HTTPHdr *h, const char *s) const;
 
   // Functions for manipulating api hooks
   void txn_hook_add(TSHttpHookID id, INKContInternal *cont);
   APIHook *txn_hook_get(TSHttpHookID id);
 
   bool is_private();
-  bool is_redirect_required();
+  bool is_redirect_required() const;
 
   /// Get the protocol stack for the inbound (client, user agent) connection.
   /// @arg result [out] Array to store the results
@@ -520,7 +520,7 @@ protected:
   bool is_http_server_eos_truncation(HttpTunnelProducer *);
   bool is_bg_fill_necessary(HttpTunnelConsumer *c);
   int find_server_buffer_size();
-  int find_http_resp_buffer_size(int64_t cl);
+  int find_http_resp_buffer_size(int64_t cl) const;
   int64_t server_transfer_init(MIOBuffer *buf, int hdr_size);
 
 public:

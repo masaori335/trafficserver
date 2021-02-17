@@ -94,7 +94,7 @@ public:
   {
     return (magic == HTTP_BODY_TEMPLATE_MAGIC);
   }
-  char *build_instantiated_buffer(HttpTransact::State *context, int64_t *length_return);
+  char *build_instantiated_buffer(HttpTransact::State *context, int64_t *length_return) const;
 
   unsigned int magic;
   int64_t byte_count;
@@ -213,7 +213,7 @@ private:
   const char *determine_set_by_language(StrList *acpt_language_list, StrList *acpt_charset_list);
   const char *determine_set_by_host(HttpTransact::State *context);
   HttpBodyTemplate *find_template(const char *set, const char *type, HttpBodySet **body_set_return);
-  bool is_response_suppressed(HttpTransact::State *context);
+  bool is_response_suppressed(HttpTransact::State *context) const;
   bool
   is_sane()
   {

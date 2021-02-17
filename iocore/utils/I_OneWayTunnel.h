@@ -187,7 +187,7 @@ struct OneWayTunnel : public Continuation {
 
   virtual void reenable_all();
 
-  bool last_connection();
+  bool last_connection() const;
 
   VIO *vioSource             = nullptr;
   VIO *vioTarget             = nullptr;

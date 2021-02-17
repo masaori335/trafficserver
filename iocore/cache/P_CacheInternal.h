@@ -981,12 +981,12 @@ struct Cache {
   int open(bool reconfigure, bool fix);
   int close();
 
-  Action *lookup(Continuation *cont, const CacheKey *key, CacheFragType type, const char *hostname, int host_len);
+  Action *lookup(Continuation *cont, const CacheKey *key, CacheFragType type, const char *hostname, int host_len) const;
   inkcoreapi Action *open_read(Continuation *cont, const CacheKey *key, CacheFragType type, const char *hostname, int len);
   inkcoreapi Action *open_write(Continuation *cont, const CacheKey *key, CacheFragType frag_type, int options = 0,
                                 time_t pin_in_cache = (time_t)0, const char *hostname = nullptr, int host_len = 0);
   inkcoreapi Action *remove(Continuation *cont, const CacheKey *key, CacheFragType type = CACHE_FRAG_TYPE_HTTP,
-                            const char *hostname = nullptr, int host_len = 0);
+                            const char *hostname = nullptr, int host_len = 0) const;
   Action *scan(Continuation *cont, const char *hostname = nullptr, int host_len = 0, int KB_per_second = 2500);
 
   Action *open_read(Continuation *cont, const CacheKey *key, CacheHTTPHdr *request, const OverridableHttpConfigParams *params,
@@ -1005,7 +1005,7 @@ struct Cache {
 
   int open_done();
 
-  Vol *key_to_vol(const CacheKey *key, const char *hostname, int host_len);
+  Vol *key_to_vol(const CacheKey *key, const char *hostname, int host_len) const;
 
   Cache() {}
 };

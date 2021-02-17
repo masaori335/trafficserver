@@ -145,7 +145,7 @@ LocalManager::hostStatusSetUp(const char *marshalled_req, int len)
 }
 
 void
-LocalManager::clearStats(const char *name)
+LocalManager::clearStats(const char *name) const
 {
   // Clear our records and then send the signal.  There is a race condition
   //  here where our stats could get re-updated from the proxy
@@ -177,7 +177,7 @@ LocalManager::clearStats(const char *name)
 }
 
 bool
-LocalManager::processRunning()
+LocalManager::processRunning() const
 {
   if (watched_process_fd != ts::NO_FD && watched_process_pid != -1) {
     return true;
@@ -932,7 +932,7 @@ LocalManager::closeProxyPorts()
  *  Function listens on the accept port of the proxy, so users aren't dropped.
  */
 void
-LocalManager::listenForProxy()
+LocalManager::listenForProxy() const
 {
   if (!run_proxy || !listen_for_proxy) {
     return;
@@ -974,7 +974,7 @@ LocalManager::listenForProxy()
  *  Function binds the accept port of the proxy
  */
 void
-LocalManager::bindUdpProxyPort(HttpProxyPort &port)
+LocalManager::bindUdpProxyPort(HttpProxyPort &port) const
 {
   int one  = 1;
   int priv = (port.m_port < 1024 && 0 != geteuid()) ? ElevateAccess::LOW_PORT_PRIVILEGE : 0;
@@ -1025,7 +1025,7 @@ LocalManager::bindUdpProxyPort(HttpProxyPort &port)
  *  Function binds the accept port of the proxy
  */
 void
-LocalManager::bindTcpProxyPort(HttpProxyPort &port)
+LocalManager::bindTcpProxyPort(HttpProxyPort &port) const
 {
   int one  = 1;
   int priv = (port.m_port < 1024 && 0 != geteuid()) ? ElevateAccess::LOW_PORT_PRIVILEGE : 0;
@@ -1116,7 +1116,7 @@ LocalManager::bindTcpProxyPort(HttpProxyPort &port)
 }
 
 void
-LocalManager::signalAlarm(int alarm_id, const char *desc, const char *ip)
+LocalManager::signalAlarm(int alarm_id, const char *desc, const char *ip) const
 {
   if (alarm_keeper) {
     alarm_keeper->signalAlarm(static_cast<alarm_t>(alarm_id), desc, ip);

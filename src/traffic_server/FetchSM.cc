@@ -58,7 +58,7 @@ FetchSM::cleanUp()
 }
 
 void
-FetchSM::httpConnect()
+FetchSM::httpConnect() // NOLINT(readability-make-member-function-const)
 {
   PluginIdentity *pi = dynamic_cast<PluginIdentity *>(contp);
   const char *tag    = pi ? pi->getPluginTag() : "fetchSM";
@@ -186,7 +186,7 @@ FetchSM::check_for_field_value(const char *name, size_t name_len, char const *va
 }
 
 bool
-FetchSM::check_chunked()
+FetchSM::check_chunked() // NOLINT(readability-make-member-function-const)
 {
   static const char CHUNKED_TEXT[] = "chunked";
   static size_t const CHUNKED_LEN  = sizeof(CHUNKED_TEXT) - 1;
@@ -207,7 +207,7 @@ FetchSM::check_chunked()
 }
 
 bool
-FetchSM::check_connection_close()
+FetchSM::check_connection_close() // NOLINT(readability-make-member-function-const)
 {
   static const char CLOSE_TEXT[] = "close";
   static size_t const CLOSE_LEN  = sizeof(CLOSE_TEXT) - 1;
@@ -220,7 +220,7 @@ FetchSM::check_connection_close()
 }
 
 int
-FetchSM::dechunk_body()
+FetchSM::dechunk_body() // NOLINT(readability-make-member-function-const)
 {
   ink_assert(resp_is_chunked > 0);
   //
@@ -663,7 +663,7 @@ FetchSM::ext_write_data(const void *data, size_t len)
 }
 
 ssize_t
-FetchSM::ext_read_data(char *buf, size_t len)
+FetchSM::ext_read_data(char *buf, size_t len) // NOLINT(readability-make-member-function-const)
 {
   const char *start;
   TSIOBufferReader reader;
@@ -757,7 +757,7 @@ FetchSM::resp_hdr_bufp()
 }
 
 TSMLoc
-FetchSM::resp_hdr_mloc()
+FetchSM::resp_hdr_mloc() const
 {
   return (TSMLoc)client_response_hdr.m_http;
 }

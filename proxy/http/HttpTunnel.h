@@ -131,7 +131,7 @@ struct ChunkedHandler {
 
   void init(IOBufferReader *buffer_in, HttpTunnelProducer *p);
   void init_by_action(IOBufferReader *buffer_in, Action action);
-  void clear();
+  void clear() const;
 
   /// Set the max chunk @a size.
   /// If @a size is zero it is set to @c DEFAULT_MAX_CHUNK_SIZE.
@@ -221,7 +221,7 @@ struct HttpTunnelProducer {
       @return The actual backlog or a number at least @a limit.
    */
   uint64_t backlog(uint64_t limit = UINT64_MAX ///< More than this is irrelevant
-  );
+  ) const;
   /// Check if producer is original (to ATS) source of data.
   /// @return @c true if this producer is the source of bytes from outside ATS.
   bool is_source() const;

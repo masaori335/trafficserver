@@ -391,7 +391,7 @@ Connection::_cleanup()
 }
 
 void
-Connection::apply_options(NetVCOptions const &opt)
+Connection::apply_options(NetVCOptions const &opt) const
 {
   // Set options which can be changed after a connection is established
   // ignore other changes

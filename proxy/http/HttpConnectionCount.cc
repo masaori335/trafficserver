@@ -345,7 +345,7 @@ OutboundConnTrack::Warning_Bad_Match_Type(std::string_view tag)
 }
 
 void
-OutboundConnTrack::TxnState::Note_Unblocked(const TxnConfig *config, int count, sockaddr const *addr)
+OutboundConnTrack::TxnState::Note_Unblocked(const TxnConfig *config, int count, sockaddr const *addr) const
 {
   time_t lat; // last alert time (epoch seconds)
 
@@ -361,7 +361,7 @@ OutboundConnTrack::TxnState::Note_Unblocked(const TxnConfig *config, int count, 
 
 void
 OutboundConnTrack::TxnState::Warn_Blocked(const TxnConfig *config, int64_t sm_id, int count, sockaddr const *addr,
-                                          char const *debug_tag)
+                                          char const *debug_tag) const
 {
   bool alert_p = _g->should_alert();
   auto blocked = alert_p ? _g->_blocked.exchange(0) : _g->_blocked.load();

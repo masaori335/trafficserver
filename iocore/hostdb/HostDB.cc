@@ -591,7 +591,7 @@ probe(const Ptr<ProxyMutex> &mutex, HostDBHash const &hash, bool ignore_timeout)
 // A null value indicates that the block is empty.
 //
 HostDBInfo *
-HostDBContinuation::insert(unsigned int attl)
+HostDBContinuation::insert(unsigned int attl) const
 {
   uint64_t folded_hash = hash.hash.fold();
 

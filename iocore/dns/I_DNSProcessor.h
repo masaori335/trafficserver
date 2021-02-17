@@ -134,7 +134,7 @@ struct DNSProcessor : public Processor {
       For address resolution ( @a type is @c T_PTR ), @a x should be a
       @c sockaddr cast to  @c char @c const* .
    */
-  Action *getby(const char *x, int len, int type, Continuation *cont, Options const &opt);
+  Action *getby(const char *x, int len, int type, Continuation *cont, Options const &opt) const;
 
   void dns_init();
 };

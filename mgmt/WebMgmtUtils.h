@@ -34,7 +34,7 @@ class MgmtData
 public:
   MgmtData();
   ~MgmtData();
-  bool compareFromString(const char *str);
+  bool compareFromString(const char *str) const;
   bool setFromName(const char *varName);
   RecDataT type;
   RecData data;

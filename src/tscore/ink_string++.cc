@@ -46,7 +46,7 @@
   -------------------------------------------------------------------------*/
 
 void
-StrList::dump(FILE *fp)
+StrList::dump(FILE *fp) const
 {
   Str *str;
 

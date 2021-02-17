@@ -621,7 +621,7 @@ Http2ClientSession::remember(const SourceLocation &location, int event, int reen
 }
 
 bool
-Http2ClientSession::_should_do_something_else()
+Http2ClientSession::_should_do_something_else() const
 {
   // Do something else every 128 incoming frames
   return (this->_n_frame_read & 0x7F) == 0;

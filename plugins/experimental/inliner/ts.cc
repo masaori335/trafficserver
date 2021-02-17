@@ -308,7 +308,7 @@ namespace io
   }
 
   Lock
-  IOSink::lock()
+  IOSink::lock() const
   {
     const WriteOperationPointer operation = operation_.lock();
 
@@ -323,7 +323,7 @@ namespace io
   }
 
   void
-  IOSink::abort()
+  IOSink::abort() const
   {
     const WriteOperationPointer operation = operation_.lock();
     if (operation) {
@@ -406,7 +406,7 @@ namespace io
   }
 
   SinkPointer
-  Sink::branch()
+  Sink::branch() const
   {
     DataPointer data;
     if (data_) {

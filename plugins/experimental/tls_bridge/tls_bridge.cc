@@ -228,11 +228,11 @@ struct Bridge {
 
     /// Get a view of the available data in the first block.
     /// This does @b not consume the data, it is a peek.
-    TextView first_block_data();
+    TextView first_block_data() const;
     /// Get amount of available data for the read operation, if any.
-    int64_t available_size();
+    int64_t available_size() const;
     /// Consume @a n bytes of data.
-    void consume(int64_t n);
+    void consume(int64_t n) const;
     /// Close out the connection.
     void do_close();
   };
@@ -285,9 +285,9 @@ struct Bridge {
   void update_ua_response();
 
   /// Move data from the outbound READ to the UA WRITE.
-  void flow_to_ua();
+  void flow_to_ua() const;
   /// Move data from the UA READ to the outbound WRITE.
-  void flow_to_outbound();
+  void flow_to_outbound() const;
 };
 
 /// Used to generate IDs for the plugin connections.
@@ -439,7 +439,7 @@ Bridge::check_outbound_terminal()
 }
 
 void
-Bridge::flow_to_ua()
+Bridge::flow_to_ua() const
 {
   int64_t avail = _out.available_size();
   if (avail > 0) {
@@ -455,7 +455,7 @@ Bridge::flow_to_ua()
 }
 
 void
-Bridge::flow_to_outbound()
+Bridge::flow_to_outbound() const
 {
   int64_t avail = _ua.available_size();
   if (avail > 0) {
@@ -556,13 +556,13 @@ Bridge::VCData::do_close()
 }
 
 int64_t
-Bridge::VCData::available_size()
+Bridge::VCData::available_size() const
 {
   return TSIOBufferReaderAvail(_read._reader);
 }
 
 TextView
-Bridge::VCData::first_block_data()
+Bridge::VCData::first_block_data() const
 {
   TSIOBufferBlock b = TSIOBufferReaderStart(_read._reader);
   if (b) {
@@ -574,7 +574,7 @@ Bridge::VCData::first_block_data()
 }
 
 void
-Bridge::VCData::consume(int64_t n)
+Bridge::VCData::consume(int64_t n) const
 {
   TSIOBufferReaderConsume(_read._reader, n);
 }

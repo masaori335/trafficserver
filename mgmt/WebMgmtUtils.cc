@@ -715,7 +715,7 @@ MgmtData::~MgmtData()
 //    held in this->data
 //
 bool
-MgmtData::compareFromString(const char *str)
+MgmtData::compareFromString(const char *str) const
 {
   RecData compData;
   bool compare = false;

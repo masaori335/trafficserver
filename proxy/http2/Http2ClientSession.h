@@ -134,7 +134,7 @@ private:
   // if there are multiple frames ready on the wire
   int state_process_frame_read(int event, VIO *vio, bool inside_frame);
 
-  bool _should_do_something_else();
+  bool _should_do_something_else() const;
 
   int64_t total_write_len             = 0;
   SessionHandler session_handler      = nullptr;

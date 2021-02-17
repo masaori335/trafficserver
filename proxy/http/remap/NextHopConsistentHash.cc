@@ -124,7 +124,7 @@ NextHopConsistentHash::Init(const YAML::Node &n)
 // returns a hash key calculated from the request and 'hash_key' configuration
 // parameter.
 uint64_t
-NextHopConsistentHash::getHashKey(uint64_t sm_id, HttpRequestData *hrdata, ATSHash64 *h)
+NextHopConsistentHash::getHashKey(uint64_t sm_id, HttpRequestData *hrdata, ATSHash64 *h) const
 {
   URL *url                   = hrdata->hdr->url_get();
   URL *ps_url                = nullptr;

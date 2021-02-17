@@ -196,8 +196,8 @@ struct Store {
   //
 
   // spread evenly on all disks
-  void spread_alloc(Store &s, unsigned int blocks, bool mmapable = true);
-  void alloc(Store &s, unsigned int blocks, bool only_one = false, bool mmapable = true);
+  void spread_alloc(Store &s, unsigned int blocks, bool mmapable = true) const;
+  void alloc(Store &s, unsigned int blocks, bool only_one = false, bool mmapable = true) const;
 
   Span *
   alloc_one(unsigned int blocks, bool mmapable)
@@ -217,10 +217,10 @@ struct Store {
 
   // free back the contents of a store.
   // must have been JUST allocated (no intervening allocs/frees)
-  void free(Store &s);
+  void free(Store &s) const;
   void add(Span *s);
   void add(Store &s);
-  void dup(Store &s);
+  void dup(Store &s) const;
   void sort();
   void
   extend(unsigned i)
@@ -251,10 +251,10 @@ struct Store {
   //
   int write(int fd, const char *name) const;
   int read(int fd, char *name);
-  int clear(char *filename, bool clear_dirs = true);
+  int clear(char *filename, bool clear_dirs = true) const;
   void normalize();
   void delete_all();
-  int remove(char *pathname);
+  int remove(char *pathname) const;
   Store();
   ~Store();
 

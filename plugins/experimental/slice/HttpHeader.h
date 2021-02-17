@@ -69,9 +69,9 @@ struct HttpHeader {
 
   TSHttpStatus status() const;
 
-  bool setStatus(TSHttpStatus const newstatus);
+  bool setStatus(TSHttpStatus const newstatus) const;
 
-  bool setUrl(TSMBuffer const bufurl, TSMLoc const locurl);
+  bool setUrl(TSMBuffer const bufurl, TSMLoc const locurl) const;
 
   typedef char const *(*CharPtrGetFunc)(TSMBuffer, TSMLoc, int *);
 
@@ -106,12 +106,12 @@ struct HttpHeader {
     return getCharPtr(TSHttpHdrReasonGet, len);
   }
 
-  bool setReason(char const *const valstr, int const vallen);
+  bool setReason(char const *const valstr, int const vallen) const;
 
   bool hasKey(char const *const key, int const keylen) const;
 
   // returns false if header invalid or something went wrong with removal.
-  bool removeKey(char const *const key, int const keylen);
+  bool removeKey(char const *const key, int const keylen) const;
 
   // retrieves header value as a char*
   bool valueForKey(char const *const keystr, int const keylen,
@@ -125,13 +125,13 @@ struct HttpHeader {
   */
   bool setKeyVal(char const *const key, int const keylen, char const *const val, int const vallen,
                  int const index = -1 // sets all values
-  );
+  ) const;
 
   // retrieves header value as a time_t
   bool timeForKey(char const *const keystr, int const keylen, time_t *const timeval) const;
 
   // sets header value as a time_t
-  bool setKeyTime(char const *const key, int const keylen, time_t const timeval);
+  bool setKeyTime(char const *const key, int const keylen, time_t const timeval) const;
 
   /** dump header into provided char buffer
    */

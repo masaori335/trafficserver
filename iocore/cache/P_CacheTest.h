@@ -89,7 +89,7 @@ struct CacheTestSM : public RegressionSM {
 
   void fill_buffer();
   int check_buffer();
-  int check_result(int event);
+  int check_result(int event) const;
   int complete(int event);
   int event_handler(int event, void *edata);
   void

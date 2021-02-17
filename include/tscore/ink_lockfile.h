@@ -69,7 +69,7 @@ public:
   // Close()
   //
   // Closes the file handle on the opened Lockfile.
-  void Close();
+  void Close() const;
 
   // Kill()
   // KillGroup()

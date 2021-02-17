@@ -71,13 +71,13 @@ public:
   void signalFileChange(const char *var_name);
   void signalEvent(int msg_id, const char *data_str);
   void signalEvent(int msg_id, const char *data_raw, int data_len);
-  void signalAlarm(int alarm_id, const char *desc = nullptr, const char *ip = nullptr);
+  void signalAlarm(int alarm_id, const char *desc = nullptr, const char *ip = nullptr) const;
 
   void processEventQueue();
   bool startProxy(const char *onetime_options);
-  void listenForProxy();
-  void bindUdpProxyPort(HttpProxyPort &);
-  void bindTcpProxyPort(HttpProxyPort &);
+  void listenForProxy() const;
+  void bindUdpProxyPort(HttpProxyPort &) const;
+  void bindTcpProxyPort(HttpProxyPort &) const;
   void closeProxyPorts();
 
   void mgmtCleanup();
@@ -87,11 +87,11 @@ public:
   void processBounce();
   void processDrain(int to_drain = 1);
   void rollLogFiles();
-  void clearStats(const char *name = nullptr);
+  void clearStats(const char *name = nullptr) const;
   void hostStatusSetDown(const char *marshalled_req, int len);
   void hostStatusSetUp(const char *marshalled_req, int len);
 
-  bool processRunning();
+  bool processRunning() const;
 
   bool run_proxy;
   bool listen_for_proxy;

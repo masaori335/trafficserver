@@ -80,7 +80,7 @@ struct StatPagesManager {
 
   // Private
   Action *handle_http(Continuation *cont, HTTPHdr *header);
-  bool is_stat_page(URL *url);
+  bool is_stat_page(URL *url) const;
   bool is_cache_inspector_page(URL *url);
   int m_enabled;
   ink_mutex stat_pages_mutex;

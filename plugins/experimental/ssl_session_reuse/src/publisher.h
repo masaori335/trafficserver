@@ -101,5 +101,5 @@ public:
   virtual ~RedisPublisher();
   int publish(const std::string &channel, const std::string &message);
   std::string get_session(const std::string &channel);
-  bool is_good();
+  bool is_good() const;
 };

@@ -59,7 +59,7 @@ public:
   int preproc_and_try_delete(LogBuffer *lb) override;
 
   bool trim_rolled(size_t rolling_max_count);
-  int roll(long interval_start, long interval_end, bool reopen_after_rolling = false);
+  int roll(long interval_start, long interval_end, bool reopen_after_rolling = false) const;
 
   /** Check whether the file at the log's filename exists and, if not, close
    * the current file descriptor and reopen it.
@@ -94,7 +94,7 @@ public:
   static bool rolled_logfile(char *file);
   static bool exists(const char *pathname);
 
-  void display(FILE *fd = stdout);
+  void display(FILE *fd = stdout) const;
   int open_file();
 
   off_t
@@ -109,10 +109,10 @@ public:
   }
 
 public:
-  bool is_open();
+  bool is_open() const;
   void close_file();
   void check_fd();
-  int get_fd();
+  int get_fd() const;
   static int writeln(char *data, int len, int fd, const char *path);
 
 public:

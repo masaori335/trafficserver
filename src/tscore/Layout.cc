@@ -79,7 +79,7 @@ layout_relative(std::string_view root, std::string_view file)
 }
 
 std::string
-Layout::relative(std::string_view file)
+Layout::relative(std::string_view file) const
 {
   return layout_relative(prefix, file);
 }

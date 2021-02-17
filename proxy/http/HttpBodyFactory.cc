@@ -665,7 +665,7 @@ HttpBodyFactory::find_template(const char *set, const char *type, HttpBodySet **
 
 // LOCKING: must be called with lock taken
 bool
-HttpBodyFactory::is_response_suppressed(HttpTransact::State *context)
+HttpBodyFactory::is_response_suppressed(HttpTransact::State *context) const
 {
   // Since a tunnel may not always be an SSL connection,
   // we may want to return an error message.
@@ -1147,7 +1147,7 @@ HttpBodyTemplate::load_from_file(char *dir, char *file)
 }
 
 char *
-HttpBodyTemplate::build_instantiated_buffer(HttpTransact::State *context, int64_t *buflen_return)
+HttpBodyTemplate::build_instantiated_buffer(HttpTransact::State *context, int64_t *buflen_return) const
 {
   char *buffer = nullptr;
 

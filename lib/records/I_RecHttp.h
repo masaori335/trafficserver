@@ -394,7 +394,7 @@ public:
   */
   int print(char *out, ///< Output string.
             size_t n   ///< Maximum output length.
-  );
+  ) const;
 
   static const char *const PORTS_CONFIG_NAME; ///< New unified port descriptor.
 

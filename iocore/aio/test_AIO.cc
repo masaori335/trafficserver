@@ -116,7 +116,7 @@ struct AIO_Device : public Continuation {
     }
   };
   void
-  do_touch_data(off_t orig_len, off_t orig_offset)
+  do_touch_data(off_t orig_len, off_t orig_offset) const
   {
     if (!touch_data) {
       return;
@@ -132,7 +132,7 @@ struct AIO_Device : public Continuation {
     }
   };
   int
-  do_check_data(off_t orig_len, off_t orig_offset)
+  do_check_data(off_t orig_len, off_t orig_offset) const
   {
     if (!touch_data) {
       return 0;

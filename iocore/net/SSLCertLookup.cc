@@ -318,13 +318,13 @@ SSLCertLookup::find(const IpEndpoint &address) const
 }
 
 int
-SSLCertLookup::insert(const char *name, SSLCertContext const &cc)
+SSLCertLookup::insert(const char *name, SSLCertContext const &cc) const
 {
   return this->ssl_storage->insert(name, cc);
 }
 
 int
-SSLCertLookup::insert(const IpEndpoint &address, SSLCertContext const &cc)
+SSLCertLookup::insert(const IpEndpoint &address, SSLCertContext const &cc) const
 {
   SSLAddressLookupKey key(address);
   return this->ssl_storage->insert(key.get(), cc);

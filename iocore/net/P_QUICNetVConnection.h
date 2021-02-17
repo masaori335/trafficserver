@@ -177,7 +177,7 @@ public:
   void remove_connection_ids();
   void free(EThread *t) override;
   void free() override;
-  void destroy(EThread *t);
+  void destroy(EThread *t) const;
 
   UDPConnection *get_udp_con();
   virtual void net_read_io(NetHandler *nh, EThread *lthread) override;
@@ -317,7 +317,7 @@ private:
   uint64_t _maximum_stream_frame_data_size();
 
   Ptr<IOBufferBlock> _store_frame(Ptr<IOBufferBlock> parent_block, size_t &size_added, uint64_t &max_frame_size, QUICFrame &frame,
-                                  std::vector<QUICSentPacketInfo::FrameInfo> &frames);
+                                  std::vector<QUICSentPacketInfo::FrameInfo> &frames) const;
   QUICPacketUPtr _packetize_frames(uint8_t *packet_buf, QUICEncryptionLevel level, uint64_t max_packet_size,
                                    std::vector<QUICSentPacketInfo::FrameInfo> &frames);
   void _packetize_closing_frame();

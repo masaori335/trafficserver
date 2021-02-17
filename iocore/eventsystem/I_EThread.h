@@ -318,7 +318,7 @@ public:
   static constexpr int NO_ETHREAD_ID = -1;
   int id                             = NO_ETHREAD_ID;
   unsigned int event_types           = 0;
-  bool is_event_type(EventType et);
+  bool is_event_type(EventType et) const;
   void set_event_type(EventType et);
 
   // Private Interface

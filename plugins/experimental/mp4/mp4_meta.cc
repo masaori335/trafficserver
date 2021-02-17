@@ -1584,7 +1584,7 @@ found:
 }
 
 void
-Mp4Meta::mp4_update_mvhd_duration()
+Mp4Meta::mp4_update_mvhd_duration() const
 {
   int64_t need;
   uint64_t duration, cut;
@@ -1621,7 +1621,7 @@ Mp4Meta::mp4_update_mvhd_duration()
 }
 
 void
-Mp4Meta::mp4_update_tkhd_duration(Mp4Trak *trak)
+Mp4Meta::mp4_update_tkhd_duration(Mp4Trak *trak) const
 {
   int64_t need, cut;
   mp4_tkhd_atom *tkhd_atom;
@@ -1658,7 +1658,7 @@ Mp4Meta::mp4_update_tkhd_duration(Mp4Trak *trak)
 }
 
 void
-Mp4Meta::mp4_update_mdhd_duration(Mp4Trak *trak)
+Mp4Meta::mp4_update_mdhd_duration(Mp4Trak *trak) const
 {
   int64_t duration, need, cut;
   mp4_mdhd_atom *mdhd;

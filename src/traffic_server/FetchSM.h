@@ -90,7 +90,7 @@ public:
   char *resp_get(int *length);
 
   TSMBuffer resp_hdr_bufp();
-  TSMLoc resp_hdr_mloc();
+  TSMLoc resp_hdr_mloc() const;
 
   //
   // Extended APIs for FetchSM

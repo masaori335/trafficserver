@@ -702,7 +702,7 @@ AwsAuthV4::getDateTime(size_t *dateTimeLen)
  * @return signature of the content or "UNSIGNED-PAYLOAD" to mark that the payload is not signed
  */
 String
-AwsAuthV4::getPayloadHash()
+AwsAuthV4::getPayloadHash() const
 {
   return getPayloadSha256(_signPayload);
 }

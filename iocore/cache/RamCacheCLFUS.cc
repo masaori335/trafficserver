@@ -136,7 +136,7 @@ public:
 };
 
 int
-RamCacheCLFUSCompressor::mainEvent(int /* event ATS_UNUSED */, Event *e)
+RamCacheCLFUSCompressor::mainEvent(int /* event ATS_UNUSED */, Event *e) // NOLINT(readability-make-member-function-const)
 {
   switch (cache_config_ram_cache_compress) {
   default:

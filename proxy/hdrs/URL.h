@@ -83,10 +83,10 @@ struct URLImpl : public HdrHeapObjImpl {
   void unmarshal(intptr_t offset);
   void move_strings(HdrStrHeap *new_heap);
   void rehome_strings(HdrHeap *new_heap);
-  size_t strings_length();
+  size_t strings_length() const;
 
   // Sanity Check Functions
-  void check_strings(HeapCheck *heaps, int num_heaps);
+  void check_strings(HeapCheck *heaps, int num_heaps) const;
 };
 
 using URLHashContext = CryptoContext;

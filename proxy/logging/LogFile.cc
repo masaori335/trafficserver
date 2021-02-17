@@ -361,7 +361,7 @@ LogFile::trim_rolled(size_t rolling_max_count)
  * Return 1 if file rolled, 0 otherwise
 -------------------------------------------------------------------------*/
 int
-LogFile::roll(long interval_start, long interval_end, bool reopen_after_rolling)
+LogFile::roll(long interval_start, long interval_end, bool reopen_after_rolling) const
 {
   if (m_log) {
     // Due to commit 346b419 the BaseLogFile::close_file() is no longer called within BaseLogFile::roll().
@@ -771,13 +771,13 @@ LogFile::check_fd()
 }
 
 void
-LogFile::display(FILE *fd)
+LogFile::display(FILE *fd) const
 {
   fprintf(fd, "Logfile: %s, %s\n", get_name(), (is_open()) ? "file is open" : "file is not open");
 }
 
 bool
-LogFile::is_open()
+LogFile::is_open() const
 {
   if (m_file_format == LOG_FILE_PIPE) {
     return m_fd >= 0;
@@ -793,7 +793,7 @@ LogFile::is_open()
  * Returns -1 on error, the correct fd otherwise
  */
 int
-LogFile::get_fd()
+LogFile::get_fd() const
 {
   if (m_file_format == LOG_FILE_PIPE) {
     return m_fd;

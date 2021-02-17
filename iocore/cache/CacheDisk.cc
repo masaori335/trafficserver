@@ -435,7 +435,7 @@ CacheDisk::update_header()
 }
 
 DiskVol *
-CacheDisk::get_diskvol(int vol_number)
+CacheDisk::get_diskvol(int vol_number) const
 {
   unsigned int i;
   for (i = 0; i < header->num_volumes; i++) {

@@ -170,7 +170,7 @@ struct PeriodicWakeup : Continuation {
   int m_flush_threads;
 
   int
-  wakeup(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
+  wakeup(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */) const
   {
     for (int i = 0; i < m_preproc_threads; i++) {
       Log::preproc_notify[i].signal();

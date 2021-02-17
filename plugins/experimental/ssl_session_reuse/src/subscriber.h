@@ -54,6 +54,6 @@ public:
   void run();
   RedisSubscriber(const std::string &conf = cDefaultConfig);
   virtual ~RedisSubscriber();
-  bool is_good();
+  bool is_good() const;
   int get_endpoint_index();
 };

@@ -380,7 +380,7 @@ URLImpl::move_strings(HdrStrHeap *new_heap)
 }
 
 size_t
-URLImpl::strings_length()
+URLImpl::strings_length() const
 {
   size_t ret = 0;
 
@@ -398,7 +398,7 @@ URLImpl::strings_length()
 }
 
 void
-URLImpl::check_strings(HeapCheck *heaps, int num_heaps)
+URLImpl::check_strings(HeapCheck *heaps, int num_heaps) const
 {
   CHECK_STR(m_ptr_scheme, m_len_scheme, heaps, num_heaps);
   CHECK_STR(m_ptr_user, m_len_user, heaps, num_heaps);

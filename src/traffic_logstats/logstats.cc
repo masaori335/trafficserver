@@ -376,7 +376,7 @@ public:
   }
 
   void
-  dump(int as_object = 0)
+  dump(int as_object = 0) // NOLINT(readability-make-member-function-const)
   {
     int show = _stack.size();
 
@@ -396,6 +396,7 @@ public:
   }
 
   void
+  // NOLINTNEXTLINE(readability-make-member-function-const)
   add_stat(const char *url, int64_t bytes, int time, int result, int http_code, int as_object = 0)
   {
     LruHash::iterator h = _hash.find(url);
@@ -536,7 +537,7 @@ public:
 
 private:
   void
-  _init()
+  _init() // NOLINT(readability-make-member-function-const)
   {
     if (_size > 0) {
       _stack.resize(_size);

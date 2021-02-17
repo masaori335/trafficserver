@@ -180,7 +180,7 @@ public:
     _order = order;
   }
   inline int
-  order()
+  order() const
   {
     return _order;
   }

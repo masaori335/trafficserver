@@ -1861,7 +1861,7 @@ HTTPHdrImpl::move_strings(HdrStrHeap *new_heap)
 }
 
 size_t
-HTTPHdrImpl::strings_length()
+HTTPHdrImpl::strings_length() const
 {
   size_t ret = 0;
 
@@ -1874,7 +1874,7 @@ HTTPHdrImpl::strings_length()
 }
 
 void
-HTTPHdrImpl::check_strings(HeapCheck *heaps, int num_heaps)
+HTTPHdrImpl::check_strings(HeapCheck *heaps, int num_heaps) const
 {
   if (m_polarity == HTTP_TYPE_REQUEST) {
     CHECK_STR(u.req.m_ptr_method, u.req.m_len_method, heaps, num_heaps);
@@ -1984,7 +1984,7 @@ HTTPInfo::copy(HTTPInfo *hi)
 }
 
 void
-HTTPInfo::copy_frag_offsets_from(HTTPInfo *src)
+HTTPInfo::copy_frag_offsets_from(HTTPInfo *src) const
 {
   if (m_alt && src->m_alt) {
     m_alt->copy_frag_offsets_from(src->m_alt);
@@ -1992,7 +1992,7 @@ HTTPInfo::copy_frag_offsets_from(HTTPInfo *src)
 }
 
 int
-HTTPInfo::marshal_length()
+HTTPInfo::marshal_length() const
 {
   int len = HTTP_ALT_MARSHAL_SIZE;
 
@@ -2012,7 +2012,7 @@ HTTPInfo::marshal_length()
 }
 
 int
-HTTPInfo::marshal(char *buf, int len)
+HTTPInfo::marshal(char *buf, int len) const
 {
   int tmp;
   int used                  = 0;
@@ -2288,7 +2288,7 @@ HTTPInfo::check_marshalled(char *buf, int len)
 //     to set up the reference
 //
 void
-HTTPInfo::set_buffer_reference(RefCountObj *block_ref)
+HTTPInfo::set_buffer_reference(RefCountObj *block_ref) const
 {
   ink_assert(m_alt->m_magic == CACHE_ALT_MAGIC_ALIVE);
 

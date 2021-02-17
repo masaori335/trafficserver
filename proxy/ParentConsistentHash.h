@@ -57,7 +57,7 @@ public:
   {
     return parents[result->last_lookup];
   }
-  uint64_t getPathHash(HttpRequestData *hrdata, ATSHash64 *h);
+  uint64_t getPathHash(HttpRequestData *hrdata, ATSHash64 *h) const;
   void selectParent(bool firstCall, ParentResult *result, RequestData *rdata, unsigned int fail_threshold,
                     unsigned int retry_time) override;
   void markParentDown(ParentResult *result, unsigned int fail_threshold, unsigned int retry_time);

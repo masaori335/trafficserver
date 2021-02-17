@@ -69,7 +69,7 @@ Stat::init(const string &name, Stat::SyncType type, bool persistent)
 }
 
 void
-Stat::set(int64_t value)
+Stat::set(int64_t value) const
 {
   if (stat_id_ == TS_ERROR) {
     return;
@@ -89,7 +89,7 @@ Stat::get() const
 }
 
 void
-Stat::increment(int64_t amount)
+Stat::increment(int64_t amount) const
 {
   if (stat_id_ == TS_ERROR) {
     return;
@@ -99,7 +99,7 @@ Stat::increment(int64_t amount)
 }
 
 void
-Stat::decrement(int64_t amount)
+Stat::decrement(int64_t amount) const
 {
   if (stat_id_ == TS_ERROR) {
     return;

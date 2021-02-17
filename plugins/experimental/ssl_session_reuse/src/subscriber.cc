@@ -88,7 +88,7 @@ RedisSubscriber::RedisSubscriber(const std::string &conf)
 }
 
 bool
-RedisSubscriber::is_good()
+RedisSubscriber::is_good() const
 {
   return !err;
 }

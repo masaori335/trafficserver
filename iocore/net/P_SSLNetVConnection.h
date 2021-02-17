@@ -529,7 +529,7 @@ private:
 private:
   void _make_ssl_connection(SSL_CTX *ctx);
   void _bindSSLObject();
-  void _unbindSSLObject();
+  void _unbindSSLObject() const;
 };
 
 typedef int (SSLNetVConnection::*SSLNetVConnHandler)(int, void *);

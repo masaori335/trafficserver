@@ -28,7 +28,7 @@
 
 struct DiagsConfig {
   void reconfigure_diags();
-  void config_diags_norecords();
+  void config_diags_norecords() const;
   void parse_output_string(char *s, DiagsModeOutput *o);
   void register_diags_callbacks();
 

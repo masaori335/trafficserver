@@ -535,7 +535,7 @@ SessionProtocolNameRegistry::markIn(const char *value, SessionProtocolSet &sp_se
 }
 
 int
-HttpProxyPort::print(char *out, size_t n)
+HttpProxyPort::print(char *out, size_t n) const
 {
   size_t zret = 0; // # of chars printed so far.
   ip_text_buffer ipb;

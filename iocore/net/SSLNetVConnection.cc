@@ -219,7 +219,7 @@ SSLNetVConnection::_bindSSLObject()
 }
 
 void
-SSLNetVConnection::_unbindSSLObject()
+SSLNetVConnection::_unbindSSLObject() const
 {
   SSLNetVCDetach(this->ssl);
   TLSSessionResumptionSupport::unbind(this->ssl);

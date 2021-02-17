@@ -126,8 +126,8 @@ struct SSLCertLookup : public ConfigInfo {
   shared_SSL_CTX ssl_default;
   bool is_valid = true;
 
-  int insert(const char *name, SSLCertContext const &cc);
-  int insert(const IpEndpoint &address, SSLCertContext const &cc);
+  int insert(const char *name, SSLCertContext const &cc) const;
+  int insert(const IpEndpoint &address, SSLCertContext const &cc) const;
 
   /** Find certificate context by IP address.
       The IP addresses are taken from the socket @a s.

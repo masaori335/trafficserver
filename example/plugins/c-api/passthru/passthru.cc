@@ -100,7 +100,7 @@ struct PassthruIO {
   // Transfer data from this IO object to the target IO object. We use
   // TSIOBufferCopy to move the data without actually duplicating it.
   int64_t
-  transfer_to(PassthruIO &to)
+  transfer_to(PassthruIO &to) const
   {
     int64_t consumed = 0;
     int64_t avail    = TSIOBufferReaderAvail(this->reader);

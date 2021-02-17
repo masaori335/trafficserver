@@ -132,7 +132,7 @@ EThread::~EThread()
 }
 
 bool
-EThread::is_event_type(EventType et)
+EThread::is_event_type(EventType et) const
 {
   return (event_types & (1 << static_cast<int>(et))) != 0;
 }

@@ -221,7 +221,7 @@ ParentConfigParams::nextParent(HttpRequestData *rdata, ParentResult *result, uns
 }
 
 bool
-ParentConfigParams::parentExists(HttpRequestData *rdata)
+ParentConfigParams::parentExists(HttpRequestData *rdata) const
 {
   P_table *tablePtr = parent_table;
   ParentRecord *rec = nullptr;

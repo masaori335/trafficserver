@@ -209,7 +209,7 @@ DiagsConfig::parse_output_string(char *s, DiagsModeOutput *o)
 //
 //////////////////////////////////////////////////////////////////////////////
 void
-DiagsConfig::config_diags_norecords()
+DiagsConfig::config_diags_norecords() const
 {
   DiagsConfigState c;
   ink_zero(c);

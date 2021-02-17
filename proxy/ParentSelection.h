@@ -348,7 +348,7 @@ public:
   // Returns the number of parent records in a strategy.
   //
   virtual uint32_t numParents(ParentResult *result) const = 0;
-  void markParentDown(ParentResult *result, unsigned int fail_threshold, unsigned int retry_time);
+  void markParentDown(ParentResult *result, unsigned int fail_threshold, unsigned int retry_time) const;
   void markParentUp(ParentResult *result);
 
   // virtual destructor.
@@ -364,7 +364,7 @@ public:
   bool apiParentExists(HttpRequestData *rdata);
   void findParent(HttpRequestData *rdata, ParentResult *result, unsigned int fail_threshold, unsigned int retry_time);
   void nextParent(HttpRequestData *rdata, ParentResult *result, unsigned int fail_threshold, unsigned int retry_time);
-  bool parentExists(HttpRequestData *rdata);
+  bool parentExists(HttpRequestData *rdata) const;
 
   // implementation of functions from ParentSelectionStrategy.
   void

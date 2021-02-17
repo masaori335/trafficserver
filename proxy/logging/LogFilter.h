@@ -258,12 +258,12 @@ class LogFilterList
 public:
   LogFilterList();
   ~LogFilterList();
-  bool operator==(LogFilterList &);
+  bool operator==(LogFilterList &) const;
 
   void add(LogFilter *filter, bool copy = true);
-  bool toss_this_entry(LogAccess *lad);
-  bool wipe_this_entry(LogAccess *lad);
-  LogFilter *find_by_name(const char *name);
+  bool toss_this_entry(LogAccess *lad) const;
+  bool wipe_this_entry(LogAccess *lad) const;
+  LogFilter *find_by_name(const char *name) const;
   void clear();
 
   LogFilter *
@@ -279,7 +279,7 @@ public:
   }
 
   unsigned count() const;
-  void display(FILE *fd = stdout);
+  void display(FILE *fd = stdout) const;
 
   bool
   does_conjunction() const

@@ -451,9 +451,9 @@ public:
   int mp4_adjust_stco_atom(Mp4Trak *trak, int32_t adjustment);
 
   uint32_t mp4_find_key_sample(uint32_t start_sample, Mp4Trak *trak);
-  void mp4_update_mvhd_duration();
-  void mp4_update_tkhd_duration(Mp4Trak *trak);
-  void mp4_update_mdhd_duration(Mp4Trak *trak);
+  void mp4_update_mvhd_duration() const;
+  void mp4_update_tkhd_duration(Mp4Trak *trak) const;
+  void mp4_update_mdhd_duration(Mp4Trak *trak) const;
 
 public:
   int64_t start          = 0; // requested start time, measured in milliseconds.

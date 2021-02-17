@@ -62,7 +62,7 @@ ParentConsistentHash::~ParentConsistentHash()
 }
 
 uint64_t
-ParentConsistentHash::getPathHash(HttpRequestData *hrdata, ATSHash64 *h)
+ParentConsistentHash::getPathHash(HttpRequestData *hrdata, ATSHash64 *h) const
 {
   const char *url_string_ref = nullptr;
   int len;

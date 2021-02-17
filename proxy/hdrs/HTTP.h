@@ -271,10 +271,10 @@ struct HTTPHdrImpl : public HdrHeapObjImpl {
   int marshal(MarshalXlate *ptr_xlate, int num_ptr, MarshalXlate *str_xlate, int num_str);
   void unmarshal(intptr_t offset);
   void move_strings(HdrStrHeap *new_heap);
-  size_t strings_length();
+  size_t strings_length() const;
 
   // Sanity Check Functions
-  void check_strings(HeapCheck *heaps, int num_heaps);
+  void check_strings(HeapCheck *heaps, int num_heaps) const;
 };
 
 struct HTTPValAccept {
@@ -1412,14 +1412,14 @@ public:
   {
     m_alt = info->m_alt;
   }
-  void copy_frag_offsets_from(HTTPInfo *src);
+  void copy_frag_offsets_from(HTTPInfo *src) const;
   HTTPInfo &operator=(const HTTPInfo &m);
 
-  inkcoreapi int marshal_length();
-  inkcoreapi int marshal(char *buf, int len);
+  inkcoreapi int marshal_length() const;
+  inkcoreapi int marshal(char *buf, int len) const;
   static int unmarshal(char *buf, int len, RefCountObj *block_ref);
   static int unmarshal_v24_1(char *buf, int len, RefCountObj *block_ref);
-  void set_buffer_reference(RefCountObj *block_ref);
+  void set_buffer_reference(RefCountObj *block_ref) const;
   int get_handle(char *buf, int len);
 
   int32_t

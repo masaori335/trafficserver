@@ -204,8 +204,8 @@ public:
   }
 
   void clear();
-  unsigned count();
-  void display(FILE *fd = stdout);
+  unsigned count() const;
+  void display(FILE *fd = stdout) const;
 
   // noncopyable
   // -- member functions that are not allowed --

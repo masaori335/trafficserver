@@ -187,9 +187,9 @@ struct Doc {
 #if TS_ENABLE_FIPS == 1
   CryptoHash key; ///< Key for this doc.
 #endif
-  uint32_t data_len();
-  uint32_t prefix_len();
-  int single_fragment();
+  uint32_t data_len() const;
+  uint32_t prefix_len() const;
+  int single_fragment() const;
   int no_data_in_fragment();
   char *hdr();
   char *data();
@@ -561,7 +561,7 @@ struct Stripe {
     return vol_dir_segment(s);
   }
 
-  Bytes stripe_offset(CacheDirEntry *e); // offset w.r.t the stripe content
+  Bytes stripe_offset(CacheDirEntry *e) const; // offset w.r.t the stripe content
   size_t vol_dirlen();
   inline int
   vol_headerlen()

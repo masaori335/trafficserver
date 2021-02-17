@@ -180,7 +180,7 @@ IOBufferReader::read(void *ab, int64_t len)
 
 // TODO: I don't think this method is used anywhere, so perhaps get rid of it ?
 int64_t
-IOBufferReader::memchr(char c, int64_t len, int64_t offset)
+IOBufferReader::memchr(char c, int64_t len, int64_t offset) const
 {
   IOBufferBlock *b = block.get();
   offset += start_offset;
@@ -215,7 +215,7 @@ IOBufferReader::memchr(char c, int64_t len, int64_t offset)
 }
 
 char *
-IOBufferReader::memcpy(void *ap, int64_t len, int64_t offset)
+IOBufferReader::memcpy(void *ap, int64_t len, int64_t offset) const
 {
   char *p          = static_cast<char *>(ap);
   IOBufferBlock *b = block.get();

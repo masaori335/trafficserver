@@ -188,8 +188,8 @@ struct MC : Continuation {
   int ascii_incr_decr_event(int event, void *data);
 
   int write_binary_error(protocol_binary_response_status err, int swallow);
-  void add_binary_header(uint16_t err, uint8_t hdr_len, uint16_t key_len, uint32_t body_len);
-  int write_binary_response(const void *d, int hlen, int keylen, int dlen);
+  void add_binary_header(uint16_t err, uint8_t hdr_len, uint16_t key_len, uint32_t body_len) const;
+  int write_binary_response(const void *d, int hlen, int keylen, int dlen) const;
   int protocol_error();
   int bin_read_key();
 

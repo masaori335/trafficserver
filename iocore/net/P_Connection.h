@@ -128,7 +128,7 @@ struct Connection {
 
   int close(); // 0 on success, -errno on failure
 
-  void apply_options(NetVCOptions const &opt);
+  void apply_options(NetVCOptions const &opt) const;
 
   virtual ~Connection();
   Connection();

@@ -537,19 +537,19 @@ Configs::finalize()
 }
 
 bool
-Configs::prefixToBeRemoved()
+Configs::prefixToBeRemoved() const
 {
   return _prefixToBeRemoved;
 }
 
 bool
-Configs::pathToBeRemoved()
+Configs::pathToBeRemoved() const
 {
   return _pathToBeRemoved;
 }
 
 bool
-Configs::canonicalPrefix()
+Configs::canonicalPrefix() const
 {
   return _canonicalPrefix;
 }

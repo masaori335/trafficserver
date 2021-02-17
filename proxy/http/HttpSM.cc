@@ -430,7 +430,7 @@ HttpSM::init(bool from_early_data)
 }
 
 void
-HttpSM::set_ua_half_close_flag()
+HttpSM::set_ua_half_close_flag() const
 {
   ua_txn->set_half_close_flag(true);
 }
@@ -6524,7 +6524,7 @@ HttpSM::setup_internal_transfer(HttpSMHandler handler_arg)
 //     a response based on the content length
 //
 int
-HttpSM::find_http_resp_buffer_size(int64_t content_length)
+HttpSM::find_http_resp_buffer_size(int64_t content_length) const
 {
   int64_t alloc_index;
 
@@ -7295,7 +7295,7 @@ HttpSM::dump_state_on_assert()
 }
 
 void
-HttpSM::dump_state_hdr(HTTPHdr *h, const char *s)
+HttpSM::dump_state_hdr(HTTPHdr *h, const char *s) const
 {
   // Dump the client request if available
   if (h->valid()) {
@@ -8139,7 +8139,7 @@ HttpSM::is_private()
 
 // check to see if redirection is enabled and less than max redirections tries or if a plugin enabled redirection
 inline bool
-HttpSM::is_redirect_required()
+HttpSM::is_redirect_required() const
 {
   bool redirect_required = (enable_redirection && (redirection_tries <= t_state.txn_conf->number_of_redirections) &&
                             !HttpTransact::is_fresh_cache_hit(t_state.cache_lookup_result));
@@ -8269,7 +8269,7 @@ HttpSM::rewind_state_machine()
 // YTS Team, yamsat Plugin
 // Function to copy the partial Post data while tunnelling
 void
-PostDataBuffers::copy_partial_post_data()
+PostDataBuffers::copy_partial_post_data() const
 {
   if (post_data_buffer_done) {
     return;
@@ -8281,7 +8281,7 @@ PostDataBuffers::copy_partial_post_data()
 }
 
 IOBufferReader *
-PostDataBuffers::get_post_data_buffer_clone_reader()
+PostDataBuffers::get_post_data_buffer_clone_reader() const
 {
   return this->postdata_copy_buffer->clone_reader(this->postdata_copy_buffer_start);
 }

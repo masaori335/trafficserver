@@ -789,7 +789,7 @@ public:
       occurrence.
 
   */
-  inkcoreapi int64_t memchr(char c, int64_t len = INT64_MAX, int64_t offset = 0);
+  inkcoreapi int64_t memchr(char c, int64_t len = INT64_MAX, int64_t offset = 0) const;
 
   /**
     Copies and consumes data. Copies len bytes of data from the buffer
@@ -824,7 +824,7 @@ public:
       parameter buf is set to this value also.
 
   */
-  inkcoreapi char *memcpy(void *buf, int64_t len = INT64_MAX, int64_t offset = 0);
+  inkcoreapi char *memcpy(void *buf, int64_t len = INT64_MAX, int64_t offset = 0) const;
 
   /**
     Subscript operator. Returns a reference to the character at the

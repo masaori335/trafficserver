@@ -96,7 +96,7 @@ Store::add(Store &s)
 // case (where this is not a free of a "just" allocated
 // store
 void
-Store::free(Store &s)
+Store::free(Store &s) const
 {
   for (unsigned i = 0; i < s.n_disks; i++) {
     for (Span *sd = s.disk[i]; sd; sd = sd->link.next) {
@@ -291,7 +291,7 @@ get_int64(int fd, int64_t &data)
 }
 
 int
-Store::remove(char *n)
+Store::remove(char *n) const
 {
   bool found = false;
 Lagain:
@@ -650,7 +650,7 @@ try_alloc(Store &target, Span *source, unsigned int start_blocks, bool one_only 
 }
 
 void
-Store::spread_alloc(Store &s, unsigned int blocks, bool mmapable)
+Store::spread_alloc(Store &s, unsigned int blocks, bool mmapable) const
 {
   //
   // Count the eligible disks..
@@ -742,7 +742,7 @@ Store::try_realloc(Store &s, Store &diff)
 // Stupid grab first available space allocator
 //
 void
-Store::alloc(Store &s, unsigned int blocks, bool one_only, bool mmapable)
+Store::alloc(Store &s, unsigned int blocks, bool one_only, bool mmapable) const
 {
   unsigned int oblocks = blocks;
   for (unsigned i = 0; blocks && i < n_disks; i++) {
@@ -962,7 +962,7 @@ Span::dup()
 }
 
 void
-Store::dup(Store &s)
+Store::dup(Store &s) const
 {
   s.n_disks = n_disks;
   s.disk    = static_cast<Span **>(ats_malloc(sizeof(Span *) * n_disks));
@@ -972,7 +972,7 @@ Store::dup(Store &s)
 }
 
 int
-Store::clear(char *filename, bool clear_dirs)
+Store::clear(char *filename, bool clear_dirs) const
 {
   char z[STORE_BLOCK_SIZE];
   memset(z, 0, STORE_BLOCK_SIZE);

@@ -92,7 +92,7 @@ public:
             const char *awsSecretAccessKey, size_t awsSecretAccessKeyLen, const char *awsService, size_t awsServiceLen,
             const StringSet &includedHeaders, const StringSet &excludedHeaders, const StringMap &regionMap);
   const char *getDateTime(size_t *dateTimeLen);
-  String getPayloadHash();
+  String getPayloadHash() const;
   String getAuthorizationHeader();
 
 private:

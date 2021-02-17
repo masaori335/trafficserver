@@ -752,7 +752,7 @@ CacheProcessor::start_internal(int flags)
 }
 
 void
-CacheProcessor::diskInitialized()
+CacheProcessor::diskInitialized() const
 {
   int n_init    = initialize_disk++;
   int bad_disks = 0;
@@ -859,7 +859,7 @@ CacheProcessor::diskInitialized()
 }
 
 void
-CacheProcessor::cacheInitialized()
+CacheProcessor::cacheInitialized() const
 {
   int i;
 
@@ -1935,7 +1935,7 @@ Cache::vol_initialized(bool result)
  */
 bool
 CacheProcessor::mark_storage_offline(CacheDisk *d, ///< Target disk
-                                     bool admin)
+                                     bool admin) const
 {
   bool zret; // indicates whether there's any online storage left.
   int p;
@@ -2362,7 +2362,7 @@ LmemHit:
 }
 
 Action *
-Cache::lookup(Continuation *cont, const CacheKey *key, CacheFragType type, const char *hostname, int host_len)
+Cache::lookup(Continuation *cont, const CacheKey *key, CacheFragType type, const char *hostname, int host_len) const
 {
   if (!CacheProcessor::IsCacheReady(type)) {
     cont->handleEvent(CACHE_EVENT_LOOKUP_FAILED, nullptr);
@@ -2472,7 +2472,7 @@ Lfree:
 }
 
 Action *
-Cache::remove(Continuation *cont, const CacheKey *key, CacheFragType type, const char *hostname, int host_len)
+Cache::remove(Continuation *cont, const CacheKey *key, CacheFragType type, const char *hostname, int host_len) const
 {
   if (!CacheProcessor::IsCacheReady(type)) {
     if (cont) {
@@ -3030,7 +3030,7 @@ rebuild_host_table(Cache *cache)
 
 // if generic_host_rec.vols == nullptr, what do we do???
 Vol *
-Cache::key_to_vol(const CacheKey *key, const char *hostname, int host_len)
+Cache::key_to_vol(const CacheKey *key, const char *hostname, int host_len) const
 {
   uint32_t h                 = (key->slice32(2) >> DIR_TAG_WIDTH) % VOL_HASH_TABLE_SIZE;
   unsigned short *hash_table = hosttable->gen_host_rec.vol_hash_table;
