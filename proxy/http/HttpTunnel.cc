@@ -1678,3 +1678,70 @@ void
 HttpTunnel::internal_error()
 {
 }
+
+void
+HttpTunnel::mark_tls_tunnel_active()
+{
+  m_tls_tunnel_last_update = Thread::get_hrtime();
+
+  if (m_tls_tunnel_active) {
+    return;
+  }
+
+  m_tls_tunnel_active = true;
+  HTTP_INCREMENT_DYN_STAT(tunnel_current_active_connections_stat);
+
+  _schedule_tls_tunnel_activity_check_event();
+}
+
+void
+HttpTunnel::mark_tls_tunnel_inactive()
+{
+  if (!m_tls_tunnel_active) {
+    return;
+  }
+
+  m_tls_tunnel_active = false;
+  HTTP_DECREMENT_DYN_STAT(tunnel_current_active_connections_stat);
+
+  if (m_tls_tunnel_activity_check_event) {
+    m_tls_tunnel_activity_check_event->cancel();
+    m_tls_tunnel_activity_check_event = nullptr;
+  }
+}
+
+void
+HttpTunnel::_schedule_tls_tunnel_activity_check_event()
+{
+  if (m_tls_tunnel_activity_check_event) {
+    return;
+  }
+
+  ink_hrtime period = HRTIME_SECONDS(sm->t_state.txn_conf->tunnel_activity_check_period);
+
+  if (period > 0) {
+    EThread *ethread                  = this_ethread();
+    m_tls_tunnel_activity_check_event = ethread->schedule_every_local(this, period, HTTP_TUNNEL_EVENT_ACTIVITY_CHECK);
+  }
+}
+
+bool
+HttpTunnel::_is_tls_tunnel_active()
+{
+  ink_hrtime period = HRTIME_SECONDS(sm->t_state.txn_conf->tunnel_activity_check_period);
+
+  // This should not be called if period is 0
+  ink_release_assert(period > 0);
+
+  ink_hrtime now = Thread::get_hrtime();
+
+  Debug("http_tunnel", "now=%" PRId64 " last_update=%" PRId64, now, m_tls_tunnel_last_update);
+
+  // In some cases, m_tls_tunnel_last_update could be lager than now, because it's using cached current time.
+  // - e.g. comparing Thread::cur_time of different threads.
+  if (m_tls_tunnel_last_update >= now || now - m_tls_tunnel_last_update <= period) {
+    return true;
+  }
+
+  return false;
+}

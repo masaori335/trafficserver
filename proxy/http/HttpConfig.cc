@@ -310,6 +310,13 @@ register_stat_callbacks()
   RecRegisterRawStat(http_rsb, RECT_PROCESS, "proxy.process.http.websocket.current_active_client_connections", RECD_INT,
                      RECP_NON_PERSISTENT, (int)http_websocket_current_active_client_connections_stat, RecRawStatSyncSum);
   HTTP_CLEAR_DYN_STAT(http_websocket_current_active_client_connections_stat);
+
+  // Tunnel Stats
+  // TODO: add proxy.process.tunnel.current_connections
+  RecRegisterRawStat(http_rsb, RECT_PROCESS, "proxy.process.tunnel.current_active_connections", RECD_INT, RECP_NON_PERSISTENT,
+                     (int)tunnel_current_active_connections_stat, RecRawStatSyncSum);
+  HTTP_CLEAR_DYN_STAT(tunnel_current_active_connections_stat);
+
   // Current Transaction Stats
   RecRegisterRawStat(http_rsb, RECT_PROCESS, "proxy.process.http.current_client_transactions", RECD_INT, RECP_NON_PERSISTENT,
                      (int)http_current_client_transactions_stat, RecRawStatSyncSum);
