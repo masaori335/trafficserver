@@ -72,7 +72,6 @@ public:
   Http2ErrorCode decode_header_blocks(HpackHandle &hpack_handle, uint32_t maximum_table_size);
   void send_request(Http2ConnectionState &cstate);
   void initiating_close();
-  void terminate_if_possible();
   void update_read_request(bool send_update);
   void update_write_request(bool send_update);
 
@@ -107,8 +106,6 @@ public:
   int get_transaction_priority_weight() const override;
   int get_transaction_priority_dependence() const override;
 
-  void clear_io_events();
-
   bool is_client_state_writeable() const;
   bool is_closed() const;
   IOBufferReader *response_get_data_reader() const;
@@ -139,7 +136,6 @@ public:
   bool send_end_stream = false;
 
   bool sent_request_header       = false;
-  bool response_header_done      = false;
   bool request_sent              = false;
   bool is_first_transaction_flag = false;
 
@@ -147,6 +143,8 @@ public:
   Http2DependencyTree::Node *priority_node = nullptr;
 
 private:
+  void terminate_if_possible();
+  void clear_io_events();
   bool response_is_data_available() const;
   Event *send_tracked_event(Event *event, int send_event, VIO *vio);
   void send_response_body(bool call_update);
@@ -200,6 +198,8 @@ private:
   bool closed           = false;
   int reentrancy_count  = 0;
   bool terminate_stream = false;
+
+  bool response_header_done = false;
 
   uint64_t data_length = 0;
   uint64_t bytes_sent  = 0;
