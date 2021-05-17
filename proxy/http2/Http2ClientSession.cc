@@ -159,10 +159,10 @@ Http2ClientSession::free()
   ink_release_assert(this->_vc == nullptr);
 
   delete _h2_pushed_urls;
-  this->connection_state.destroy();
 
   free_MIOBuffer(this->read_buffer);
   free_MIOBuffer(this->write_buffer);
+
   THREAD_FREE(this, http2ClientSessionAllocator, this_ethread());
 }
 

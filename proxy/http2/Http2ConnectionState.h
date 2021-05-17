@@ -119,6 +119,7 @@ class Http2ConnectionState : public Continuation
 {
 public:
   Http2ConnectionState() : stream_list() { SET_HANDLER(&Http2ConnectionState::main_event_handler); }
+  ~Http2ConnectionState();
 
   ProxyError rx_error_code;
   ProxyError tx_error_code;
@@ -145,41 +146,6 @@ public:
 
     _cop = ActivityCop<Http2Stream>(this->mutex, &stream_list, 1);
     _cop.start();
-  }
-
-  void
-  destroy()
-  {
-    if (in_destroy) {
-      schedule_zombie_event();
-      return;
-    }
-    in_destroy = true;
-
-    _cop.stop();
-
-    if (shutdown_cont_event) {
-      shutdown_cont_event->cancel();
-      shutdown_cont_event = nullptr;
-    }
-    cleanup_streams();
-
-    delete local_hpack_handle;
-    local_hpack_handle = nullptr;
-    delete remote_hpack_handle;
-    remote_hpack_handle = nullptr;
-    delete dependency_tree;
-    dependency_tree  = nullptr;
-    this->ua_session = nullptr;
-
-    if (fini_event) {
-      fini_event->cancel();
-    }
-    if (zombie_event) {
-      zombie_event->cancel();
-    }
-    // release the mutex after the events are cancelled and sessions are destroyed.
-    mutex = nullptr; // magic happens - assigning to nullptr frees the ProxyMutex
   }
 
   // Event handlers
@@ -400,7 +366,6 @@ private:
   Http2StreamId continued_stream_id = 0;
   bool _scheduled                   = false;
   bool fini_received                = false;
-  bool in_destroy                   = false;
   int recursion                     = 0;
   Http2ShutdownState shutdown_state = HTTP2_SHUTDOWN_NONE;
   Http2ErrorCode shutdown_reason    = Http2ErrorCode::HTTP2_ERROR_MAX;

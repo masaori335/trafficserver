@@ -973,6 +973,34 @@ static const http2_frame_dispatch frame_handlers[HTTP2_FRAME_TYPE_MAX] = {
   rcv_continuation_frame,  // HTTP2_FRAME_TYPE_CONTINUATION
 };
 
+Http2ConnectionState::~Http2ConnectionState()
+{
+  _cop.stop();
+
+  if (shutdown_cont_event) {
+    shutdown_cont_event->cancel();
+    shutdown_cont_event = nullptr;
+  }
+  cleanup_streams();
+
+  delete local_hpack_handle;
+  local_hpack_handle = nullptr;
+  delete remote_hpack_handle;
+  remote_hpack_handle = nullptr;
+  delete dependency_tree;
+  dependency_tree  = nullptr;
+  this->ua_session = nullptr;
+
+  if (fini_event) {
+    fini_event->cancel();
+  }
+  if (zombie_event) {
+    zombie_event->cancel();
+  }
+  // release the mutex after the events are cancelled and sessions are destroyed.
+  mutex = nullptr; // magic happens - assigning to nullptr frees the ProxyMutex
+}
+
 int
 Http2ConnectionState::main_event_handler(int event, void *edata)
 {
