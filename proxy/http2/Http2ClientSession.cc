@@ -72,6 +72,11 @@ Http2ClientSession::Http2ClientSession() : super() {}
 void
 Http2ClientSession::destroy()
 {
+  if (_vc) {
+    _vc->do_io_close();
+    _vc = nullptr;
+  }
+
   if (!in_destroy) {
     in_destroy = true;
     REMEMBER(NO_EVENT, this->recursion)
