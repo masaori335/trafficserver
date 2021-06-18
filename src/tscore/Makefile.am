@@ -19,7 +19,7 @@
 include $(top_srcdir)/build/tidy.mk
 
 noinst_PROGRAMS = mkdfa CompileParseRules
-check_PROGRAMS = test_libtscore test_atomic test_freelist test_geometry test_X509HostnameValidator test_tscore
+check_PROGRAMS = test_libtscore test_atomic test_freelist test_geometry test_X509HostnameValidator test_tscore benchmark_freelist
 
 TESTS_ENVIRONMENT = LSAN_OPTIONS=suppressions=suppression.txt
 
@@ -267,6 +267,10 @@ test_tscore_SOURCES = \
 	unit_tests/test_Scalar.cc \
 	unit_tests/test_scoped_resource.cc \
 	unit_tests/test_Vec.cc
+
+benchmark_freelist_CXXFLAGS = -Wno-array-bounds $(AM_CXXFLAGS) -I$(abs_top_srcdir)/tests/include
+benchmark_freelist_LDADD = libtscore.la
+benchmark_freelist_SOURCES = unit_tests/benchmark_freelist.cc
 
 CompileParseRules_SOURCES = CompileParseRules.cc
 
