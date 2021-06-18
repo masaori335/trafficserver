@@ -27,13 +27,11 @@
 #include "tscore/ink_thread.h"
 #include "tscore/ink_queue.h"
 
-#define NTHREADS 16
-
-InkFreeList *flist = nullptr;
-int nloop = 1000000;
+InkFreeList *flist  = nullptr;
+constexpr int nloop = 1000000;
 
 void *
-test(void *d)
+test_case_1(void *d)
 {
   int id;
   void *m1;
@@ -53,14 +51,26 @@ test(void *d)
   return nullptr;
 }
 
-TEST_CASE("freelist", "")
+void
+setup_test_case_1(int64_t nthreads)
+{
+  for (int i = 0; i < nthreads; i++) {
+    ink_thread_create(nullptr, test_case_1, (void *)((intptr_t)i), 0, 0, nullptr);
+  }
+
+  // go 100 times in default (--benchmark-samples)
+  BENCHMARK("case 1") { return test_case_1((void *)nthreads); };
+}
+
+TEST_CASE("case 1 - simple new and free", "")
 {
   flist = ink_freelist_create("woof", 64, 256, 8);
 
-  for (int i = 0; i < NTHREADS; i++) {
-    fprintf(stderr, "Create thread %d\n", i);
-    ink_thread_create(nullptr, test, (void *)((intptr_t)i), 0, 0, nullptr);
-  }
-
-  BENCHMARK("simple new and free") { return test((void *)NTHREADS); };
+  SECTION("nthread = 1") { setup_test_case_1(1); }
+  SECTION("nthread = 2") { setup_test_case_1(2); }
+  SECTION("nthread = 4") { setup_test_case_1(4); }
+  SECTION("nthread = 8") { setup_test_case_1(8); }
+  SECTION("nthread = 16") { setup_test_case_1(16); }
+  SECTION("nthread = 32") { setup_test_case_1(32); }
+  SECTION("nthread = 64") { setup_test_case_1(64); }
 }

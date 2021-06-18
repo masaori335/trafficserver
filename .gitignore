@@ -84,6 +84,7 @@ src/tscore/test_Regex
 src/tscore/test_PriorityQueue
 src/tscore/test_X509HostnameValidator
 src/tscore/test_tscore
+src/tscore/freelist_benchmark
 src/tscpp/util/test_tscpputil
 src/tscore/test_libtscore
 lib/perl/lib/Apache/TS.pm
