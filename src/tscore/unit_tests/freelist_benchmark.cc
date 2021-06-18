@@ -67,10 +67,20 @@ TEST_CASE("case 1 - simple new and free", "")
   flist = ink_freelist_create("woof", 64, 256, 8);
 
   SECTION("nthread = 1") { setup_test_case_1(1); }
-  SECTION("nthread = 2") { setup_test_case_1(2); }
   SECTION("nthread = 4") { setup_test_case_1(4); }
   SECTION("nthread = 8") { setup_test_case_1(8); }
+  SECTION("nthread = 12") { setup_test_case_1(12); }
   SECTION("nthread = 16") { setup_test_case_1(16); }
+  SECTION("nthread = 20") { setup_test_case_1(20); }
+  SECTION("nthread = 24") { setup_test_case_1(24); }
+  SECTION("nthread = 28") { setup_test_case_1(28); }
   SECTION("nthread = 32") { setup_test_case_1(32); }
+  SECTION("nthread = 36") { setup_test_case_1(36); }
+  SECTION("nthread = 40") { setup_test_case_1(40); }
+  SECTION("nthread = 44") { setup_test_case_1(44); }
+  SECTION("nthread = 48") { setup_test_case_1(48); }
+  SECTION("nthread = 52") { setup_test_case_1(52); }
+  SECTION("nthread = 56") { setup_test_case_1(56); }
+  SECTION("nthread = 60") { setup_test_case_1(60); }
   SECTION("nthread = 64") { setup_test_case_1(64); }
 }
