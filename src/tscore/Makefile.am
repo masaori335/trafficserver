@@ -269,7 +269,10 @@ test_tscore_SOURCES = \
 	unit_tests/test_Vec.cc
 
 freelist_benchmark_CXXFLAGS = -Wno-array-bounds $(AM_CXXFLAGS) -I$(abs_top_srcdir)/tests/include
-freelist_benchmark_LDADD = libtscore.la
+freelist_benchmark_LDADD = \
+	libtscore.la \
+	@HWLOC_LIBS@
+
 freelist_benchmark_SOURCES = unit_tests/freelist_benchmark.cc
 
 CompileParseRules_SOURCES = CompileParseRules.cc

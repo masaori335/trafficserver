@@ -27,6 +27,8 @@
 #include "tscore/ink_thread.h"
 #include "tscore/ink_queue.h"
 
+#include <hwloc.h>
+
 InkFreeList *flist  = nullptr;
 constexpr int nloop = 1000000;
 
@@ -51,11 +53,22 @@ test_case_1(void *d)
   return nullptr;
 }
 
+/**
+   Mimicing ThreadAffinityInitializer::set_affinity
+ */
 void
 setup_test_case_1(int64_t nthreads)
 {
   for (int i = 0; i < nthreads; i++) {
-    ink_thread_create(nullptr, test_case_1, (void *)((intptr_t)i), 0, 0, nullptr);
+    pthread_t tid;
+
+    ink_thread_create(&tid, test_case_1, (void *)((intptr_t)i), 0, 0, nullptr);
+
+    hwloc_obj_t obj  = hwloc_get_obj_by_type(ink_get_topology(), HWLOC_OBJ_CORE, i);
+    int cpu_mask_len = hwloc_bitmap_snprintf(nullptr, 0, obj->cpuset) + 1;
+    char *cpu_mask   = (char *)alloca(cpu_mask_len);
+    hwloc_bitmap_snprintf(cpu_mask, cpu_mask_len, obj->cpuset);
+    hwloc_set_thread_cpubind(ink_get_topology(), tid, obj->cpuset, HWLOC_CPUBIND_STRICT);
   }
 
   // go 100 times in default (--benchmark-samples)
