@@ -156,6 +156,8 @@ TEST_CASE("case 1 - simple new and free", "")
     SECTION("benchmark nthread = 56") { setup_test_case_1(56); }
     SECTION("benchmark nthread = 60") { setup_test_case_1(60); }
     SECTION("benchmark nthread = 64") { setup_test_case_1(64); }
+    SECTION("benchmark nthread = 68") { setup_test_case_1(68); }
+    SECTION("benchmark nthread = 72") { setup_test_case_1(72); }
   }
 }
 } // namespace
