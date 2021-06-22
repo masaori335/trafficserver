@@ -121,12 +121,13 @@ setup_test_case_1(int64_t nthreads)
 
     ink_thread_create(&tid, test_case_1, (void *)((intptr_t)i), 0, 0, nullptr);
 
-    int dst = i * 2;
-    if (dst >= obj_count) {
-      dst = (i * 2 - obj_count) + 1;
-    }
+    // Assign threads one side of siblings first
+    // int dst = i * 2;
+    // if (dst >= obj_count) {
+    //   dst = (i * 2 - obj_count) + 1;
+    // }
 
-    hwloc_obj_t obj = hwloc_get_obj_by_type(ink_get_topology(), obj_type, dst % obj_count);
+    hwloc_obj_t obj = hwloc_get_obj_by_type(ink_get_topology(), obj_type, i % obj_count);
 
     int cpu_mask_len = hwloc_bitmap_snprintf(nullptr, 0, obj->cpuset) + 1;
     char *cpu_mask   = (char *)alloca(cpu_mask_len);
