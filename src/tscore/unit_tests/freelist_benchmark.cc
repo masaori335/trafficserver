@@ -25,7 +25,9 @@
 #include "v2.13.6/catch.hpp"
 
 #include "tscore/ink_thread.h"
+#include "tscore/ink_memory.h"
 #include "tscore/ink_queue.h"
+#include "tscore/hugepages.h"
 
 #include <hwloc.h>
 
@@ -182,6 +184,8 @@ main(int argc, char *argv[])
 
   using namespace Catch::clara;
 
+  bool opt_enable_hugepage = false;
+
   auto cli = session.cli() |
              Opt(affinity, "affinity")["--ts-affinity"]("thread affinity type [0 - 4]\n"
                                                         "0 = HWLOC_OBJ_MACHINE (default)\n"
@@ -191,7 +195,8 @@ main(int argc, char *argv[])
                                                         "4 = HWLOC_OBJ_PU") |
              Opt(nloop, "nloop")["--ts-nloop"]("number of loop\n"
                                                "(default: 1000000)") |
-             Opt(nthread, "nthread")["--ts-nthread"]("number of threads");
+             Opt(nthread, "nthread")["--ts-nthread"]("number of threads") |
+             Opt(opt_enable_hugepage, "yes|no")["--ts-hugepage"]("enable hugepage");
 
   session.cli(cli);
 
@@ -205,6 +210,18 @@ main(int argc, char *argv[])
   }
 
   std::cout << "nloop = " << nloop << std::endl;
+
+  if (opt_enable_hugepage) {
+    std::cout << "hugepage enabled";
+#ifdef MAP_HUGETLB
+    ats_hugepage_init(true);
+    std::cout << " ats_pagesize=" << ats_pagesize();
+    std::cout << " ats_hugepage_size=" << ats_hugepage_size();
+    std::cout << std::endl;
+#else
+    std::cout << "MAP_HUGETLB not defined" << std::endl;
+#endif
+  }
 
   return session.run();
 }
