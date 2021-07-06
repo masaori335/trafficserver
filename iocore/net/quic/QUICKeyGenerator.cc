@@ -34,6 +34,9 @@
 using namespace std::literals;
 
 constexpr static uint8_t QUIC_VERSION_1_SALT[] = {
+  0xaf, 0xbf, 0xec, 0x28, 0x99, 0x93, 0xd2, 0x4c, 0x9e, 0x97, 0x86, 0xf1, 0x9c, 0x61, 0x11, 0xe0, 0x43, 0x90, 0xa8, 0x99,
+};
+constexpr static uint8_t QUIC_VERSION_1_D27_SALT[] = {
   0xc3, 0xee, 0xf7, 0x12, 0xc7, 0x2e, 0xbb, 0x5a, 0x11, 0xa7, 0xd2, 0x43, 0x2b, 0xb4, 0x63, 0x65, 0xbe, 0xf9, 0xf5, 0x02,
 };
 constexpr static std::string_view LABEL_FOR_CLIENT_INITIAL_SECRET("client in"sv);
@@ -43,17 +46,17 @@ constexpr static std::string_view LABEL_FOR_IV("quic iv"sv);
 constexpr static std::string_view LABEL_FOR_HP("quic hp"sv);
 
 void
-QUICKeyGenerator::generate(uint8_t *hp_key, uint8_t *pp_key, uint8_t *iv, size_t *iv_len, QUICConnectionId cid)
+QUICKeyGenerator::generate(QUICVersion version, uint8_t *hp_key, uint8_t *pp_key, uint8_t *iv, size_t *iv_len, QUICConnectionId cid)
 {
-  const QUIC_EVP_CIPHER *cipher = this->_get_cipher_for_initial();
-  const EVP_MD *md              = EVP_sha256();
+  const EVP_CIPHER *cipher = this->_get_cipher_for_initial();
+  const EVP_MD *md         = EVP_sha256();
   uint8_t secret[512];
   size_t secret_len = sizeof(secret);
   QUICHKDF hkdf(md);
 
   switch (this->_ctx) {
   case Context::CLIENT:
-    this->_generate_initial_secret(secret, &secret_len, hkdf, cid, LABEL_FOR_CLIENT_INITIAL_SECRET.data(),
+    this->_generate_initial_secret(version, secret, &secret_len, hkdf, cid, LABEL_FOR_CLIENT_INITIAL_SECRET.data(),
                                    LABEL_FOR_CLIENT_INITIAL_SECRET.length(), EVP_MD_size(md));
     if (is_debug_tag_set("vv_quic_crypto")) {
       uint8_t print_buf[1024 + 1];
@@ -63,7 +66,7 @@ QUICKeyGenerator::generate(uint8_t *hp_key, uint8_t *pp_key, uint8_t *iv, size_t
 
     break;
   case Context::SERVER:
-    this->_generate_initial_secret(secret, &secret_len, hkdf, cid, LABEL_FOR_SERVER_INITIAL_SECRET.data(),
+    this->_generate_initial_secret(version, secret, &secret_len, hkdf, cid, LABEL_FOR_SERVER_INITIAL_SECRET.data(),
                                    LABEL_FOR_SERVER_INITIAL_SECRET.length(), EVP_MD_size(md));
     if (is_debug_tag_set("vv_quic_crypto")) {
       uint8_t print_buf[1024 + 1];
@@ -79,14 +82,14 @@ QUICKeyGenerator::generate(uint8_t *hp_key, uint8_t *pp_key, uint8_t *iv, size_t
 
 void
 QUICKeyGenerator::regenerate(uint8_t *hp_key, uint8_t *pp_key, uint8_t *iv, size_t *iv_len, const uint8_t *secret,
-                             size_t secret_len, const QUIC_EVP_CIPHER *cipher, QUICHKDF &hkdf)
+                             size_t secret_len, const EVP_CIPHER *cipher, QUICHKDF &hkdf)
 {
   this->_generate(hp_key, pp_key, iv, iv_len, hkdf, secret, secret_len, cipher);
 }
 
 int
 QUICKeyGenerator::_generate(uint8_t *hp_key, uint8_t *pp_key, uint8_t *iv, size_t *iv_len, QUICHKDF &hkdf, const uint8_t *secret,
-                            size_t secret_len, const QUIC_EVP_CIPHER *cipher)
+                            size_t secret_len, const EVP_CIPHER *cipher)
 {
   // Generate key, iv, and hp_key
   //   key    = HKDF-Expand-Label(S, "quic key", "", key_length)
@@ -101,18 +104,33 @@ QUICKeyGenerator::_generate(uint8_t *hp_key, uint8_t *pp_key, uint8_t *iv, size_
 }
 
 int
-QUICKeyGenerator::_generate_initial_secret(uint8_t *out, size_t *out_len, QUICHKDF &hkdf, QUICConnectionId cid, const char *label,
-                                           size_t label_len, size_t length)
+QUICKeyGenerator::_generate_initial_secret(QUICVersion version, uint8_t *out, size_t *out_len, QUICHKDF &hkdf, QUICConnectionId cid,
+                                           const char *label, size_t label_len, size_t length)
 {
   uint8_t client_connection_id[QUICConnectionId::MAX_LENGTH];
   size_t cid_len = 0;
   uint8_t initial_secret[512];
   size_t initial_secret_len = sizeof(initial_secret);
+  const uint8_t *salt;
+  size_t salt_len;
 
   // TODO: do not extract initial secret twice
   QUICTypeUtil::write_QUICConnectionId(cid, client_connection_id, &cid_len);
-  if (hkdf.extract(initial_secret, &initial_secret_len, QUIC_VERSION_1_SALT, sizeof(QUIC_VERSION_1_SALT), client_connection_id,
-                   cid.length()) != 1) {
+  switch (version) {
+  case 0xff00001d: // Draft-29
+    salt     = QUIC_VERSION_1_SALT;
+    salt_len = sizeof(QUIC_VERSION_1_SALT);
+    break;
+  case 0xff00001b: // Draft-27
+    salt     = QUIC_VERSION_1_D27_SALT;
+    salt_len = sizeof(QUIC_VERSION_1_D27_SALT);
+    break;
+  default:
+    salt     = QUIC_VERSION_1_SALT;
+    salt_len = sizeof(QUIC_VERSION_1_SALT);
+    break;
+  }
+  if (hkdf.extract(initial_secret, &initial_secret_len, salt, salt_len, client_connection_id, cid.length()) != 1) {
     return -1;
   }
 

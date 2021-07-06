@@ -20,9 +20,10 @@
   See the License for the specific language governing permissions and
   limitations under the License.
  */
+
 #include <ts/ts.h>
 #include <string>
-#include <string.h>
+#include <cstring>
 
 constexpr auto plugin_name = "test_log_interface";
 
@@ -39,7 +40,7 @@ is_get_request(TSHttpTxn transaction)
   }
   int method_len     = 0;
   const char *method = TSHttpHdrMethodGet(req_bufp, req_loc, &method_len);
-  if (method_len != (int)strlen(TS_HTTP_METHOD_GET) || strncasecmp(method, TS_HTTP_METHOD_GET, method_len) != 0) {
+  if (method_len != static_cast<int>(strlen(TS_HTTP_METHOD_GET)) || strncasecmp(method, TS_HTTP_METHOD_GET, method_len) != 0) {
     TSHandleMLocRelease(req_bufp, TS_NULL_MLOC, req_loc);
     return false;
   }
@@ -51,7 +52,7 @@ int
 global_handler(TSCont continuation, TSEvent event, void *data)
 {
   TSHttpSsn session     = static_cast<TSHttpSsn>(data);
-  TSHttpTxn transaction = (TSHttpTxn)data;
+  TSHttpTxn transaction = static_cast<TSHttpTxn>(data);
 
   switch (event) {
   case TS_EVENT_HTTP_READ_REQUEST_HDR:
@@ -80,14 +81,7 @@ TSPluginInit(int argc, const char **argv)
   info.support_email = const_cast<char *>("dev@trafficserver.apache.org");
   info.vendor_name   = const_cast<char *>("Verizon Media");
 
-  TSReturnCode ret;
-#if (TS_VERSION_MAJOR >= 7)
-  ret = TSPluginRegister(&info);
-#else
-  ret = TSPluginRegister(TS_SDK_VERSION_3_0, &info);
-#endif
-
-  if (TS_ERROR == ret) {
+  if (TSPluginRegister(&info) != TS_SUCCESS) {
     TSError("[%s] plugin registration failed\n", plugin_name);
     return;
   }

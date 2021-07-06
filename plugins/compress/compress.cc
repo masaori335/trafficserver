@@ -24,6 +24,8 @@
 #include <cstring>
 #include <zlib.h>
 
+#include "ink_autoconf.h"
+
 #if HAVE_BROTLI_ENCODE_H
 #include <brotli/encode.h>
 #endif
@@ -63,6 +65,8 @@ const int BROTLI_LGW               = 16;
 #endif
 
 static const char *global_hidden_header_name = nullptr;
+
+static TSMutex compress_config_mutex = TSMutexCreate();
 
 // Current global configuration, and the previous one (for cleanup)
 Configuration *cur_config  = nullptr;
@@ -627,7 +631,7 @@ transformable(TSHttpTxn txnp, bool server, HostConfiguration *host_configuration
   /* Client request header */
   TSMBuffer cbuf;
   TSMLoc chdr;
-  TSMLoc cfield;
+  TSMLoc cfield, rfield;
 
   const char *value;
   int len;
@@ -653,8 +657,29 @@ transformable(TSHttpTxn txnp, bool server, HostConfiguration *host_configuration
     return 0;
   }
 
+  // We got a server response but it was a 304
+  // we need to update our data to come from cache instead of
+  // the 304 response which does not need to include all headers
+  if ((server) && (resp_status == TS_HTTP_STATUS_NOT_MODIFIED)) {
+    TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
+    if (TS_SUCCESS != TSHttpTxnCachedRespGet(txnp, &bufp, &hdr_loc)) {
+      return 0;
+    }
+  }
+
   if (TS_SUCCESS != TSHttpTxnClientReqGet(txnp, &cbuf, &chdr)) {
     info("cound not get client request");
+    TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
+    return 0;
+  }
+
+  // check if Range Requests are cacheable
+  bool range_request = host_configuration->range_request();
+  rfield             = TSMimeHdrFieldFind(cbuf, chdr, TS_MIME_FIELD_RANGE, TS_MIME_LEN_RANGE);
+  if (rfield != TS_NULL_MLOC && !range_request) {
+    debug("Range header found in the request and range_request is configured as false, not compressible");
+    TSHandleMLocRelease(cbuf, chdr, rfield);
+    TSHandleMLocRelease(cbuf, TS_NULL_MLOC, chdr);
     TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
     return 0;
   }
@@ -663,9 +688,11 @@ transformable(TSHttpTxn txnp, bool server, HostConfiguration *host_configuration
   int method_length;
   const char *method = TSHttpHdrMethodGet(cbuf, chdr, &method_length);
 
-  if (!(method_length == TS_HTTP_LEN_GET && memcmp(method, TS_HTTP_METHOD_GET, TS_HTTP_LEN_GET) == 0)) {
-    debug("method is not GET, not compressible");
+  if (!((method_length == TS_HTTP_LEN_GET && memcmp(method, TS_HTTP_METHOD_GET, TS_HTTP_LEN_GET) == 0) ||
+        (method_length == TS_HTTP_LEN_POST && memcmp(method, TS_HTTP_METHOD_POST, TS_HTTP_LEN_POST) == 0))) {
+    debug("method is not GET or POST, not compressible");
     TSHandleMLocRelease(cbuf, TS_NULL_MLOC, chdr);
+    TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
     return 0;
   }
 
@@ -873,7 +900,6 @@ transform_plugin(TSCont contp, TSEvent event, void *edata)
 
   case TS_EVENT_HTTP_TXN_CLOSE:
     // Release the ocnif lease, and destroy this continuation
-    hc->release();
     TSContDestroy(contp);
     break;
 
@@ -904,9 +930,9 @@ handle_request(TSHttpTxn txnp, Configuration *config)
 
   if (TSHttpTxnClientReqGet(txnp, &req_buf, &req_loc) == TS_SUCCESS) {
     if (config == nullptr) {
-      hc = find_host_configuration(txnp, req_buf, req_loc, nullptr); // Get a lease on the global config
+      hc = find_host_configuration(txnp, req_buf, req_loc, nullptr);
     } else {
-      hc = find_host_configuration(txnp, req_buf, req_loc, config); // Get a lease on the local config passed through doRemap
+      hc = find_host_configuration(txnp, req_buf, req_loc, config);
     }
     bool allowed = false;
 
@@ -929,8 +955,6 @@ handle_request(TSHttpTxn txnp, Configuration *config)
       normalize_accept_encoding(txnp, req_buf, req_loc);
       TSHttpTxnHookAdd(txnp, TS_HTTP_CACHE_LOOKUP_COMPLETE_HOOK, transform_contp);
       TSHttpTxnHookAdd(txnp, TS_HTTP_TXN_CLOSE_HOOK, transform_contp); // To release the config
-    } else {
-      hc->release(); // No longer need this configuration, release it.
     }
     TSHandleMLocRelease(req_buf, TS_NULL_MLOC, req_loc);
   }
@@ -965,15 +989,14 @@ load_global_configuration(TSCont contp)
 
   debug("config swapped, old config %p", oldconfig);
 
-  // First, if there was a previous configuration, clean that one out. This avoids the
-  // small race condition tht exist between doing a find() and calling hold() on a
-  // HostConfig object.
+  // need a mutex for when there are multiple reloads going on
+  TSMutexLock(compress_config_mutex);
   if (prev_config) {
-    prev_config->release_all();
     debug("deleting previous configuration container, %p", prev_config);
     delete prev_config;
   }
   prev_config = oldconfig;
+  TSMutexUnlock(compress_config_mutex);
 }
 
 static int
@@ -1072,7 +1095,6 @@ TSRemapDeleteInstance(void *instance)
 {
   debug("Cleanup configs read from remap");
   auto c = static_cast<Configuration *>(instance);
-  c->release_all();
   delete c;
 }
 

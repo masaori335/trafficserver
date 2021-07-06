@@ -22,6 +22,7 @@
  */
 
 #include "Http3Transaction.h"
+#include "P_QUICNetVConnection.h"
 
 #include "QUICDebugNames.h"
 
@@ -56,12 +57,10 @@
 //
 // HQTransaction
 //
-HQTransaction::HQTransaction(HQSession *session, QUICStreamIO *stream_io) : super(), _stream_io(stream_io)
+HQTransaction::HQTransaction(HQSession *session, QUICStreamIO *stream_io) : super(session), _stream_io(stream_io)
 {
   this->mutex   = new_ProxyMutex();
   this->_thread = this_ethread();
-
-  this->set_proxy_ssn(session);
 
   this->_reader = this->_read_vio_buf.alloc_reader();
 
@@ -105,17 +104,10 @@ HQTransaction::cancel_inactivity_timeout()
 }
 
 void
-HQTransaction::release(IOBufferReader *r)
+HQTransaction::release()
 {
-  super::release(r);
   this->do_io_close();
   this->_sm = nullptr;
-}
-
-bool
-HQTransaction::allow_half_open() const
-{
-  return false;
 }
 
 VIO *
@@ -156,8 +148,11 @@ HQTransaction::do_io_write(Continuation *c, int64_t nbytes, IOBufferReader *buf,
   this->_write_vio.vc_server = this;
   this->_write_vio.op        = VIO::WRITE;
 
-  this->_process_write_vio();
-  this->_send_tracked_event(this->_write_event, VC_EVENT_WRITE_READY, &this->_write_vio);
+  if (c != nullptr && nbytes > 0) {
+    // TODO Return nullptr if the stream is not on writable state
+    this->_process_write_vio();
+    this->_send_tracked_event(this->_write_event, VC_EVENT_WRITE_READY, &this->_write_vio);
+  }
 
   return &this->_write_vio;
 }
@@ -215,15 +210,10 @@ HQTransaction::reenable(VIO *vio)
 }
 
 void
-HQTransaction::destroy()
-{
-  _sm = nullptr;
-}
-
-void
 HQTransaction::transaction_done()
 {
   // TODO: start closing transaction
+  super::transaction_done();
   return;
 }
 
@@ -234,13 +224,13 @@ HQTransaction::get_transaction_id() const
 }
 
 void
-HQTransaction::increment_client_transactions_stat()
+HQTransaction::increment_transactions_stat()
 {
   // TODO
 }
 
 void
-HQTransaction::decrement_client_transactions_stat()
+HQTransaction::decrement_transactions_stat()
 {
   // TODO
 }
@@ -280,7 +270,7 @@ HQTransaction::_signal_read_event()
   if (this->_read_vio.cont == nullptr || this->_read_vio.op == VIO::NONE) {
     return;
   }
-  int event = this->_read_vio.ntodo() ? VC_EVENT_READ_READY : VC_EVENT_READ_COMPLETE;
+  int event = this->_read_vio.nbytes == INT64_MAX ? VC_EVENT_READ_READY : VC_EVENT_READ_COMPLETE;
 
   MUTEX_TRY_LOCK(lock, this->_read_vio.mutex, this_ethread());
   if (lock.is_locked()) {
@@ -364,29 +354,36 @@ Http3Transaction::state_stream_open(int event, void *edata)
 
   switch (event) {
   case VC_EVENT_READ_READY:
-  case VC_EVENT_READ_COMPLETE: {
     Http3TransVDebug("%s (%d)", get_vc_event_name(event), event);
-    int64_t len = this->_process_read_vio();
     // if no progress, don't need to signal
-    if (len > 0) {
+    if (this->_process_read_vio() > 0) {
       this->_signal_read_event();
     }
     this->_stream_io->read_reenable();
-
     break;
-  }
-  case VC_EVENT_WRITE_READY:
-  case VC_EVENT_WRITE_COMPLETE: {
+  case VC_EVENT_READ_COMPLETE:
     Http3TransVDebug("%s (%d)", get_vc_event_name(event), event);
-    int64_t len = this->_process_write_vio();
+    this->_process_read_vio();
+    this->_data_handler->finalize();
+    // always signal regardless of progress
+    this->_signal_read_event();
+    this->_stream_io->read_reenable();
+    break;
+  case VC_EVENT_WRITE_READY:
+    Http3TransVDebug("%s (%d)", get_vc_event_name(event), event);
     // if no progress, don't need to signal
-    if (len > 0) {
+    if (this->_process_write_vio() > 0) {
       this->_signal_write_event();
     }
     this->_stream_io->write_reenable();
-
     break;
-  }
+  case VC_EVENT_WRITE_COMPLETE:
+    Http3TransVDebug("%s (%d)", get_vc_event_name(event), event);
+    this->_process_write_vio();
+    // always signal regardless of progress
+    this->_signal_write_event();
+    this->_stream_io->write_reenable();
+    break;
   case VC_EVENT_EOS:
   case VC_EVENT_ERROR:
   case VC_EVENT_INACTIVITY_TIMEOUT:
@@ -590,6 +587,13 @@ Http3Transaction::_on_qpack_decode_complete()
   } while (!done);
 
   return 1;
+}
+
+// TODO:  Just a place holder for now
+bool
+Http3Transaction::has_request_body(int64_t content_length, bool is_chunked_set) const
+{
+  return false;
 }
 
 //

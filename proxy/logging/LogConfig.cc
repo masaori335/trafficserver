@@ -23,6 +23,7 @@
 
 #include "tscore/ink_platform.h"
 #include "tscore/I_Layout.h"
+#include "I_Machine.h"
 
 #ifdef HAVE_SYS_PARAM_H
 #include <sys/param.h>
@@ -33,8 +34,9 @@
 #include "tscore/ink_platform.h"
 #include "tscore/ink_file.h"
 
-#include "tscore/List.h"
 #include "tscore/Filenames.h"
+#include "tscore/List.h"
+#include "tscore/LogMessage.h"
 
 #include "Log.h"
 #include "LogField.h"
@@ -67,17 +69,12 @@
 void
 LogConfig::setup_default_values()
 {
-  const unsigned int bufSize = 512;
-  char name[bufSize];
-  if (!gethostname(name, bufSize)) {
-    ink_strlcpy(name, "unknown_host_name", sizeof(name));
-  }
-  hostname = ats_strdup(name);
-
+  hostname              = ats_strdup(Machine::instance()->hostname);
   log_buffer_size       = static_cast<int>(10 * LOG_KILOBYTE);
   max_secs_per_buffer   = 5;
   max_space_mb_for_logs = 100;
   max_space_mb_headroom = 10;
+  error_log_filename    = ats_strdup("error.log");
   logfile_perm          = 0644;
   logfile_dir           = ats_strdup(".");
 
@@ -96,8 +93,9 @@ LogConfig::setup_default_values()
   file_stat_frequency  = 16;
   space_used_frequency = 900;
 
-  ascii_buffer_size = 4 * 9216;
-  max_line_size     = 9216; // size of pipe buffer for SunOS 5.6
+  ascii_buffer_size         = 4 * 9216;
+  max_line_size             = 9216; // size of pipe buffer for SunOS 5.6
+  logbuffer_max_iobuf_index = BUFFER_SIZE_INDEX_32K;
 }
 
 void LogConfig::reconfigure_mgmt_variables(ts::MemSpan<void>)
@@ -145,6 +143,11 @@ LogConfig::read_configuration_variables()
     max_space_mb_headroom = val;
   }
 
+  val = static_cast<int>(REC_ConfigReadInteger("proxy.config.log.io.max_buffer_index"));
+  if (val > 0) {
+    logbuffer_max_iobuf_index = val;
+  }
+
   ptr                     = REC_ConfigReadString("proxy.config.log.logfile_perm");
   int logfile_perm_parsed = ink_fileperm_parse(ptr);
   if (logfile_perm_parsed != -1) {
@@ -153,9 +156,15 @@ LogConfig::read_configuration_variables()
   ats_free(ptr);
 
   ptr = REC_ConfigReadString("proxy.config.log.hostname");
-  if (ptr != nullptr) {
+  if (ptr != nullptr && std::string_view(ptr) != "localhost") {
     ats_free(hostname);
     hostname = ptr;
+  }
+
+  ptr = REC_ConfigReadString("proxy.config.error.logfile.filename");
+  if (ptr != nullptr) {
+    ats_free(error_log_filename);
+    error_log_filename = ptr;
   }
 
   ats_free(logfile_dir);
@@ -195,6 +204,20 @@ LogConfig::read_configuration_variables()
 
   val                 = static_cast<int>(REC_ConfigReadInteger("proxy.config.log.rolling_allow_empty"));
   rolling_allow_empty = (val > 0);
+
+  // THROTTLING
+  val = static_cast<int>(REC_ConfigReadInteger("proxy.config.log.throttling_interval_msec"));
+  if (LogThrottlingIsValid(val)) {
+    LogMessage::set_default_log_throttling_interval(std::chrono::milliseconds{val});
+  } else {
+    Warning("invalid value '%d' for '%s', disabling log rolling", val, "proxy.config.log.throttling_interval_msec");
+  }
+  val = static_cast<int>(REC_ConfigReadInteger("proxy.config.diags.debug.throttling_interval_msec"));
+  if (LogThrottlingIsValid(val)) {
+    LogMessage::set_default_debug_throttling_interval(std::chrono::milliseconds{val});
+  } else {
+    Warning("invalid value '%d' for '%s', disabling log rolling", val, "proxy.config.diags.debug.throttling_interval_msec");
+  }
 
   // Read in min_count control values for auto deletion
   if (auto_delete_rolled_files) {
@@ -271,6 +294,7 @@ LogConfig::LogConfig() : m_partition_space_left(static_cast<int64_t>(UINT_MAX))
 
 LogConfig::~LogConfig()
 {
+  ats_free(error_log_filename);
   ats_free(logfile_dir);
 }
 
@@ -300,9 +324,9 @@ LogConfig::init(LogConfig *prev_config)
 
     Debug("log", "creating predefined error log object");
 
-    errlog = new LogObject(fmt.get(), logfile_dir, "error.log", LOG_FILE_ASCII, nullptr, rolling_enabled, preproc_threads,
-                           rolling_interval_sec, rolling_offset_hr, rolling_size_mb, /* auto_created */ false, rolling_max_count,
-                           rolling_min_count);
+    errlog = new LogObject(this, fmt.get(), logfile_dir, error_log_filename, LOG_FILE_ASCII, nullptr, rolling_enabled,
+                           preproc_threads, rolling_interval_sec, rolling_offset_hr, rolling_size_mb, /* auto_created */ false,
+                           rolling_max_count, rolling_min_count);
 
     log_object_manager.manage_object(errlog);
     errlog->set_fmt_timestamps();
@@ -346,6 +370,7 @@ LogConfig::display(FILE *fd)
   fprintf(fd, "   hostname = %s\n", hostname);
   fprintf(fd, "   logfile_dir = %s\n", logfile_dir);
   fprintf(fd, "   logfile_perm = 0%o\n", logfile_perm);
+  fprintf(fd, "   error_log_filename = %s\n", error_log_filename);
 
   fprintf(fd, "   preproc_threads = %d\n", preproc_threads);
   fprintf(fd, "   rolling_enabled = %d\n", rolling_enabled);
@@ -359,6 +384,7 @@ LogConfig::display(FILE *fd)
   fprintf(fd, "   sampling_frequency = %d\n", sampling_frequency);
   fprintf(fd, "   file_stat_frequency = %d\n", file_stat_frequency);
   fprintf(fd, "   space_used_frequency = %d\n", space_used_frequency);
+  fprintf(fd, "   logbuffer_max_iobuf_index = %d\n", logbuffer_max_iobuf_index);
 
   fprintf(fd, "\n");
   fprintf(fd, "************ Log Objects (%u objects) ************\n", log_object_manager.get_num_objects());
@@ -428,12 +454,28 @@ void
 LogConfig::register_config_callbacks()
 {
   static const char *names[] = {
-    "proxy.config.log.log_buffer_size",       "proxy.config.log.max_secs_per_buffer", "proxy.config.log.max_space_mb_for_logs",
-    "proxy.config.log.max_space_mb_headroom", "proxy.config.log.logfile_perm",        "proxy.config.log.hostname",
-    "proxy.config.log.logfile_dir",           "proxy.config.log.rolling_enabled",     "proxy.config.log.rolling_interval_sec",
-    "proxy.config.log.rolling_offset_hr",     "proxy.config.log.rolling_size_mb",     "proxy.config.log.auto_delete_rolled_files",
-    "proxy.config.log.rolling_max_count",     "proxy.config.log.rolling_allow_empty", "proxy.config.log.config.filename",
-    "proxy.config.log.sampling_frequency",    "proxy.config.log.file_stat_frequency", "proxy.config.log.space_used_frequency",
+    "proxy.config.log.log_buffer_size",
+    "proxy.config.log.max_secs_per_buffer",
+    "proxy.config.log.max_space_mb_for_logs",
+    "proxy.config.log.max_space_mb_headroom",
+    "proxy.config.log.error_log_filename",
+    "proxy.config.log.logfile_perm",
+    "proxy.config.log.hostname",
+    "proxy.config.log.logfile_dir",
+    "proxy.config.log.rolling_enabled",
+    "proxy.config.log.rolling_interval_sec",
+    "proxy.config.log.rolling_offset_hr",
+    "proxy.config.log.rolling_size_mb",
+    "proxy.config.log.auto_delete_rolled_files",
+    "proxy.config.log.rolling_max_count",
+    "proxy.config.log.rolling_allow_empty",
+    "proxy.config.log.config.filename",
+    "proxy.config.log.sampling_frequency",
+    "proxy.config.log.file_stat_frequency",
+    "proxy.config.log.space_used_frequency",
+    "proxy.config.log.io.max_buffer_index",
+    "proxy.config.log.throttling_interval_msec",
+    "proxy.config.diags.debug.throttling_interval_msec",
   };
 
   for (unsigned i = 0; i < countof(names); ++i) {

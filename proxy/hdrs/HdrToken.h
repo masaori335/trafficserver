@@ -85,12 +85,6 @@ enum HdrTokenInfoFlags {
   HTIF_PROXYAUTH = 1 << 3
 };
 
-#define MIME_FLAGS_NONE HTIF_NONE
-#define MIME_FLAGS_COMMAS HTIF_COMMAS
-#define MIME_FLAGS_MULTVALS HTIF_MULTVALS
-#define MIME_FLAGS_HOPBYHOP HTIF_HOPBYHOP
-#define MIME_FLAGS_PROXYAUTH HTIF_PROXYAUTH
-
 extern DFA *hdrtoken_strs_dfa;
 extern int hdrtoken_num_wks;
 
@@ -110,6 +104,7 @@ extern uint32_t hdrtoken_str_flags[];
 extern void hdrtoken_init();
 extern int hdrtoken_tokenize_dfa(const char *string, int string_len, const char **wks_string_out = nullptr);
 inkcoreapi extern int hdrtoken_tokenize(const char *string, int string_len, const char **wks_string_out = nullptr);
+extern int hdrtoken_method_tokenize(const char *string, int string_len);
 extern const char *hdrtoken_string_to_wks(const char *string);
 extern const char *hdrtoken_string_to_wks(const char *string, int length);
 

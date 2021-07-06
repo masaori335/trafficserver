@@ -133,11 +133,38 @@ TEST_CASE("QUICAckFrameManager should send", "[quic]")
     ack_manager.update(level, 0, 1, false);
     CHECK(ack_manager.will_generate_frame(level, 0, true, 0) == false);
 
-    ack_manager.update(level, 1, 1, false);
+    ack_manager.update(level, 1, 1, true);
     CHECK(ack_manager.will_generate_frame(level, 0, true, 0) == false);
 
     ack_manager.update(level, 3, 1, false);
     CHECK(ack_manager.will_generate_frame(level, 0, true, 0) == true);
+  }
+
+  SECTION("QUIC every two ack eliciting packet", "[quic]")
+  {
+    QUICAckFrameManager ack_manager;
+    uint8_t frame_buf[QUICFrame::MAX_INSTANCE_SIZE];
+
+    QUICEncryptionLevel level = QUICEncryptionLevel::ONE_RTT;
+    ack_manager.update(level, 0, 1, false);
+    CHECK(ack_manager.will_generate_frame(level, 0, true, 0) == false);
+
+    ack_manager.update(level, 1, 1, false);
+    CHECK(ack_manager.will_generate_frame(level, 0, true, 0) == true);
+
+    QUICFrame *frame = ack_manager.generate_frame(frame_buf, level, UINT16_MAX, UINT16_MAX, 0, 0);
+    CHECK(frame != nullptr);
+    frame->~QUICFrame();
+
+    ack_manager.update(level, 2, 1, false);
+    CHECK(ack_manager.will_generate_frame(level, 0, true, 0) == false);
+
+    ack_manager.update(level, 3, 1, false);
+    CHECK(ack_manager.will_generate_frame(level, 0, true, 0) == true);
+
+    frame = ack_manager.generate_frame(frame_buf, level, UINT16_MAX, UINT16_MAX, 0, 0);
+    CHECK(frame != nullptr);
+    frame->~QUICFrame();
   }
 
   SECTION("QUIC delay too much time", "[quic]")
@@ -155,7 +182,7 @@ TEST_CASE("QUICAckFrameManager should send", "[quic]")
     CHECK(ack_manager.will_generate_frame(level, 0, true, 0) == true);
   }
 
-  SECTION("QUIC intial packet", "[quic]")
+  SECTION("QUIC initial packet", "[quic]")
   {
     QUICAckFrameManager ack_manager;
 
@@ -260,7 +287,7 @@ TEST_CASE("QUICAckFrameManager_loss_recover", "[quic]")
 TEST_CASE("QUICAckFrameManager_QUICAckFrameCreator", "[quic]")
 {
   QUICAckFrameManager ack_manager;
-  QUICAckFrameManager::QUICAckFrameCreator packet_numbers(QUICPacketNumberSpace::Initial, &ack_manager);
+  QUICAckFrameManager::QUICAckFrameCreator packet_numbers(QUICPacketNumberSpace::INITIAL, &ack_manager);
 
   CHECK(packet_numbers.size() == 0);
   CHECK(packet_numbers.largest_ack_number() == 0);

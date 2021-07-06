@@ -74,7 +74,10 @@ struct URLImpl : public HdrHeapObjImpl {
   // 6 bytes
 
   uint32_t m_clean : 1;
-  // 8 bytes + 1 bit, will result in padding
+  /// Whether the URI had an absolutely empty path, not even an initial '/'.
+  uint32_t m_path_is_empty : 1;
+  uint32_t m_normalization_flags : 2; // Only valid if both m_clean and m_ptr_printed_sting are non-zero.
+  // 8 bytes + 4 bits, will result in padding
 
   // Marshaling Functions
   int marshal(MarshalXlate *str_xlate, int num_xlate);
@@ -164,13 +167,22 @@ URLImpl *url_copy(URLImpl *s_url, HdrHeap *s_heap, HdrHeap *d_heap, bool inherit
 void url_copy_onto(URLImpl *s_url, HdrHeap *s_heap, URLImpl *d_url, HdrHeap *d_heap, bool inherit_strs = true);
 void url_copy_onto_as_server_url(URLImpl *s_url, HdrHeap *s_heap, URLImpl *d_url, HdrHeap *d_heap, bool inherit_strs = true);
 
-int url_print(URLImpl *u, char *buf, int bufsize, int *bufindex, int *dumpoffset, bool normalized = false);
+// Normalization flag masks.
+namespace URLNormalize
+{
+unsigned const NONE           = 0;
+unsigned const IMPLIED_SCHEME = 1; // If scheme missing, add scheme implied by URL type.
+unsigned const LC_SCHEME_HOST = 2; // Force scheme and host to lower case if necessary.
+};                                 // namespace URLNormalize
+
+int url_print(URLImpl *u, char *buf, int bufsize, int *bufindex, int *dumpoffset,
+              unsigned normalization_flags = URLNormalize::NONE);
 void url_describe(HdrHeapObjImpl *raw, bool recurse);
 
-int url_length_get(URLImpl *url);
-char *url_string_get(URLImpl *url, Arena *arena, int *length, HdrHeap *heap, bool normalized = false);
+int url_length_get(URLImpl *url, unsigned normalization_flags = URLNormalize::NONE);
+char *url_string_get(URLImpl *url, Arena *arena, int *length, HdrHeap *heap);
 void url_clear_string_ref(URLImpl *url);
-char *url_string_get_ref(HdrHeap *heap, URLImpl *url, int *length, bool normalized = false);
+char *url_string_get_ref(HdrHeap *heap, URLImpl *url, int *length, unsigned normalization_flags = URLNormalize::NONE);
 void url_called_set(URLImpl *url);
 char *url_string_get_buf(URLImpl *url, char *dstbuf, int dstbuf_size, int *length);
 
@@ -194,14 +206,19 @@ void url_params_set(HdrHeap *heap, URLImpl *url, const char *value, int length, 
 void url_query_set(HdrHeap *heap, URLImpl *url, const char *value, int length, bool copy_string);
 void url_fragment_set(HdrHeap *heap, URLImpl *url, const char *value, int length, bool copy_string);
 
+constexpr bool USE_STRICT_URI_PARSING = true;
+
 ParseResult url_parse(HdrHeap *heap, URLImpl *url, const char **start, const char *end, bool copy_strings,
-                      bool strict_uri_parsing = false);
-ParseResult url_parse_no_path_component_breakdown(HdrHeap *heap, URLImpl *url, const char **start, const char *end,
-                                                  bool copy_strings);
-ParseResult url_parse_internet(HdrHeap *heap, URLImpl *url, const char **start, const char *end, bool copy_strings);
-ParseResult url_parse_http(HdrHeap *heap, URLImpl *url, const char **start, const char *end, bool copy_strings);
-ParseResult url_parse_http_no_path_component_breakdown(HdrHeap *heap, URLImpl *url, const char **start, const char *end,
-                                                       bool copy_strings);
+                      bool strict_uri_parsing = false, bool verify_host_characters = true);
+
+constexpr bool COPY_STRINGS = true;
+
+ParseResult url_parse_regex(HdrHeap *heap, URLImpl *url, const char **start, const char *end, bool copy_strings);
+ParseResult url_parse_internet(HdrHeap *heap, URLImpl *url, const char **start, const char *end, bool copy_strings,
+                               bool verify_host_characters);
+ParseResult url_parse_http(HdrHeap *heap, URLImpl *url, const char **start, const char *end, bool copy_strings,
+                           bool verify_host_characters);
+ParseResult url_parse_http_regex(HdrHeap *heap, URLImpl *url, const char **start, const char *end, bool copy_strings);
 
 char *url_unescapify(Arena *arena, const char *str, int length);
 
@@ -238,19 +255,21 @@ public:
   // Note that URL::destroy() is inherited from HdrHeapSDKHandle.
   void nuke_proxy_stuff();
 
-  int print(char *buf, int bufsize, int *bufindex, int *dumpoffset, bool normalized = false);
+  int print(char *buf, int bufsize, int *bufindex, int *dumpoffset, unsigned normalization_flags = URLNormalize::NONE) const;
 
-  int length_get();
+  int length_get(unsigned normalization_flags = URLNormalize::NONE) const;
+
   void clear_string_ref();
-  char *string_get(Arena *arena, int *length = nullptr, bool normalized = false);
-  char *string_get_ref(int *length = nullptr, bool normalized = false);
-  char *string_get_buf(char *dstbuf, int dsbuf_size, int *length = nullptr);
+
+  char *string_get(Arena *arena, int *length = nullptr) const;
+  char *string_get_ref(int *length = nullptr, unsigned normalization_flags = URLNormalize::NONE) const;
+  char *string_get_buf(char *dstbuf, int dsbuf_size, int *length = nullptr) const;
   void hash_get(CryptoHash *hash, cache_generation_t generation = -1) const;
-  void host_hash_get(CryptoHash *hash);
+  void host_hash_get(CryptoHash *hash) const;
 
   const char *scheme_get(int *length);
   const std::string_view scheme_get();
-  int scheme_get_wksidx();
+  int scheme_get_wksidx() const;
   void scheme_set(const char *value, int length);
 
   const char *user_get(int *length);
@@ -259,8 +278,9 @@ public:
   void password_set(const char *value, int length);
   const char *host_get(int *length);
   void host_set(const char *value, int length);
-  int port_get();
-  int port_get_raw();
+
+  int port_get() const;
+  int port_get_raw() const;
   void port_set(int port);
 
   const char *path_get(int *length);
@@ -276,15 +296,48 @@ public:
   const char *fragment_get(int *length);
   void fragment_set(const char *value, int length);
 
+  /**
+   * Parse the given URL string and populate URL state with the parts.
+   *
+   * @param[in] url The URL to parse.
+   *
+   * @return PARSE_RESULT_DONE if parsing was successful, PARSE_RESULT_ERROR
+   * otherwise.
+   */
+  ParseResult parse(std::string_view url);
+
+  /** Same as parse() but do not verify that the host has proper FQDN
+   * characters.
+   *
+   * This is useful for RemapConfig To targets which have "$[0-9]" references
+   * in their host names which will later be substituted for other text.
+   */
+  ParseResult parse_no_host_check(std::string_view url);
+
   ParseResult parse(const char **start, const char *end);
   ParseResult parse(const char *str, int length);
-  ParseResult parse_no_path_component_breakdown(const char *str, int length);
+
+  /** Perform more simplified parsing that is resilient to receiving regular
+   * expressions.
+   *
+   * This simply looks for the first '/' in a URL and considers that the end of
+   * the authority and the beginning of the rest of the URL. This allows for
+   * the '?' character in an authority as a part of a regex without it being
+   * considered a query parameter and, thus, avoids confusing the parser.
+   *
+   * This is only used in RemapConfig and may have no other uses.
+   */
+  ParseResult parse_regex(std::string_view url);
+  ParseResult parse_regex(const char *str, int length);
 
 public:
   static char *unescapify(Arena *arena, const char *str, int length);
   // No gratuitous copies!
   URL(const URL &u) = delete;
   URL &operator=(const URL &u) = delete;
+
+private:
+  static constexpr bool VERIFY_HOST_CHARACTERS = true;
 };
 
 /*-------------------------------------------------------------------------
@@ -372,37 +425,37 @@ URL::nuke_proxy_stuff()
   -------------------------------------------------------------------------*/
 
 inline int
-URL::print(char *buf, int bufsize, int *bufindex, int *dumpoffset, bool normalized)
+URL::print(char *buf, int bufsize, int *bufindex, int *dumpoffset, unsigned normalization_flags) const
 {
   ink_assert(valid());
-  return url_print(m_url_impl, buf, bufsize, bufindex, dumpoffset, normalized);
+  return url_print(m_url_impl, buf, bufsize, bufindex, dumpoffset, normalization_flags);
 }
 
 /*-------------------------------------------------------------------------
   -------------------------------------------------------------------------*/
 
 inline int
-URL::length_get()
+URL::length_get(unsigned normalization_flags) const
 {
   ink_assert(valid());
-  return url_length_get(m_url_impl);
+  return url_length_get(m_url_impl, normalization_flags);
 }
 
 /*-------------------------------------------------------------------------
   -------------------------------------------------------------------------*/
 
 inline char *
-URL::string_get(Arena *arena_or_null_for_malloc, int *length, bool normalized)
+URL::string_get(Arena *arena_or_null_for_malloc, int *length) const
 {
   ink_assert(valid());
-  return url_string_get(m_url_impl, arena_or_null_for_malloc, length, m_heap, normalized);
+  return url_string_get(m_url_impl, arena_or_null_for_malloc, length, m_heap);
 }
 
 inline char *
-URL::string_get_ref(int *length, bool normalized)
+URL::string_get_ref(int *length, unsigned normalization_flags) const
 {
   ink_assert(valid());
-  return url_string_get_ref(m_heap, m_url_impl, length, normalized);
+  return url_string_get_ref(m_heap, m_url_impl, length, normalization_flags);
 }
 
 inline void
@@ -416,7 +469,7 @@ URL::clear_string_ref()
 /*-------------------------------------------------------------------------
   -------------------------------------------------------------------------*/
 inline char *
-URL::string_get_buf(char *dstbuf, int dsbuf_size, int *length)
+URL::string_get_buf(char *dstbuf, int dsbuf_size, int *length) const
 {
   ink_assert(valid());
   return url_string_get_buf(m_url_impl, dstbuf, dsbuf_size, length);
@@ -436,7 +489,7 @@ URL::hash_get(CryptoHash *hash, cache_generation_t generation) const
   -------------------------------------------------------------------------*/
 
 inline void
-URL::host_hash_get(CryptoHash *hash)
+URL::host_hash_get(CryptoHash *hash) const
 {
   ink_assert(valid());
   url_host_CryptoHash_get(m_url_impl, hash);
@@ -467,7 +520,7 @@ URL::scheme_get(int *length)
 }
 
 inline int
-URL::scheme_get_wksidx()
+URL::scheme_get_wksidx() const
 {
   ink_assert(valid());
   return (m_url_impl->m_scheme_wks_idx);
@@ -551,7 +604,7 @@ URL::host_set(const char *value, int length)
   -------------------------------------------------------------------------*/
 
 inline int
-URL::port_get()
+URL::port_get() const
 {
   ink_assert(valid());
   return url_canonicalize_port(m_url_impl->m_url_type, m_url_impl->m_port);
@@ -561,7 +614,7 @@ URL::port_get()
   -------------------------------------------------------------------------*/
 
 inline int
-URL::port_get_raw()
+URL::port_get_raw() const
 {
   ink_assert(valid());
   return m_url_impl->m_port;
@@ -687,10 +740,35 @@ URL::fragment_set(const char *value, int length)
 
  */
 inline ParseResult
+URL::parse(std::string_view url)
+{
+  return this->parse(url.data(), static_cast<int>(url.size()));
+}
+
+/**
+  Parser doesn't clear URL first, so if you parse over a non-clear URL,
+  the resulting URL may contain some of the previous data.
+
+ */
+inline ParseResult
+URL::parse_no_host_check(std::string_view url)
+{
+  ink_assert(valid());
+  const char *start = url.data();
+  const char *end   = url.data() + url.length();
+  return url_parse(m_heap, m_url_impl, &start, end, COPY_STRINGS, !USE_STRICT_URI_PARSING, !VERIFY_HOST_CHARACTERS);
+}
+
+/**
+  Parser doesn't clear URL first, so if you parse over a non-clear URL,
+  the resulting URL may contain some of the previous data.
+
+ */
+inline ParseResult
 URL::parse(const char **start, const char *end)
 {
   ink_assert(valid());
-  return url_parse(m_heap, m_url_impl, start, end, true);
+  return url_parse(m_heap, m_url_impl, start, end, COPY_STRINGS);
 }
 
 /**
@@ -713,13 +791,26 @@ URL::parse(const char *str, int length)
 
  */
 inline ParseResult
-URL::parse_no_path_component_breakdown(const char *str, int length)
+URL::parse_regex(std::string_view url)
+{
+  ink_assert(valid());
+  const char *str = url.data();
+  return url_parse_regex(m_heap, m_url_impl, &str, str + url.length(), COPY_STRINGS);
+}
+
+/**
+  Parser doesn't clear URL first, so if you parse over a non-clear URL,
+  the resulting URL may contain some of the previous data.
+
+ */
+inline ParseResult
+URL::parse_regex(const char *str, int length)
 {
   ink_assert(valid());
   if (length < 0)
     length = (int)strlen(str);
   ink_assert(valid());
-  return url_parse_no_path_component_breakdown(m_heap, m_url_impl, &str, str + length, true);
+  return url_parse_regex(m_heap, m_url_impl, &str, str + length, COPY_STRINGS);
 }
 
 /*-------------------------------------------------------------------------

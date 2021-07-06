@@ -50,9 +50,7 @@ test(const MIMEField *pairs, int numPairs, const char *asciiResult, int extraUnm
 
   int binAlignSize = marshalMimeHdr(numPairs ? &hdr : nullptr, nullptr);
 
-  REQUIRE(binAlignSize < sizeof(binBuf));
-
-  hdr.reset();
+  REQUIRE(binAlignSize < static_cast<int>(sizeof(binBuf)));
 
   REQUIRE(marshalMimeHdr(numPairs ? &hdr : nullptr, binBuf) == binAlignSize);
 
@@ -72,7 +70,7 @@ test(const MIMEField *pairs, int numPairs, const char *asciiResult, int extraUnm
 
   char *bp = binBuf;
 
-  int asciiSize = unmarshalMimeHdr(&bp, asciiBuf, std::strlen(asciiResult) + extraUnmarshalSpace);
+  unsigned int asciiSize = unmarshalMimeHdr(&bp, asciiBuf, std::strlen(asciiResult) + extraUnmarshalSpace);
 
   REQUIRE(asciiSize == std::strlen(asciiResult));
 

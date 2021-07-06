@@ -9,7 +9,7 @@
 #    https://docs.trafficserver.apache.org/records.config#thread-variables
 ##############################################################################
 CONFIG proxy.config.exec_thread.autoconfig INT 1
-CONFIG proxy.config.exec_thread.autoconfig.scale FLOAT 1.5
+CONFIG proxy.config.exec_thread.autoconfig.scale FLOAT 1.0
 CONFIG proxy.config.exec_thread.limit INT 2
 CONFIG proxy.config.accept_threads INT 1
 CONFIG proxy.config.task_threads INT 2
@@ -35,7 +35,6 @@ CONFIG proxy.config.http.insert_response_via_str INT 0
 #    https://docs.trafficserver.apache.org/en/latest/admin-guide/files/parent.config.en.html
 ##############################################################################
 CONFIG proxy.config.http.parent_proxy.retry_time INT 300
-CONFIG proxy.config.http.parent_proxy.connect_attempts_timeout INT 30
 CONFIG proxy.config.http.forward.proxy_auth_to_parent INT 0
 CONFIG proxy.config.http.uncacheable_requests_bypass_parent INT 1
 
@@ -60,7 +59,6 @@ CONFIG proxy.config.http.connect_attempts_max_retries INT 3
 CONFIG proxy.config.http.connect_attempts_max_retries_dead_server INT 1
 CONFIG proxy.config.http.connect_attempts_rr_retries INT 3
 CONFIG proxy.config.http.connect_attempts_timeout INT 30
-CONFIG proxy.config.http.post_connect_attempts_timeout INT 1800
 CONFIG proxy.config.http.down_server.cache_time INT 60
 CONFIG proxy.config.http.down_server.abort_threshold INT 10
 
@@ -118,7 +116,7 @@ CONFIG proxy.config.http.cache.heuristic_lm_factor FLOAT 0.10
 ##############################################################################
 CONFIG proxy.config.net.connections_throttle INT 30000
 CONFIG proxy.config.net.max_connections_in INT 30000
-CONFIG proxy.config.net.max_connections_active_in INT 10000
+CONFIG proxy.config.net.max_requests_in INT 0
 
 ##############################################################################
 # RAM and disk cache configurations. Docs:
@@ -129,6 +127,8 @@ CONFIG proxy.config.cache.ram_cache.size INT -1
 CONFIG proxy.config.cache.ram_cache_cutoff INT 4194304
     # https://docs.trafficserver.apache.org/records.config#proxy-config-cache-limits-http-max-alts
 CONFIG proxy.config.cache.limits.http.max_alts INT 5
+    # https://docs.trafficserver.apache.org/records.config#proxy-config-cache-log-alternate-eviction
+CONFIG proxy.config.cache.log.alternate.eviction INT 0
     # https://docs.trafficserver.apache.org/records.config#proxy-config-cache-max-doc-size
 CONFIG proxy.config.cache.max_doc_size INT 0
 CONFIG proxy.config.cache.min_average_object_size INT 8000

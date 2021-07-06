@@ -85,9 +85,9 @@ have the expected Plugin symbols.
 """
 tr = Test.AddTestRun("Verify the requirement of our Plugin API.")
 ts = create_ts_process()
-Test.PreparePlugin(
-    os.path.join(Test.Variables.AtsTestToolsDir,
-                 'plugins', 'missing_ts_plugin_init.cc'),
+Test.PrepareTestPlugin(
+    os.path.join(Test.Variables.AtsTestPluginsDir,
+                 'missing_ts_plugin_init.so'),
     ts)
 tr.Processes.Default.Env = ts.Env
 tr.Processes.Default.Command = \
@@ -98,7 +98,8 @@ tr.Processes.Default.StartBefore(ts)
 tr.Processes.Default.Streams.stderr = Testers.ContainsExpression(
     "ERROR: .*missing required function TSRemapInit",
     "Should warn about the need for the TSRemapInit symbol")
-ts.Disk.diags_log.Content = Testers.ContainsExpression("ERROR",
+ts.Disk.diags_log.Content = Testers.ContainsExpression(
+    "ERROR",
     "ERROR: .*missing required function TSRemapInit")
 
 
@@ -108,9 +109,9 @@ plugin symbols but not the remap ones.
 """
 tr = Test.AddTestRun("Verify a global plugin argument produces warning.")
 ts = create_ts_process()
-Test.PreparePlugin(
-    os.path.join(Test.Variables.AtsTestToolsDir,
-                 'plugins', 'ssl_hook_test.cc'),
+Test.PrepareTestPlugin(
+    os.path.join(Test.Variables.AtsTestPluginsDir,
+                 'ssl_hook_test.so'),
     ts)
 tr.Processes.Default.Env = ts.Env
 tr.Processes.Default.Command = \
@@ -121,7 +122,8 @@ tr.Processes.Default.StartBefore(ts)
 tr.Processes.Default.Streams.stderr = Testers.ContainsExpression(
     "ERROR: .*missing required function TSRemapInit",
     "Should warn about the need for the TSRemapInit symbol")
-ts.Disk.diags_log.Content = Testers.ContainsExpression("ERROR",
+ts.Disk.diags_log.Content = Testers.ContainsExpression(
+    "ERROR",
     "ERROR: .*missing required function TSRemapInit")
 
 
@@ -131,9 +133,9 @@ argument that has the definition for the expected Plugin symbols.
 """
 tr = Test.AddTestRun("Verify a properly formed plugin works as expected.")
 ts = create_ts_process()
-Test.PreparePlugin(
-    os.path.join(Test.Variables.AtsTestToolsDir,
-                 'plugins', 'conf_remap_stripped.cc'),
+Test.PrepareTestPlugin(
+    os.path.join(Test.Variables.AtsTestPluginsDir,
+                 'conf_remap_stripped.so'),
     ts)
 tr.Processes.Default.Env = ts.Env
 tr.Processes.Default.Command = \

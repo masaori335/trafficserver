@@ -31,7 +31,7 @@
 #include <openssl/x509v3.h>
 #include <openssl/asn1.h>
 #include <strings.h>
-#include <string.h>
+#include <cstring>
 #include <string>
 #include <map>
 
@@ -41,7 +41,7 @@
 std::map<std::string, int> good_names;
 
 bool
-check_name(std::string name)
+check_name(const std::string &name)
 {
   auto entry = good_names.find(name);
   return entry != good_names.end();
@@ -64,14 +64,18 @@ check_names(X509 *cert)
 
       X509_NAME_ENTRY *e = X509_NAME_get_entry(subject, pos);
       ASN1_STRING *cn    = X509_NAME_ENTRY_get_data(e);
-      char *subj_name    = strndup(reinterpret_cast<const char *>(ASN1_STRING_get0_data(cn)), ASN1_STRING_length(cn));
-      retval             = check_name(subj_name);
+#if OPENSSL_VERSION_NUMBER >= 0x010100000
+      char *subj_name = strndup(reinterpret_cast<const char *>(ASN1_STRING_get0_data(cn)), ASN1_STRING_length(cn));
+#else
+      char *subj_name = strndup(reinterpret_cast<const char *>(ASN1_STRING_data(cn)), ASN1_STRING_length(cn));
+#endif
+      retval = check_name(subj_name);
       free(subj_name);
     }
   }
   if (!retval) {
     // Check the subjectAltNanes (if present)
-    GENERAL_NAMES *names = (GENERAL_NAMES *)X509_get_ext_d2i(cert, NID_subject_alt_name, nullptr, nullptr);
+    GENERAL_NAMES *names = static_cast<GENERAL_NAMES *>(X509_get_ext_d2i(cert, NID_subject_alt_name, nullptr, nullptr));
     if (names) {
       unsigned count = sk_GENERAL_NAME_num(names);
       for (unsigned i = 0; i < count && !retval; ++i) {
@@ -80,7 +84,11 @@ check_names(X509 *cert)
         name = sk_GENERAL_NAME_value(names, i);
         if (name->type == GEN_DNS) {
           char *dns =
+#if OPENSSL_VERSION_NUMBER >= 0x010100000
             strndup(reinterpret_cast<const char *>(ASN1_STRING_get0_data(name->d.dNSName)), ASN1_STRING_length(name->d.dNSName));
+#else
+            strndup(reinterpret_cast<const char *>(ASN1_STRING_data(name->d.dNSName)), ASN1_STRING_length(name->d.dNSName));
+#endif
           retval = check_name(dns);
           free(dns);
         }
@@ -105,7 +113,8 @@ CB_client_verify(TSCont cont, TSEvent event, void *edata)
     STACK_OF(X509) *chain = X509_STORE_CTX_get1_chain(ctx);
     // X509 *cert = X509_STORE_CTX_get_current_cert(ctx);
     bool retval = false;
-    for (int i = 0; i < sk_X509_num(chain) && !retval; i++) {
+    // BoringSSL has sk_X509_num() return size_t.
+    for (int i = 0; i < static_cast<int>(sk_X509_num(chain)) && !retval; i++) {
       auto cert = sk_X509_value(chain, i);
       retval    = check_names(cert);
     }
@@ -158,7 +167,7 @@ setup_callbacks(int count)
   TSDebug(PN, "Setup callbacks count=%d", count);
   for (i = 0; i < count; i++) {
     cb = TSContCreate(&CB_client_verify, TSMutexCreate());
-    TSContDataSet(cb, (void *)(intptr_t)i);
+    TSContDataSet(cb, (void *)static_cast<intptr_t>(i));
     TSHttpHookAdd(TS_SSL_VERIFY_CLIENT_HOOK, cb);
   }
   return;

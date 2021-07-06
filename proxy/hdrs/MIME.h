@@ -115,7 +115,7 @@ struct MIMEField {
   }
 
   bool
-  is_cooked()
+  is_cooked() const
   {
     return (m_flags & MIME_FIELD_SLOT_FLAGS_COOKED) ? true : false;
   }
@@ -136,7 +136,7 @@ struct MIMEField {
   supports_commas() const
   {
     if (m_wks_idx >= 0) {
-      return (hdrtoken_index_to_flags(m_wks_idx) & MIME_FLAGS_COMMAS);
+      return (hdrtoken_index_to_flags(m_wks_idx) & HTIF_COMMAS);
     }
     return true; // by default, assume supports commas
   }
@@ -761,7 +761,7 @@ void mime_field_value_append(HdrHeap *heap, MIMEHdrImpl *mh, MIMEField *field, c
 void mime_parser_init(MIMEParser *parser);
 void mime_parser_clear(MIMEParser *parser);
 ParseResult mime_parser_parse(MIMEParser *parser, HdrHeap *heap, MIMEHdrImpl *mh, const char **real_s, const char *real_e,
-                              bool must_copy_strings, bool eof, size_t max_hdr_field_size = 131070);
+                              bool must_copy_strings, bool eof, bool remove_ws_from_field_name, size_t max_hdr_field_size = 131070);
 
 void mime_hdr_describe(HdrHeapObjImpl *raw, bool recurse);
 void mime_field_block_describe(HdrHeapObjImpl *raw, bool recurse);
@@ -987,6 +987,43 @@ struct MIMEFieldIter {
 class MIMEHdr : public HdrHeapSDKHandle
 {
 public:
+  /** Iterator over fields in the header.
+   * This iterator should be stable over field deletes, but not insertions.
+   */
+  class iterator
+  {
+    using self_type = iterator; ///< Self reference types.
+
+  public:
+    iterator() = default;
+
+    // STL iterator compliance types.
+    using difference_type   = void;
+    using value_type        = MIMEField;
+    using pointer           = value_type *;
+    using reference         = value_type &;
+    using iterator_category = std::forward_iterator_tag;
+
+    pointer operator->();
+    reference operator*();
+
+    self_type &operator++();
+    self_type operator++(int);
+
+    bool operator==(self_type const &that);
+    bool operator!=(self_type const &that);
+
+  protected:
+    MIMEFieldBlockImpl *_block = nullptr; ///< Current block.
+    unsigned _slot             = 0;       ///< Slot in @a _block
+
+    /// Internal method to move to a valid slot.
+    /// If the current location is valid, this is a no-op.
+    self_type &step();
+
+    friend class MIMEHdr;
+  };
+
   MIMEHdrImpl *m_mime = nullptr;
 
   MIMEHdr() = default; // Force the creation of the default constructor
@@ -996,10 +1033,10 @@ public:
   void create(HdrHeap *heap = nullptr);
   void copy(const MIMEHdr *hdr);
 
-  int length_get();
+  int length_get() const;
 
   void fields_clear();
-  int fields_count();
+  int fields_count() const;
 
   MIMEField *field_create(const char *name = nullptr, int length = -1);
   MIMEField *field_find(const char *name, int length);
@@ -1009,15 +1046,20 @@ public:
   void field_delete(MIMEField *field, bool delete_all_dups = true);
   void field_delete(const char *name, int name_length);
 
+  iterator begin() const;
+  iterator end() const;
+
+  /*
   MIMEField *iter_get_first(MIMEFieldIter *iter);
   MIMEField *iter_get(MIMEFieldIter *iter);
   MIMEField *iter_get_next(MIMEFieldIter *iter);
+   */
 
-  uint64_t presence(uint64_t mask);
+  uint64_t presence(uint64_t mask) const;
 
   int print(char *buf, int bufsize, int *bufindex, int *chars_to_skip);
 
-  int parse(MIMEParser *parser, const char **start, const char *end, bool must_copy_strs, bool eof,
+  int parse(MIMEParser *parser, const char **start, const char *end, bool must_copy_strs, bool eof, bool remove_ws_from_field_name,
             size_t max_hdr_field_size = UINT16_MAX);
 
   int value_get_index(const char *name, int name_length, const char *value, int value_length) const;
@@ -1050,23 +1092,23 @@ public:
                           const char separator = ',');
   void value_append_or_set(const char *name, const int name_length, char *value, int value_length);
   void field_combine_dups(MIMEField *field, bool prepend_comma = false, const char separator = ',');
-  time_t get_age();
+  time_t get_age() const;
   int64_t get_content_length() const;
-  time_t get_date();
-  time_t get_expires();
-  time_t get_if_modified_since();
-  time_t get_if_unmodified_since();
-  time_t get_last_modified();
-  time_t get_if_range_date();
-  int32_t get_max_forwards();
+  time_t get_date() const;
+  time_t get_expires() const;
+  time_t get_if_modified_since() const;
+  time_t get_if_unmodified_since() const;
+  time_t get_last_modified() const;
+  time_t get_if_range_date() const;
+  int32_t get_max_forwards() const;
   int32_t get_warning(int idx = 0);
 
-  uint32_t get_cooked_cc_mask();
-  int32_t get_cooked_cc_max_age();
-  int32_t get_cooked_cc_s_maxage();
-  int32_t get_cooked_cc_max_stale();
-  int32_t get_cooked_cc_min_fresh();
-  bool get_cooked_pragma_no_cache();
+  uint32_t get_cooked_cc_mask() const;
+  int32_t get_cooked_cc_max_age() const;
+  int32_t get_cooked_cc_s_maxage() const;
+  int32_t get_cooked_cc_max_stale() const;
+  int32_t get_cooked_cc_min_fresh() const;
+  bool get_cooked_pragma_no_cache() const;
 
   /** Get the value of the host field.
       This parses the host field for brackets and port value.
@@ -1145,7 +1187,7 @@ MIMEHdr::copy(const MIMEHdr *src_hdr)
   -------------------------------------------------------------------------*/
 
 inline int
-MIMEHdr::length_get()
+MIMEHdr::length_get() const
 {
   return mime_hdr_length_get(m_mime);
 }
@@ -1163,7 +1205,7 @@ MIMEHdr::fields_clear()
   -------------------------------------------------------------------------*/
 
 inline int
-MIMEHdr::fields_count()
+MIMEHdr::fields_count() const
 {
   return mime_hdr_fields_count(m_mime);
 }
@@ -1188,7 +1230,7 @@ MIMEHdr::field_create(const char *name, int length)
   -------------------------------------------------------------------------*/
 
 inline MIMEField *
-MIMEHdr::field_find(const char *name, int length)
+MIMEHdr::field_find(const char *name, int length) // NOLINT(readability-make-member-function-const)
 {
   //    ink_assert(valid());
   return mime_hdr_field_find(m_mime, name, length);
@@ -1206,7 +1248,7 @@ MIMEHdr::field_find(const char *name, int length) const
   -------------------------------------------------------------------------*/
 
 inline void
-MIMEHdr::field_attach(MIMEField *field)
+MIMEHdr::field_attach(MIMEField *field) // NOLINT(readability-make-member-function-const)
 {
   mime_hdr_field_attach(m_mime, field, 1, nullptr);
 }
@@ -1215,7 +1257,7 @@ MIMEHdr::field_attach(MIMEField *field)
   -------------------------------------------------------------------------*/
 
 inline void
-MIMEHdr::field_detach(MIMEField *field, bool detach_all_dups)
+MIMEHdr::field_detach(MIMEField *field, bool detach_all_dups) // NOLINT(readability-make-member-function-const)
 {
   mime_hdr_field_detach(m_mime, field, detach_all_dups);
 }
@@ -1229,6 +1271,80 @@ MIMEHdr::field_delete(MIMEField *field, bool delete_all_dups)
   mime_hdr_field_delete(m_heap, m_mime, field, delete_all_dups);
 }
 
+inline auto
+MIMEHdr::begin() const -> iterator
+{
+  iterator spot;
+  spot._block = &m_mime->m_first_fblock;
+  spot._slot  = 0;
+  return spot.step();
+}
+
+inline auto
+MIMEHdr::end() const -> iterator
+{
+  return {}; // default constructed iterator.
+}
+
+inline auto
+MIMEHdr::iterator::step() -> self_type &
+{
+  while (_block) {
+    auto limit = _block->m_freetop;
+    while (_slot < limit) {
+      if (_block->m_field_slots[_slot].is_live()) {
+        return *this;
+      }
+      ++_slot;
+    }
+    _block = _block->m_next;
+    _slot  = 0;
+  }
+  return *this;
+}
+
+inline auto
+MIMEHdr::iterator::operator*() -> reference
+{
+  return _block->m_field_slots[_slot];
+}
+
+inline auto
+MIMEHdr::iterator::operator->() -> pointer
+{
+  return &(_block->m_field_slots[_slot]);
+}
+
+inline bool
+MIMEHdr::iterator::operator==(const self_type &that)
+{
+  return _block == that._block && _slot == that._slot;
+}
+
+inline bool
+MIMEHdr::iterator::operator!=(const self_type &that)
+{
+  return _block != that._block || _slot != that._slot;
+}
+
+inline auto
+MIMEHdr::iterator::operator++() -> self_type &
+{
+  if (_block) {
+    ++_slot;
+    this->step();
+  }
+  return *this;
+}
+
+inline auto
+MIMEHdr::iterator::operator++(int) -> self_type
+{
+  self_type zret{*this};
+  this->step();
+  return zret;
+}
+
 inline void
 MIMEHdr::field_delete(const char *name, int name_length)
 {
@@ -1237,51 +1353,11 @@ MIMEHdr::field_delete(const char *name, int name_length)
     field_delete(field);
 }
 
-inline MIMEField *
-MIMEHdr::iter_get_first(MIMEFieldIter *iter)
-{
-  iter->m_block = &m_mime->m_first_fblock;
-  iter->m_slot  = 0;
-  return iter_get(iter);
-}
-
-inline MIMEField *
-MIMEHdr::iter_get(MIMEFieldIter *iter)
-{
-  MIMEField *f;
-  MIMEFieldBlockImpl *b = iter->m_block;
-
-  int slot = iter->m_slot;
-
-  while (b) {
-    for (; slot < (int)b->m_freetop; slot++) {
-      f = &(b->m_field_slots[slot]);
-      if (f->is_live()) {
-        iter->m_slot  = slot;
-        iter->m_block = b;
-        return f;
-      }
-    }
-    b    = b->m_next;
-    slot = 0;
-  }
-
-  iter->m_block = nullptr;
-  return nullptr;
-}
-
-inline MIMEField *
-MIMEHdr::iter_get_next(MIMEFieldIter *iter)
-{
-  iter->m_slot++;
-  return iter_get(iter);
-}
-
 /*-------------------------------------------------------------------------
   -------------------------------------------------------------------------*/
 
 inline uint64_t
-MIMEHdr::presence(uint64_t mask)
+MIMEHdr::presence(uint64_t mask) const
 {
   return (m_mime->m_presence_bits & mask);
 }
@@ -1299,7 +1375,8 @@ MIMEHdr::print(char *buf, int bufsize, int *bufindex, int *chars_to_skip)
   -------------------------------------------------------------------------*/
 
 inline int
-MIMEHdr::parse(MIMEParser *parser, const char **start, const char *end, bool must_copy_strs, bool eof, size_t max_hdr_field_size)
+MIMEHdr::parse(MIMEParser *parser, const char **start, const char *end, bool must_copy_strs, bool eof,
+               bool remove_ws_from_field_name, size_t max_hdr_field_size)
 {
   if (!m_heap)
     m_heap = new_HdrHeap();
@@ -1307,7 +1384,7 @@ MIMEHdr::parse(MIMEParser *parser, const char **start, const char *end, bool mus
   if (!m_mime)
     m_mime = mime_hdr_create(m_heap);
 
-  return mime_parser_parse(parser, m_heap, m_mime, start, end, must_copy_strs, eof, max_hdr_field_size);
+  return mime_parser_parse(parser, m_heap, m_mime, start, end, must_copy_strs, eof, remove_ws_from_field_name, max_hdr_field_size);
 }
 
 /*-------------------------------------------------------------------------
@@ -1558,7 +1635,7 @@ MIMEHdr::value_append(const char *name, int name_length, const char *value, int 
 /*-------------------------------------------------------------------------
   -------------------------------------------------------------------------*/
 inline time_t
-MIMEHdr::get_age()
+MIMEHdr::get_age() const
 {
   int64_t age = value_get_int64(MIME_FIELD_AGE, MIME_LEN_AGE);
 
@@ -1584,7 +1661,7 @@ MIMEHdr::get_content_length() const
   -------------------------------------------------------------------------*/
 
 inline time_t
-MIMEHdr::get_date()
+MIMEHdr::get_date() const
 {
   return value_get_date(MIME_FIELD_DATE, MIME_LEN_DATE);
 }
@@ -1593,7 +1670,7 @@ MIMEHdr::get_date()
   -------------------------------------------------------------------------*/
 
 inline time_t
-MIMEHdr::get_expires()
+MIMEHdr::get_expires() const
 {
   return value_get_date(MIME_FIELD_EXPIRES, MIME_LEN_EXPIRES);
 }
@@ -1602,7 +1679,7 @@ MIMEHdr::get_expires()
   -------------------------------------------------------------------------*/
 
 inline time_t
-MIMEHdr::get_if_modified_since()
+MIMEHdr::get_if_modified_since() const
 {
   return value_get_date(MIME_FIELD_IF_MODIFIED_SINCE, MIME_LEN_IF_MODIFIED_SINCE);
 }
@@ -1611,7 +1688,7 @@ MIMEHdr::get_if_modified_since()
   -------------------------------------------------------------------------*/
 
 inline time_t
-MIMEHdr::get_if_unmodified_since()
+MIMEHdr::get_if_unmodified_since() const
 {
   return value_get_date(MIME_FIELD_IF_UNMODIFIED_SINCE, MIME_LEN_IF_UNMODIFIED_SINCE);
 }
@@ -1620,7 +1697,7 @@ MIMEHdr::get_if_unmodified_since()
   -------------------------------------------------------------------------*/
 
 inline time_t
-MIMEHdr::get_last_modified()
+MIMEHdr::get_last_modified() const
 {
   return value_get_date(MIME_FIELD_LAST_MODIFIED, MIME_LEN_LAST_MODIFIED);
 }
@@ -1629,7 +1706,7 @@ MIMEHdr::get_last_modified()
   -------------------------------------------------------------------------*/
 
 inline time_t
-MIMEHdr::get_if_range_date()
+MIMEHdr::get_if_range_date() const
 {
   return value_get_date(MIME_FIELD_IF_RANGE, MIME_LEN_IF_RANGE);
 }
@@ -1638,7 +1715,7 @@ MIMEHdr::get_if_range_date()
   -------------------------------------------------------------------------*/
 
 inline int32_t
-MIMEHdr::get_max_forwards()
+MIMEHdr::get_max_forwards() const
 {
   return value_get_int(MIME_FIELD_MAX_FORWARDS, MIME_LEN_MAX_FORWARDS);
 }
@@ -1659,7 +1736,7 @@ MIMEHdr::get_warning(int idx)
   -------------------------------------------------------------------------*/
 
 inline uint32_t
-MIMEHdr::get_cooked_cc_mask()
+MIMEHdr::get_cooked_cc_mask() const
 {
   return m_mime->m_cooked_stuff.m_cache_control.m_mask;
 }
@@ -1668,7 +1745,7 @@ MIMEHdr::get_cooked_cc_mask()
   -------------------------------------------------------------------------*/
 
 inline int32_t
-MIMEHdr::get_cooked_cc_max_age()
+MIMEHdr::get_cooked_cc_max_age() const
 {
   return m_mime->m_cooked_stuff.m_cache_control.m_secs_max_age;
 }
@@ -1677,7 +1754,7 @@ MIMEHdr::get_cooked_cc_max_age()
   -------------------------------------------------------------------------*/
 
 inline int32_t
-MIMEHdr::get_cooked_cc_s_maxage()
+MIMEHdr::get_cooked_cc_s_maxage() const
 {
   return m_mime->m_cooked_stuff.m_cache_control.m_secs_s_maxage;
 }
@@ -1686,7 +1763,7 @@ MIMEHdr::get_cooked_cc_s_maxage()
   -------------------------------------------------------------------------*/
 
 inline int32_t
-MIMEHdr::get_cooked_cc_max_stale()
+MIMEHdr::get_cooked_cc_max_stale() const
 {
   return m_mime->m_cooked_stuff.m_cache_control.m_secs_max_stale;
 }
@@ -1695,7 +1772,7 @@ MIMEHdr::get_cooked_cc_max_stale()
   -------------------------------------------------------------------------*/
 
 inline int32_t
-MIMEHdr::get_cooked_cc_min_fresh()
+MIMEHdr::get_cooked_cc_min_fresh() const
 {
   return m_mime->m_cooked_stuff.m_cache_control.m_secs_min_fresh;
 }
@@ -1704,7 +1781,7 @@ MIMEHdr::get_cooked_cc_min_fresh()
   -------------------------------------------------------------------------*/
 
 inline bool
-MIMEHdr::get_cooked_pragma_no_cache()
+MIMEHdr::get_cooked_pragma_no_cache() const
 {
   return m_mime->m_cooked_stuff.m_pragma.m_no_cache;
 }
@@ -1713,7 +1790,7 @@ MIMEHdr::get_cooked_pragma_no_cache()
   -------------------------------------------------------------------------*/
 
 inline void
-MIMEHdr::set_cooked_cc_need_revalidate_once()
+MIMEHdr::set_cooked_cc_need_revalidate_once() // NOLINT(readability-make-member-function-const)
 {
   m_mime->m_cooked_stuff.m_cache_control.m_mask |= MIME_COOKED_MASK_CC_NEED_REVALIDATE_ONCE;
 }
@@ -1722,7 +1799,7 @@ MIMEHdr::set_cooked_cc_need_revalidate_once()
   -------------------------------------------------------------------------*/
 
 inline void
-MIMEHdr::unset_cooked_cc_need_revalidate_once()
+MIMEHdr::unset_cooked_cc_need_revalidate_once() // NOLINT(readability-make-member-function-const)
 {
   m_mime->m_cooked_stuff.m_cache_control.m_mask &= ~((uint32_t)MIME_COOKED_MASK_CC_NEED_REVALIDATE_ONCE);
 }

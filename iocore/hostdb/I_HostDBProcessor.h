@@ -28,6 +28,7 @@
 #include "tscore/CryptoHash.h"
 #include "tscore/ink_align.h"
 #include "tscore/ink_resolver.h"
+#include "tscore/HTTPVersion.h"
 #include "I_EventSystem.h"
 #include "SRV.h"
 #include "P_RefCountCache.h"
@@ -62,6 +63,8 @@ extern unsigned int hostdb_ip_fail_timeout_interval;
 extern unsigned int hostdb_serve_stale_but_revalidate;
 extern unsigned int hostdb_round_robin_max_count;
 
+extern int hostdb_max_iobuf_index;
+
 static inline unsigned int
 makeHostHash(const char *string)
 {
@@ -81,13 +84,17 @@ makeHostHash(const char *string)
 // Types
 //
 
-//
-// This structure contains the host information required by
-// the application.  Except for the initial fields it
-// is treated as opaque by the database.
-//
-
+/** Host information metadata used by various parts of HostDB.
+ * It is stored as generic data in the cache.
+ *
+ * As a @c union only one of the members is valid, Which one depends on context data in the
+ * @c HostDBInfo. This data is written literally to disk therefore if any change is made,
+ * the @c object_version for the cache must be updated by modifying @c HostDBInfo::version.
+ *
+ * @see HostDBInfo::version
+ */
 union HostDBApplicationInfo {
+  /// Generic storage. This is verified to be the size of the union.
   struct application_data_allotment {
     unsigned int application1;
     unsigned int application2;
@@ -96,31 +103,23 @@ union HostDBApplicationInfo {
   //////////////////////////////////////////////////////////
   // http server attributes in the host database          //
   //                                                      //
-  // http_version       - one of HttpVersion_t            //
-  // keep_alive_timeout - in seconds. (up to 63 seconds). //
+  // http_version       - one of HTTPVersion              //
   // last_failure       - UNIX time for the last time     //
   //                      we tried the server & failed    //
   // fail_count         - Number of times we tried and    //
   //                       and failed to contact the host //
   //////////////////////////////////////////////////////////
   struct http_server_attr {
-    unsigned int http_version : 3;
-    unsigned int keepalive_timeout : 6;
-    unsigned int fail_count : 8;
-    unsigned int unused1 : 8;
-    unsigned int last_failure : 32;
+    uint32_t last_failure;
+    HTTPVersion http_version;
+    uint8_t fail_count;
+    http_server_attr() : http_version() {}
   } http_data;
-
-  enum HttpVersion_t {
-    HTTP_VERSION_UNDEFINED = 0,
-    HTTP_VERSION_09        = 1,
-    HTTP_VERSION_10        = 2,
-    HTTP_VERSION_11        = 3,
-  };
 
   struct application_data_rr {
     unsigned int offset;
   } rr;
+  HostDBApplicationInfo() : http_data() {}
 };
 
 struct HostDBRoundRobin;
@@ -142,27 +141,32 @@ struct HostDBInfo : public RefCountObj {
   alloc(int size = 0)
   {
     size += sizeof(HostDBInfo);
-    int iobuffer_index = iobuffer_size_to_index(size);
+    int iobuffer_index = iobuffer_size_to_index(size, hostdb_max_iobuf_index);
     ink_release_assert(iobuffer_index >= 0);
     void *ptr = ioBufAllocator[iobuffer_index].alloc_void();
     memset(ptr, 0, size);
-    HostDBInfo *ret     = new (ptr) HostDBInfo();
-    ret->iobuffer_index = iobuffer_index;
+    HostDBInfo *ret      = new (ptr) HostDBInfo();
+    ret->_iobuffer_index = iobuffer_index;
     return ret;
   }
 
   void
   free() override
   {
-    Debug("hostdb", "freeing %d bytes at [%p]", (1 << (7 + iobuffer_index)), this);
-    ioBufAllocator[iobuffer_index].free_void((void *)(this));
+    ink_release_assert(from_alloc());
+    Debug("hostdb", "freeing %d bytes at [%p]", (1 << (7 + _iobuffer_index)), this);
+    ioBufAllocator[_iobuffer_index].free_void((void *)(this));
   }
 
-  // return a version number-- so we can manage compatibility with the marshal/unmarshal
+  /// Effectively the @c object_version for cache data.
+  /// This is used to indicate incompatible changes in the binary layout of HostDB records.
+  /// It must be updated if any such change is made, even if it is functionally equivalent.
   static ts::VersionNumber
   version()
   {
-    return ts::VersionNumber(1, 0);
+    /// - 1.0 Initial version.
+    /// - 1.1 tweak HostDBApplicationInfo::http_data.
+    return ts::VersionNumber(1, 1);
   }
 
   static HostDBInfo *
@@ -172,12 +176,12 @@ struct HostDBInfo : public RefCountObj {
       return nullptr;
     }
     HostDBInfo *ret = HostDBInfo::alloc(size - sizeof(HostDBInfo));
-    int buf_index   = ret->iobuffer_index;
+    int buf_index   = ret->_iobuffer_index;
     memcpy((void *)ret, buf, size);
     // Reset the refcount back to 0, this is a bit ugly-- but I'm not sure we want to expose a method
     // to mess with the refcount, since this is a fairly unique use case
-    ret                 = new (ret) HostDBInfo();
-    ret->iobuffer_index = buf_index;
+    ret                  = new (ret) HostDBInfo();
+    ret->_iobuffer_index = buf_index;
     return ret;
   }
 
@@ -315,8 +319,6 @@ struct HostDBInfo : public RefCountObj {
     }
   }
 
-  int iobuffer_index;
-
   uint64_t key;
 
   // Application specific data. NOTE: We need an integral number of
@@ -341,6 +343,35 @@ struct HostDBInfo : public RefCountObj {
 
   unsigned int round_robin : 1;     // This is the root of a round robin block
   unsigned int round_robin_elt : 1; // This is an address in a round robin block
+
+  HostDBInfo() : _iobuffer_index{-1} {}
+
+  HostDBInfo(HostDBInfo const &src) : RefCountObj()
+  {
+    memcpy(static_cast<void *>(this), static_cast<const void *>(&src), sizeof(*this));
+    _iobuffer_index = -1;
+  }
+
+  HostDBInfo &
+  operator=(HostDBInfo const &src)
+  {
+    if (this != &src) {
+      int iob_idx = _iobuffer_index;
+      memcpy(static_cast<void *>(this), static_cast<const void *>(&src), sizeof(*this));
+      _iobuffer_index = iob_idx;
+    }
+    return *this;
+  }
+
+  bool
+  from_alloc() const
+  {
+    return _iobuffer_index >= 0;
+  }
+
+private:
+  // The value of this will be -1 for objects that are not created by the alloc() static member function.
+  int _iobuffer_index;
 };
 
 struct HostDBRoundRobin {

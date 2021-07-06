@@ -92,13 +92,13 @@ Http3HeaderFramer::_generate_header_block()
     http2_init_pseudo_headers(this->_header);
     parse_result = this->_header.parse_resp(&this->_http_parser, this->_source_vio->get_reader(), &bytes_used, false);
   }
-  this->_source_vio->ndone += this->_header.length_get();
+  this->_source_vio->ndone += bytes_used;
 
   switch (parse_result) {
   case PARSE_RESULT_DONE: {
     this->_convert_header_from_1_1_to_3(&this->_header);
 
-    this->_header_block        = new_MIOBuffer();
+    this->_header_block        = new_MIOBuffer(BUFFER_SIZE_INDEX_32K);
     this->_header_block_reader = this->_header_block->alloc_reader();
 
     this->_qpack->encode(this->_stream_id, this->_header, this->_header_block, this->_header_block_len);
@@ -107,7 +107,7 @@ Http3HeaderFramer::_generate_header_block()
   case PARSE_RESULT_CONT:
     break;
   default:
-    Debug("http3_trans", "Ignore ivalid headers");
+    Debug("http3_trans", "Ignore invalid headers");
     break;
   }
 }

@@ -35,8 +35,10 @@
 #include "Http1Transaction.h"
 #include "HttpSM.h"
 #include "HttpDebugNames.h"
-#include "Http1ServerSession.h"
 #include "Plugin.h"
+#include "PoolableSession.h"
+
+#include "P_SSLNetVConnection.h"
 
 #define HttpSsnDebug(fmt, ...) SsnDebug(this, "http_cs", fmt, __VA_ARGS__)
 
@@ -45,11 +47,6 @@
     /*ink_assert (magic == HTTP_SM_MAGIC_ALIVE);  REMEMBER (event, NULL, reentrancy_count); */          \
     HttpSsnDebug("[%" PRId64 "] [%s, %s]", con_id, #state_name, HttpDebugNames::get_event_name(event)); \
   } while (0)
-
-enum {
-  HTTP_CS_MAGIC_ALIVE = 0x0123F00D,
-  HTTP_CS_MAGIC_DEAD  = 0xDEADF00D,
-};
 
 #ifdef USE_HTTP_DEBUG_LISTS
 
@@ -60,10 +57,12 @@ ink_mutex debug_cs_list_mutex;
 
 #endif /* USE_HTTP_DEBUG_LISTS */
 
-ClassAllocator<Http1ClientSession> http1ClientSessionAllocator("http1ClientSessionAllocator");
+ClassAllocator<Http1ClientSession, true> http1ClientSessionAllocator("http1ClientSessionAllocator");
 
-Http1ClientSession::Http1ClientSession() {}
+Http1ClientSession::Http1ClientSession() : super(), trans(this) {}
 
+//
+// Will only close the connection if do_io_close has been called previously (to set read_state to HCS_CLOSED
 void
 Http1ClientSession::destroy()
 {
@@ -87,7 +86,18 @@ Http1ClientSession::release_transaction()
 {
   released_transactions++;
   if (transact_count == released_transactions) {
-    destroy();
+    // Make sure we previously called release() or do_io_close() on the session
+    ink_release_assert(read_state != HCS_INIT);
+    if (is_active()) {
+      // (in)active timeout
+      do_io_close(HTTP_ERRNO);
+    } else if (read_state == HCS_ACTIVE_READER) {
+      release(&trans); // Put back to keep-alive state
+    } else {
+      destroy();
+    }
+  } else {
+    ink_release_assert(transact_count == released_transactions);
   }
 }
 
@@ -111,18 +121,11 @@ Http1ClientSession::free()
     conn_decrease = false;
   }
 
-  // Clean up the write VIO in case of inactivity timeout
-  this->do_io_write(nullptr, 0, nullptr);
-
-  // Free the transaction resources
-  this->trans.super_type::destroy();
-
   if (_vc) {
     _vc->do_io_close();
     _vc = nullptr;
   }
 
-  super::free();
   THREAD_FREE(this, http1ClientSessionAllocator, this_thread());
 }
 
@@ -131,12 +134,11 @@ Http1ClientSession::new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOB
 {
   ink_assert(new_vc != nullptr);
   ink_assert(_vc == nullptr);
-  _vc            = new_vc;
-  magic          = HTTP_CS_MAGIC_ALIVE;
-  mutex          = new_vc->mutex;
-  trans.mutex    = mutex; // Share this mutex with the transaction
-  ssn_start_time = Thread::get_hrtime();
-  in_destroy     = false;
+  _vc         = new_vc;
+  magic       = HTTP_CS_MAGIC_ALIVE;
+  mutex       = new_vc->mutex;
+  trans.mutex = mutex; // Share this mutex with the transaction
+  in_destroy  = false;
 
   SSLNetVConnection *ssl_vc = dynamic_cast<SSLNetVConnection *>(new_vc);
   if (ssl_vc != nullptr) {
@@ -192,7 +194,9 @@ Http1ClientSession::new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOB
 
   read_buffer = iobuf ? iobuf : new_MIOBuffer(HTTP_HEADER_BUFFER_SIZE_INDEX);
   _reader     = reader ? reader : read_buffer->alloc_reader();
+
   trans.set_reader(_reader);
+  trans.upstream_outbound_options = *accept_options;
 
   _handle_if_ssl(new_vc);
 
@@ -211,6 +215,9 @@ void
 Http1ClientSession::do_io_close(int alerrno)
 {
   if (read_state == HCS_CLOSED) {
+    if (transact_count == released_transactions) {
+      this->destroy();
+    }
     return; // Don't double call session close
   }
   if (read_state == HCS_ACTIVE_READER) {
@@ -223,17 +230,15 @@ Http1ClientSession::do_io_close(int alerrno)
   // If we have an attached server session, release
   //   it back to our shared pool
   if (bound_ss) {
-    bound_ss->release();
+    bound_ss->release(nullptr);
     bound_ss     = nullptr;
     slave_ka_vio = nullptr;
   }
   // Completed the last transaction.  Just shutdown already
-  if (transact_count == released_transactions) {
+  // Or the do_io_close is due to a network error
+  if (transact_count == released_transactions || alerrno == HTTP_ERRNO) {
     half_close = false;
   }
-
-  // Clean up the write VIO in case of inactivity timeout
-  this->do_io_write(nullptr, 0, nullptr);
 
   if (half_close && this->trans.get_sm()) {
     read_state = HCS_HALF_CLOSED;
@@ -241,12 +246,6 @@ Http1ClientSession::do_io_close(int alerrno)
     HttpSsnDebug("[%" PRId64 "] session half close", con_id);
 
     if (_vc) {
-      // We want the client to know that that we're finished
-      //  writing.  The write shutdown accomplishes this.  Unfortunately,
-      //  the IO Core semantics don't stop us from getting events
-      //  on the write side of the connection like timeouts so we
-      //  need to zero out the write of the continuation with
-      //  the do_io_write() call (INKqa05309)
       _vc->do_io_shutdown(IO_SHUTDOWN_WRITE);
 
       ka_vio = _vc->do_io_read(this, INT64_MAX, read_buffer);
@@ -263,11 +262,14 @@ Http1ClientSession::do_io_close(int alerrno)
     // READ_READY event.
     _reader->consume(_reader->read_avail());
   } else {
-    read_state = HCS_CLOSED;
     HttpSsnDebug("[%" PRId64 "] session closed", con_id);
     HTTP_SUM_DYN_STAT(http_transactions_per_client_con, transact_count);
-    HTTP_DECREMENT_DYN_STAT(http_current_client_connections_stat);
-    conn_decrease = false;
+    read_state = HCS_CLOSED;
+
+    if (_vc) {
+      _vc->do_io_close();
+      _vc = nullptr;
+    }
   }
   if (transact_count == released_transactions) {
     this->destroy();
@@ -293,11 +295,7 @@ Http1ClientSession::state_wait_for_close(int event, void *data)
   case VC_EVENT_ACTIVE_TIMEOUT:
   case VC_EVENT_INACTIVITY_TIMEOUT:
     half_close = false;
-    this->do_io_close();
-    if (_vc != nullptr) {
-      _vc->do_io_close();
-      _vc = nullptr;
-    }
+    this->do_io_close(EHTTP_ERROR);
     break;
   case VC_EVENT_READ_READY:
     // Drain any data read
@@ -342,7 +340,7 @@ Http1ClientSession::state_slave_keep_alive(int event, void *data)
   case VC_EVENT_ACTIVE_TIMEOUT:
   case VC_EVENT_INACTIVITY_TIMEOUT:
     // Timeout - place the session on the shared pool
-    bound_ss->release();
+    bound_ss->release(nullptr);
     bound_ss     = nullptr;
     slave_ka_vio = nullptr;
     break;
@@ -356,11 +354,21 @@ Http1ClientSession::state_keep_alive(int event, void *data)
 {
   // Route the event.  It is either for vc or
   //  the origin server slave vc
-  if (data && data == slave_ka_vio) {
-    return state_slave_keep_alive(event, data);
-  } else {
-    ink_assert(data && data == ka_vio);
-    ink_assert(read_state == HCS_KEEP_ALIVE);
+  if (data) {
+    if (data == slave_ka_vio) {
+      return state_slave_keep_alive(event, data);
+    } else if (data == schedule_event) {
+      schedule_event = nullptr;
+    } else {
+      ink_assert(data && data == ka_vio);
+      ink_assert(read_state == HCS_KEEP_ALIVE);
+    }
+  }
+
+  // If we got here due to a network I/O event directly, go ahead and cancel any remaining schedule events
+  if (schedule_event) {
+    schedule_event->cancel();
+    schedule_event = nullptr;
   }
 
   STATE_ENTER(&Http1ClientSession::state_keep_alive, event, data);
@@ -373,11 +381,7 @@ Http1ClientSession::state_keep_alive(int event, void *data)
     break;
 
   case VC_EVENT_EOS:
-    this->do_io_close();
-    if (_vc != nullptr) {
-      _vc->do_io_close();
-      _vc = nullptr;
-    }
+    this->do_io_close(EHTTP_ERROR);
     break;
 
   case VC_EVENT_READ_COMPLETE:
@@ -389,7 +393,7 @@ Http1ClientSession::state_keep_alive(int event, void *data)
   case VC_EVENT_ACTIVE_TIMEOUT:
   case VC_EVENT_INACTIVITY_TIMEOUT:
     // Keep-alive timed out
-    this->do_io_close();
+    this->do_io_close(EHTTP_ERROR);
     break;
   }
 
@@ -400,18 +404,29 @@ Http1ClientSession::state_keep_alive(int event, void *data)
 void
 Http1ClientSession::release(ProxyTransaction *trans)
 {
-  ink_assert(read_state == HCS_ACTIVE_READER || read_state == HCS_INIT);
+  // When release is called from start() to read the first transaction, get_sm()
+  // will return null.
+  HttpSM *sm                = trans->get_sm();
+  Http1Transaction *h1trans = static_cast<Http1Transaction *>(trans);
+  if (sm) {
+    MgmtInt ka_in = trans->get_sm()->t_state.txn_conf->keep_alive_no_activity_timeout_in;
+    set_inactivity_timeout(HRTIME_SECONDS(ka_in));
 
-  // Clean up the write VIO in case of inactivity timeout
-  this->do_io_write(nullptr, 0, nullptr);
+    this->clear_session_active();
+
+    // Timeout events should be delivered to the session
+    this->do_io_write(this, 0, nullptr);
+  }
+
+  h1trans->reset();
 
   // Check to see there is remaining data in the
   //  buffer.  If there is, spin up a new state
   //  machine to process it.  Otherwise, issue an
   //  IO to wait for new data
+  /*  Start the new transaction once we finish completely the current transaction and unroll the stack */
   bool more_to_read = this->_reader->is_read_avail_more_than(0);
   if (more_to_read) {
-    trans->destroy();
     HttpSsnDebug("[%" PRId64 "] data already in buffer, starting new transaction", con_id);
     new_transaction();
   } else {
@@ -422,26 +437,27 @@ Http1ClientSession::release(ProxyTransaction *trans)
     ink_assert(slave_ka_vio != ka_vio);
 
     if (_vc) {
+      // Under heavy traffic ( - e.g. hitting proxy.config.net.max_connections_in limit), calling add_to_keep_alive_queue()
+      // could free this _vc, session, and transaction.
       _vc->cancel_active_timeout();
       _vc->add_to_keep_alive_queue();
     }
-    trans->destroy();
   }
 }
 
-void
+ProxyTransaction *
 Http1ClientSession::new_transaction()
 {
   // If the client connection terminated during API callouts we're done.
   if (nullptr == _vc) {
     this->do_io_close(); // calls the SSN_CLOSE hooks to match the SSN_START hooks.
-    return;
+    return nullptr;
   }
 
   if (!_vc->add_to_active_queue()) {
     // no room in the active queue close the connection
     this->do_io_close();
-    return;
+    return nullptr;
   }
 
   // Defensive programming, make sure nothing persists across
@@ -450,21 +466,20 @@ Http1ClientSession::new_transaction()
 
   read_state = HCS_ACTIVE_READER;
 
-  trans.set_proxy_ssn(this);
   transact_count++;
 
   trans.new_transaction(read_from_early_data > 0 ? true : false);
+  return &trans;
 }
 
-void
-Http1ClientSession::attach_server_session(Http1ServerSession *ssession, bool transaction_done)
+bool
+Http1ClientSession::attach_server_session(PoolableSession *ssession, bool transaction_done)
 {
   if (ssession) {
     ink_assert(bound_ss == nullptr);
-    ssession->state = HSS_KA_CLIENT_SLAVE;
+    ssession->state = PoolableSession::KA_RESERVED;
     bound_ss        = ssession;
-    HttpSsnDebug("[%" PRId64 "] attaching server session [%" PRId64 "] as slave", con_id, ssession->con_id);
-    ink_assert(ssession->get_reader()->read_avail() == 0);
+    HttpSsnDebug("[%" PRId64 "] attaching server session [%" PRId64 "] as slave", con_id, ssession->connection_id());
     ink_assert(ssession->get_netvc() != this->get_netvc());
 
     // handling potential keep-alive here
@@ -474,36 +489,35 @@ Http1ClientSession::attach_server_session(Http1ServerSession *ssession, bool tra
     //  have it call the client session back.  This IO also prevent
     //  the server net conneciton from calling back a dead sm
     SET_HANDLER(&Http1ClientSession::state_keep_alive);
-    slave_ka_vio = ssession->do_io_read(this, INT64_MAX, ssession->read_buffer);
+    slave_ka_vio = ssession->do_io_read(this, INT64_MAX, ssession->get_remote_reader()->mbuf);
     ink_assert(slave_ka_vio != ka_vio);
 
     // Transfer control of the write side as well
     ssession->do_io_write(this, 0, nullptr);
 
     if (transaction_done) {
-      ssession->get_netvc()->set_inactivity_timeout(
-        HRTIME_SECONDS(trans.get_sm()->t_state.txn_conf->keep_alive_no_activity_timeout_out));
-      ssession->get_netvc()->cancel_active_timeout();
+      ssession->set_inactivity_timeout(HRTIME_SECONDS(trans.get_sm()->t_state.txn_conf->keep_alive_no_activity_timeout_out));
+      ssession->cancel_active_timeout();
     } else {
       // we are serving from the cache - this could take a while.
-      ssession->get_netvc()->cancel_inactivity_timeout();
-      ssession->get_netvc()->cancel_active_timeout();
+      ssession->cancel_inactivity_timeout();
+      ssession->cancel_active_timeout();
     }
   } else {
     ink_assert(bound_ss != nullptr);
     bound_ss     = nullptr;
     slave_ka_vio = nullptr;
   }
+  return true;
 }
 
 void
-Http1ClientSession::increment_current_active_client_connections_stat()
+Http1ClientSession::increment_current_active_connections_stat()
 {
   HTTP_INCREMENT_DYN_STAT(http_current_active_client_connections_stat);
 }
-
 void
-Http1ClientSession::decrement_current_active_client_connections_stat()
+Http1ClientSession::decrement_current_active_connections_stat()
 {
   HTTP_DECREMENT_DYN_STAT(http_current_active_client_connections_stat);
 }
@@ -552,7 +566,7 @@ Http1ClientSession::is_outbound_transparent() const
   return f_outbound_transparent;
 }
 
-Http1ServerSession *
+PoolableSession *
 Http1ClientSession::get_server_session() const
 {
   return bound_ss;

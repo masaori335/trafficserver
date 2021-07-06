@@ -37,20 +37,24 @@
 #include "HttpConfig.h"
 #include "IPAllow.h"
 #include "ProxySession.h"
-#include "Http1Transaction.h"
+#include "Http1ClientTransaction.h"
 
 #ifdef USE_HTTP_DEBUG_LISTS
 extern ink_mutex debug_cs_list_mutex;
 #endif
 
-class HttpSM;
-class Http1ServerSession;
+enum {
+  HTTP_CS_MAGIC_ALIVE = 0x0123FEED,
+  HTTP_CS_MAGIC_DEAD  = 0xDEADFEED,
+};
 
+class HttpSM;
 class Http1ClientSession : public ProxySession
 {
 public:
   typedef ProxySession super; ///< Parent type.
   Http1ClientSession();
+  ~Http1ClientSession() = default;
 
   // Implement ProxySession interface.
   void new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOBufferReader *reader) override;
@@ -60,7 +64,7 @@ public:
   void destroy() override;
   void free() override;
 
-  void attach_server_session(Http1ServerSession *ssession, bool transaction_done = true) override;
+  bool attach_server_session(PoolableSession *ssession, bool transaction_done = true) override;
 
   // Implement VConnection interface.
   void do_io_close(int lerrno = -1) override;
@@ -69,20 +73,20 @@ public:
   bool allow_half_open() const;
   void set_half_close_flag(bool flag) override;
   bool get_half_close_flag() const override;
-  bool is_chunked_encoding_supported() const override;
   int get_transact_count() const override;
+  bool is_chunked_encoding_supported() const override;
   virtual bool is_outbound_transparent() const;
 
-  Http1ServerSession *get_server_session() const override;
+  PoolableSession *get_server_session() const override;
   const char *get_protocol_string() const override;
 
-  void increment_current_active_client_connections_stat() override;
-  void decrement_current_active_client_connections_stat() override;
+  void increment_current_active_connections_stat() override;
+  void decrement_current_active_connections_stat() override;
 
 private:
   Http1ClientSession(Http1ClientSession &);
 
-  void new_transaction();
+  ProxyTransaction *new_transaction() override;
 
   int state_keep_alive(int event, void *data);
   int state_slave_keep_alive(int event, void *data);
@@ -96,11 +100,10 @@ private:
     HCS_CLOSED,
   };
 
-  NetVConnection *client_vc = nullptr;
-  int magic                 = HTTP_SS_MAGIC_DEAD;
-  int transact_count        = 0;
-  bool half_close           = false;
-  bool conn_decrease        = false;
+  int magic          = HTTP_CS_MAGIC_DEAD;
+  int transact_count = 0;
+  bool half_close    = false;
+  bool conn_decrease = false;
 
   MIOBuffer *read_buffer  = nullptr;
   IOBufferReader *_reader = nullptr;
@@ -110,7 +113,7 @@ private:
   VIO *ka_vio       = nullptr;
   VIO *slave_ka_vio = nullptr;
 
-  Http1ServerSession *bound_ss = nullptr;
+  PoolableSession *bound_ss = nullptr;
 
   int released_transactions = 0;
 
@@ -123,7 +126,7 @@ public:
   /// Set outbound connection to transparent.
   bool f_outbound_transparent = false;
 
-  Http1Transaction trans;
+  Http1ClientTransaction trans;
 };
 
-extern ClassAllocator<Http1ClientSession> http1ClientSessionAllocator;
+extern ClassAllocator<Http1ClientSession, true> http1ClientSessionAllocator;

@@ -328,7 +328,7 @@ check_auth:
   /* There has been a validated JWT found in either the cookie or url */
 
   struct signer *signer = config_signer((struct config *)ih);
-  char *cookie          = renew(jwt, signer->issuer, signer->jwk, signer->alg, package);
+  char *cookie          = renew(jwt, signer->issuer, signer->jwk, signer->alg, package, strip_uri, strip_ct);
   jwt_delete(jwt);
 
   if (cpi < max_cpi) {
@@ -355,11 +355,10 @@ check_auth:
   }
   return status;
 fail:
-  PluginDebug("Invalid JWT for %.*s", url_ct, url);
   TSHttpTxnStatusSet(txnp, TS_HTTP_STATUS_FORBIDDEN);
-  PluginDebug("Spent %" PRId64 " ns uri_signing verification of %.*s.", mark_timer(&t), url_ct, url);
-
   if (url != NULL) {
+    PluginDebug("Invalid JWT for %.*s", url_ct, url);
+    PluginDebug("Spent %" PRId64 " ns uri_signing verification of %.*s.", mark_timer(&t), url_ct, url);
     TSfree((void *)url);
   }
   if (strip_uri != NULL) {

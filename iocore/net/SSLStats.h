@@ -80,16 +80,19 @@ enum SSL_Stats {
   ssl_total_dyn_max_tls_record_count,
   ssl_total_dyn_redo_tls_record_count,
   ssl_session_cache_hit,
+  ssl_origin_session_cache_hit,
   ssl_session_cache_miss,
+  ssl_origin_session_cache_miss,
   ssl_session_cache_eviction,
   ssl_session_cache_lock_contention,
   ssl_session_cache_new_session,
   ssl_early_data_received_count, // how many times we received early data
+  ssl_origin_session_reused_count,
 
   /* error stats */
   ssl_error_syscall,
-  ssl_error_read_eos,
   ssl_error_ssl,
+  ssl_error_async,
   ssl_sni_name_set_failure,
   ssl_total_attempts_handshake_count_out_stat,
   ssl_total_success_handshake_count_out_stat,

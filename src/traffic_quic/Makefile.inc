@@ -20,6 +20,7 @@ bin_PROGRAMS += traffic_quic/traffic_quic
 traffic_quic_traffic_quic_CPPFLAGS = \
 	$(AM_CPPFLAGS) \
 	$(iocore_include_dirs) \
+	-I$(abs_top_srcdir)/include \
 	-I$(abs_top_srcdir)/lib \
 	-I$(abs_top_srcdir)/lib/records \
 	-I$(abs_top_srcdir)/mgmt \
@@ -32,7 +33,7 @@ traffic_quic_traffic_quic_CPPFLAGS = \
 	-I$(abs_top_srcdir)/proxy/logging \
 	-I$(abs_top_srcdir)/proxy/shared \
 	$(TS_INCLUDES) \
-	@OPENSSL_INCLUDES@
+	@OPENSSL_INCLUDES@ @YAMLCPP_INCLUDES@
 
 traffic_quic_traffic_quic_LDFLAGS = \
 	$(AM_LDFLAGS) \

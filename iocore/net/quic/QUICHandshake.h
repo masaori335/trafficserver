@@ -35,15 +35,17 @@
  */
 class QUICVersionNegotiator;
 class QUICPacketFactory;
+class QUICHandshakeProtocol;
 class SSLNextProtocolSet;
 
 class QUICHandshake : public QUICFrameHandler, public QUICFrameGenerator
 {
 public:
   // Constructor for client side
-  QUICHandshake(QUICConnection *qc, QUICHandshakeProtocol *hsp);
+  QUICHandshake(QUICVersion version, QUICConnection *qc, QUICHandshakeProtocol *hsp);
   // Constructor for server side
-  QUICHandshake(QUICConnection *qc, QUICHandshakeProtocol *hsp, QUICStatelessResetToken token, bool stateless_retry);
+  QUICHandshake(QUICVersion version, QUICConnection *qc, QUICHandshakeProtocol *hsp, QUICStatelessResetToken token,
+                bool stateless_retry);
   ~QUICHandshake();
 
   // QUICFrameHandler
@@ -57,26 +59,29 @@ public:
 
   // for client side
   QUICConnectionErrorUPtr start(const QUICTPConfig &tp_config, QUICPacketFactory *packet_factory, bool vn_exercise_enabled);
-  QUICConnectionErrorUPtr negotiate_version(const QUICPacket &packet, QUICPacketFactory *packet_factory);
+  QUICConnectionErrorUPtr negotiate_version(const QUICVersionNegotiationPacketR &packet, QUICPacketFactory *packet_factory);
   void reset();
+  void update(const QUICInitialPacketR &initial_packet);
+  void update(const QUICRetryPacketR &retry_packet);
 
   // for server side
-  QUICConnectionErrorUPtr start(const QUICTPConfig &tp_config, const QUICPacket &initial_packet, QUICPacketFactory *packet_factory,
-                                const QUICPreferredAddress *pref_addr);
+  QUICConnectionErrorUPtr start(const QUICTPConfig &tp_config, const QUICInitialPacketR &initial_packet,
+                                QUICPacketFactory *packet_factory, const QUICPreferredAddress *pref_addr);
 
   QUICConnectionErrorUPtr do_handshake();
 
   bool check_remote_transport_parameters();
 
   // Getters
-  QUICVersion negotiated_version();
-  const char *negotiated_cipher_suite();
-  void negotiated_application_name(const uint8_t **name, unsigned int *len);
+  QUICVersion negotiated_version() const;
+  const char *negotiated_cipher_suite() const;
+  void negotiated_application_name(const uint8_t **name, unsigned int *len) const;
   std::shared_ptr<const QUICTransportParameters> local_transport_parameters();
   std::shared_ptr<const QUICTransportParameters> remote_transport_parameters();
 
   bool is_version_negotiated() const;
   bool is_completed() const;
+  bool is_confirmed() const;
   bool is_stateless_retry_enabled() const;
   bool has_remote_tp() const;
 
@@ -89,8 +94,10 @@ private:
 
   QUICVersionNegotiator *_version_negotiator = nullptr;
   QUICStatelessResetToken _reset_token;
-  bool _client_initial  = false;
-  bool _stateless_retry = false;
+  bool _client_initial                          = false;
+  bool _stateless_retry                         = false;
+  QUICConnectionId _initial_source_cid_received = QUICConnectionId::ZERO();
+  QUICConnectionId _retry_source_cid_received   = QUICConnectionId::ZERO();
 
   QUICCryptoStream _crypto_streams[4];
 
@@ -102,4 +109,10 @@ private:
   std::shared_ptr<const QUICTransportParameters> _remote_transport_parameters = nullptr;
 
   void _abort_handshake(QUICTransErrorCode code);
+
+  bool _is_handshake_done_sent     = false;
+  bool _is_handshake_done_received = false;
+
+  // QUICFrameGenerator
+  void _on_frame_lost(QUICFrameInformationUPtr &info) override;
 };

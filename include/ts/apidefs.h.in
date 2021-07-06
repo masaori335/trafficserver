@@ -51,11 +51,65 @@
 #define tsapi
 #endif
 
+/** Apply printf format string compile-time argument checking to a function.
+ *
+ *
+ * For example, given the following function from DiagsTypes.h:
+ *
+ * @code
+ * class Diags {
+ *
+ * ...
+ *
+ * void
+ * print(
+ *     const char *tag,
+ *     DiagsLevel level,
+ *     const SourceLocation *loc,
+ *     const char *fmt,
+ *     ...) const;
+ *
+ * ...
+ *
+ * };
+ * @endcode
+ *
+ * This macro can be used to apply compiler checking for ... against the fmt
+ * argument like so:
+ *
+ *
+ * @code
+ * class Diags {
+ *
+ * ...
+ *
+ * void
+ * print(
+ *     const char *tag,
+ *     DiagsLevel level,
+ *     const SourceLocation *loc,
+ *     const char *fmt,
+ *     ...) const TS_PRINTFLIKE(5, 6);
+ *
+ * ...
+ *
+ * };
+ * @endcode
+ *
+ * Note in this case, (5, 6) rather than (4, 5) is passed because `this`
+ * counts as the implicit first parameter of this member function.
+ *
+ * @param[in] fmt_index The index of the format string argument, with argument
+ * indexing starting at 1.
+ *
+ * @param[in] arg_index The index of the first format argument string, with
+ * argument indexing starting at 1.
+ */
 #if !defined(TS_PRINTFLIKE)
 #if defined(__GNUC__) || defined(__clang__)
-#define TS_PRINTFLIKE(fmt, arg) __attribute__((format(printf, fmt, arg)))
+#define TS_PRINTFLIKE(fmt_index, arg_index) __attribute__((format(printf, fmt_index, arg_index)))
 #else
-#define TS_PRINTFLIKE(fmt, arg)
+#define TS_PRINTFLIKE(fmt_index, arg_index)
 #endif
 #endif
 
@@ -196,6 +250,7 @@ typedef enum {
   TS_HTTP_STATUS_PRECONDITION_REQUIRED           = 428,
   TS_HTTP_STATUS_TOO_MANY_REQUESTS               = 429,
   TS_HTTP_STATUS_REQUEST_HEADER_FIELDS_TOO_LARGE = 431,
+  TS_HTTP_STATUS_UNAVAILABLE_FOR_LEGAL_REASONS   = 451,
   TS_HTTP_STATUS_INTERNAL_SERVER_ERROR           = 500,
   TS_HTTP_STATUS_NOT_IMPLEMENTED                 = 501,
   TS_HTTP_STATUS_BAD_GATEWAY                     = 502,
@@ -382,6 +437,7 @@ typedef enum {
   TS_LIFECYCLE_CLIENT_SSL_CTX_INITIALIZED_HOOK,
   TS_LIFECYCLE_MSG_HOOK,
   TS_LIFECYCLE_TASK_THREADS_READY_HOOK,
+  TS_LIFECYCLE_SSL_SECRET_HOOK,
   TS_LIFECYCLE_SHUTDOWN_HOOK,
   TS_LIFECYCLE_LAST_HOOK
 } TSLifecycleHookID;
@@ -496,6 +552,7 @@ typedef enum {
   TS_EVENT_SSL_VERIFY_SERVER = 60205,
   TS_EVENT_SSL_VERIFY_CLIENT = 60206,
   TS_EVENT_SSL_CLIENT_HELLO  = 60207,
+  TS_EVENT_SSL_SECRET        = 60208,
 
   TS_EVENT_MGMT_UPDATE = 60300
 } TSEvent;
@@ -597,8 +654,6 @@ typedef enum {
   AFTER_BODY,
 } TSFetchWakeUpOptions;
 
-#ifndef _HTTP_PROXY_API_ENUMS_H_
-#define _HTTP_PROXY_API_ENUMS_H_
 /// Values for per server outbound connection tracking group definition.
 /// See proxy.config.http.per_server.match
 typedef enum {
@@ -607,7 +662,6 @@ typedef enum {
   TS_SERVER_OUTBOUND_MATCH_HOST,
   TS_SERVER_OUTBOUND_MATCH_BOTH
 } TSOutboundConnectionMatchType;
-#endif
 
 /* librecords types */
 
@@ -728,8 +782,8 @@ typedef enum {
   TS_CONFIG_HTTP_CONNECT_ATTEMPTS_MAX_RETRIES_DEAD_SERVER,
   TS_CONFIG_HTTP_CONNECT_ATTEMPTS_RR_RETRIES,
   TS_CONFIG_HTTP_CONNECT_ATTEMPTS_TIMEOUT,
-  TS_CONFIG_HTTP_POST_CONNECT_ATTEMPTS_TIMEOUT,
   TS_CONFIG_HTTP_DOWN_SERVER_CACHE_TIME,
+  // Should be removed for 10.0
   TS_CONFIG_HTTP_DOWN_SERVER_ABORT_THRESHOLD,
   TS_CONFIG_HTTP_DOC_IN_CACHE_SKIP_DNS,
   TS_CONFIG_HTTP_BACKGROUND_FILL_ACTIVE_TIMEOUT,
@@ -766,6 +820,7 @@ typedef enum {
   TS_CONFIG_HTTP_CACHE_MAX_OPEN_WRITE_RETRIES,
   TS_CONFIG_HTTP_REDIRECT_USE_ORIG_CACHE_KEY,
   TS_CONFIG_HTTP_ATTACH_SERVER_SESSION_TO_CLIENT,
+  TS_CONFIG_HTTP_MAX_PROXY_CYCLES,
   TS_CONFIG_WEBSOCKET_NO_ACTIVITY_TIMEOUT,
   TS_CONFIG_WEBSOCKET_ACTIVE_TIMEOUT,
   TS_CONFIG_HTTP_UNCACHEABLE_REQUESTS_BYPASS_PARENT,
@@ -784,21 +839,22 @@ typedef enum {
   TS_CONFIG_HTTP_PARENT_PROXY_FAIL_THRESHOLD,
   TS_CONFIG_HTTP_PARENT_PROXY_RETRY_TIME,
   TS_CONFIG_HTTP_PER_PARENT_CONNECT_ATTEMPTS,
-  TS_CONFIG_HTTP_PARENT_CONNECT_ATTEMPT_TIMEOUT,
   TS_CONFIG_HTTP_NORMALIZE_AE,
   TS_CONFIG_HTTP_INSERT_FORWARDED,
+  TS_CONFIG_HTTP_PROXY_PROTOCOL_OUT,
   TS_CONFIG_HTTP_ALLOW_MULTI_RANGE,
   TS_CONFIG_HTTP_REQUEST_BUFFER_ENABLED,
   TS_CONFIG_HTTP_ALLOW_HALF_OPEN,
   TS_CONFIG_HTTP_SERVER_MIN_KEEP_ALIVE_CONNS,
   TS_CONFIG_HTTP_PER_SERVER_CONNECTION_MAX,
   TS_CONFIG_HTTP_PER_SERVER_CONNECTION_MATCH,
-  TS_CONFIG_SSL_CLIENT_VERIFY_SERVER,
   TS_CONFIG_SSL_CLIENT_VERIFY_SERVER_POLICY,
   TS_CONFIG_SSL_CLIENT_VERIFY_SERVER_PROPERTIES,
   TS_CONFIG_SSL_CLIENT_SNI_POLICY,
   TS_CONFIG_SSL_CLIENT_PRIVATE_KEY_FILENAME,
   TS_CONFIG_SSL_CLIENT_CA_CERT_FILENAME,
+  TS_CONFIG_HTTP_HOST_RESOLUTION_PREFERENCE,
+  TS_CONFIG_HTTP_CONNECT_DEAD_POLICY,
   TS_CONFIG_LAST_ENTRY
 } TSOverridableConfigKey;
 
@@ -871,6 +927,44 @@ typedef enum {
   TS_USER_ARGS_COUNT  ///< Fake enum, # of valid entries.
 } TSUserArgType;
 
+/** An enumeration of HTTP version types for the priority functions that behave
+ * differently across HTTP protocols. */
+typedef enum {
+  HTTP_PRIORITY_TYPE_HTTP_UNSPECIFIED = 1,
+  HTTP_PRIORITY_TYPE_HTTP_2,
+  HTTP_PRIORITY_TYPE_HTTP_3,
+} TSHttpPriorityType;
+
+/** The abstract type of the various HTTP priority implementations. */
+typedef struct {
+  /** The reference to the concrete HTTP priority implementation. This will be
+   * a value from TSHttpPriorityType. */
+  uint8_t priority_type;
+  /** The space allocated for the concrete priority implementation.
+   *
+   * Note that this has to take padding into account. There is a static_assert
+   * in InkAPI.cc to verify that TSHttpPriority is at least as large as
+   * TSHttp2Priority. As other structures are added that are represented by
+   * TSHttpPriority add more static_asserts to verify that TSHttpPriority is as
+   * large as it needs to be.
+   */
+  uint8_t data[7];
+} TSHttpPriority;
+
+/** A structure for HTTP/2 priority.
+ *
+ * For an explanation of these terms with respect to HTTP/2, see RFC 7540,
+ * section 5.3.
+ */
+typedef struct {
+  uint8_t priority_type; /** HTTP_PROTOCOL_TYPE_HTTP_2 */
+  uint8_t weight;
+  /** The stream dependency. Per spec, see RFC 7540 section 6.2, this is 31
+   * bits. We use a signed 32 bit stucture to store either a valid dependency
+   * or -1 if the stream has no dependency. */
+  int32_t stream_dependency;
+} TSHttp2Priority;
+
 typedef struct tsapi_file *TSFile;
 
 typedef struct tsapi_mloc *TSMLoc;
@@ -938,6 +1032,13 @@ typedef struct TSSslSessionID_s {
   size_t len;
   char bytes[TS_SSL_MAX_SSL_SESSION_ID_LENGTH];
 } TSSslSessionID;
+
+typedef struct TSSecretID_s {
+  const char *cert_name;
+  size_t cert_name_len;
+  const char *key_name;
+  size_t key_name_len;
+} TSSecretID;
 
 /* --------------------------------------------------------------------------
    Init */
@@ -1230,7 +1331,9 @@ extern tsapi const char *const TS_ALPN_PROTOCOL_HTTP_1_0;
 extern tsapi const char *const TS_ALPN_PROTOCOL_HTTP_1_1;
 extern tsapi const char *const TS_ALPN_PROTOCOL_HTTP_2_0;
 extern tsapi const char *const TS_ALPN_PROTOCOL_HTTP_3;
+extern tsapi const char *const TS_ALPN_PROTOCOL_HTTP_3_D27;
 extern tsapi const char *const TS_ALPN_PROTOCOL_HTTP_QUIC;
+extern tsapi const char *const TS_ALPN_PROTOCOL_HTTP_QUIC_D27;
 
 extern tsapi int TS_ALPN_PROTOCOL_INDEX_HTTP_0_9;
 extern tsapi int TS_ALPN_PROTOCOL_INDEX_HTTP_1_0;
@@ -1265,6 +1368,26 @@ extern tsapi const char *const TS_PROTO_TAG_IPV6;
 
  */
 #define TS_NULL_MLOC ((TSMLoc)0)
+
+/* --------------------------------------------------------------------------
+   HostStatus types */
+
+typedef enum {
+  TS_HOST_STATUS_INIT,
+  TS_HOST_STATUS_DOWN,
+  TS_HOST_STATUS_UP,
+} TSHostStatus;
+
+/* MUST match proxy/HostStatus.h Reason.
+ * If a value is added here, it MUST be added there with the same value.
+ */
+typedef enum {
+  TS_HOST_STATUS_ACTIVE      = 0x1,
+  TS_HOST_STATUS_LOCAL       = 0x2,
+  TS_HOST_STATUS_MANUAL      = 0x4,
+  TS_HOST_STATUS_SELF_DETECT = 0x8,
+  TS_HOST_STATUS_ALL         = 0xf,
+} TSHostStatusReason;
 
 /* --------------------------------------------------------------------------
    Interface for the UUID APIs. https://www.ietf.org/rfc/rfc4122.txt. */

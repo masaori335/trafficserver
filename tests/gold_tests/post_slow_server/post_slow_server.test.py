@@ -28,15 +28,13 @@ Test.SkipUnless(
     Condition.HasCurlFeature('http2')
 )
 
-ts = Test.MakeATSProcess("ts", enable_tls=True)
+ts = Test.MakeATSProcess("ts", enable_tls=True, enable_cache=False)
 
-ts.addSSLfile("ssl/server.pem")
-ts.addSSLfile("ssl/server.key")
+ts.addDefaultSSLFiles()
 
 ts.Disk.records_config.update({
     'proxy.config.diags.debug.enabled': 1,
     'proxy.config.diags.debug.tags': 'http',
-    'proxy.config.http.cache.http': 0,  # disable caching.
     'proxy.config.proxy_name': 'Poxy_Proxy',  # This will be the server name.
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
@@ -61,8 +59,7 @@ server = Test.Processes.Process(
 tr = Test.AddTestRun()
 tr.Processes.Default.Command = (
     'curl --request POST --verbose --ipv4 --http2 --insecure --header "Content-Length: 0"' +
-    r" --header 'Host: localhost' https://localhost:{}/xyz 2>&1 | tr '\r' '\n' ".format(ts.Variables.ssl_port) +
-    ' > curl.log'
+    " --header 'Host: localhost' https://localhost:{}/xyz >curl.log 2>curl.err".format(ts.Variables.ssl_port)
 )
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(server)

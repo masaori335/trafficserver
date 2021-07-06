@@ -45,6 +45,7 @@
 
 #include <syslog.h>
 #include <algorithm>
+#include <atomic>
 #include <list>
 #include <string>
 
@@ -66,6 +67,7 @@ extern "C" int plock(int);
 #include "tscore/signals.h"
 #include "P_EventSystem.h"
 #include "P_Net.h"
+#include "P_QUICNetProcessor.h"
 #include "P_UDPNet.h"
 #include "P_DNS.h"
 #include "P_SplitDNS.h"
@@ -120,7 +122,8 @@ extern "C" int plock(int);
 #define DEFAULT_COMMAND_FLAG 0
 
 #define DEFAULT_REMOTE_MANAGEMENT_FLAG 0
-#define DIAGS_LOG_FILENAME "diags.log"
+#define DEFAULT_DIAGS_LOG_FILENAME "diags.log"
+static char diags_log_filename[PATH_NAME_MAX] = DEFAULT_DIAGS_LOG_FILENAME;
 
 static const long MAX_LOGIN = ink_login_name_max();
 
@@ -130,7 +133,6 @@ static void mgmt_storage_device_cmd_callback(int cmd, std::string_view const &ar
 static void mgmt_lifecycle_msg_callback(ts::MemSpan<void>);
 static void init_ssl_ctx_callback(void *ctx, bool server);
 static void load_ssl_file_callback(const char *ssl_file);
-static void load_remap_file_callback(const char *remap_file);
 static void task_threads_started_callback();
 
 // We need these two to be accessible somewhere else now
@@ -173,10 +175,20 @@ static int poll_timeout         = -1; // No value set.
 static int cmd_disable_freelist = 0;
 static bool signal_received[NSIG];
 
-// 1: delay listen, wait for cache.
-// 0: Do not delay, start listen ASAP.
+/*
+To be able to attach with a debugger to traffic_server running in an Au test case, temporarily add the
+parameter block_for_debug=True to the call to Test.MakeATSProcess().  This means Au test will wait
+effectively indefinitely (10 hours) for traffic_server to initialize itself.  Run the modified Au test,
+attach the debugger to the traffic_server process, set one or more breakpoints, set the variable
+cmd_block to 0, then continue.  On linux, the command 'ps -ef | fgrep -e --block' will help identify the
+PID of the traffic_server process (second column of output).
+*/
+static int cmd_block = 0;
+
+// 1: the main thread delayed accepting, start accepting.
+// 0: delay accept, wait for cache initialization.
 // -1: cache is already initialized, don't delay.
-static int delay_listen_for_cache_p;
+static int delay_listen_for_cache = 0;
 
 AppVersionInfo appVersionInfo; // Build info for this application
 
@@ -216,6 +228,7 @@ static ArgumentDescription argument_descriptions[] = {
   {"bind_stderr", '-', "Regular file to bind stderr to", "S512", &bind_stderr, "PROXY_BIND_STDERR", nullptr},
   {"accept_mss", '-', "MSS for client connections", "I", &accept_mss, nullptr, nullptr},
   {"poll_timeout", 't', "poll timeout in milliseconds", "I", &poll_timeout, nullptr, nullptr},
+  {"block", '-', "block for debug attach", "T", &cmd_block, nullptr, nullptr},
   HELP_ARGUMENT_DESCRIPTION(),
   VERSION_ARGUMENT_DESCRIPTION(),
   RUNROOT_ARGUMENT_DESCRIPTION(),
@@ -280,10 +293,16 @@ public:
       signal_received[SIGUSR2] = false;
 
       Debug("log", "received SIGUSR2, reloading traffic.out");
-
       // reload output logfile (file is usually called traffic.out)
       diags->set_std_output(StdStream::STDOUT, bind_stdout);
       diags->set_std_output(StdStream::STDERR, bind_stderr);
+      if (diags->reseat_diagslog()) {
+        Note("Reseated %s", diags_log_filename);
+      } else {
+        Note("Could not reseat %s", diags_log_filename);
+      }
+      // Reload any of the other moved log files (such as the ones in logging.yaml).
+      Log::handle_log_rotation_request();
     }
 
     if (signal_received[SIGTERM] || signal_received[SIGINT]) {
@@ -389,7 +408,7 @@ public:
     diags->config_roll_diagslog((RollingEnabledValues)diags_log_roll_enable, diags_log_roll_int, diags_log_roll_size);
 
     if (diags->should_roll_diagslog()) {
-      Note("Rolled %s", DIAGS_LOG_FILENAME);
+      Note("Rolled %s", diags_log_filename);
     }
     return EVENT_CONT;
   }
@@ -451,6 +470,42 @@ private:
   int64_t _memory_limit = 0;
   struct rusage _usage;
 };
+
+/** Gate the emission of the "Traffic Server is fuly initialized" log message.
+ *
+ * This message is intended to be helpful to users who want to know that
+ * Traffic Server is not just running but has become fully initialized and is
+ * ready to optimize traffic. This is in contrast to the "traffic server is
+ * running" message which can be printed before either of these conditions.
+ *
+ * This function is called on each initialization state transition. Currently,
+ * the two state transitions of interest are:
+ *
+ * 1. The cache is initialized.
+ * 2. The ports are open and accept has been called upon them.
+ *
+ * Note that Traffic Server configures the port objects and may even open the
+ * ports before calling accept on those ports. The difference between these two
+ * events is communicated to plugins via the
+ * TS_LIFECYCLE_PORTS_INITIALIZED_HOOK and TS_LIFECYCLE_PORTS_READY_HOOK hooks.
+ * If wait_for_cache is enabled, the difference in time between these events
+ * may measure in the tens of milliseconds.  The message emitted by this
+ * function happens after this full lifecycle takes place on these ports and
+ * after cache is initialized.
+ */
+static void
+emit_fully_initialized_message()
+{
+  static std::atomic<unsigned int> initialization_state_counter = 0;
+
+  // See the doxygen comment above explaining what the states are that
+  // constitute Traffic Server being fully initialized.
+  constexpr unsigned int num_initialization_states = 2;
+
+  if (++initialization_state_counter == num_initialization_states) {
+    Note("Traffic Server is fully initialized.");
+  }
+}
 
 void
 set_debug_ip(const char *ip_string)
@@ -624,8 +679,8 @@ initialize_process_manager()
   pmgmt = new ProcessManager(remote_management_flag);
 
   // Lifecycle callbacks can potentially be invoked from this thread, so force thread initialization
-  // to make the TS API work. Use a lambda to avoid dealing with compiler dependent casting issues.
-  pmgmt->start([]() -> void { TSThreadInit(); });
+  // to make the TS API work.
+  pmgmt->start(TSThreadInit, TSThreadDestroy);
 
   RecProcessInitMessage(remote_management_flag ? RECM_CLIENT : RECM_STAND_ALONE);
   pmgmt->reconfigure();
@@ -709,7 +764,8 @@ CB_After_Cache_Init()
   APIHook *hook;
   int start;
 
-  start = ink_atomic_swap(&delay_listen_for_cache_p, -1);
+  start = ink_atomic_swap(&delay_listen_for_cache, -1);
+  emit_fully_initialized_message();
 
 #if TS_ENABLE_FIPS == 0
   // Check for cache BC after the cache is initialized and before listen, if possible.
@@ -724,8 +780,12 @@ CB_After_Cache_Init()
 #endif
 
   if (1 == start) {
+    // The delay_listen_for_cache value was 1, therefore the main function
+    // delayed the call to start_HttpProxyServer until we got here. We must
+    // call accept on the ports now that the cache is initialized.
     Debug("http_listen", "Delayed listen enable, cache initialization finished");
     start_HttpProxyServer();
+    emit_fully_initialized_message();
   }
 
   time_t cache_ready_at = time(nullptr);
@@ -1705,6 +1765,12 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   command_index = find_cmd_index(command_string);
   command_valid = command_flag && command_index >= 0;
 
+  // Attach point when TS is blocked for debugging is in this loop.
+  //
+  while (cmd_block) {
+    sleep(1);
+  }
+
   ink_freelist_init_ops(cmd_disable_freelist, cmd_disable_pfreelist);
 
 #if TS_HAS_TESTS
@@ -1729,8 +1795,7 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   // re-start it again, TS will crash.
   // This is also needed for log rotation - setting up the file can cause privilege
   // related errors and if diagsConfig isn't get up yet that will crash on a NULL pointer.
-  diagsConfig = new DiagsConfig("Server", DIAGS_LOG_FILENAME, error_tags, action_tags, false);
-  diags       = diagsConfig->diags;
+  diagsConfig = new DiagsConfig("Server", DEFAULT_DIAGS_LOG_FILENAME, error_tags, action_tags, false);
   diags->set_std_output(StdStream::STDOUT, bind_stdout);
   diags->set_std_output(StdStream::STDERR, bind_stderr);
   if (is_debug_tag_set("diags")) {
@@ -1823,9 +1888,12 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   main_thread->set_specific();
 
   // Re-initialize diagsConfig based on records.config configuration
+  REC_ReadConfigString(diags_log_filename, "proxy.config.diags.logfile.filename", sizeof(diags_log_filename));
+  if (strnlen(diags_log_filename, sizeof(diags_log_filename)) == 0) {
+    strncpy(diags_log_filename, DEFAULT_DIAGS_LOG_FILENAME, sizeof(diags_log_filename));
+  }
   DiagsConfig *old_log = diagsConfig;
-  diagsConfig          = new DiagsConfig("Server", DIAGS_LOG_FILENAME, error_tags, action_tags, true);
-  diags                = diagsConfig->diags;
+  diagsConfig          = new DiagsConfig("Server", diags_log_filename, error_tags, action_tags, true);
   RecSetDiags(diags);
   diags->set_std_output(StdStream::STDOUT, bind_stdout);
   diags->set_std_output(StdStream::STDERR, bind_stderr);
@@ -1855,7 +1923,7 @@ main(int /* argc ATS_UNUSED */, const char **argv)
 #endif
 
   // setup callback for tracking remap included files
-  load_remap_file_cb = load_remap_file_callback;
+  load_remap_file_cb = load_config_file_callback;
 
   // We need to do this early so we can initialize the Machine
   // singleton, which depends on configuration values loaded in this.
@@ -1880,7 +1948,13 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   } else if (HttpConfig::m_master.inbound_ip6.isValid()) {
     machine_addr.assign(HttpConfig::m_master.inbound_ip6);
   }
-  Machine::init(nullptr, &machine_addr.sa);
+  char *hostname = REC_ConfigReadString("proxy.config.log.hostname");
+  if (hostname != nullptr && std::string_view(hostname) == "localhost") {
+    // The default value was used. Let Machine::init derive the hostname.
+    hostname = nullptr;
+  }
+  Machine::init(hostname, &machine_addr.sa);
+  ats_free(hostname);
 
   RecRegisterStatString(RECT_PROCESS, "proxy.process.version.server.uuid", (char *)Machine::instance()->uuid.getString(),
                         RECP_NON_PERSISTENT);
@@ -2007,9 +2081,7 @@ main(int /* argc ATS_UNUSED */, const char **argv)
     HostStatus::instance().loadHostStatusFromStats();
     netProcessor.init_socks();
     ParentConfig::startup();
-#ifdef SPLIT_DNS
     SplitDNSConfig::startup();
-#endif
 
     // Initialize HTTP/2
     Http2::init();
@@ -2052,6 +2124,7 @@ main(int /* argc ATS_UNUSED */, const char **argv)
     }
     if (num_of_udp_threads) {
       udpNet.start(num_of_udp_threads, stacksize);
+      eventProcessor.thread_group[ET_UDP]._afterStartCallback = init_HttpProxyServer;
     }
 
     // Initialize Response Body Factory
@@ -2089,12 +2162,27 @@ main(int /* argc ATS_UNUSED */, const char **argv)
         proxyServerCheck.wait(lock, [] { return et_net_threads_ready; });
       }
 
+#if TS_USE_QUIC == 1
+      if (num_of_udp_threads) {
+        std::unique_lock<std::mutex> lock(etUdpMutex);
+        etUdpCheck.wait(lock, [] { return et_udp_threads_ready; });
+      }
+#endif
       // Delay only if config value set and flag value is zero
       // (-1 => cache already initialized)
-      if (delay_p && ink_atomic_cas(&delay_listen_for_cache_p, 0, 1)) {
+      if (delay_p && ink_atomic_cas(&delay_listen_for_cache, 0, 1)) {
         Debug("http_listen", "Delaying listen, waiting for cache initialization");
       } else {
+        // If we've come here, either:
+        //
+        // 1. The user did not configure wait_for_cache, and/or
+        // 2. The previous delay_listen_for_cache value was not 0, thus the cache
+        //    must have been initialized already.
+        //
+        // In either case we should not delay to accept the ports.
+        Debug("http_listen", "Not delaying listen");
         start_HttpProxyServer(); // PORTS_READY_HOOK called from in here
+        emit_fully_initialized_message();
       }
     }
     // Plugins can register their own configuration names so now after they've done that
@@ -2223,10 +2311,10 @@ load_ssl_file_callback(const char *ssl_file)
   pmgmt->signalConfigFileChild(ts::filename::SSL_MULTICERT, ssl_file);
 }
 
-static void
-load_remap_file_callback(const char *remap_file)
+void
+load_config_file_callback(const char *parent_file, const char *remap_file)
 {
-  pmgmt->signalConfigFileChild(ts::filename::REMAP, remap_file);
+  pmgmt->signalConfigFileChild(parent_file, remap_file);
 }
 
 static void

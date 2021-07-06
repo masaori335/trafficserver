@@ -33,7 +33,8 @@ AM_CPPFLAGS += \
 	-I$(abs_top_srcdir)/proxy/logging \
 	-I$(abs_top_srcdir)/proxy/http2 \
 	-I$(abs_top_srcdir)/proxy/http3 \
-	$(TS_INCLUDES)
+	$(TS_INCLUDES) \
+	@YAMLCPP_INCLUDES@
 
 noinst_HEADERS = HttpProxyServerMain.h
 noinst_LIBRARIES = libhttp.a
@@ -47,8 +48,11 @@ libhttp_a_SOURCES = \
 	HttpCacheSM.h \
 	Http1ClientSession.cc \
 	Http1ClientSession.h \
-	Http1Transaction.cc \
+	Http1ClientTransaction.cc \
 	Http1Transaction.h \
+	Http1ClientTransaction.h \
+	Http1ServerTransaction.h \
+	Http1ServerTransaction.cc \
 	HttpConfig.cc \
 	HttpConfig.h \
 	HttpConnectionCount.cc \
@@ -73,13 +77,10 @@ libhttp_a_SOURCES = \
 	HttpTransactHeaders.h \
 	HttpTunnel.cc \
 	HttpTunnel.h \
-	HttpUpdateSM.cc \
-	HttpUpdateSM.h \
 	ForwardedConfig.cc
 
 if BUILD_TESTS
-libhttp_a_SOURCES += HttpUpdateTester.cc \
-	RegressionHttpTransact.cc
+libhttp_a_SOURCES += RegressionHttpTransact.cc
 endif
 
 check_PROGRAMS = test_proxy_http
@@ -102,8 +103,8 @@ test_proxy_http_LDADD = \
 	$(top_builddir)/src/tscore/libtscore.la \
 	$(top_builddir)/proxy/hdrs/libhdrs.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
-	$(top_builddir)/lib/records/librecords_p.a \
 	$(top_builddir)/proxy/logging/liblogging.a \
+	$(top_builddir)/lib/records/librecords_p.a \
 	$(top_builddir)/proxy/shared/libUglyLogStubs.a \
 	$(top_builddir)/mgmt/libmgmt_p.la \
 	$(top_builddir)/iocore/utils/libinkutils.a \

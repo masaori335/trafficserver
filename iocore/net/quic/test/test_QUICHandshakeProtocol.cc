@@ -33,20 +33,18 @@
 
 #include <openssl/ssl.h>
 
-// #include "Mock.h"
 #include "QUICPacketHeaderProtector.h"
 #include "QUICPacketPayloadProtector.h"
 #include "QUICPacketProtectionKeyInfo.h"
 #include "QUICTLS.h"
+#include "QUICGlobals.h"
+#include "Mock.h"
 
 // XXX For NetVCOptions::reset
 struct PollCont;
 #include "P_UDPConnection.h"
 #include "P_UnixNet.h"
 #include "P_UnixNetVConnection.h"
-
-// depends on size of cert
-static constexpr uint32_t MAX_HANDSHAKE_MSG_LEN = 8192;
 
 #include "./server_cert.h"
 
@@ -104,60 +102,85 @@ TEST_CASE("QUICHandshakeProtocol")
   BIO *key_bio(BIO_new_mem_buf(server_key, sizeof(server_key)));
   EVP_PKEY *pkey = PEM_read_bio_PrivateKey(key_bio, nullptr, nullptr, nullptr);
   SSL_CTX_use_PrivateKey(server_ssl_ctx, pkey);
+  SSL_CTX_set_alpn_select_cb(
+    server_ssl_ctx,
+    [](SSL *ssl, const unsigned char **out, unsigned char *outlen, const unsigned char *in, unsigned inlen, void *) {
+      auto ret = SSL_select_next_proto(const_cast<unsigned char **>(out), outlen,
+                                       reinterpret_cast<const unsigned char *>("\6h3-foo"), 7, in, inlen);
+      if (ret == OPENSSL_NPN_NEGOTIATED) {
+        return SSL_TLSEXT_ERR_OK;
+      } else {
+        *out    = nullptr;
+        *outlen = 0;
+        return SSL_TLSEXT_ERR_NOACK;
+      }
+    },
+    nullptr);
 
   SECTION("Full Handshake", "[quic]")
   {
     QUICPacketProtectionKeyInfo pp_key_info_client;
     QUICPacketProtectionKeyInfo pp_key_info_server;
-    NetVCOptions netvc_options;
-    QUICHandshakeProtocol *client = new QUICTLS(pp_key_info_client, client_ssl_ctx, NET_VCONNECTION_OUT, netvc_options);
-    QUICHandshakeProtocol *server = new QUICTLS(pp_key_info_server, server_ssl_ctx, NET_VCONNECTION_IN, netvc_options);
+    NetVCOptions netvc_options_client;
+    NetVCOptions netvc_options_server;
+    MockQUICConnection mock_client_connection;
+    MockQUICConnection mock_server_connection;
+    netvc_options_client.alpn_protos = "\6h3-foo";
+    QUICHandshakeProtocol *client    = new QUICTLS(pp_key_info_client, client_ssl_ctx, NET_VCONNECTION_OUT, netvc_options_client);
+    QUICHandshakeProtocol *server    = new QUICTLS(pp_key_info_server, server_ssl_ctx, NET_VCONNECTION_IN, netvc_options_server);
+    SSL_set_ex_data(static_cast<QUICTLS *>(client)->ssl_handle(), QUIC::ssl_quic_qc_index, &mock_client_connection);
+    SSL_set_ex_data(static_cast<QUICTLS *>(server)->ssl_handle(), QUIC::ssl_quic_qc_index, &mock_server_connection);
     QUICPacketPayloadProtector ppp_client(pp_key_info_client);
     QUICPacketPayloadProtector ppp_server(pp_key_info_server);
 
-    CHECK(client->initialize_key_materials({reinterpret_cast<const uint8_t *>("\x83\x94\xc8\xf0\x3e\x51\x57\x00"), 8}));
-    CHECK(server->initialize_key_materials({reinterpret_cast<const uint8_t *>("\x83\x94\xc8\xf0\x3e\x51\x57\x00"), 8}));
+    auto client_tp = std::make_shared<QUICTransportParametersInClientHello>();
+    auto server_tp = std::make_shared<QUICTransportParametersInEncryptedExtensions>();
+    client_tp->set(QUICTransportParameterId::MAX_IDLE_TIMEOUT, 10);
+    server_tp->set(QUICTransportParameterId::MAX_IDLE_TIMEOUT, 10);
+    client->set_local_transport_parameters(client_tp);
+    server->set_local_transport_parameters(server_tp);
+
+    CHECK(client->initialize_key_materials({reinterpret_cast<const uint8_t *>("\x83\x94\xc8\xf0\x3e\x51\x57\x00"), 8},
+                                           QUIC_SUPPORTED_VERSIONS[0]));
+    CHECK(server->initialize_key_materials({reinterpret_cast<const uint8_t *>("\x83\x94\xc8\xf0\x3e\x51\x57\x00"), 8},
+                                           QUIC_SUPPORTED_VERSIONS[0]));
 
     // CH
-    QUICHandshakeMsgs msg1;
-    uint8_t msg1_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg1.buf                                = msg1_buf;
-    msg1.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
+    QUICHandshakeMsgs msg0;
+    msg0.offsets[0] = 0;
+    msg0.offsets[1] = 0;
+    msg0.offsets[2] = 0;
+    msg0.offsets[3] = 0;
+    msg0.offsets[4] = 0;
 
-    REQUIRE(client->handshake(&msg1, nullptr) == 1);
+    QUICHandshakeMsgs *msg1 = nullptr;
+    REQUIRE(client->handshake(&msg1, &msg0) == 1);
+    REQUIRE(msg1);
     std::cout << "### Messages from client" << std::endl;
-    print_hex(msg1.buf, msg1.offsets[4]);
+    print_hex(msg1->buf, msg1->offsets[4]);
 
     // SH, EE, CERT, CV, FIN
-    QUICHandshakeMsgs msg2;
-    uint8_t msg2_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg2.buf                                = msg2_buf;
-    msg2.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
-
-    REQUIRE(server->handshake(&msg2, &msg1) == 1);
+    QUICHandshakeMsgs *msg2 = nullptr;
+    REQUIRE(server->handshake(&msg2, msg1) == 1);
+    REQUIRE(msg2);
     std::cout << "### Messages from server" << std::endl;
-    print_hex(msg2.buf, msg2.offsets[4]);
+    print_hex(msg2->buf, msg2->offsets[4]);
 
     // FIN
-    QUICHandshakeMsgs msg3;
-    uint8_t msg3_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg3.buf                                = msg3_buf;
-    msg3.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
+    QUICHandshakeMsgs *msg3;
 
-#ifdef SSL_MODE_QUIC_HACK
-    // -- Hacks for OpenSSL with SSL_MODE_QUIC_HACK --
     // SH
     QUICHandshakeMsgs msg2_1;
     uint8_t msg2_1_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
     msg2_1.buf                                = msg2_1_buf;
     msg2_1.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
 
-    memcpy(msg2_1.buf, msg2.buf, msg2.offsets[1]);
+    memcpy(msg2_1.buf, msg2->buf, msg2->offsets[1]);
     msg2_1.offsets[0] = 0;
-    msg2_1.offsets[1] = msg2.offsets[1];
-    msg2_1.offsets[2] = msg2.offsets[1];
-    msg2_1.offsets[3] = msg2.offsets[1];
-    msg2_1.offsets[4] = msg2.offsets[1];
+    msg2_1.offsets[1] = msg2->offsets[1];
+    msg2_1.offsets[2] = msg2->offsets[1];
+    msg2_1.offsets[3] = msg2->offsets[1];
+    msg2_1.offsets[4] = msg2->offsets[1];
 
     // EE - FIN
     QUICHandshakeMsgs msg2_2;
@@ -165,8 +188,8 @@ TEST_CASE("QUICHandshakeProtocol")
     msg2_2.buf                                = msg2_2_buf;
     msg2_2.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
 
-    size_t len = msg2.offsets[3] - msg2.offsets[2];
-    memcpy(msg2_2.buf, msg2.buf + msg2.offsets[1], len);
+    size_t len = msg2->offsets[3] - msg2->offsets[2];
+    memcpy(msg2_2.buf, msg2->buf + msg2->offsets[1], len);
     msg2_2.offsets[0] = 0;
     msg2_2.offsets[1] = 0;
     msg2_2.offsets[2] = 0;
@@ -175,29 +198,19 @@ TEST_CASE("QUICHandshakeProtocol")
 
     REQUIRE(client->handshake(&msg3, &msg2_1) == 1);
     REQUIRE(client->handshake(&msg3, &msg2_2) == 1);
-#else
-    REQUIRE(client->handshake(&msg3, &msg2) == 1);
-#endif
     std::cout << "### Messages from client" << std::endl;
-    print_hex(msg3.buf, msg3.offsets[4]);
+    print_hex(msg3->buf, msg3->offsets[4]);
 
     // NS
-    QUICHandshakeMsgs msg4;
-    uint8_t msg4_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg4.buf                                = msg4_buf;
-    msg4.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
-
-    REQUIRE(server->handshake(&msg4, &msg3) == 1);
+    QUICHandshakeMsgs *msg4 = nullptr;
+    REQUIRE(server->handshake(&msg4, msg3) == 1);
+    REQUIRE(msg4);
     std::cout << "### Messages from server" << std::endl;
-    print_hex(msg4.buf, msg4.offsets[4]);
+    print_hex(msg4->buf, msg4->offsets[4]);
 
-    QUICHandshakeMsgs msg5;
-    uint8_t msg5_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg5.buf                                = msg5_buf;
-    msg5.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
-    REQUIRE(client->handshake(&msg5, &msg4) == 1);
-    std::cout << "### Messages from server" << std::endl;
-    print_hex(msg4.buf, msg4.offsets[4]);
+    QUICHandshakeMsgs *msg5 = nullptr;
+    REQUIRE(client->handshake(&msg5, msg4) == 1);
+    REQUIRE(msg5 == nullptr);
 
     // encrypt - decrypt
     // client (encrypt) - server (decrypt)
@@ -241,75 +254,80 @@ TEST_CASE("QUICHandshakeProtocol")
 
     QUICPacketProtectionKeyInfo pp_key_info_client;
     QUICPacketProtectionKeyInfo pp_key_info_server;
-    NetVCOptions netvc_options;
-    QUICHandshakeProtocol *client = new QUICTLS(pp_key_info_client, client_ssl_ctx, NET_VCONNECTION_OUT, netvc_options);
-    QUICHandshakeProtocol *server = new QUICTLS(pp_key_info_server, server_ssl_ctx, NET_VCONNECTION_IN, netvc_options);
+    NetVCOptions netvc_options_client;
+    NetVCOptions netvc_options_server;
+    netvc_options_client.alpn_protos = "\6h3-foo";
+    MockQUICConnection mock_client_connection;
+    MockQUICConnection mock_server_connection;
+    QUICHandshakeProtocol *client = new QUICTLS(pp_key_info_client, client_ssl_ctx, NET_VCONNECTION_OUT, netvc_options_client);
+    QUICHandshakeProtocol *server = new QUICTLS(pp_key_info_server, server_ssl_ctx, NET_VCONNECTION_IN, netvc_options_server);
+    SSL_set_ex_data(static_cast<QUICTLS *>(client)->ssl_handle(), QUIC::ssl_quic_qc_index, &mock_client_connection);
+    SSL_set_ex_data(static_cast<QUICTLS *>(server)->ssl_handle(), QUIC::ssl_quic_qc_index, &mock_server_connection);
     QUICPacketPayloadProtector ppp_client(pp_key_info_client);
     QUICPacketPayloadProtector ppp_server(pp_key_info_server);
 
-    CHECK(client->initialize_key_materials({reinterpret_cast<const uint8_t *>("\x83\x94\xc8\xf0\x3e\x51\x57\x00"), 8}));
-    CHECK(server->initialize_key_materials({reinterpret_cast<const uint8_t *>("\x83\x94\xc8\xf0\x3e\x51\x57\x00"), 8}));
+    auto client_tp = std::make_shared<QUICTransportParametersInClientHello>();
+    auto server_tp = std::make_shared<QUICTransportParametersInEncryptedExtensions>();
+    client_tp->set(QUICTransportParameterId::MAX_IDLE_TIMEOUT, 10);
+    server_tp->set(QUICTransportParameterId::MAX_IDLE_TIMEOUT, 10);
+    client->set_local_transport_parameters(client_tp);
+    server->set_local_transport_parameters(server_tp);
+
+    CHECK(client->initialize_key_materials({reinterpret_cast<const uint8_t *>("\x83\x94\xc8\xf0\x3e\x51\x57\x00"), 8},
+                                           QUIC_SUPPORTED_VERSIONS[0]));
+    CHECK(server->initialize_key_materials({reinterpret_cast<const uint8_t *>("\x83\x94\xc8\xf0\x3e\x51\x57\x00"), 8},
+                                           QUIC_SUPPORTED_VERSIONS[0]));
 
     // CH
-    QUICHandshakeMsgs msg1;
-    uint8_t msg1_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg1.buf                                = msg1_buf;
-    msg1.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
+    QUICHandshakeMsgs msg0;
+    msg0.offsets[0] = 0;
+    msg0.offsets[1] = 0;
+    msg0.offsets[2] = 0;
+    msg0.offsets[3] = 0;
+    msg0.offsets[4] = 0;
 
-    REQUIRE(client->handshake(&msg1, nullptr) == 1);
+    QUICHandshakeMsgs *msg1 = nullptr;
+    REQUIRE(client->handshake(&msg1, &msg0) == 1);
+    REQUIRE(msg1);
     std::cout << "### Messages from client" << std::endl;
-    print_hex(msg1.buf, msg1.offsets[4]);
+    print_hex(msg1->buf, msg1->offsets[4]);
 
     // HRR
-    QUICHandshakeMsgs msg2;
-    uint8_t msg2_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg2.buf                                = msg2_buf;
-    msg2.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
-
-    REQUIRE(server->handshake(&msg2, &msg1) == 1);
+    QUICHandshakeMsgs *msg2 = nullptr;
+    REQUIRE(server->handshake(&msg2, msg1) == 1);
+    REQUIRE(msg2);
     std::cout << "### Messages from server" << std::endl;
-    print_hex(msg2.buf, msg2.offsets[4]);
+    print_hex(msg2->buf, msg2->offsets[4]);
 
     // CH
-    QUICHandshakeMsgs msg3;
-    uint8_t msg3_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg3.buf                                = msg3_buf;
-    msg3.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
-
-    REQUIRE(client->handshake(&msg3, &msg2) == 1);
+    QUICHandshakeMsgs *msg3 = nullptr;
+    REQUIRE(client->handshake(&msg3, msg2) == 1);
+    REQUIRE(msg3);
     std::cout << "### Messages from client" << std::endl;
-    print_hex(msg3.buf, msg3.offsets[4]);
+    print_hex(msg3->buf, msg3->offsets[4]);
 
     // SH, EE, CERT, CV, FIN
-    QUICHandshakeMsgs msg4;
-    uint8_t msg4_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg4.buf                                = msg4_buf;
-    msg4.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
-
-    REQUIRE(server->handshake(&msg4, &msg3) == 1);
+    QUICHandshakeMsgs *msg4 = nullptr;
+    REQUIRE(server->handshake(&msg4, msg3) == 1);
+    REQUIRE(msg4);
     std::cout << "### Messages from server" << std::endl;
-    print_hex(msg4.buf, msg4.offsets[4]);
+    print_hex(msg4->buf, msg4->offsets[4]);
 
     // FIN
-    QUICHandshakeMsgs msg5;
-    uint8_t msg5_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg5.buf                                = msg5_buf;
-    msg5.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
+    QUICHandshakeMsgs *msg5 = nullptr;
 
-#ifdef SSL_MODE_QUIC_HACK
-    // -- Hacks for OpenSSL with SSL_MODE_QUIC_HACK --
     // SH
     QUICHandshakeMsgs msg4_1;
     uint8_t msg4_1_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
     msg4_1.buf                                = msg4_1_buf;
     msg4_1.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
 
-    memcpy(msg4_1.buf, msg4.buf, msg4.offsets[1]);
+    memcpy(msg4_1.buf, msg4->buf, msg4->offsets[1]);
     msg4_1.offsets[0] = 0;
-    msg4_1.offsets[1] = msg4.offsets[1];
-    msg4_1.offsets[2] = msg4.offsets[1];
-    msg4_1.offsets[3] = msg4.offsets[1];
-    msg4_1.offsets[4] = msg4.offsets[1];
+    msg4_1.offsets[1] = msg4->offsets[1];
+    msg4_1.offsets[2] = msg4->offsets[1];
+    msg4_1.offsets[3] = msg4->offsets[1];
+    msg4_1.offsets[4] = msg4->offsets[1];
 
     // EE - FIN
     QUICHandshakeMsgs msg4_2;
@@ -317,8 +335,8 @@ TEST_CASE("QUICHandshakeProtocol")
     msg4_2.buf                                = msg4_2_buf;
     msg4_2.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
 
-    size_t len = msg4.offsets[3] - msg4.offsets[2];
-    memcpy(msg4_2.buf, msg4.buf + msg4.offsets[1], len);
+    size_t len = msg4->offsets[3] - msg4->offsets[2];
+    memcpy(msg4_2.buf, msg4->buf + msg4->offsets[1], len);
     msg4_2.offsets[0] = 0;
     msg4_2.offsets[1] = 0;
     msg4_2.offsets[2] = 0;
@@ -327,21 +345,16 @@ TEST_CASE("QUICHandshakeProtocol")
 
     REQUIRE(client->handshake(&msg5, &msg4_1) == 1);
     REQUIRE(client->handshake(&msg5, &msg4_2) == 1);
-#else
-    REQUIRE(client->handshake(&msg5, &msg4) == 1);
-#endif
+    REQUIRE(msg5);
     std::cout << "### Messages from client" << std::endl;
-    print_hex(msg5.buf, msg5.offsets[4]);
+    print_hex(msg5->buf, msg5->offsets[4]);
 
     // NS
-    QUICHandshakeMsgs msg6;
-    uint8_t msg6_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg6.buf                                = msg6_buf;
-    msg6.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
-
-    REQUIRE(server->handshake(&msg6, &msg5) == 1);
+    QUICHandshakeMsgs *msg6 = nullptr;
+    REQUIRE(server->handshake(&msg6, msg5) == 1);
+    REQUIRE(msg6);
     std::cout << "### Messages from server" << std::endl;
-    print_hex(msg6.buf, msg6.offsets[4]);
+    print_hex(msg6->buf, msg6->offsets[4]);
 
     Ptr<IOBufferBlock> original_ibb = make_ptr<IOBufferBlock>(new_IOBufferBlock());
     original_ibb->set_internal(const_cast<uint8_t *>(original), sizeof(original), BUFFER_SIZE_NOT_ALLOCATED);
@@ -387,7 +400,8 @@ TEST_CASE("QUICHandshakeProtocol")
     QUICPacketProtectionKeyInfo pp_key_info_server;
     NetVCOptions netvc_options;
     QUICHandshakeProtocol *server = new QUICTLS(pp_key_info_server, server_ssl_ctx, NET_VCONNECTION_IN, netvc_options);
-    CHECK(server->initialize_key_materials({reinterpret_cast<const uint8_t *>("\x83\x94\xc8\xf0\x3e\x51\x57\x00"), 8}));
+    CHECK(server->initialize_key_materials({reinterpret_cast<const uint8_t *>("\x83\x94\xc8\xf0\x3e\x51\x57\x00"), 8},
+                                           QUIC_SUPPORTED_VERSIONS[0]));
 
     // Malformed CH (finished)
     uint8_t msg1_buf[] = {0x14, 0x00, 0x00, 0x30, 0x35, 0xb9, 0x82, 0x9d, 0xb9, 0x14, 0x70, 0x03, 0x60,
@@ -405,13 +419,10 @@ TEST_CASE("QUICHandshakeProtocol")
     msg1.offsets[3]  = msg1_len;
     msg1.offsets[4]  = msg1_len;
 
-    QUICHandshakeMsgs msg2;
-    uint8_t msg2_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg2.buf                                = msg2_buf;
-    msg2.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
-
+    QUICHandshakeMsgs *msg2 = nullptr;
     CHECK(server->handshake(&msg2, &msg1) != 1);
-    CHECK(msg2.error_code == 0x10a); //< 0x100 + unexpected_message(10)
+    CHECK(server->has_crypto_error());
+    CHECK((server->crypto_error() == 0x10a || server->crypto_error() == 0x150)); //< 0x100 + unexpected_message(10)
 
     // Teardown
     delete server;
@@ -421,51 +432,62 @@ TEST_CASE("QUICHandshakeProtocol")
   {
     QUICPacketProtectionKeyInfo pp_key_info_client;
     QUICPacketProtectionKeyInfo pp_key_info_server;
-    NetVCOptions netvc_options;
-    QUICHandshakeProtocol *client = new QUICTLS(pp_key_info_client, client_ssl_ctx, NET_VCONNECTION_OUT, netvc_options);
-    QUICHandshakeProtocol *server = new QUICTLS(pp_key_info_server, server_ssl_ctx, NET_VCONNECTION_IN, netvc_options);
+    NetVCOptions netvc_options_client;
+    NetVCOptions netvc_options_server;
+    netvc_options_client.alpn_protos = "\6h3-foo";
+    MockQUICConnection mock_client_connection;
+    MockQUICConnection mock_server_connection;
+    QUICHandshakeProtocol *client = new QUICTLS(pp_key_info_client, client_ssl_ctx, NET_VCONNECTION_OUT, netvc_options_client);
+    QUICHandshakeProtocol *server = new QUICTLS(pp_key_info_server, server_ssl_ctx, NET_VCONNECTION_IN, netvc_options_server);
+    SSL_set_ex_data(static_cast<QUICTLS *>(client)->ssl_handle(), QUIC::ssl_quic_qc_index, &mock_client_connection);
+    SSL_set_ex_data(static_cast<QUICTLS *>(server)->ssl_handle(), QUIC::ssl_quic_qc_index, &mock_server_connection);
 
-    CHECK(client->initialize_key_materials({reinterpret_cast<const uint8_t *>("\x83\x94\xc8\xf0\x3e\x51\x57\x00"), 8}));
-    CHECK(server->initialize_key_materials({reinterpret_cast<const uint8_t *>("\x83\x94\xc8\xf0\x3e\x51\x57\x00"), 8}));
+    auto client_tp = std::make_shared<QUICTransportParametersInClientHello>();
+    auto server_tp = std::make_shared<QUICTransportParametersInEncryptedExtensions>();
+    client_tp->set(QUICTransportParameterId::MAX_IDLE_TIMEOUT, 10);
+    server_tp->set(QUICTransportParameterId::MAX_IDLE_TIMEOUT, 10);
+    client->set_local_transport_parameters(client_tp);
+    server->set_local_transport_parameters(server_tp);
+
+    CHECK(client->initialize_key_materials({reinterpret_cast<const uint8_t *>("\x83\x94\xc8\xf0\x3e\x51\x57\x00"), 8},
+                                           QUIC_SUPPORTED_VERSIONS[0]));
+    CHECK(server->initialize_key_materials({reinterpret_cast<const uint8_t *>("\x83\x94\xc8\xf0\x3e\x51\x57\x00"), 8},
+                                           QUIC_SUPPORTED_VERSIONS[0]));
 
     // # Start Handshake
 
-    // CH
-    QUICHandshakeMsgs msg1;
-    uint8_t msg1_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg1.buf                                = msg1_buf;
-    msg1.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
+    QUICHandshakeMsgs msg0;
+    msg0.offsets[0] = 0;
+    msg0.offsets[1] = 0;
+    msg0.offsets[2] = 0;
+    msg0.offsets[3] = 0;
+    msg0.offsets[4] = 0;
 
-    REQUIRE(client->handshake(&msg1, nullptr) == 1);
+    // CH
+    QUICHandshakeMsgs *msg1 = nullptr;
+    REQUIRE(client->handshake(&msg1, &msg0) == 1);
+    REQUIRE(msg1);
 
     // SH, EE, CERT, CV, FIN
-    QUICHandshakeMsgs msg2;
-    uint8_t msg2_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg2.buf                                = msg2_buf;
-    msg2.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
-
-    REQUIRE(server->handshake(&msg2, &msg1) == 1);
+    QUICHandshakeMsgs *msg2 = nullptr;
+    REQUIRE(server->handshake(&msg2, msg1) == 1);
+    REQUIRE(msg2);
 
     // FIN
-    QUICHandshakeMsgs msg3;
-    uint8_t msg3_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg3.buf                                = msg3_buf;
-    msg3.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
+    QUICHandshakeMsgs *msg3 = nullptr;
 
-#ifdef SSL_MODE_QUIC_HACK
-    // -- Hacks for OpenSSL with SSL_MODE_QUIC_HACK --
     // SH
     QUICHandshakeMsgs msg2_1;
     uint8_t msg2_1_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
     msg2_1.buf                                = msg2_1_buf;
     msg2_1.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
 
-    memcpy(msg2_1.buf, msg2.buf, msg2.offsets[1]);
+    memcpy(msg2_1.buf, msg2->buf, msg2->offsets[1]);
     msg2_1.offsets[0] = 0;
-    msg2_1.offsets[1] = msg2.offsets[1];
-    msg2_1.offsets[2] = msg2.offsets[1];
-    msg2_1.offsets[3] = msg2.offsets[1];
-    msg2_1.offsets[4] = msg2.offsets[1];
+    msg2_1.offsets[1] = msg2->offsets[1];
+    msg2_1.offsets[2] = msg2->offsets[1];
+    msg2_1.offsets[3] = msg2->offsets[1];
+    msg2_1.offsets[4] = msg2->offsets[1];
 
     // EE - FIN
     QUICHandshakeMsgs msg2_2;
@@ -473,8 +495,8 @@ TEST_CASE("QUICHandshakeProtocol")
     msg2_2.buf                                = msg2_2_buf;
     msg2_2.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
 
-    size_t len = msg2.offsets[3] - msg2.offsets[2];
-    memcpy(msg2_2.buf, msg2.buf + msg2.offsets[1], len);
+    size_t len = msg2->offsets[3] - msg2->offsets[2];
+    memcpy(msg2_2.buf, msg2->buf + msg2->offsets[1], len);
     msg2_2.offsets[0] = 0;
     msg2_2.offsets[1] = 0;
     msg2_2.offsets[2] = 0;
@@ -483,23 +505,15 @@ TEST_CASE("QUICHandshakeProtocol")
 
     REQUIRE(client->handshake(&msg3, &msg2_1) == 1);
     REQUIRE(client->handshake(&msg3, &msg2_2) == 1);
-#else
-    REQUIRE(client->handshake(&msg3, &msg2) == 1);
-#endif
 
     // NS
-    QUICHandshakeMsgs msg4;
-    uint8_t msg4_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg4.buf                                = msg4_buf;
-    msg4.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
+    QUICHandshakeMsgs *msg4 = nullptr;
+    REQUIRE(server->handshake(&msg4, msg3) == 1);
+    REQUIRE(msg4);
 
-    REQUIRE(server->handshake(&msg4, &msg3) == 1);
-
-    QUICHandshakeMsgs msg5;
-    uint8_t msg5_buf[MAX_HANDSHAKE_MSG_LEN] = {0};
-    msg5.buf                                = msg5_buf;
-    msg5.max_buf_len                        = MAX_HANDSHAKE_MSG_LEN;
-    REQUIRE(client->handshake(&msg5, &msg4) == 1);
+    QUICHandshakeMsgs *msg5 = nullptr;
+    REQUIRE(client->handshake(&msg5, msg4) == 1);
+    REQUIRE(msg5 == nullptr);
 
     // # End Handshake
 

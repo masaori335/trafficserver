@@ -23,8 +23,9 @@ Stats Over HTTP Plugin
 **********************
 
 This plugin implements an HTTP interface to all Traffic Server statistics. The
-metrics returned are in a JSON format, for easy processing. This plugin is now
-part of the standard ATS build process, and should be available after install.
+metrics returned are in a JSON format by default, for easy processing. You can
+also output the stats in CSV format as well. This plugin is now part of the
+standard ATS build process, and should be available after install.
 
 Enabling Stats Over HTTP
 ========================
@@ -87,8 +88,19 @@ This sets the path value for stats
 
 .. option:: allow_ip=
 
-A comma separated white list of ipv4 addresses allowed to accesss the endpoint
+A comma separated list of IPv4 addresses allowed to access the endpoint
 
 .. option:: allow_ip6=
 
-A comma separated white list of ipv6 addresses allowed to access the endpoint
+A comma separated list of IPv6 addresses allowed to access the endpoint
+
+Output Format
+=============
+
+By default stats_over_http.so will output all the stats in JSON format. However
+if you wish to have it in CSV format you can do so by passing an ``Accept`` header:
+
+.. option:: Accept: text/csv
+
+In either case the ``Content-Type`` header returned by stats_over_http.so will reflect
+the content that has been returned, either ``text/json`` or ``text/csv``.

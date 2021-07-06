@@ -115,13 +115,13 @@ A number of file objects are also defined to help test TrafficServer. Files that
 - diags.log
 - records.config
 - cache.config
-- congestion.config
 - hosting.config
 - ip_allow.yaml
 - logging.yaml
 - parent.config
 - plugin.config
 - remap.config
+- sni.yaml
 - socks.config
 - splitdns.config
 - ssl_multicert.config
@@ -252,13 +252,13 @@ Condition Testing
         - TS_HAS_IP_TOS
         - TS_USE_HWLOC
         - TS_USE_SET_RBIO
+        - TS_USE_QUIC
         - TS_USE_LINUX_NATIVE_AIO
         - TS_HAS_SO_PEERCRED
         - TS_USE_REMOTE_UNWINDING
         - TS_HAS_128BIT_CAS
         - TS_HAS_TESTS
         - TS_HAS_WCCP
-        - SPLIT_DNS
 
 
 Examples:

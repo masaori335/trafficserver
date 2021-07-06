@@ -44,7 +44,7 @@ public:
     ~QUICAckFrameCreator();
 
     void push_back(QUICPacketNumber packet_number, size_t size, bool ack_only);
-    size_t size();
+    size_t size() const;
     void clear();
     void sort();
     void forget(QUICPacketNumber largest_acknowledged);
@@ -58,8 +58,8 @@ public:
     // refresh state when frame lost
     void refresh_state();
 
-    QUICPacketNumber largest_ack_number();
-    ink_hrtime largest_ack_received_time();
+    QUICPacketNumber largest_ack_number() const;
+    ink_hrtime largest_ack_received_time() const;
 
   private:
     uint64_t _calculate_delay();
@@ -69,7 +69,7 @@ public:
     bool _available                         = false; // packet_number has data to sent
     bool _should_send                       = false; // ack frame should be sent immediately
     bool _has_new_data                      = false; // new data after last sent
-    size_t _size_unsend                     = 0;
+    uint32_t _ack_eliciting_count           = 0;     // every two ack-eliciting packet should send ack immediately
     uint16_t _max_ack_delay                 = 25;
     QUICPacketNumber _largest_ack_number    = 0;
     QUICPacketNumber _expect_next           = 0;
@@ -78,7 +78,7 @@ public:
 
     QUICAckFrameManager *_ack_manager = nullptr;
 
-    QUICPacketNumberSpace _pn_space = QUICPacketNumberSpace::Initial;
+    QUICPacketNumberSpace _pn_space = QUICPacketNumberSpace::INITIAL;
   };
 
   static constexpr int MAXIMUM_PACKET_COUNT = 256;

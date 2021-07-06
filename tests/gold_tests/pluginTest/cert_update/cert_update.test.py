@@ -24,7 +24,8 @@ Test cert_update plugin.
 '''
 
 Test.SkipUnless(
-    Condition.HasProgram("openssl", "Openssl need to be installed on system for this test to work")
+    Condition.HasProgram("openssl", "Openssl need to be installed on system for this test to work"),
+    Condition.PluginExists('cert_update.so')
 )
 
 # Set up origin server
@@ -72,13 +73,13 @@ ts.Disk.sni_yaml.AddLines([
 ])
 
 # Set up plugin
-Test.PreparePlugin(Test.Variables.AtsExampleDir + '/plugins/c-api/cert_update/cert_update.cc', ts)
+Test.PrepareInstalledPlugin('cert_update.so', ts)
 
 # Server-Cert-Pre
 # curl should see that Traffic Server presents bar.com cert from alice
 tr = Test.AddTestRun("Server-Cert-Pre")
 tr.Processes.Default.StartBefore(server)
-tr.Processes.Default.StartBefore(Test.Processes.ts, ready=When.PortOpen(ts.Variables.ssl_port))
+tr.Processes.Default.StartBefore(Test.Processes.ts)
 tr.Processes.Default.Command = (
     'curl --verbose --insecure --ipv4 --resolve bar.com:{0}:127.0.0.1 https://bar.com:{0}'.format(ts.Variables.ssl_port)
 )
@@ -108,7 +109,10 @@ ts.StillRunningAfter = server
 # s_server should see client (Traffic Server) as alice.com
 tr = Test.AddTestRun("Client-Cert-Pre")
 s_server = tr.Processes.Process(
-    "s_server", "openssl s_server -www -key {0}/server1.pem -cert {0}/server1.pem -accept {1} -Verify 1 -msg".format(ts.Variables.SSLDir, ts.Variables.s_server_port))
+    "s_server",
+    "openssl s_server -www -key {0}/server1.pem -cert {0}/server1.pem -accept {1} -Verify 1 -msg".format(
+        ts.Variables.SSLDir,
+        ts.Variables.s_server_port))
 s_server.Ready = When.PortReady(ts.Variables.s_server_port)
 tr.Command = 'curl --verbose --insecure --ipv4 --header "Host: foo.com" https://localhost:{}'.format(ts.Variables.ssl_port)
 tr.Processes.Default.StartBefore(s_server)
@@ -130,7 +134,10 @@ ts.StillRunningAfter = server
 # after use traffic_ctl to update client cert, s_server should see client (Traffic Server) as bob.com
 tr = Test.AddTestRun("Client-Cert-After")
 s_server = tr.Processes.Process(
-    "s_server", "openssl s_server -www -key {0}/server1.pem -cert {0}/server1.pem -accept {1} -Verify 1 -msg".format(ts.Variables.SSLDir, ts.Variables.s_server_port))
+    "s_server",
+    "openssl s_server -www -key {0}/server1.pem -cert {0}/server1.pem -accept {1} -Verify 1 -msg".format(
+        ts.Variables.SSLDir,
+        ts.Variables.s_server_port))
 s_server.Ready = When.PortReady(ts.Variables.s_server_port)
 tr.Processes.Default.Env = ts.Env
 # Move client2.pem to replace client1.pem since cert path matters in client context mapping

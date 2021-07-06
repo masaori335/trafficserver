@@ -24,6 +24,7 @@
 
 #pragma once
 #include "records/I_RecHttp.h"
+#include <openssl/ssl.h>
 
 class SSLNextProtocolSet;
 class SSLNextProtocolAccept;
@@ -32,11 +33,21 @@ class Continuation;
 class ALPNSupport
 {
 public:
+  virtual ~ALPNSupport() = default;
+
+  static void initialize();
+  static ALPNSupport *getInstance(SSL *ssl);
+  static void bind(SSL *ssl, ALPNSupport *alpns);
+  static void unbind(SSL *ssl);
+
   void registerNextProtocolSet(SSLNextProtocolSet *, const SessionProtocolSet &protos);
   void disableProtocol(int idx);
   void enableProtocol(int idx);
   void clear();
   bool setSelectedProtocol(const unsigned char *proto, unsigned int len);
+
+  int advertise_next_protocol(SSL *ssl, const unsigned char **out, unsigned *outlen);
+  int select_next_protocol(SSL *ssl, const unsigned char **out, unsigned char *outlen, const unsigned char *in, unsigned inlen);
 
   Continuation *
   endpoint() const
@@ -61,11 +72,33 @@ public:
     return npnSet;
   }
 
+  void set_negotiated_protocol_id(const ts::TextView &proto);
+  int get_negotiated_protocol_id() const;
+
 private:
+  static int _ex_data_index;
+
   const SSLNextProtocolSet *npnSet = nullptr;
   SessionProtocolSet protoenabled;
   // Local copies of the npn strings
   unsigned char *npn        = nullptr;
   size_t npnsz              = 0;
   Continuation *npnEndpoint = nullptr;
+  int _negotiated_proto_id  = SessionProtocolNameRegistry::INVALID;
 };
+
+//
+// Inline functions
+//
+
+inline void
+ALPNSupport::set_negotiated_protocol_id(const ts::TextView &proto)
+{
+  _negotiated_proto_id = globalSessionProtocolNameRegistry.indexFor(proto);
+}
+
+inline int
+ALPNSupport::get_negotiated_protocol_id() const
+{
+  return _negotiated_proto_id;
+}

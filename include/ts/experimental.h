@@ -346,6 +346,7 @@ tsapi char *TSMatcherLineValue(TSMatcherLine ml, int element);
  ****************************************************************************/
 tsapi TSReturnCode TSMgmtConfigIntSet(const char *var_name, TSMgmtInt value);
 
+tsapi TSReturnCode TSMgmtConfigFileAdd(const char *parent, const char *fileName);
 /* ----------------------------------------------------------------------
  * Interfaces used by Wireless group
  * ---------------------------------------------------------------------- */
@@ -451,6 +452,16 @@ tsapi TSMBuffer TSFetchRespHdrMBufGet(TSFetchSM fetch_sm);
  * Get client response hdr mloc
  */
 tsapi TSMLoc TSFetchRespHdrMLocGet(TSFetchSM fetch_sm);
+
+/*
+ * Parse a MIME header date string.
+ */
+tsapi time_t TSMimeParseDate(char const *const value_str, int const value_len);
+
+/*
+ * Print as a MIME header date string.
+ */
+tsapi TSReturnCode TSMimeFormatDate(time_t const value_time, char *const value_str, int *const value_len);
 
 #ifdef __cplusplus
 }

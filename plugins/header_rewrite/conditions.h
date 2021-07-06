@@ -437,12 +437,12 @@ public:
     _int_type = flag;
   }
 
+private:
+  virtual int64_t get_geo_int(const sockaddr *addr) const;
+  virtual std::string get_geo_string(const sockaddr *addr) const;
+
 protected:
   bool eval(const Resources &res) override;
-
-private:
-  int64_t get_geo_int(const sockaddr *addr) const;
-  const char *get_geo_string(const sockaddr *addr) const;
   GeoQualifiers _geo_qual = GEO_QUAL_COUNTRY;
   bool _int_type          = false;
 };
@@ -543,4 +543,43 @@ protected:
 
 private:
   std::string _literal;
+};
+
+// Single Session Transaction Count
+class ConditionSessionTransactCount : public Condition
+{
+  typedef Matchers<int> MatcherType;
+
+public:
+  ConditionSessionTransactCount() { TSDebug(PLUGIN_NAME_DBG, "ConditionSessionTransactCount()"); }
+
+  // noncopyable
+  ConditionSessionTransactCount(const ConditionSessionTransactCount &) = delete;
+  void operator=(const ConditionSessionTransactCount &) = delete;
+
+  void initialize(Parser &p) override;
+  void append_value(std::string &s, const Resources &res) override;
+
+protected:
+  bool eval(const Resources &res) override;
+};
+
+// Tcp Info
+class ConditionTcpInfo : public Condition
+{
+  typedef Matchers<int> MatcherType;
+
+public:
+  ConditionTcpInfo() { TSDebug(PLUGIN_NAME_DBG, "Calling CTOR for ConditionTcpInfo"); }
+
+  // noncopyable
+  ConditionTcpInfo(const ConditionTcpInfo &) = delete;
+  void operator=(const ConditionTcpInfo &) = delete;
+
+  void initialize(Parser &p) override;
+  void append_value(std::string &s, const Resources &res) override;
+
+protected:
+  bool eval(const Resources &res) override;
+  void initialize_hooks() override; // Return status only valid in certain hooks
 };

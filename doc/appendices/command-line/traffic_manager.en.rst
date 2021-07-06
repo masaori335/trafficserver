@@ -41,6 +41,14 @@ Description
 .. option:: --recordsConf FILE
 .. option:: --tsArgs ARGUMENTS
 .. option:: --maxRecords RECORDS
+.. option:: --bind_stdout FILE
+
+The file to which the stdout stream for :program:`traffic_manager` will be bound.
+
+.. option:: --bind_stderr FILE
+
+The file to which the stderr stream for :program:`traffic_manager` will be bound.
+
 .. option:: --version
 
 Signals
@@ -51,6 +59,14 @@ SIGHUP
 
 SIGINT, SIGTERM
   These signals cause :program:`traffic_manager` to exit after also shutting down :program:`traffic_server`.
+
+SIGUSR2
+  This signal causes the :program:`traffic_manager` and :program:`traffic_server` processes to close
+  and reopen their file descriptors for all of their log files. This allows the use of external
+  tools to handle log rotation and retention. For instance, logrotate(8) can be configured to rotate
+  the various |ATS| logs and, via the logrotate postrotate script, send a `-SIGUSR2` to the
+  :program:`traffic_manager` process. After the signal is received, |ATS| will stop logging to the
+  now-rolled files and will reopen log files with the originally configured log names.
 
 Exponential Back-off Delay
 ==========================

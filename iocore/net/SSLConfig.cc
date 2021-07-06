@@ -34,6 +34,11 @@
 #include <cstring>
 #include <cmath>
 
+#include "tscore/ink_config.h"
+#include <openssl/pem.h>
+
+#include "InkAPIInternal.h" // Added to include the ssl_hook and lifestyle_hook definitions
+
 #include "tscore/ink_platform.h"
 #include "tscore/I_Layout.h"
 #include "records/I_RecHttp.h"
@@ -42,22 +47,28 @@
 
 #include "P_Net.h"
 #include "P_SSLClientUtils.h"
+#include "P_SSLSNI.h"
 #include "P_SSLCertLookup.h"
+#include "P_SSLSNI.h"
 #include "SSLDiags.h"
 #include "SSLSessionCache.h"
 #include "SSLSessionTicket.h"
 #include "YamlSNIConfig.h"
 
-int SSLConfig::configid                                     = 0;
+int SSLConfig::config_index                                 = 0;
+int SSLConfig::configids[]                                  = {0, 0};
 int SSLCertificateConfig::configid                          = 0;
 int SSLTicketKeyConfig::configid                            = 0;
 int SSLConfigParams::ssl_maxrecord                          = 0;
+int SSLConfigParams::ssl_misc_max_iobuffer_size_index       = 8;
 bool SSLConfigParams::ssl_allow_client_renegotiation        = false;
 bool SSLConfigParams::ssl_ocsp_enabled                      = false;
 int SSLConfigParams::ssl_ocsp_cache_timeout                 = 3600;
 int SSLConfigParams::ssl_ocsp_request_timeout               = 10;
 int SSLConfigParams::ssl_ocsp_update_period                 = 60;
 int SSLConfigParams::ssl_handshake_timeout_in               = 0;
+int SSLConfigParams::origin_session_cache                   = 1;
+size_t SSLConfigParams::origin_session_cache_size           = 10240;
 size_t SSLConfigParams::session_cache_number_buckets        = 1024;
 bool SSLConfigParams::session_cache_skip_on_lock_contention = false;
 size_t SSLConfigParams::session_cache_max_bucket_size       = 100;
@@ -73,8 +84,6 @@ bool SSLConfigParams::server_allow_early_data_params = false;
 int SSLConfigParams::async_handshake_enabled = 0;
 char *SSLConfigParams::engine_conf_file      = nullptr;
 
-static std::unique_ptr<ConfigUpdateHandler<SSLCertificateConfig>> sslCertUpdate;
-static std::unique_ptr<ConfigUpdateHandler<SSLConfig>> sslConfigUpdate;
 static std::unique_ptr<ConfigUpdateHandler<SSLTicketKeyConfig>> sslTicketKey;
 
 SSLConfigParams::SSLConfigParams()
@@ -315,6 +324,8 @@ SSLConfigParams::initialize()
   ats_free(CACertRelativePath);
 
   // SSL session cache configurations
+  REC_ReadConfigInteger(ssl_origin_session_cache, "proxy.config.ssl.origin_session_cache");
+  REC_ReadConfigInteger(ssl_origin_session_cache_size, "proxy.config.ssl.origin_session_cache.size");
   REC_ReadConfigInteger(ssl_session_cache, "proxy.config.ssl.session_cache");
   REC_ReadConfigInteger(ssl_session_cache_size, "proxy.config.ssl.session_cache.size");
   REC_ReadConfigInteger(ssl_session_cache_num_buckets, "proxy.config.ssl.session_cache.num_buckets");
@@ -322,6 +333,8 @@ SSLConfigParams::initialize()
   REC_ReadConfigInteger(ssl_session_cache_timeout, "proxy.config.ssl.session_cache.timeout");
   REC_ReadConfigInteger(ssl_session_cache_auto_clear, "proxy.config.ssl.session_cache.auto_clear");
 
+  SSLConfigParams::origin_session_cache      = ssl_origin_session_cache;
+  SSLConfigParams::origin_session_cache_size = ssl_origin_session_cache_size;
   SSLConfigParams::session_cache_max_bucket_size =
     static_cast<size_t>(ceil(static_cast<double>(ssl_session_cache_size) / ssl_session_cache_num_buckets));
   SSLConfigParams::session_cache_skip_on_lock_contention = ssl_session_cache_skip_on_contention;
@@ -329,6 +342,10 @@ SSLConfigParams::initialize()
 
   if (ssl_session_cache == SSL_SESSION_CACHE_MODE_SERVER_ATS_IMPL) {
     session_cache = new SSLSessionCache();
+  }
+
+  if (ssl_origin_session_cache == 1 && ssl_origin_session_cache_size > 0) {
+    origin_sess_cache = new SSLOriginSessionCache();
   }
 
   // SSL record size
@@ -353,82 +370,36 @@ SSLConfigParams::initialize()
   // ++++++++++++++++++++++++ Client part ++++++++++++++++++++
   client_verify_depth = 7;
 
-  // remove before 9.0.0 release
-  // Backwards compatibility if proxy.config.ssl.client.verify.server is explicitly set
-  RecSourceT source             = REC_SOURCE_DEFAULT;
-  bool set_backwards_compatible = false;
-  if (RecGetRecordSource("proxy.config.ssl.client.verify.server", &source, false) == REC_ERR_OKAY) {
-    if (source != REC_SOURCE_DEFAULT && source != REC_SOURCE_NULL) {
-      int8_t verifyServer = 0;
-      REC_EstablishStaticConfigByte(verifyServer, "proxy.config.ssl.client.verify.server");
-      verifyServerProperties = YamlSNIConfig::Property::ALL_MASK;
-      switch (verifyServer) {
-      case 0:
-        verifyServerPolicy       = YamlSNIConfig::Policy::DISABLED;
-        set_backwards_compatible = true;
-        break;
-      case 1:
-        verifyServerPolicy       = YamlSNIConfig::Policy::ENFORCED;
-        set_backwards_compatible = true;
-        break;
-      case 2:
-        verifyServerPolicy       = YamlSNIConfig::Policy::PERMISSIVE;
-        set_backwards_compatible = true;
-        break;
-      }
-    }
+  char *verify_server = nullptr;
+  REC_ReadConfigStringAlloc(verify_server, "proxy.config.ssl.client.verify.server.policy");
+  if (strcmp(verify_server, "DISABLED") == 0) {
+    verifyServerPolicy = YamlSNIConfig::Policy::DISABLED;
+  } else if (strcmp(verify_server, "PERMISSIVE") == 0) {
+    verifyServerPolicy = YamlSNIConfig::Policy::PERMISSIVE;
+  } else if (strcmp(verify_server, "ENFORCED") == 0) {
+    verifyServerPolicy = YamlSNIConfig::Policy::ENFORCED;
+  } else {
+    Warning("%s is invalid for proxy.config.ssl.client.verify.server.policy.  Should be one of DISABLED, PERMISSIVE, or ENFORCED",
+            verify_server);
+    verifyServerPolicy = YamlSNIConfig::Policy::DISABLED;
   }
+  ats_free(verify_server);
 
-  bool policy_default     = true;
-  bool properties_default = true;
-  if (!set_backwards_compatible) {
-    policy_default = properties_default = false;
-  } else { // Only check for non-defaults if we have a backwards compatible situation
-    if (RecGetRecordSource("proxy.config.ssl.client.verify.server.policy", &source, false) == REC_ERR_OKAY &&
-        source != REC_SOURCE_DEFAULT && source != REC_SOURCE_NULL) {
-      policy_default = false;
-    }
-    if (RecGetRecordSource("proxy.config.ssl.client.verify.server.properties", &source, false) == REC_ERR_OKAY &&
-        source != REC_SOURCE_DEFAULT && source != REC_SOURCE_NULL) {
-      properties_default = false;
-    }
+  REC_ReadConfigStringAlloc(verify_server, "proxy.config.ssl.client.verify.server.properties");
+  if (strcmp(verify_server, "SIGNATURE") == 0) {
+    verifyServerProperties = YamlSNIConfig::Property::SIGNATURE_MASK;
+  } else if (strcmp(verify_server, "NAME") == 0) {
+    verifyServerProperties = YamlSNIConfig::Property::NAME_MASK;
+  } else if (strcmp(verify_server, "ALL") == 0) {
+    verifyServerProperties = YamlSNIConfig::Property::ALL_MASK;
+  } else if (strcmp(verify_server, "NONE") == 0) {
+    verifyServerProperties = YamlSNIConfig::Property::NONE;
+  } else {
+    Warning("%s is invalid for proxy.config.ssl.client.verify.server.properties.  Should be one of SIGNATURE, NAME, or ALL",
+            verify_server);
+    verifyServerProperties = YamlSNIConfig::Property::NONE;
   }
-
-  if (!set_backwards_compatible || !policy_default) {
-    char *verify_server = nullptr;
-    REC_ReadConfigStringAlloc(verify_server, "proxy.config.ssl.client.verify.server.policy");
-    if (strcmp(verify_server, "DISABLED") == 0) {
-      verifyServerPolicy = YamlSNIConfig::Policy::DISABLED;
-    } else if (strcmp(verify_server, "PERMISSIVE") == 0) {
-      verifyServerPolicy = YamlSNIConfig::Policy::PERMISSIVE;
-    } else if (strcmp(verify_server, "ENFORCED") == 0) {
-      verifyServerPolicy = YamlSNIConfig::Policy::ENFORCED;
-    } else {
-      Warning("%s is invalid for proxy.config.ssl.client.verify.server.policy.  Should be one of DISABLED, PERMISSIVE, or ENFORCED",
-              verify_server);
-      verifyServerPolicy = YamlSNIConfig::Policy::DISABLED;
-    }
-    ats_free(verify_server);
-  }
-
-  if (!set_backwards_compatible || !properties_default) {
-    char *verify_server = nullptr;
-    REC_ReadConfigStringAlloc(verify_server, "proxy.config.ssl.client.verify.server.properties");
-    if (strcmp(verify_server, "SIGNATURE") == 0) {
-      verifyServerProperties = YamlSNIConfig::Property::SIGNATURE_MASK;
-    } else if (strcmp(verify_server, "NAME") == 0) {
-      verifyServerProperties = YamlSNIConfig::Property::NAME_MASK;
-    } else if (strcmp(verify_server, "ALL") == 0) {
-      verifyServerProperties = YamlSNIConfig::Property::ALL_MASK;
-    } else if (strcmp(verify_server, "NONE") == 0) {
-      verifyServerProperties = YamlSNIConfig::Property::NONE;
-    } else {
-      Warning("%s is invalid for proxy.config.ssl.client.verify.server.properties.  Should be one of SIGNATURE, NAME, or ALL",
-              verify_server);
-      verifyServerProperties = YamlSNIConfig::Property::NONE;
-    }
-    ats_free(verify_server);
-  }
+  ats_free(verify_server);
 
   ssl_client_cert_filename = nullptr;
   ssl_client_cert_path     = nullptr;
@@ -454,6 +425,8 @@ SSLConfigParams::initialize()
 
   REC_ReadConfigInt32(ssl_allow_client_renegotiation, "proxy.config.ssl.allow_client_renegotiation");
 
+  REC_ReadConfigInt32(ssl_misc_max_iobuffer_size_index, "proxy.config.ssl.misc.io.max_buffer_index");
+
   // Enable client regardless of config file settings as remap file
   // can cause HTTP layer to connect using SSL. But only if SSL
   // initialization hasn't failed already.
@@ -469,47 +442,77 @@ SSLConfigParams::getClientSSL_CTX() const
   return client_ctx;
 }
 
+int
+SSLConfig::get_config_index()
+{
+  return config_index;
+}
+
+int
+SSLConfig::get_loading_config_index()
+{
+  return config_index == 0 ? 1 : 0;
+}
+
+void
+SSLConfig::commit_config_id()
+{
+  // Update the active config index
+  config_index = get_loading_config_index();
+
+  if (configids[get_loading_config_index()] != 0) {
+    // Start draining to free the old config
+    configProcessor.set(configids[get_loading_config_index()], nullptr);
+  }
+}
+
 void
 SSLConfig::startup()
 {
-  sslConfigUpdate.reset(new ConfigUpdateHandler<SSLConfig>());
-  sslConfigUpdate->attach("proxy.config.ssl.client.cert.path");
-  sslConfigUpdate->attach("proxy.config.ssl.client.cert.filename");
-  sslConfigUpdate->attach("proxy.config.ssl.client.private_key.path");
-  sslConfigUpdate->attach("proxy.config.ssl.client.private_key.filename");
   reconfigure();
 }
 
 void
 SSLConfig::reconfigure()
 {
+  Debug("ssl", "Reload SSLConfig");
   SSLConfigParams *params;
   params = new SSLConfigParams;
+  // start loading the next config
+  int loading_config_index        = get_loading_config_index();
+  configids[loading_config_index] = configProcessor.set(configids[loading_config_index], params);
   params->initialize(); // re-read configuration
-  configid = configProcessor.set(configid, params);
+  // Make the new config avaiable for use.
+  commit_config_id();
 }
 
 SSLConfigParams *
 SSLConfig::acquire()
 {
-  return static_cast<SSLConfigParams *>(configProcessor.get(configid));
+  return static_cast<SSLConfigParams *>(configProcessor.get(configids[get_config_index()]));
+}
+
+SSLConfigParams *
+SSLConfig::load_acquire()
+{
+  return static_cast<SSLConfigParams *>(configProcessor.get(configids[get_loading_config_index()]));
 }
 
 void
 SSLConfig::release(SSLConfigParams *params)
 {
-  configProcessor.release(configid, params);
+  configProcessor.release(configids[get_config_index()], params);
+}
+
+void
+SSLConfig::load_release(SSLConfigParams *params)
+{
+  configProcessor.release(configids[get_loading_config_index()], params);
 }
 
 bool
 SSLCertificateConfig::startup()
 {
-  sslCertUpdate.reset(new ConfigUpdateHandler<SSLCertificateConfig>());
-  sslCertUpdate->attach("proxy.config.ssl.server.multicert.filename");
-  sslCertUpdate->attach("proxy.config.ssl.server.cert.path");
-  sslCertUpdate->attach("proxy.config.ssl.server.private_key.path");
-  sslCertUpdate->attach("proxy.config.ssl.server.cert_chain.filename");
-  sslCertUpdate->attach("proxy.config.ssl.server.session_ticket.enable");
   // Exit if there are problems on the certificate loading and the
   // proxy.config.ssl.server.multicert.exit_on_load_fail is true
   SSLConfig::scoped_config params;
@@ -576,7 +579,7 @@ SSLTicketParams::LoadTicket(bool &nochange)
   cleanup();
   nochange = true;
 
-#if TS_HAVE_OPENSSL_SESSION_TICKETS
+#if TS_HAS_TLS_SESSION_TICKET
   ssl_ticket_key_block *keyblock = nullptr;
 
   SSLConfig::scoped_config params;
@@ -624,15 +627,15 @@ SSLTicketParams::LoadTicket(bool &nochange)
   load_time               = time(nullptr);
 
   Debug("ssl", "ticket key reloaded from %s", ticket_key_filename);
-  return true;
 #endif
+  return true;
 }
 
 void
 SSLTicketParams::LoadTicketData(char *ticket_data, int ticket_data_len)
 {
   cleanup();
-#if TS_HAVE_OPENSSL_SESSION_TICKETS
+#if TS_HAS_TLS_SESSION_TICKET
   if (ticket_data != nullptr && ticket_data_len > 0) {
     default_global_keyblock = ticket_block_create(ticket_data, ticket_data_len);
   } else {
@@ -693,14 +696,62 @@ SSLTicketParams::cleanup()
   ticket_key_filename = static_cast<char *>(ats_free_null(ticket_key_filename));
 }
 
+void
+cleanup_bio(BIO *&biop)
+{
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-value"
+  BIO_set_close(biop, BIO_NOCLOSE);
+#pragma GCC diagnostic pop
+  BIO_free(biop);
+  biop = nullptr;
+}
+
+void
+SSLConfigParams::updateCTX(const std::string &cert_secret_name) const
+{
+  // Clear the corresponding client CTX's.  They will be lazy loaded later
+  Debug("ssl", "Update cert %s", cert_secret_name.c_str());
+  this->clearCTX(cert_secret_name);
+
+  // Update the server cert
+  SSLMultiCertConfigLoader loader(this);
+  loader.update_ssl_ctx(cert_secret_name);
+}
+
+void
+SSLConfigParams::clearCTX(const std::string &client_cert) const
+{
+  ink_mutex_acquire(&ctxMapLock);
+  for (auto ctx_map_iter = top_level_ctx_map.begin(); ctx_map_iter != top_level_ctx_map.end(); ++ctx_map_iter) {
+    auto ctx_iter = ctx_map_iter->second.find(client_cert);
+    if (ctx_iter != ctx_map_iter->second.end()) {
+      ctx_iter->second = nullptr;
+      Debug("ssl", "Clear client cert %s %s", ctx_map_iter->first.c_str(), ctx_iter->first.c_str());
+    }
+  }
+  ink_mutex_release(&ctxMapLock);
+}
+
 shared_SSL_CTX
 SSLConfigParams::getCTX(const char *client_cert, const char *key_file, const char *ca_bundle_file, const char *ca_bundle_path) const
 {
+  return this->getCTX(std::string(client_cert ? client_cert : ""), std::string(key_file ? key_file : ""), ca_bundle_file,
+                      ca_bundle_path);
+}
+
+shared_SSL_CTX
+SSLConfigParams::getCTX(const std::string &client_cert, const std::string &key_file, const char *ca_bundle_file,
+                        const char *ca_bundle_path) const
+{
   shared_SSL_CTX client_ctx = nullptr;
   std::string top_level_key, ctx_key;
+  ctx_key = client_cert;
   ts::bwprint(top_level_key, "{}:{}", ca_bundle_file, ca_bundle_path);
-  ts::bwprint(ctx_key, "{}:{}", client_cert, key_file);
 
+  Debug("ssl_client_ctx", "Look for client cert %s %s", top_level_key.c_str(), ctx_key.c_str());
+
+  ink_mutex_acquire(&ctxMapLock);
   auto ctx_map_iter = top_level_ctx_map.find(top_level_key);
   if (ctx_map_iter != top_level_ctx_map.end()) {
     auto ctx_iter = ctx_map_iter->second.find(ctx_key);
@@ -708,29 +759,84 @@ SSLConfigParams::getCTX(const char *client_cert, const char *key_file, const cha
       client_ctx = ctx_iter->second;
     }
   }
+  ink_mutex_release(&ctxMapLock);
 
+  BIO *biop     = nullptr;
+  X509 *cert    = nullptr;
+  EVP_PKEY *key = nullptr;
   // Create context if doesn't exists
   if (!client_ctx) {
+    Debug("ssl_client_ctx", "Load new cert for %s %s", top_level_key.c_str(), ctx_key.c_str());
     client_ctx = shared_SSL_CTX(SSLInitClientContext(this), SSLReleaseContext);
 
-    if (client_cert) {
-      // Set public and private keys
-      if (!SSL_CTX_use_certificate_chain_file(client_ctx.get(), client_cert)) {
-        SSLError("failed to load client certificate from %s", client_cert);
-        goto fail;
-      }
-      if (!key_file || key_file[0] == '\0') {
-        key_file = client_cert;
-      }
-      if (!SSL_CTX_use_PrivateKey_file(client_ctx.get(), key_file, SSL_FILETYPE_PEM)) {
-        SSLError("failed to load client private key file from %s", key_file);
+    // Set public and private keys
+    if (!client_cert.empty()) {
+      std::string_view secret_data;
+      std::string_view secret_key_data;
+
+      // Fetch the client_cert data
+      std::string completeSecretPath{Layout::get()->relative_to(this->clientCertPathOnly, client_cert)};
+      std::string completeKeySecretPath{!key_file.empty() ? Layout::get()->relative_to(this->clientKeyPathOnly, key_file) : ""};
+      secrets.getOrLoadSecret(completeSecretPath, completeKeySecretPath, secret_data, secret_key_data);
+      if (secret_data.empty()) {
+        SSLError("failed to access cert %s", client_cert.c_str());
         goto fail;
       }
 
-      if (!SSL_CTX_check_private_key(client_ctx.get())) {
-        SSLError("client private key (%s) does not match the certificate public key (%s)", key_file, client_cert);
+      biop = BIO_new_mem_buf(secret_data.data(), secret_data.size());
+
+      cert = PEM_read_bio_X509(biop, NULL, 0, NULL);
+      if (!cert) {
+        SSLError("failed to load cert %s", client_cert.c_str());
         goto fail;
       }
+      if (!SSL_CTX_use_certificate(client_ctx.get(), cert)) {
+        SSLError("failed to attach client certificate from %s", client_cert.c_str());
+        goto fail;
+      }
+      X509_free(cert);
+
+      // Continue to fetch certs to associate intermediate certificates
+      cert = PEM_read_bio_X509(biop, NULL, 0, NULL);
+      while (cert) {
+        if (!SSL_CTX_use_certificate(client_ctx.get(), cert)) {
+          SSLError("failed to attach client chain certificate from %s", client_cert.c_str());
+          goto fail;
+        }
+        X509_free(cert);
+        cert = PEM_read_bio_X509(biop, NULL, 0, NULL);
+      }
+
+      cleanup_bio(biop);
+
+      const std::string &key_file_name = (secret_key_data.empty()) ? client_cert : key_file;
+
+      // If there is a separate key file, fetch the new content
+      // otherwise, continue on with the cert data and hope for the best
+      if (!secret_key_data.empty()) {
+        biop = BIO_new_mem_buf(secret_key_data.data(), secret_key_data.size());
+      } else {
+        biop = BIO_new_mem_buf(secret_data.data(), secret_data.size());
+      }
+
+      key = PEM_read_bio_PrivateKey(biop, NULL, 0, NULL);
+      if (!key) {
+        SSLError("failed to load client private key file from %s", key_file_name.c_str());
+        goto fail;
+      }
+      if (!SSL_CTX_use_PrivateKey(client_ctx.get(), key)) {
+        SSLError("failed to use client private key file from %s", key_file_name.c_str());
+        goto fail;
+      }
+      EVP_PKEY_free(key);
+      key = nullptr;
+
+      if (!SSL_CTX_check_private_key(client_ctx.get())) {
+        SSLError("client private key (%s) does not match the certificate public key (%s)", key_file_name.c_str(),
+                 client_cert.c_str());
+        goto fail;
+      }
+      cleanup_bio(biop);
     }
 
     // Set CA information for verifying peer cert
@@ -757,6 +863,15 @@ SSLConfigParams::getCTX(const char *client_cert, const char *key_file, const cha
   return client_ctx;
 
 fail:
+  if (biop) {
+    cleanup_bio(biop);
+  }
+  if (cert) {
+    X509_free(cert);
+  }
+  if (key) {
+    EVP_PKEY_free(key);
+  }
   return nullptr;
 }
 

@@ -28,16 +28,16 @@
 #include "QUICTransportParameters.h"
 
 /**
- * @brief Abstruct QUIC Application Class
+ * @brief Abstract QUIC Application Class
  * @detail Every quic application must inherits this class
  */
 class QUICVersionNegotiator
 {
 public:
-  QUICVersionNegotiationStatus status();
+  QUICVersionNegotiationStatus status() const;
   QUICVersionNegotiationStatus negotiate(const QUICPacket &initial_packet);
-  QUICVersionNegotiationStatus validate();
-  QUICVersion negotiated_version();
+  QUICVersionNegotiationStatus validate() const;
+  QUICVersion negotiated_version() const;
 
 private:
   QUICVersion _negotiated_version      = 0;

@@ -182,7 +182,7 @@ CPU and Thread Optimization
 Thread Scaling
 ~~~~~~~~~~~~~~
 
-By default, |TS| creates 1.5 threads per CPU core on the host system. This may
+By default, |TS| creates one thread per CPU core on the host system. This may
 be adjusted with the following settings in :file:`records.config`:
 
 * :ts:cv:`proxy.config.exec_thread.autoconfig`
@@ -331,28 +331,9 @@ connection attempt until the origin fully establishes a connection (the connecti
 After the connection is established the value of
 :ts:cv:`proxy.config.http.transaction_no_activity_timeout_out` is used to established timeouts on the data over the connection.
 
-In the case where you wish to have a different (generally longer) timeout for
-``POST`` and ``PUT`` connections to an origin server, you may also adjust
-:ts:cv:`proxy.config.http.post_connect_attempts_timeout` which applies only to
-origin connections using those HTTP verbs.
-
 ::
 
     CONFIG proxy.config.http.connect_attempts_timeout INT 30
-    CONFIG proxy.config.http.post_connect_attempts_timeout INT 1800
-
-Parent Proxy Timeout
-~~~~~~~~~~~~~~~~~~~~
-
-In hierarchical caching configurations, the :ts:cv:`proxy.config.http.parent_proxy.connect_attempts_timeout`
-setting is used for all connection attempts to parent caches. It may be useful,
-in cases where you wish to have |TS| fall back to an alternate parent cache
-(in configurations where you have multiple parents for the same cache) more
-quickly, to lower this timeout.
-
-::
-
-    CONFIG  proxy.config.http.parent_proxy.connect_attempts_timeout INT 30
 
 Polling Timeout
 ~~~~~~~~~~~~~~~
@@ -495,7 +476,7 @@ Error responses from origins are consistent and costly
 If error responses are costly for your origin server to generate, you may elect
 to have |TS| cache these responses for a period of time. The default behavior is
 to consider all of these responses to be uncacheable, which will lead to every
-client request to result in an origin request.
+client request resulting in an origin request.
 
 This behavior is controlled by both enabling the feature via
 :ts:cv:`proxy.config.http.negative_caching_enabled` and setting the cache time
@@ -504,7 +485,7 @@ status code for negative caching can be set with :ts:cv:`proxy.config.http.negat
 
     CONFIG proxy.config.http.negative_caching_enabled INT 1
     CONFIG proxy.config.http.negative_caching_lifetime INT 10
-    CONFIG proxy.config.http.negative_caching_list STRING 204 305 403 404 405 414 500 501 502 503 504
+    CONFIG proxy.config.http.negative_caching_list STRING 204 305 403 404 414 500 501 502 503 504
 
 SSL-Specific Options
 ~~~~~~~~~~~~~~~~~~~~

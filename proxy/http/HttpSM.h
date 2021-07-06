@@ -164,8 +164,55 @@ enum HttpPluginTunnel_t {
   HTTP_PLUGIN_AS_INTERCEPT,
 };
 
-class CoreUtils;
 class PluginVCCore;
+
+class PendingAction
+{
+public:
+  bool
+  is_empty() const
+  {
+    return pending_action == nullptr;
+  }
+  PendingAction &
+  operator=(Action *b)
+  {
+    // Don't do anything if the new action is _DONE
+    if (b != ACTION_RESULT_DONE) {
+      if (b != pending_action && pending_action != nullptr) {
+        pending_action->cancel();
+      }
+      pending_action = b;
+    }
+    return *this;
+  }
+  Continuation *
+  get_continuation() const
+  {
+    return pending_action ? pending_action->continuation : nullptr;
+  }
+  Action *
+  get() const
+  {
+    return pending_action;
+  }
+  void
+  clear_if_action_is(Action *current_action)
+  {
+    if (current_action == pending_action) {
+      pending_action = nullptr;
+    }
+  }
+  ~PendingAction()
+  {
+    if (pending_action) {
+      pending_action->cancel();
+    }
+  }
+
+private:
+  Action *pending_action = nullptr;
+};
 
 class PostDataBuffers
 {
@@ -202,7 +249,6 @@ public:
 class HttpSM : public Continuation, public PluginUserArgs<TS_USER_ARGS_TXN>
 {
   friend class HttpPagesHandler;
-  friend class CoreUtils;
 
 public:
   HttpSM();
@@ -216,20 +262,17 @@ public:
 
   void init(bool from_early_data = false);
 
-  void attach_client_session(ProxyTransaction *client_vc_arg, IOBufferReader *buffer_reader);
+  void attach_client_session(ProxyTransaction *client_vc_arg);
 
-  // Called by httpSessionManager so that we can reset
-  //  the session timeouts and initiate a read while
+  // Called after the network connection has been completed
+  //  to set the session timeouts and initiate a read while
   //  holding the lock for the server session
-  void attach_server_session(Http1ServerSession *s);
+  void attach_server_session();
 
-  // Used to read attributes of
-  // the current active server session
-  Http1ServerSession *
-  get_server_session()
-  {
-    return server_session;
-  }
+  PoolableSession *create_server_session(NetVConnection *netvc);
+  bool create_server_txn(PoolableSession *new_session);
+
+  HTTPVersion get_server_version(HTTPHdr &hdr) const;
 
   ProxyTransaction *
   get_ua_txn()
@@ -237,10 +280,21 @@ public:
     return ua_txn;
   }
 
+  ProxyTransaction *
+  get_server_txn()
+  {
+    return server_txn;
+  }
+
   // Called by transact.  Updates are fire and forget
   //  so there are no callbacks and are safe to do
   //  directly from transact
   void do_hostdb_update_if_necessary();
+
+  // Look at the configured policy and the current server connect_result
+  // to deterine whether this connection attempt should contribute to the
+  // dead server count
+  bool track_connect_fail() const;
 
   // Called by transact. Decide if cached response supports Range and
   // setup Range transfomration if so.
@@ -303,6 +357,13 @@ public:
   /// @arg n [in] Size of the array @a result.
   int populate_client_protocol(std::string_view *result, int n) const;
   const char *client_protocol_contains(std::string_view tag_prefix) const;
+
+  /// Get the protocol stack for the outbound (origin server) connection.
+  /// @arg result [out] Array to store the results
+  /// @arg n [in] Size of the array @a result.
+  int populate_server_protocol(std::string_view *result, int n) const;
+  const char *server_protocol_contains(std::string_view tag_prefix) const;
+
   std::string_view find_proto_string(HTTPVersion version) const;
 
   int64_t sm_id      = -1;
@@ -350,31 +411,28 @@ protected:
 
   HttpVCTable vc_table;
 
-  HttpVCTableEntry *ua_entry = nullptr;
-
 public:
-  ProxyTransaction *ua_txn         = nullptr;
   BackgroundFill_t background_fill = BACKGROUND_FILL_NONE;
   void set_http_schedule(Continuation *);
   int get_http_schedule(int event, void *data);
 
   History<HISTORY_DEFAULT_SIZE> history;
 
+  ProxyTransaction *ua_txn = nullptr;
+
 protected:
-  IOBufferReader *ua_buffer_reader     = nullptr;
   IOBufferReader *ua_raw_buffer_reader = nullptr;
 
-  HttpVCTableEntry *server_entry     = nullptr;
-  Http1ServerSession *server_session = nullptr;
+  HttpVCTableEntry *ua_entry     = nullptr;
+  HttpVCTableEntry *server_entry = nullptr;
+  ProxyTransaction *server_txn   = nullptr;
 
   /* Because we don't want to take a session from a shared pool if we know that it will be private,
    * but we cannot set it to private until we have an attached server session.
    * So we use this variable to indicate that
    * we should create a new connection and then once we attach the session we'll mark it as private.
    */
-  bool will_be_private_ss              = false;
-  int shared_session_retries           = 0;
-  IOBufferReader *server_buffer_reader = nullptr;
+  bool will_be_private_ss = false;
 
   HttpTransformInfo transform_info;
   HttpTransformInfo post_transform_info;
@@ -386,8 +444,8 @@ protected:
   HttpCacheSM transform_cache_sm;
 
   HttpSMHandler default_handler = nullptr;
-  Action *pending_action        = nullptr;
-  Continuation *schedule_cont   = nullptr;
+  PendingAction pending_action;
+  Continuation *schedule_cont = nullptr;
 
   HTTPParser http_parser;
   void start_sub_sm();
@@ -475,13 +533,11 @@ protected:
   void handle_http_server_open();
   void handle_post_failure();
   void mark_host_failure(HostDBInfo *info, time_t time_down);
-  void mark_server_down_on_client_abort();
   void release_server_session(bool serve_from_cache = false);
   void set_ua_abort(HttpTransact::AbortState_t ua_abort, int event);
   int write_header_into_buffer(HTTPHdr *h, MIOBuffer *b);
   int write_response_header_into_buffer(HTTPHdr *h, MIOBuffer *b);
   void setup_blind_tunnel_port();
-  void setup_client_header_nca();
   void setup_client_read_request_header();
   void setup_push_read_response_header();
   void setup_server_read_response_header();
@@ -501,7 +557,6 @@ protected:
   void issue_cache_update();
   void perform_cache_write_action();
   void perform_transform_cache_write_action();
-  void perform_nca_cache_action();
   void setup_blind_tunnel(bool send_response_hdr, IOBufferReader *initial = nullptr);
   HttpTunnelProducer *setup_server_transfer_to_transform();
   HttpTunnelProducer *setup_transfer_from_transform();
@@ -523,30 +578,33 @@ protected:
 public:
   // TODO:  Now that bodies can be empty, should the body counters be set to -1 ? TS-2213
   // Stats & Logging Info
-  int client_request_hdr_bytes       = 0;
-  int64_t client_request_body_bytes  = 0;
-  int server_request_hdr_bytes       = 0;
-  int64_t server_request_body_bytes  = 0;
-  int server_response_hdr_bytes      = 0;
-  int64_t server_response_body_bytes = 0;
-  int client_response_hdr_bytes      = 0;
-  int64_t client_response_body_bytes = 0;
-  int cache_response_hdr_bytes       = 0;
-  int64_t cache_response_body_bytes  = 0;
-  int pushed_response_hdr_bytes      = 0;
-  int64_t pushed_response_body_bytes = 0;
-  bool client_tcp_reused             = false;
-  bool client_ssl_reused             = false;
-  bool client_connection_is_ssl      = false;
-  bool is_internal                   = false;
-  bool server_connection_is_ssl      = false;
-  bool is_waiting_for_full_body      = false;
-  bool is_using_post_buffer          = false;
+  int client_request_hdr_bytes        = 0;
+  int64_t client_request_body_bytes   = 0;
+  int server_request_hdr_bytes        = 0;
+  int64_t server_request_body_bytes   = 0;
+  int server_response_hdr_bytes       = 0;
+  int64_t server_response_body_bytes  = 0;
+  int client_response_hdr_bytes       = 0;
+  int64_t client_response_body_bytes  = 0;
+  int cache_response_hdr_bytes        = 0;
+  int64_t cache_response_body_bytes   = 0;
+  int pushed_response_hdr_bytes       = 0;
+  int64_t pushed_response_body_bytes  = 0;
+  int server_connection_provided_cert = 0;
+  bool client_tcp_reused              = false;
+  bool client_ssl_reused              = false;
+  bool client_connection_is_ssl       = false;
+  bool is_internal                    = false;
+  bool server_connection_is_ssl       = false;
+  bool is_waiting_for_full_body       = false;
+  bool is_using_post_buffer           = false;
   std::optional<bool> mptcp_state; // Don't initialize, that marks it as "not defined".
   const char *client_protocol     = "-";
+  const char *server_protocol     = "-";
   const char *client_sec_protocol = "-";
   const char *client_cipher_suite = "-";
   const char *client_curve        = "-";
+  int client_alpn_id              = SessionProtocolNameRegistry::INVALID;
   int server_transact_count       = 0;
 
   TransactionMilestones milestones;
@@ -585,7 +643,6 @@ protected:
   bool terminate_sm         = false;
   bool kill_this_async_done = false;
   bool parse_range_done     = false;
-  virtual int kill_this_async_hook(int event, void *data);
   void kill_this();
   void update_stats();
   void transform_cleanup(TSHttpHookID hook, HttpTransformInfo *info);
@@ -627,9 +684,9 @@ public:
     return _client_transaction_priority_dependence;
   }
 
-  void set_server_netvc_inactivity_timeout(NetVConnection *netvc);
-  void set_server_netvc_active_timeout(NetVConnection *netvc);
-  void set_server_netvc_connect_timeout(NetVConnection *netvc);
+  ink_hrtime get_server_inactivity_timeout();
+  ink_hrtime get_server_active_timeout();
+  ink_hrtime get_server_connect_timeout();
   void rewind_state_machine();
 
 private:

@@ -161,11 +161,17 @@ SSLInitializeStatistics()
   RecRegisterRawStat(ssl_rsb, RECT_PROCESS, "proxy.process.ssl.ssl_session_cache_hit", RECD_COUNTER, RECP_PERSISTENT,
                      (int)ssl_session_cache_hit, RecRawStatSyncCount);
 
+  RecRegisterRawStat(ssl_rsb, RECT_PROCESS, "proxy.process.ssl.ssl_origin_session_cache_hit", RECD_COUNTER, RECP_PERSISTENT,
+                     (int)ssl_origin_session_cache_hit, RecRawStatSyncCount);
+
   RecRegisterRawStat(ssl_rsb, RECT_PROCESS, "proxy.process.ssl.ssl_session_cache_new_session", RECD_COUNTER, RECP_PERSISTENT,
                      (int)ssl_session_cache_new_session, RecRawStatSyncCount);
 
   RecRegisterRawStat(ssl_rsb, RECT_PROCESS, "proxy.process.ssl.ssl_session_cache_miss", RECD_COUNTER, RECP_PERSISTENT,
                      (int)ssl_session_cache_miss, RecRawStatSyncCount);
+
+  RecRegisterRawStat(ssl_rsb, RECT_PROCESS, "proxy.process.ssl.ssl_origin_session_cache_miss", RECD_COUNTER, RECP_PERSISTENT,
+                     (int)ssl_origin_session_cache_miss, RecRawStatSyncCount);
 
   RecRegisterRawStat(ssl_rsb, RECT_PROCESS, "proxy.process.ssl.ssl_session_cache_eviction", RECD_COUNTER, RECP_PERSISTENT,
                      (int)ssl_session_cache_eviction, RecRawStatSyncCount);
@@ -184,10 +190,10 @@ SSLInitializeStatistics()
   // error stats
   RecRegisterRawStat(ssl_rsb, RECT_PROCESS, "proxy.process.ssl.ssl_error_syscall", RECD_COUNTER, RECP_PERSISTENT,
                      (int)ssl_error_syscall, RecRawStatSyncCount);
-  RecRegisterRawStat(ssl_rsb, RECT_PROCESS, "proxy.process.ssl.ssl_error_read_eos", RECD_COUNTER, RECP_PERSISTENT,
-                     (int)ssl_error_read_eos, RecRawStatSyncCount);
   RecRegisterRawStat(ssl_rsb, RECT_PROCESS, "proxy.process.ssl.ssl_error_ssl", RECD_COUNTER, RECP_PERSISTENT, (int)ssl_error_ssl,
                      RecRawStatSyncCount);
+  RecRegisterRawStat(ssl_rsb, RECT_PROCESS, "proxy.process.ssl.ssl_error_async", RECD_COUNTER, RECP_PERSISTENT,
+                     (int)ssl_error_async, RecRawStatSyncCount);
   RecRegisterRawStat(ssl_rsb, RECT_PROCESS, "proxy.process.ssl.ssl_sni_name_set_failure", RECD_COUNTER, RECP_PERSISTENT,
                      (int)ssl_sni_name_set_failure, RecRawStatSyncCount);
 
@@ -216,6 +222,10 @@ SSLInitializeStatistics()
   // TLSv1.3 0-RTT stats
   RecRegisterRawStat(ssl_rsb, RECT_PROCESS, "proxy.process.ssl.early_data_received", RECD_INT, RECP_PERSISTENT,
                      (int)ssl_early_data_received_count, RecRawStatSyncCount);
+
+  // Origin Server Session Reuse stats
+  RecRegisterRawStat(ssl_rsb, RECT_PROCESS, "proxy.process.ssl.origin_session_reused", RECD_INT, RECP_PERSISTENT,
+                     (int)ssl_origin_session_reused_count, RecRawStatSyncCount);
 
   // Get and register the SSL cipher stats. Note that we are using the default SSL context to obtain
   // the cipher list. This means that the set of ciphers is fixed by the build configuration and not

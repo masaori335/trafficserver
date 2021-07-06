@@ -33,18 +33,17 @@ response_header = {"headers": "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-L
                    "timestamp": "1469733493.993", "body": ""}
 server.addResponse("sessionfile.log", request_header, response_header)
 
-# Configure ATS.
-ts = Test.MakeATSProcess("ts", command="traffic_manager", enable_tls=True)
+# Configure ATS. Disable the cache to simplify the test.
+ts = Test.MakeATSProcess("ts", command="traffic_manager", enable_tls=True, enable_cache=False)
 
-ts.addSSLfile("ssl/server.pem")
-ts.addSSLfile("ssl/server.key")
+ts.addDefaultSSLFiles()
 
-Test.PreparePlugin(os.path.join(Test.TestDirectory, 'plugins', 'session_id_verify.cc'), ts)
+Test.PrepareTestPlugin(os.path.join(Test.Variables.AtsBuildGoldTestsDir,
+                                    'continuations', 'plugins', '.libs', 'session_id_verify.so'), ts)
 
 ts.Disk.records_config.update({
     'proxy.config.diags.debug.enabled': 1,
     'proxy.config.diags.debug.tags': 'session_id_verify',
-    'proxy.config.http.cache.http': 0,  # disable cache to simplify the test.
     'proxy.config.cache.enable_read_while_writer': 0,
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
@@ -66,14 +65,14 @@ cmd = 'curl -v -H "host:example.com" http://127.0.0.1:{0}'.format(ts.Variables.p
 numberOfRequests = 100
 # Create a bunch of curl commands to be executed in parallel. Default.Process
 # is set in SpawnCommands.  On Fedora 28/29, it seems that curl will
-# occaisionally timeout after a couple seconds and return exitcode 2 Examinig
-# the packet capture shows that Traffic Server dutifully sends the response
-ps = tr.SpawnCommands(cmdstr=cmd,  count=numberOfRequests, retcode=Any(0, 2))
+# occasionally timeout after a couple seconds and return exitcode 2
+# Examining the packet capture shows that Traffic Server dutifully sends the response
+ps = tr.SpawnCommands(cmdstr=cmd, count=numberOfRequests, retcode=Any(0, 2))
 tr.Processes.Default.Env = ts.Env
 tr.Processes.Default.ReturnCode = Any(0, 2)
 tr.Processes.Default.StartBefore(
     server, ready=When.PortOpen(server.Variables.Port))
-tr.Processes.Default.StartBefore(Test.Processes.ts, ready=When.PortOpen(ts.Variables.port))
+tr.Processes.Default.StartBefore(Test.Processes.ts)
 ts.StartAfter(*ps)
 server.StartAfter(*ps)
 
@@ -85,7 +84,7 @@ tr.StillRunningAfter = server
 #
 tr = Test.AddTestRun("Perform HTTP/2 transactions")
 cmd = 'curl -v -k --http2 -H "host:example.com" https://127.0.0.1:{0}'.format(ts.Variables.ssl_port)
-ps = tr.SpawnCommands(cmdstr=cmd,  count=numberOfRequests, retcode=Any(0, 2))
+ps = tr.SpawnCommands(cmdstr=cmd, count=numberOfRequests, retcode=Any(0, 2))
 tr.Processes.Default.Env = ts.Env
 tr.Processes.Default.ReturnCode = Any(0, 2)
 
@@ -96,6 +95,15 @@ tr.Processes.Default.ReturnCode = Any(0, 2)
 # AuTest already searches for errors in diags.log and fails if it encounters
 # them. The test plugin prints an error to this log if it sees duplicate ids.
 # The following is to verify that we encountered the expected ids.
-ts.Streams.stderr += Testers.ContainsExpression(
-        "session id: 199",
-        "Verify the various session ids were found.")
+
+
+def verify_session_count(output):
+    global numberOfRequests
+    nReq = numberOfRequests * 2
+    session_ids = [line[0:line.find("\n")] for line in str(output).split("session id: ")[1:]]
+    if len(session_ids) != nReq:
+        return "Found {} session_id's, expected {}".format(len(session_ids), nReq)
+    return ""
+
+
+ts.Streams.All += Testers.FileContentCallback(verify_session_count, 'verify_session_count')

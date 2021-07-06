@@ -26,6 +26,7 @@
 
 **************************************************************************/
 #include "P_Net.h"
+#include "tscore/ink_defs.h"
 
 #define SET_NO_LINGER
 // set in the OS
@@ -33,8 +34,6 @@
 // #define SEND_BUF_SIZE            (1024*64)
 #define FIRST_RANDOM_PORT 16000
 #define LAST_RANDOM_PORT 32000
-
-#define ROUNDUP(x, y) ((((x) + ((y)-1)) / (y)) * (y))
 
 #if TS_USE_TPROXY
 #if !defined(IP_TRANSPARENT)
@@ -414,16 +413,20 @@ Connection::apply_options(NetVCOptions const &opt)
   }
 
 #if TS_HAS_SO_MARK
-  uint32_t mark = opt.packet_mark;
-  safe_setsockopt(fd, SOL_SOCKET, SO_MARK, reinterpret_cast<char *>(&mark), sizeof(uint32_t));
+  if (opt.sockopt_flags & NetVCOptions::SOCK_OPT_PACKET_MARK) {
+    uint32_t mark = opt.packet_mark;
+    safe_setsockopt(fd, SOL_SOCKET, SO_MARK, reinterpret_cast<char *>(&mark), sizeof(uint32_t));
+  }
 #endif
 
 #if TS_HAS_IP_TOS
-  uint32_t tos = opt.packet_tos;
-  if (addr.isIp4()) {
-    safe_setsockopt(fd, IPPROTO_IP, IP_TOS, reinterpret_cast<char *>(&tos), sizeof(uint32_t));
-  } else if (addr.isIp6()) {
-    safe_setsockopt(fd, IPPROTO_IPV6, IPV6_TCLASS, reinterpret_cast<char *>(&tos), sizeof(uint32_t));
+  if (opt.sockopt_flags & NetVCOptions::SOCK_OPT_PACKET_TOS) {
+    uint32_t tos = opt.packet_tos;
+    if (addr.isIp4()) {
+      safe_setsockopt(fd, IPPROTO_IP, IP_TOS, reinterpret_cast<char *>(&tos), sizeof(uint32_t));
+    } else if (addr.isIp6()) {
+      safe_setsockopt(fd, IPPROTO_IPV6, IPV6_TCLASS, reinterpret_cast<char *>(&tos), sizeof(uint32_t));
+    }
   }
 #endif
 }

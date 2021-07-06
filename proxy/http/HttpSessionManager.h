@@ -33,7 +33,7 @@
 #pragma once
 
 #include "P_EventSystem.h"
-#include "Http1ServerSession.h"
+#include "PoolableSession.h"
 #include "tscore/IntrusiveHashMap.h"
 
 class ProxyTransaction;
@@ -67,15 +67,23 @@ public:
   static bool validate_host_sni(HttpSM *sm, NetVConnection *netvc);
   static bool validate_sni(HttpSM *sm, NetVConnection *netvc);
   static bool validate_cert(HttpSM *sm, NetVConnection *netvc);
+  int
+  count() const
+  {
+    return m_ip_pool.count();
+  }
 
-protected:
-  using IPTable   = IntrusiveHashMap<Http1ServerSession::IPLinkage>;
-  using FQDNTable = IntrusiveHashMap<Http1ServerSession::FQDNLinkage>;
+private:
+  void removeSession(PoolableSession *ssn);
+  void addSession(PoolableSession *ssn);
+
+  using IPTable   = IntrusiveHashMap<PoolableSession::IPLinkage>;
+  using FQDNTable = IntrusiveHashMap<PoolableSession::FQDNLinkage>;
 
 public:
   /** Check if a session matches address and host name.
    */
-  static bool match(Http1ServerSession *ss, sockaddr const *addr, CryptoHash const &host_hash,
+  static bool match(PoolableSession *ss, sockaddr const *addr, CryptoHash const &host_hash,
                     TSServerSessionSharingMatchMask match_style);
 
   /** Get a session from the pool.
@@ -86,10 +94,10 @@ public:
       @return A pointer to the session or @c NULL if not matching session was found.
   */
   HSMresult_t acquireSession(sockaddr const *addr, CryptoHash const &host_hash, TSServerSessionSharingMatchMask match_style,
-                             HttpSM *sm, Http1ServerSession *&server_session);
+                             HttpSM *sm, PoolableSession *&server_session);
   /** Release a session to to pool.
    */
-  void releaseSession(Http1ServerSession *ss);
+  void releaseSession(PoolableSession *ss);
 
   /// Close all sessions and then clear the table.
   void purge();
@@ -105,16 +113,29 @@ class HttpSessionManager
 public:
   HttpSessionManager() {}
   ~HttpSessionManager() {}
-  HSMresult_t acquire_session(Continuation *cont, sockaddr const *addr, const char *hostname, ProxyTransaction *ua_txn, HttpSM *sm);
-  HSMresult_t release_session(Http1ServerSession *to_release);
+  HSMresult_t acquire_session(HttpSM *sm, sockaddr const *addr, const char *hostname, ProxyTransaction *ua_txn);
+  HSMresult_t release_session(PoolableSession *to_release);
   void purge_keepalives();
   void init();
   int main_handler(int event, void *data);
+  void
+  set_pool_type(int pool_type)
+  {
+    m_pool_type = static_cast<TSServerSessionSharingPoolType>(pool_type);
+  }
+  TSServerSessionSharingPoolType
+  get_pool_type() const
+  {
+    return m_pool_type;
+  }
 
 private:
   /// Global pool, used if not per thread pools.
   /// @internal We delay creating this because the session manager is created during global statics init.
   ServerSessionPool *m_g_pool = nullptr;
+  HSMresult_t _acquire_session(sockaddr const *ip, CryptoHash const &hostname_hash, HttpSM *sm,
+                               TSServerSessionSharingMatchMask match_style, TSServerSessionSharingPoolType pool_type);
+  TSServerSessionSharingPoolType m_pool_type = TS_SERVER_SESSION_SHARING_POOL_THREAD;
 };
 
 extern HttpSessionManager httpSessionManager;

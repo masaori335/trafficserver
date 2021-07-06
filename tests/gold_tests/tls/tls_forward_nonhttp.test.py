@@ -33,7 +33,9 @@ ts.addSSLfile("ssl/server.key")
 # reserve a port of the s_client that will be released with 'ts'
 ports.get_port(ts, 's_client_port')
 
-# Need no remap rules.  Everything should be proccessed by sni
+nameserver = Test.MakeDNServer("dns", default='127.0.0.1')
+
+# Need no remap rules.  Everything should be processed by sni
 
 # Make sure the TS server certs are different from the origin certs
 ts.Disk.ssl_multicert_config.AddLine(
@@ -46,9 +48,10 @@ ts.Disk.records_config.update({
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.http.connect_ports': '{0} {1}'.format(ts.Variables.ssl_port, ts.Variables.s_client_port),
-    'proxy.config.ssl.server.cipher_suite': 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:AES128-GCM-SHA256:AES256-GCM-SHA384:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:RC4-SHA:RC4-MD5:AES128-SHA:AES256-SHA:DES-CBC3-SHA!SRP:!DSS:!PSK:!aNULL:!eNULL:!SSLv2',
     'proxy.config.exec_thread.autoconfig.scale': 1.0,
-    'proxy.config.url_remap.pristine_host_hdr': 1
+    'proxy.config.url_remap.pristine_host_hdr': 1,
+    'proxy.config.dns.nameservers': f"127.0.0.1:{nameserver.Variables.Port}",
+    'proxy.config.dns.resolv_conf': 'NULL'
 })
 
 # foo.com should not terminate.  Just tunnel to server_foo
@@ -63,6 +66,7 @@ tr = Test.AddTestRun("forward-non-http")
 tr.Setup.Copy("test-nc-s_client.sh")
 tr.Processes.Default.Command = "sh test-nc-s_client.sh {1} {0}".format(ts.Variables.ssl_port, ts.Variables.s_client_port)
 tr.ReturnCode = 0
+tr.Processes.Default.StartBefore(nameserver)
 tr.Processes.Default.StartBefore(Test.Processes.ts)
 tr.StillRunningAfter = ts
 testout_path = os.path.join(Test.RunDirectory, "test.out")

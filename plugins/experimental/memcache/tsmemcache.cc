@@ -132,7 +132,7 @@ MCAccept::main_event(int event, void *data)
     }
     return EVENT_CONT;
   } else {
-    Fatal("tsmemcache accept received fatal error: errno = %d", -((int)(intptr_t)data));
+    Fatal("tsmemcache accept received fatal error: errno = %d", -(static_cast<int>((intptr_t)data)));
     return EVENT_CONT;
   }
 }
@@ -145,7 +145,7 @@ MC::new_connection(NetVConnection *netvc, EThread *thread)
   rbuf             = new_MIOBuffer(MAX_IOBUFFER_SIZE);
   rbuf->water_mark = TSMEMCACHE_TMP_CMD_BUFFER_SIZE;
   reader           = rbuf->alloc_reader();
-  wbuf             = new_empty_MIOBuffer();
+  wbuf             = new_empty_MIOBuffer(BUFFER_SIZE_INDEX_32K);
   cbuf             = 0;
   writer           = wbuf->alloc_reader();
   SCOPED_MUTEX_LOCK(lock, mutex, thread);
@@ -224,10 +224,10 @@ MC::add_binary_header(uint16_t err, uint8_t hdr_len, uint16_t key_len, uint32_t 
 
   r.response.magic    = static_cast<uint8_t>(PROTOCOL_BINARY_RES);
   r.response.opcode   = binary_header.request.opcode;
-  r.response.keylen   = (uint16_t)htons(key_len);
+  r.response.keylen   = static_cast<uint16_t>(htons(key_len));
   r.response.extlen   = hdr_len;
   r.response.datatype = static_cast<uint8_t>(PROTOCOL_BINARY_RAW_BYTES);
-  r.response.status   = (uint16_t)htons(err);
+  r.response.status   = static_cast<uint16_t>(htons(err));
   r.response.bodylen  = htonl(body_len);
   r.response.opaque   = binary_header.request.opaque;
   r.response.cas      = ink_hton64(header.cas);
@@ -375,8 +375,9 @@ MC::write_binary_response(const void *d, int hlen, int keylen, int dlen)
     if (dlen) {
       MCDebug("tsmemcache", "response dlen %d\n", dlen);
       wbuf->write(d, dlen);
-    } else
+    } else {
       MCDebug("tsmemcache", "no response\n");
+    }
   }
   return writer->read_avail();
 }
@@ -826,7 +827,7 @@ MC::ascii_set_event(int event, void *data)
     if (f.set_append) {
       TS_PUSH_HANDLER(&MC::tunnel_event);
       if (!cbuf) {
-        cbuf = new_empty_MIOBuffer();
+        cbuf = new_empty_MIOBuffer(BUFFER_SIZE_INDEX_32K);
       }
       creader = cbuf->alloc_reader();
       crvio   = crvc->do_io_read(this, rcache_header->nbytes, cbuf);
@@ -838,7 +839,7 @@ MC::ascii_set_event(int event, void *data)
           a = static_cast<int64_t>(nbytes);
         }
         if (!cbuf) {
-          cbuf = new_empty_MIOBuffer();
+          cbuf = new_empty_MIOBuffer(BUFFER_SIZE_INDEX_32K);
         }
         creader = cbuf->alloc_reader();
         if (a) {

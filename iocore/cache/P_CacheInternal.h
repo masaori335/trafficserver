@@ -207,6 +207,7 @@ extern RecRawStatBlock *cache_rsb;
 // Configuration
 extern int cache_config_dir_sync_frequency;
 extern int cache_config_http_max_alts;
+extern int cache_config_log_alternate_eviction;
 extern int cache_config_permit_pinning;
 extern int cache_config_select_alternate;
 extern int cache_config_max_doc_size;
@@ -291,6 +292,16 @@ struct CacheVC : public CacheVConnection {
     }
 
     return -1;
+  }
+
+  const char *
+  get_disk_path() const override
+  {
+    if (vol && vol->disk) {
+      return vol->disk->path;
+    }
+
+    return nullptr;
   }
 
   bool
@@ -422,7 +433,7 @@ struct CacheVC : public CacheVConnection {
   Ptr<IOBufferBlock> blocks; // data available to write
   Ptr<IOBufferBlock> writer_buf;
 
-  OpenDirEntry *od;
+  OpenDirEntry *od = nullptr;
   AIOCallbackInternal io;
   int alternate_index = CACHE_ALT_INDEX_DEFAULT; // preferred position in vector
   LINK(CacheVC, opendir_link);

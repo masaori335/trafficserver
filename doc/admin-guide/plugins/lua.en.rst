@@ -299,6 +299,46 @@ Here is an example:
 
 :ref:`TOP <admin-plugins-ts-lua>`
 
+ts.status
+---------
+**syntax:** *ts.status(MESSAGE)*
+
+**context:** global
+
+**description**: Log the MESSAGE to error.log as status
+
+:ref:`TOP <admin-plugins-ts-lua>`
+
+ts.note
+-------
+**syntax:** *ts.note(MESSAGE)*
+
+**context:** global
+
+**description**: Log the MESSAGE to error.log as note
+
+:ref:`TOP <admin-plugins-ts-lua>`
+
+ts.warning
+----------
+**syntax:** *ts.warning(MESSAGE)*
+
+**context:** global
+
+**description**: Log the MESSAGE to error.log as warning
+
+:ref:`TOP <admin-plugins-ts-lua>`
+
+ts.alert
+--------
+**syntax:** *ts.alert(MESSAGE)*
+
+**context:** global
+
+**description**: Log the MESSAGE to error.log as alert
+
+:ref:`TOP <admin-plugins-ts-lua>`
+
 TS Basic Internal Information
 -----------------------------
 **syntax:** *ts.get_install_dir()*
@@ -2770,6 +2810,28 @@ Here is an example:
 
 :ref:`TOP <admin-plugins-ts-lua>`
 
+ts.http.get_server_protocol_stack
+---------------------------------
+**syntax:** *ts.http.get_server_protocol_stack()*
+
+**context:** do_global_read_response or later
+
+**description:** This function can be used to get server protocol stack information
+
+Here is an example:
+
+::
+
+    function do_global_read_response()
+        local stack = {ts.http.get_server_protocol_stack()}
+        for k,v in pairs(stack) do
+          ts.debug(v)
+        end
+        return 0
+    end
+
+:ref:`TOP <admin-plugins-ts-lua>`
+
 ts.http.server_push
 -------------------
 **syntax:** *ts.http.server_push()*
@@ -2915,7 +2977,7 @@ ts.http.transaction_count
 
 **context:** do_remap/do_os_response or do_global_* or later
 
-**description:** This function returns the number of transaction in this connection
+**description:** This function returns the number of transaction in this client connection
 
 Here is an example
 
@@ -2926,6 +2988,16 @@ Here is an example
         ts.debug(tostring(count))
         return 0
     end
+
+:ref:`TOP <admin-plugins-ts-lua>`
+
+ts.http.server_transaction_count
+--------------------------------
+**syntax:** *ts.http.server_transaction_count()*
+
+**context:** do_remap/do_os_response or do_global_* or later
+
+**description:** This function returns the number of transaction in this server connection
 
 :ref:`TOP <admin-plugins-ts-lua>`
 
@@ -3750,6 +3822,7 @@ Http config constants
     TS_LUA_CONFIG_HTTP_RESPONSE_SERVER_ENABLED
     TS_LUA_CONFIG_HTTP_INSERT_SQUID_X_FORWARDED_FOR
     TS_LUA_CONFIG_HTTP_INSERT_FORWARDED
+    TS_LUA_CONFIG_HTTP_PROXY_PROTOCOL_OUT
     TS_LUA_CONFIG_HTTP_SEND_HTTP11_REQUESTS
     TS_LUA_CONFIG_HTTP_CACHE_HTTP
     TS_LUA_CONFIG_HTTP_CACHE_IGNORE_CLIENT_NO_CACHE
@@ -3772,13 +3845,13 @@ Http config constants
     TS_LUA_CONFIG_HTTP_TRANSACTION_NO_ACTIVITY_TIMEOUT_IN
     TS_LUA_CONFIG_HTTP_TRANSACTION_NO_ACTIVITY_TIMEOUT_OUT
     TS_LUA_CONFIG_HTTP_TRANSACTION_ACTIVE_TIMEOUT_OUT
+    TS_LUA_CONFIG_HTTP_SERVER_MIN_KEEP_ALIVE_CONNS
     TS_LUA_CONFIG_HTTP_PER_SERVER_CONNECTION_MAX
     TS_LUA_CONFIG_HTTP_PER_SERVER_CONNECTION_MATCH
     TS_LUA_CONFIG_HTTP_CONNECT_ATTEMPTS_MAX_RETRIES
     TS_LUA_CONFIG_HTTP_CONNECT_ATTEMPTS_MAX_RETRIES_DEAD_SERVER
     TS_LUA_CONFIG_HTTP_CONNECT_ATTEMPTS_RR_RETRIES
     TS_LUA_CONFIG_HTTP_CONNECT_ATTEMPTS_TIMEOUT
-    TS_LUA_CONFIG_HTTP_POST_CONNECT_ATTEMPTS_TIMEOUT
     TS_LUA_CONFIG_HTTP_DOWN_SERVER_CACHE_TIME
     TS_LUA_CONFIG_HTTP_DOWN_SERVER_ABORT_THRESHOLD
     TS_LUA_CONFIG_HTTP_DOC_IN_CACHE_SKIP_DNS
@@ -3834,16 +3907,15 @@ Http config constants
     TS_LUA_CONFIG_HTTP_PARENT_PROXY_FAIL_THRESHOLD
     TS_LUA_CONFIG_HTTP_PARENT_PROXY_RETRY_TIME
     TS_LUA_CONFIG_HTTP_PER_PARENT_CONNECT_ATTEMPTS
-    TS_LUA_CONFIG_HTTP_PARENT_CONNECT_ATTEMPT_TIMEOUT
     TS_LUA_CONFIG_HTTP_ALLOW_MULTI_RANGE
     TS_LUA_CONFIG_HTTP_REQUEST_BUFFER_ENABLED
     TS_LUA_CONFIG_HTTP_ALLOW_HALF_OPEN
-    TS_LUA_CONFIG_SSL_CLIENT_VERIFY_SERVER
     TS_LUA_CONFIG_SSL_CLIENT_VERIFY_SERVER_POLICY
     TS_LUA_CONFIG_SSL_CLIENT_VERIFY_SERVER_PROPERTIES
     TS_LUA_CONFIG_SSL_CLIENT_SNI_POLICY
     TS_LUA_CONFIG_SSL_CLIENT_PRIVATE_KEY_FILENAME
     TS_LUA_CONFIG_SSL_CLIENT_CA_CERT_FILENAME
+    TS_LUA_CONFIG_HTTP_HOST_RESOLUTION_PREFERENCE
     TS_LUA_CONFIG_LAST_ENTRY
 
 :ref:`TOP <admin-plugins-ts-lua>`
@@ -4170,6 +4242,21 @@ ts.mgmt.get_string
 ::
 
     name = ts.mgmt.get_string('proxy.config.product_name')
+
+:ref:`TOP <admin-plugins-ts-lua>`
+
+ts.mgmt.add_config_file
+-----------------------
+**syntax:** *ts.mgmt.add_config_file(parent, filename)*
+
+**context:** do_remap/do_os_response or do_global_* or later.
+
+**description:** This function invokes ``TSMgmtConfigFileAdd`` API.
+
+::
+
+    remap = ts.mgmt.get_string('proxy.config.url_remap.filename')
+    ts.mgmt.add_config_file(remap, '/etc/my.config')
 
 :ref:`TOP <admin-plugins-ts-lua>`
 

@@ -28,7 +28,7 @@
 constexpr static uint8_t data[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10, 0x01, 0x02, 0x03, 0x04, 0x05,
                                    0x06, 0x07, 0x08, 0x09, 0x10, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10};
 
-TEST_CASE("QUICFrameRetransmitter ignore frame which can not be retranmistted", "[quic]")
+TEST_CASE("QUICFrameRetransmitter ignore frame which can not be retransmitted", "[quic]")
 {
   QUICFrameRetransmitter retransmitter;
   QUICFrameInformationUPtr info = QUICFrameInformationUPtr(quicFrameInformationAllocator.alloc());
@@ -71,7 +71,7 @@ TEST_CASE("QUICFrameRetransmitter successfully create retransmitted frame", "[qu
   info->level                   = QUICEncryptionLevel::INITIAL;
 
   Ptr<IOBufferBlock> block = make_ptr<IOBufferBlock>(new_IOBufferBlock());
-  block->alloc();
+  block->alloc(BUFFER_SIZE_INDEX_32K);
   memcpy(block->start(), data, sizeof(data));
   block->fill(sizeof(data));
 
@@ -96,7 +96,7 @@ TEST_CASE("QUICFrameRetransmitter successfully create stream frame", "[quic]")
   info->level                   = QUICEncryptionLevel::INITIAL;
 
   Ptr<IOBufferBlock> block = make_ptr<IOBufferBlock>(new_IOBufferBlock());
-  block->alloc();
+  block->alloc(BUFFER_SIZE_INDEX_32K);
   memcpy(block->start(), data, sizeof(data));
   block->fill(sizeof(data));
 
@@ -120,7 +120,7 @@ TEST_CASE("QUICFrameRetransmitter successfully create stream frame", "[quic]")
   CHECK(memcmp(stream_frame->data()->start(), data, sizeof(data)) == 0);
   std::destroy_at(frame);
   frame = nullptr;
-  // Becasue the info has been released, the refcount should be 1 (var block).
+  // Because the info has been released, the refcount should be 1 (var block).
   CHECK(block->refcount() == 1);
 }
 
@@ -132,7 +132,7 @@ TEST_CASE("QUICFrameRetransmitter successfully split stream frame", "[quic]")
   info->level                   = QUICEncryptionLevel::INITIAL;
 
   Ptr<IOBufferBlock> block = make_ptr<IOBufferBlock>(new_IOBufferBlock());
-  block->alloc();
+  block->alloc(BUFFER_SIZE_INDEX_32K);
   memcpy(block->start(), data, sizeof(data));
   block->fill(sizeof(data));
 
@@ -189,7 +189,7 @@ TEST_CASE("QUICFrameRetransmitter successfully split crypto frame", "[quic]")
   info->level                   = QUICEncryptionLevel::INITIAL;
 
   Ptr<IOBufferBlock> block = make_ptr<IOBufferBlock>(new_IOBufferBlock());
-  block->alloc();
+  block->alloc(BUFFER_SIZE_INDEX_32K);
   memcpy(block->start(), data, sizeof(data));
   block->fill(sizeof(data));
 
@@ -243,7 +243,7 @@ TEST_CASE("QUICFrameRetransmitter successfully split stream frame with fin flag"
   info->level                   = QUICEncryptionLevel::INITIAL;
 
   Ptr<IOBufferBlock> block = make_ptr<IOBufferBlock>(new_IOBufferBlock());
-  block->alloc();
+  block->alloc(BUFFER_SIZE_INDEX_32K);
   memcpy(block->start(), data, sizeof(data));
   block->fill(sizeof(data));
 

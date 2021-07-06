@@ -228,7 +228,8 @@ static HdrTokenFieldInfo _hdrtoken_strs_field_initializers[] = {
   {"Subject", MIME_SLOTID_NONE, MIME_PRESENCE_SUBJECT, HTIF_NONE},
   {"Summary", MIME_SLOTID_NONE, MIME_PRESENCE_SUMMARY, HTIF_NONE},
   {"TE", MIME_SLOTID_TE, MIME_PRESENCE_TE, (HTIF_COMMAS | HTIF_MULTVALS | HTIF_HOPBYHOP)},
-  {"Transfer-Encoding", MIME_SLOTID_TRANSFER_ENCODING, MIME_PRESENCE_TRANSFER_ENCODING, (HTIF_COMMAS | HTIF_MULTVALS)},
+  {"Transfer-Encoding", MIME_SLOTID_TRANSFER_ENCODING, MIME_PRESENCE_TRANSFER_ENCODING,
+   (HTIF_COMMAS | HTIF_MULTVALS | HTIF_HOPBYHOP)},
   {"Upgrade", MIME_SLOTID_NONE, MIME_PRESENCE_UPGRADE, (HTIF_COMMAS | HTIF_MULTVALS | HTIF_HOPBYHOP)},
   {"User-Agent", MIME_SLOTID_USER_AGENT, MIME_PRESENCE_USER_AGENT, HTIF_NONE},
   {"Vary", MIME_SLOTID_VARY, MIME_PRESENCE_VARY, (HTIF_COMMAS | HTIF_MULTVALS)},
@@ -466,7 +467,7 @@ hdrtoken_init()
       prefix.wks_info.name   = nullptr;             // default, can override later
       prefix.wks_info.slotid = MIME_SLOTID_NONE;    // default, can override later
       prefix.wks_info.mask   = TOK_64_CONST(0);     // default, can override later
-      prefix.wks_info.flags  = MIME_FLAGS_MULTVALS; // default, can override later
+      prefix.wks_info.flags  = HTIF_MULTVALS;       // default, can override later
 
       int sstr_len = snap_up_to_multiple(hdrtoken_str_lengths[i] + 1, sizeof(HdrTokenHeapPrefix));
 
@@ -545,6 +546,30 @@ hdrtoken_tokenize_dfa(const char *string, int string_len, const char **wks_strin
   // printf("hdrtoken_tokenize_dfa(%d,*s) - return %d\n",string_len,string,wks_idx);
 
   return wks_idx;
+}
+
+/*-------------------------------------------------------------------------
+  Have to work around that methods are case insensitive while the DFA is
+  case insensitive.
+  -------------------------------------------------------------------------*/
+
+int
+hdrtoken_method_tokenize(const char *string, int string_len)
+{
+  const char *string_out;
+  int retval = -1;
+  if (hdrtoken_is_wks(string)) {
+    retval = hdrtoken_wks_to_index(string);
+    return retval;
+  }
+  retval = hdrtoken_tokenize(string, string_len, &string_out);
+  if (retval >= 0) {
+    if (strncmp(string, string_out, string_len) != 0) {
+      // Not a case match
+      retval = -1;
+    }
+  }
+  return retval;
 }
 
 /*-------------------------------------------------------------------------

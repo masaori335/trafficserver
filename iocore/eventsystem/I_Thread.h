@@ -110,7 +110,7 @@ public:
   */
   Ptr<ProxyMutex> mutex;
 
-  void set_specific();
+  virtual void set_specific();
 
   inkcoreapi static ink_thread_key thread_data_key;
 
@@ -123,9 +123,6 @@ public:
   ProxyAllocator http2ClientSessionAllocator;
   ProxyAllocator http2StreamAllocator;
   ProxyAllocator quicClientSessionAllocator;
-  ProxyAllocator quicBidiStreamAllocator;
-  ProxyAllocator quicSendStreamAllocator;
-  ProxyAllocator quicReceiveStreamAllocator;
   ProxyAllocator httpServerSessionAllocator;
   ProxyAllocator hdrHeapAllocator;
   ProxyAllocator strHeapAllocator;

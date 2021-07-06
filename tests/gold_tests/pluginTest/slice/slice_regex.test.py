@@ -20,7 +20,7 @@ Test.Summary = '''
 slice regex plugin test
 '''
 
-## Test description:
+# Test description:
 # Preload the cache with the entire asset to be range requested.
 # Reload remap rule with slice plugin
 # Request content through the slice plugin
@@ -33,72 +33,71 @@ Test.ContinueOnFail = False
 # configure origin server
 server = Test.MakeOriginServer("server")
 
-# Define ATS and configure
-ts = Test.MakeATSProcess("ts", command="traffic_manager", select_ports=True)
+# Define ATS and configure.
+ts = Test.MakeATSProcess("ts", command="traffic_server", enable_cache=False)
 
 # default root
 request_header_chk = {"headers":
-  "GET / HTTP/1.1\r\n" +
-  "Host: www.example.com\r\n" +
-  "\r\n",
-  "timestamp": "1469733493.993",
-  "body": "",
-}
+                      "GET / HTTP/1.1\r\n" +
+                      "Host: www.example.com\r\n" +
+                      "\r\n",
+                      "timestamp": "1469733493.993",
+                      "body": "",
+                      }
 
 response_header_chk = {"headers":
-  "HTTP/1.1 200 OK\r\n" +
-  "Connection: close\r\n" +
-  "\r\n",
-  "timestamp": "1469733493.993",
-  "body": "",
-}
+                       "HTTP/1.1 200 OK\r\n" +
+                       "Connection: close\r\n" +
+                       "\r\n",
+                       "timestamp": "1469733493.993",
+                       "body": "",
+                       }
 
 server.addResponse("sessionlog.json", request_header_chk, response_header_chk)
 
-#block_bytes = 7
 body = "lets go surfin now"
 
 request_header_txt = {"headers":
-  "GET /slice.txt HTTP/1.1\r\n" +
-  "Host: slice\r\n" +
-  "\r\n",
-  "timestamp": "1469733493.993",
-  "body": "",
-}
+                      "GET /slice.txt HTTP/1.1\r\n" +
+                      "Host: slice\r\n" +
+                      "\r\n",
+                      "timestamp": "1469733493.993",
+                      "body": "",
+                      }
 
 response_header_txt = {"headers":
-  "HTTP/1.1 200 OK\r\n" +
-  "Connection: close\r\n" +
-  'Etag: "path"\r\n' +
-  "Cache-Control: max-age=500\r\n" +
-	"X-Info: notsliced\r\n" +
-  "\r\n",
-  "timestamp": "1469733493.993",
-  "body": body,
-}
+                       "HTTP/1.1 200 OK\r\n" +
+                       "Connection: close\r\n" +
+                       'Etag: "path"\r\n' +
+                       "Cache-Control: max-age=500\r\n" +
+                       "X-Info: notsliced\r\n" +
+                       "\r\n",
+                       "timestamp": "1469733493.993",
+                       "body": body,
+                       }
 
 server.addResponse("sessionlog.json", request_header_txt, response_header_txt)
 
 request_header_mp4 = {"headers":
-  "GET /slice.mp4 HTTP/1.1\r\n" +
-  "Host: sliced\r\n" +
-  "Range: bytes=0-99\r\n"
-  "\r\n",
-  "timestamp": "1469733493.993",
-  "body": "",
-}
+                      "GET /slice.mp4 HTTP/1.1\r\n" +
+                      "Host: sliced\r\n" +
+                      "Range: bytes=0-99\r\n"
+                      "\r\n",
+                      "timestamp": "1469733493.993",
+                      "body": "",
+                      }
 
 response_header_mp4 = {"headers":
-  "HTTP/1.1 206 Partial Content\r\n" +
-  "Connection: close\r\n" +
-  'Etag: "path"\r\n' +
-  "Content-Range: bytes 0-{}/{}\r\n".format(len(body) - 1, len(body)) +
-  "Cache-Control: max-age=500\r\n" +
-	"X-Info: sliced\r\n" +
-  "\r\n",
-  "timestamp": "1469733493.993",
-  "body": body,
-}
+                       "HTTP/1.1 206 Partial Content\r\n" +
+                       "Connection: close\r\n" +
+                       'Etag: "path"\r\n' +
+                       "Content-Range: bytes 0-{}/{}\r\n".format(len(body) - 1, len(body)) +
+                       "Cache-Control: max-age=500\r\n" +
+                       "X-Info: sliced\r\n" +
+                       "\r\n",
+                       "timestamp": "1469733493.993",
+                       "body": body,
+                       }
 
 server.addResponse("sessionlog.json", request_header_mp4, response_header_mp4)
 
@@ -108,35 +107,33 @@ block_bytes = 100
 
 # set up whole asset fetch into cache
 ts.Disk.remap_config.AddLines([
-  'map http://exclude/ http://127.0.0.1:{}/'.format(server.Variables.Port) +
+    'map http://exclude/ http://127.0.0.1:{}/'.format(server.Variables.Port) +
     ' @plugin=slice.so' +
-		' @pparam=--blockbytes-test={}'.format(block_bytes) +
-		' @pparam=--exclude-regex=\\.txt'
-		' @pparam=--remap-host=sliced',
-  'map http://include/ http://127.0.0.1:{}/'.format(server.Variables.Port) +
+    ' @pparam=--blockbytes-test={}'.format(block_bytes) +
+    ' @pparam=--exclude-regex=\\.txt'
+    ' @pparam=--remap-host=sliced',
+    'map http://include/ http://127.0.0.1:{}/'.format(server.Variables.Port) +
     ' @plugin=slice.so' +
-		' @pparam=--blockbytes-test={}'.format(block_bytes) +
-		' @pparam=--include-regex=\\.mp4'
-		' @pparam=--remap-host=sliced',
-  'map http://sliced/ http://127.0.0.1:{}/'.format(server.Variables.Port),
+    ' @pparam=--blockbytes-test={}'.format(block_bytes) +
+    ' @pparam=--include-regex=\\.mp4'
+    ' @pparam=--remap-host=sliced',
+    'map http://sliced/ http://127.0.0.1:{}/'.format(server.Variables.Port),
 ])
 
 
 # minimal configuration
 ts.Disk.records_config.update({
-  'proxy.config.diags.debug.enabled': 1,
-  'proxy.config.diags.debug.tags': 'slice',
-  'proxy.config.http.cache.http': 0,
-  'proxy.config.http.wait_for_cache': 0,
-  'proxy.config.http.insert_age_in_response': 0,
-  'proxy.config.http.response_via_str': 0,
+    #  'proxy.config.diags.debug.enabled': 1,
+    #  'proxy.config.diags.debug.tags': 'slice',
+    'proxy.config.http.insert_age_in_response': 0,
+    'proxy.config.http.response_via_str': 0,
 })
 
 # 0 Test - Exclude: ensure txt passes through
 tr = Test.AddTestRun("Exclude - asset passed through")
 ps = tr.Processes.Default
 ps.StartBefore(server, ready=When.PortOpen(server.Variables.Port))
-ps.StartBefore(Test.Processes.ts, ready=When.PortOpen(ts.Variables.port))
+ps.StartBefore(Test.Processes.ts)
 ps.Command = curl_and_args + ' http://exclude/slice.txt'
 ps.ReturnCode = 0
 ps.Streams.stdout.Content = Testers.ContainsExpression("X-Info: notsliced", "expected not sliced header")

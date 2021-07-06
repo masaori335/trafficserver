@@ -32,14 +32,12 @@
 #include "P_SSLSNI.h"
 #include "tscore/Diags.h"
 #include "tscore/SimpleTokenizer.h"
-#include "P_SSLConfig.h"
 #include "tscore/ink_memory.h"
 #include "tscpp/util/TextView.h"
 #include "tscore/I_Layout.h"
 #include <sstream>
 #include <pcre.h>
 
-static ConfigUpdateHandler<SNIConfig> *sniConfigUpdate;
 static constexpr int OVECSIZE{30};
 
 const NextHopProperty *
@@ -69,7 +67,8 @@ SNIConfigParams::loadSNIConfig()
       ai->actions.push_back(std::make_unique<ControlH2>(item.offer_h2.value()));
     }
     if (item.verify_client_level != 255) {
-      ai->actions.push_back(std::make_unique<VerifyClient>(item.verify_client_level));
+      ai->actions.push_back(
+        std::make_unique<VerifyClient>(item.verify_client_level, item.verify_client_ca_file, item.verify_client_ca_dir));
     }
     if (item.host_sni_policy != 255) {
       ai->actions.push_back(std::make_unique<HostSniPolicy>(item.host_sni_policy));
@@ -78,7 +77,10 @@ SNIConfigParams::loadSNIConfig()
       ai->actions.push_back(std::make_unique<TLSValidProtocols>(item.protocol_mask));
     }
     if (item.tunnel_destination.length() > 0) {
-      ai->actions.push_back(std::make_unique<TunnelDestination>(item.tunnel_destination, item.tunnel_decrypt, item.tls_upstream));
+      ai->actions.push_back(std::make_unique<TunnelDestination>(item.tunnel_destination, item.tunnel_type, item.tunnel_alpn));
+    }
+    if (!item.client_sni_policy.empty()) {
+      ai->actions.push_back(std::make_unique<OutboundSNIPolicy>(item.client_sni_policy));
     }
 
     ai->actions.push_back(std::make_unique<SNI_IpAllow>(item.ip_allow, item.fqdn));
@@ -94,15 +96,12 @@ SNIConfigParams::loadSNIConfig()
         nps->prop.client_key_file = Layout::get()->relative_to(params->clientKeyPathOnly, item.client_key.data());
       }
 
-      params->getCTX(nps->prop.client_cert_file.c_str(),
-                     nps->prop.client_key_file.empty() ? nullptr : nps->prop.client_key_file.c_str(), params->clientCACertFilename,
-                     params->clientCACertPath);
+      params->getCTX(nps->prop.client_cert_file, nps->prop.client_key_file, params->clientCACertFilename, params->clientCACertPath);
     }
 
     nps->setGlobName(item.fqdn);
     nps->prop.verifyServerPolicy     = item.verify_server_policy;
     nps->prop.verifyServerProperties = item.verify_server_properties;
-    nps->prop.tls_upstream           = item.tls_upstream;
   } // end for
 }
 
@@ -190,14 +189,13 @@ SNIConfigParams::~SNIConfigParams()
 void
 SNIConfig::startup()
 {
-  sniConfigUpdate = new ConfigUpdateHandler<SNIConfig>();
-  sniConfigUpdate->attach("proxy.config.ssl.servername.filename");
   reconfigure();
 }
 
 void
 SNIConfig::reconfigure()
 {
+  Debug("ssl", "Reload SNI file");
   SNIConfigParams *params = new SNIConfigParams;
 
   params->Initialize();

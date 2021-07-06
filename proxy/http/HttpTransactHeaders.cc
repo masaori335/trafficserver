@@ -35,6 +35,7 @@
 #include "HdrUtils.h"
 #include "HttpCompat.h"
 #include "HttpSM.h"
+#include "PoolableSession.h"
 
 #include "I_Machine.h"
 
@@ -62,7 +63,7 @@ HttpTransactHeaders::is_this_a_hop_by_hop_header(const char *field_name)
   if (!hdrtoken_is_wks(field_name)) {
     return (false);
   }
-  if ((hdrtoken_wks_to_flags(field_name) & MIME_FLAGS_HOPBYHOP) && (field_name != MIME_FIELD_KEEP_ALIVE)) {
+  if ((hdrtoken_wks_to_flags(field_name) & HTIF_HOPBYHOP) && (field_name != MIME_FIELD_KEEP_ALIVE)) {
     return (true);
   } else {
     return (false);
@@ -86,7 +87,15 @@ HttpTransactHeaders::is_this_method_supported(int the_scheme, int the_method)
 bool
 HttpTransactHeaders::is_method_safe(int method)
 {
+  // See RFC 7231, section 4.2.1.
   return (method == HTTP_WKSIDX_GET || method == HTTP_WKSIDX_OPTIONS || method == HTTP_WKSIDX_HEAD || method == HTTP_WKSIDX_TRACE);
+}
+
+bool
+HttpTransactHeaders::is_status_an_error_response(HTTPStatus response_code)
+{
+  auto const comparable_response_code = static_cast<unsigned int>(response_code);
+  return (comparable_response_code >= 400) && (comparable_response_code <= 599);
 }
 
 bool
@@ -199,8 +208,6 @@ HttpTransactHeaders::copy_header_fields(HTTPHdr *src_hdr, HTTPHdr *new_hdr, bool
   ink_assert(src_hdr->valid());
   ink_assert(!new_hdr->valid());
 
-  MIMEField *field;
-  MIMEFieldIter field_iter;
   bool date_hdr = false;
 
   // Start with an exact duplicate
@@ -221,19 +228,19 @@ HttpTransactHeaders::copy_header_fields(HTTPHdr *src_hdr, HTTPHdr *new_hdr, bool
   //         is changed for example by dechunking, the transfer encoding
   //         should be modified when when the decision is made to dechunk it
 
-  for (field = new_hdr->iter_get_first(&field_iter); field != nullptr; field = new_hdr->iter_get_next(&field_iter)) {
-    if (field->m_wks_idx == -1) {
+  for (auto &field : *new_hdr) {
+    if (field.m_wks_idx == -1) {
       continue;
     }
 
-    int field_flags = hdrtoken_index_to_flags(field->m_wks_idx);
+    int field_flags = hdrtoken_index_to_flags(field.m_wks_idx);
 
-    if (field_flags & MIME_FLAGS_HOPBYHOP) {
+    if (field_flags & HTIF_HOPBYHOP) {
       // Delete header if not in special proxy_auth retention mode
-      if ((!retain_proxy_auth_hdrs) || (!(field_flags & MIME_FLAGS_PROXYAUTH))) {
-        new_hdr->field_delete(field);
+      if ((!retain_proxy_auth_hdrs) || (!(field_flags & HTIF_PROXYAUTH))) {
+        new_hdr->field_delete(&field);
       }
-    } else if (field->m_wks_idx == MIME_WKSIDX_DATE) {
+    } else if (field.m_wks_idx == MIME_WKSIDX_DATE) {
       date_hdr = true;
     }
   }
@@ -461,6 +468,8 @@ HttpTransactHeaders::generate_and_set_squid_codes(HTTPHdr *header, char *via_str
     // its a cache hit.
     if (via_string[VIA_CACHE_RESULT] == VIA_IN_RAM_CACHE_FRESH) {
       hit_miss_code = SQUID_HIT_RAM;
+    } else if (via_string[VIA_CACHE_RESULT] == VIA_IN_CACHE_RWW_HIT) {
+      hit_miss_code = SQUID_HIT_RWW;
     } else { // TODO: Support other cache tiers here
       hit_miss_code = SQUID_HIT_RESERVED;
     }
@@ -524,6 +533,8 @@ HttpTransactHeaders::generate_and_set_squid_codes(HTTPHdr *header, char *via_str
           log_code = SQUID_LOG_TCP_HIT;
         } else if (via_string[VIA_CACHE_RESULT] == VIA_IN_RAM_CACHE_FRESH) {
           log_code = SQUID_LOG_TCP_MEM_HIT;
+        } else if (via_string[VIA_CACHE_RESULT] == VIA_IN_CACHE_RWW_HIT) {
+          log_code = SQUID_LOG_TCP_CF_HIT; // Read while write HIT
         } else {
           log_code = SQUID_LOG_TCP_MISS;
         }
@@ -549,8 +560,6 @@ HttpTransactHeaders::generate_and_set_squid_codes(HTTPHdr *header, char *via_str
   // Errors may override the other codes, so check the via string error codes last
   switch (via_string[VIA_ERROR_TYPE]) {
   case VIA_ERROR_AUTHORIZATION:
-    // TODO decide which one?
-    // log_code = SQUID_LOG_TCP_DENIED;
     log_code = SQUID_LOG_ERR_PROXY_DENIED;
     break;
   case VIA_ERROR_CONNECTION:
@@ -838,9 +847,10 @@ HttpTransactHeaders::insert_via_header_in_response(HttpTransact::State *s, HTTPH
   int n_proto = 0;
 
   // Should suffice - if we're adding a response VIA, the connection is HTTP and only 1.0 and 1.1 are supported outbound.
-  proto_buf[n_proto++] = HTTP_MINOR(header->version_get().m_version) == 0 ? IP_PROTO_TAG_HTTP_1_0 : IP_PROTO_TAG_HTTP_1_1;
+  // TODO H2 expand for HTTP/2 outbound
+  proto_buf[n_proto++] = header->version_get().get_minor() == 0 ? IP_PROTO_TAG_HTTP_1_0 : IP_PROTO_TAG_HTTP_1_1;
 
-  auto ss = s->state_machine->get_server_session();
+  auto ss = s->state_machine->get_server_txn();
   if (ss) {
     n_proto += ss->populate_protocol(proto_buf.data() + n_proto, proto_buf.size() - n_proto);
   }

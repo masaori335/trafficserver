@@ -379,16 +379,16 @@ Configuration files
 
 * Format the ``access_control.log``
 
-.. code-block:: bash
+.. code-block:: yaml
 
-  access_control_format = format {
-    Format = '%<cqtq> sub=%<{@TokenSubject}cqh> tid=%<{@TokenId}cqh> status=%<{@TokenStatus}cqh> cache=%<{x-cache}psh> key=%<{x-cache-key}psh>'  }
-
-  log.ascii {
-    Filename = 'access_control',
-    Format = access_control_format
-  }
-
+   logging:
+     formats:
+     - format: '%<cqtq> sub=%<{@TokenSubject}cqh> tid=%<{@TokenId}cqh> status=%<{@TokenStatus}cqh> cache=%<{x-cache}psh> key=%<{x-cache-key}psh>'
+       name: access_control_format
+     logs:
+     - filename: access_control
+       format: access_control_format
+       mode: ascii
 
 * X-Debug plugin added to ``plugin.config``
 
@@ -446,7 +446,7 @@ Now let us send the same request again and since the object is in cache we get `
   x-cache: hit-fresh
 
 
-The previous activity should result in the following log (as defined in ``logging.config``)
+The previous activity should result in the following log (as defined in ``logging.yaml``)
 
 .. code-block:: bash
 

@@ -68,8 +68,10 @@ TEST_CASE("QUICFrame Type", "[quic]")
   CHECK(QUICFrame::type(reinterpret_cast<const uint8_t *>("\x1c")) == QUICFrameType::CONNECTION_CLOSE);
   CHECK(QUICFrame::type(reinterpret_cast<const uint8_t *>("\x1d")) == QUICFrameType::CONNECTION_CLOSE);
 
-  // Undefined ragne
-  CHECK(QUICFrame::type(reinterpret_cast<const uint8_t *>("\x1e")) == QUICFrameType::UNKNOWN);
+  CHECK(QUICFrame::type(reinterpret_cast<const uint8_t *>("\x1e")) == QUICFrameType::HANDSHAKE_DONE);
+
+  // Undefined range
+  CHECK(QUICFrame::type(reinterpret_cast<const uint8_t *>("\x1f")) == QUICFrameType::UNKNOWN);
   CHECK(QUICFrame::type(reinterpret_cast<const uint8_t *>("\xff")) == QUICFrameType::UNKNOWN);
 }
 
@@ -197,7 +199,7 @@ TEST_CASE("Store STREAM Frame", "[quic]")
 
     uint8_t raw1[]           = "\x01\x02\x03\x04\x05";
     Ptr<IOBufferBlock> block = make_ptr<IOBufferBlock>(new_IOBufferBlock());
-    block->alloc();
+    block->alloc(BUFFER_SIZE_INDEX_32K);
     memcpy(block->start(), raw1, 5);
     block->fill(5);
 
@@ -226,7 +228,7 @@ TEST_CASE("Store STREAM Frame", "[quic]")
     };
     uint8_t raw2[]           = "\x01\x02\x03\x04\x05";
     Ptr<IOBufferBlock> block = make_ptr<IOBufferBlock>(new_IOBufferBlock());
-    block->alloc();
+    block->alloc(BUFFER_SIZE_INDEX_32K);
     memcpy(block->start(), raw2, 5);
     block->fill(5);
 
@@ -255,7 +257,7 @@ TEST_CASE("Store STREAM Frame", "[quic]")
     };
     uint8_t raw3[]           = "\x01\x02\x03\x04\x05";
     Ptr<IOBufferBlock> block = make_ptr<IOBufferBlock>(new_IOBufferBlock());
-    block->alloc();
+    block->alloc(BUFFER_SIZE_INDEX_32K);
     memcpy(block->start(), raw3, 5);
     block->fill(5);
 
@@ -284,7 +286,7 @@ TEST_CASE("Store STREAM Frame", "[quic]")
     };
     uint8_t raw4[]           = "\x01\x02\x03\x04\x05";
     Ptr<IOBufferBlock> block = make_ptr<IOBufferBlock>(new_IOBufferBlock());
-    block->alloc();
+    block->alloc(BUFFER_SIZE_INDEX_32K);
     memcpy(block->start(), raw4, 5);
     block->fill(5);
 
@@ -313,7 +315,7 @@ TEST_CASE("Store STREAM Frame", "[quic]")
     };
     uint8_t raw5[]           = "\x01\x02\x03\x04\x05";
     Ptr<IOBufferBlock> block = make_ptr<IOBufferBlock>(new_IOBufferBlock());
-    block->alloc();
+    block->alloc(BUFFER_SIZE_INDEX_32K);
     memcpy(block->start(), raw5, 5);
     block->fill(5);
 
@@ -342,7 +344,7 @@ TEST_CASE("Store STREAM Frame", "[quic]")
     };
     uint8_t raw6[]           = "\x01\x02\x03\x04\x05";
     Ptr<IOBufferBlock> block = make_ptr<IOBufferBlock>(new_IOBufferBlock());
-    block->alloc();
+    block->alloc(BUFFER_SIZE_INDEX_32K);
     memcpy(block->start(), raw6, 5);
     block->fill(5);
 
@@ -371,7 +373,7 @@ TEST_CASE("Store STREAM Frame", "[quic]")
     };
     uint8_t raw7[]           = "\x01\x02\x03\x04\x05";
     Ptr<IOBufferBlock> block = make_ptr<IOBufferBlock>(new_IOBufferBlock());
-    block->alloc();
+    block->alloc(BUFFER_SIZE_INDEX_32K);
     memcpy(block->start(), raw7, 5);
     block->fill(5);
 
@@ -400,7 +402,7 @@ TEST_CASE("Store STREAM Frame", "[quic]")
     };
     uint8_t raw[]            = "\x01\x02\x03\x04\x05";
     Ptr<IOBufferBlock> block = make_ptr<IOBufferBlock>(new_IOBufferBlock());
-    block->alloc();
+    block->alloc(BUFFER_SIZE_INDEX_32K);
     memcpy(block->start(), raw, 5);
     block->fill(5);
 
@@ -454,14 +456,14 @@ TEST_CASE("CRYPTO Frame", "[quic]")
     uint8_t buf[32]    = {0};
     size_t len         = 0;
     uint8_t expected[] = {
-      0x06,                         // Typr
+      0x06,                         // Type
       0x80, 0x01, 0x00, 0x00,       // Offset
       0x05,                         // Length
       0x01, 0x02, 0x03, 0x04, 0x05, // Crypto Data
     };
     uint8_t raw_data[]       = "\x01\x02\x03\x04\x05";
     Ptr<IOBufferBlock> block = make_ptr<IOBufferBlock>(new_IOBufferBlock());
-    block->alloc();
+    block->alloc(BUFFER_SIZE_INDEX_32K);
     memcpy(block->start(), raw_data, 5);
     block->fill(5);
 
@@ -823,6 +825,41 @@ TEST_CASE("Store Padding Frame", "[quic]")
     len += b->size();
   }
   CHECK(len == 3);
+  CHECK(memcmp(buf, expected, len) == 0);
+}
+
+TEST_CASE("Load HandshakeDone Frame", "[quic]")
+{
+  uint8_t frame_buf[QUICFrame::MAX_INSTANCE_SIZE];
+  uint8_t buf[] = {
+    0x1e, // Type
+  };
+  const QUICFrame *frame = QUICFrameFactory::create(frame_buf, buf, sizeof(buf), nullptr);
+  CHECK(frame->type() == QUICFrameType::HANDSHAKE_DONE);
+  CHECK(frame->size() == 1);
+
+  const QUICHandshakeDoneFrame *handshake_done_frame = static_cast<const QUICHandshakeDoneFrame *>(frame);
+  CHECK(handshake_done_frame != nullptr);
+}
+
+TEST_CASE("Store HandshakeDone Frame", "[quic]")
+{
+  uint8_t buf[16];
+  size_t len = 0;
+
+  uint8_t expected[] = {
+    0x1e, // Type
+  };
+
+  QUICHandshakeDoneFrame frame;
+  CHECK(frame.size() == 1);
+
+  Ptr<IOBufferBlock> ibb = frame.to_io_buffer_block(sizeof(buf));
+  for (auto b = ibb; b; b = b->next) {
+    memcpy(buf + len, b->start(), b->size());
+    len += b->size();
+  }
+  CHECK(len == 1);
   CHECK(memcmp(buf, expected, len) == 0);
 }
 

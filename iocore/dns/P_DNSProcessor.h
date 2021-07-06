@@ -23,12 +23,6 @@
 
 #pragma once
 
-/*
-  #include "I_DNS.h"
-  #include <arpa/nameser.h>
-  #include "I_Cache.h"
-  #include "P_Net.h"
-*/
 #include "I_EventSystem.h"
 
 #define MAX_NAMED 32
@@ -36,6 +30,7 @@
 #define MAX_DNS_RETRIES 9
 #define DEFAULT_DNS_TIMEOUT 30
 #define MAX_DNS_IN_FLIGHT 2048
+#define MAX_DNS_TCP_CONTINUOUS_FAILURES 10
 #define DEFAULT_FAILOVER_NUMBER (DEFAULT_DNS_RETRIES + 1)
 #define DEFAULT_FAILOVER_PERIOD (DEFAULT_DNS_TIMEOUT + 30)
 // how many seconds before FAILOVER_PERIOD to try the primary with
@@ -55,6 +50,7 @@ extern int dns_failover_number;
 extern int dns_failover_period;
 extern int dns_failover_try_period;
 extern int dns_max_dns_in_flight;
+extern int dns_max_tcp_continuous_failures;
 extern unsigned int dns_sequence_number;
 
 //
@@ -78,12 +74,7 @@ extern unsigned int dns_sequence_number;
 #endif
 
 // Events
-
 #define DNS_EVENT_LOOKUP DNS_EVENT_EVENTS_START
-
-extern int dns_fd;
-
-void *dns_udp_receiver(void *arg);
 
 // Stats
 enum DNS_Stats {
@@ -95,8 +86,9 @@ enum DNS_Stats {
   dns_fail_time_stat,
   dns_retries_stat,
   dns_max_retries_exceeded_stat,
-  dns_sequence_number_stat,
   dns_in_flight_stat,
+  dns_tcp_retries_stat,
+  dns_tcp_reset_stat,
   DNS_Stat_Count
 };
 
@@ -107,26 +99,11 @@ struct RecRawStatBlock;
 extern RecRawStatBlock *dns_rsb;
 
 // Stat Macros
-
-#define DNS_DEBUG_COUNT_DYN_STAT(_x, _y) RecIncrRawStatCount(dns_rsb, mutex->thread_holding, (int)_x, _y)
-
 #define DNS_INCREMENT_DYN_STAT(_x) RecIncrRawStatSum(dns_rsb, mutex->thread_holding, (int)_x, 1)
 
 #define DNS_DECREMENT_DYN_STAT(_x) RecIncrRawStatSum(dns_rsb, mutex->thread_holding, (int)_x, -1)
 
 #define DNS_SUM_DYN_STAT(_x, _r) RecIncrRawStatSum(dns_rsb, mutex->thread_holding, (int)_x, _r)
-
-#define DNS_READ_DYN_STAT(_x, _count, _sum)        \
-  do {                                             \
-    RecGetRawStatSum(dns_rsb, (int)_x, &_sum);     \
-    RecGetRawStatCount(dns_rsb, (int)_x, &_count); \
-  } while (0)
-
-#define DNS_SET_DYN_COUNT(_x, _count) RecSetRawStatCount(dns_rsb, _x, _count);
-
-#define DNS_INCREMENT_THREAD_DYN_STAT(_s, _t) RecIncrRawStatSum(dns_rsb, _t, (int)_s, 1);
-
-#define DNS_DECREMENT_THREAD_DYN_STAT(_s, _t) RecIncrRawStatSum(dns_rsb, _t, (int)_s, -1);
 
 /**
   One DNSEntry is allocated per outstanding request. This continuation
@@ -142,7 +119,7 @@ struct DNSEntry : public Continuation {
   int which_ns                = NO_NAMESERVER_SELECTED;
   ink_hrtime submit_time      = 0;
   ink_hrtime send_time        = 0;
-  char qname[MAXDNAME];
+  char qname[MAXDNAME + 1];
   int qname_len          = 0;
   int orig_qname_len     = 0;
   char **domains         = nullptr;
@@ -162,7 +139,7 @@ struct DNSEntry : public Continuation {
   int postAllEvent(int event, Event *e);
   int post(DNSHandler *h, HostEnt *ent);
   int postOneEvent(int event, Event *e);
-  void init(const char *x, int len, int qtype_arg, Continuation *acont, DNSProcessor::Options const &opt);
+  void init(DNSQueryData target, int qtype_arg, Continuation *acont, DNSProcessor::Options const &opt);
 
   DNSEntry()
   {
@@ -200,6 +177,7 @@ struct DNSHandler : public Continuation {
   int ns_down[MAX_NAMED];
   int failover_number[MAX_NAMED];
   int failover_soon_number[MAX_NAMED];
+  int tcp_continuous_failures[MAX_NAMED];
   ink_hrtime crossed_failover_number[MAX_NAMED];
   ink_hrtime last_primary_retry  = 0;
   ink_hrtime last_primary_reopen = 0;
@@ -252,7 +230,7 @@ struct DNSHandler : public Continuation {
   int mainEvent(int event, Event *e);
 
   void open_cons(sockaddr const *addr, bool failed = false, int icon = 0);
-  void open_con(sockaddr const *addr, bool failed = false, int icon = 0, bool over_tcp = false);
+  bool open_con(sockaddr const *addr, bool failed = false, int icon = 0, bool over_tcp = false);
   void failover();
   void rr_failure(int ndx);
   void recover();
@@ -284,6 +262,9 @@ struct DNSHandler : public Continuation {
 private:
   // Check the IP address and switch to default if needed.
   void validate_ip();
+  // Check tcp connection for TCP_RETRY mode
+  void check_and_reset_tcp_conn();
+  bool reset_tcp_conn(int ndx);
 };
 
 /* --------------------------------------------------------------
@@ -322,6 +303,7 @@ DNSHandler::DNSHandler()
     failover_number[i]         = 0;
     failover_soon_number[i]    = 0;
     crossed_failover_number[i] = 0;
+    tcp_continuous_failures[i] = 0;
     ns_down[i]                 = 1;
     tcpcon[i].handler          = this;
     udpcon[i].handler          = this;
@@ -330,6 +312,3 @@ DNSHandler::DNSHandler()
   SET_HANDLER(&DNSHandler::startEvent);
   Debug("net_epoll", "inline DNSHandler::DNSHandler()");
 }
-
-#define DOT_SEPARATED(_x) \
-  ((unsigned char *)&(_x))[0], ((unsigned char *)&(_x))[1], ((unsigned char *)&(_x))[2], ((unsigned char *)&(_x))[3]

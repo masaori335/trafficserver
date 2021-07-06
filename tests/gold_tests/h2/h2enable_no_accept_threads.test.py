@@ -33,8 +33,7 @@ response_header = {"headers": "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n", "t
 server.addResponse("sessionlog.json", request_header, response_header)
 
 # add ssl materials like key, certificates for the server
-ts.addSSLfile("ssl/server.pem")
-ts.addSSLfile("ssl/server.key")
+ts.addDefaultSSLFiles()
 
 ts.Disk.remap_config.AddLine(
     'map / http://127.0.0.1:{0}'.format(server.Variables.Port))
@@ -49,7 +48,6 @@ ts.Disk.records_config.update({
     'proxy.config.diags.debug.tags': 'http|ssl',
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
-    'proxy.config.ssl.server.cipher_suite': 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:AES128-GCM-SHA256:AES256-GCM-SHA384:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:RC4-SHA:RC4-MD5:AES128-SHA:AES256-SHA:DES-CBC3-SHA!SRP:!DSS:!PSK:!aNULL:!eNULL:!SSLv2',
     'proxy.config.url_remap.pristine_host_hdr': 1,
     'proxy.config.http.server_ports': '{0}:ssl:proto=http {1}'.format(ts.Variables.ssl_port, ts.Variables.port),
     'proxy.config.accept_threads': 0
@@ -67,7 +65,7 @@ tr = Test.AddTestRun("Do-not-Negotiate-h2")
 tr.Processes.Default.Command = "curl -v -k --resolve 'foo.com:{0}:127.0.0.1' https://foo.com:{0}".format(ts.Variables.ssl_port)
 tr.ReturnCode = 0
 tr.Processes.Default.StartBefore(server, ready=When.PortOpen(server.Variables.Port))
-tr.Processes.Default.StartBefore(Test.Processes.ts, ready=When.PortOpen(ts.Variables.ssl_port))
+tr.Processes.Default.StartBefore(Test.Processes.ts)
 tr.StillRunningAfter = server
 tr.StillRunningAfter = ts
 tr.Processes.Default.TimeOut = 5

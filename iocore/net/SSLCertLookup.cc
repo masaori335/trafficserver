@@ -28,6 +28,7 @@
 #include "tscore/MatcherUtils.h"
 #include "tscore/Regex.h"
 #include "tscore/Trie.h"
+#include "tscore/ink_config.h"
 #include "tscore/BufferWriter.h"
 #include "tscore/bwf_std_format.h"
 #include "tscore/TestBox.h"
@@ -95,7 +96,7 @@ public:
   /// cert context.
   /// @return @a idx
   int insert(const char *name, int idx);
-  SSLCertContext *lookup(const char *name);
+  SSLCertContext *lookup(const std::string &name);
   void printWildDomains() const;
   unsigned
   count() const
@@ -216,7 +217,7 @@ fail:
 ssl_ticket_key_block *
 ssl_create_ticket_keyblock(const char *ticket_key_path)
 {
-#if TS_HAVE_OPENSSL_SESSION_TICKETS
+#if TS_HAS_TLS_SESSION_TICKET
   ats_scoped_str ticket_key_data;
   int ticket_key_len;
   ssl_ticket_key_block *keyblock = nullptr;
@@ -241,10 +242,10 @@ fail:
   ticket_block_free(keyblock);
   return nullptr;
 
-#else  /* !TS_HAVE_OPENSSL_SESSION_TICKETS */
+#else  /* !TS_HAS_TLS_SESSION_TICKET */
   (void)ticket_key_path;
   return nullptr;
-#endif /* TS_HAVE_OPENSSL_SESSION_TICKETS */
+#endif /* TS_HAS_TLS_SESSION_TICKET */
 }
 
 SSLCertContext::SSLCertContext(SSLCertContext const &other)
@@ -291,7 +292,7 @@ SSLCertLookup::~SSLCertLookup()
 }
 
 SSLCertContext *
-SSLCertLookup::find(const char *address) const
+SSLCertLookup::find(const std::string &address) const
 {
   return this->ssl_storage->lookup(address);
 }
@@ -339,6 +340,34 @@ SSLCertContext *
 SSLCertLookup::get(unsigned i) const
 {
   return ssl_storage->get(i);
+}
+
+void
+SSLCertLookup::register_cert_secrets(std::vector<std::string> const &cert_secrets, std::set<std::string> &lookup_names)
+{
+  for (auto &secret : cert_secrets) {
+    auto iter = cert_secret_registry.find(secret);
+    if (iter == cert_secret_registry.end()) {
+      std::vector<std::string> add_names;
+      cert_secret_registry.insert(std::make_pair(secret, add_names));
+      iter = cert_secret_registry.find(secret);
+    }
+    iter->second.insert(iter->second.end(), lookup_names.begin(), lookup_names.end());
+  }
+}
+
+void
+SSLCertLookup::getPolicies(const std::string &secret_name, std::set<shared_SSLMultiCertConfigParams> &policies) const
+{
+  auto iter = cert_secret_registry.find(secret_name);
+  if (iter != cert_secret_registry.end()) {
+    for (auto name : iter->second) {
+      SSLCertContext *cc = this->find(name);
+      if (cc) {
+        policies.insert(cc->userconfig);
+      }
+    }
+  }
 }
 
 SSLContextStorage::SSLContextStorage() {}
@@ -411,7 +440,7 @@ SSLContextStorage::printWildDomains() const
 }
 
 SSLCertContext *
-SSLContextStorage::lookup(const char *name)
+SSLContextStorage::lookup(const std::string &name)
 {
   // First look for an exact name match
   if (auto it = this->hostnames.find(name); it != this->hostnames.end()) {

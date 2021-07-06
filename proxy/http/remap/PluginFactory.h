@@ -82,6 +82,8 @@ public:
  * filesystem links and different dl library implementations.
  *
  * @note This is meant to unify the way global and remap plugins are (re)loaded (global plugin support is not implemented yet).
+ * @note In the case of a mixed plugin, getRemapPlugin/dynamicReloadEnabled can be internally overwritten if the plugin opt out to
+ * take part in the dynamic reload process.
  */
 class PluginFactory
 {

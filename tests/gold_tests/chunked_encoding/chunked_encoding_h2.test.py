@@ -32,16 +32,14 @@ Test.GetTcpPort("upstream_port")
 ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True)
 
 # add ssl materials like key, certificates for the server
-ts.addSSLfile("ssl/server.pem")
-ts.addSSLfile("ssl/server.key")
+ts.addDefaultSSLFiles()
 
 ts.Disk.records_config.update({
-    'proxy.config.http2.enabled': 1,    # this option is for VZM-internal only
     'proxy.config.diags.debug.enabled': 0,
     'proxy.config.diags.debug.tags': 'http',
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
-    'proxy.config.ssl.server.cipher_suite': 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:AES128-GCM-SHA256:AES256-GCM-SHA384:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:RC4-SHA:RC4-MD5:AES128-SHA:AES256-SHA:DES-CBC3-SHA!SRP:!DSS:!PSK:!aNULL:!eNULL:!SSLv2',
+    'proxy.config.ssl.client.verify.server.policy': 'PERMISSIVE',
 })
 
 ts.Disk.remap_config.AddLine(
@@ -55,7 +53,7 @@ ts.Disk.ssl_multicert_config.AddLine(
     'dest_ip=* ssl_cert_name=server.pem ssl_key_name=server.key'
 )
 
-# Using netcat as a cheapy origin server in case 1 so we can insert a delay in sending back the response.
+# Using netcat as a cheap origin server in case 1 so we can insert a delay in sending back the response.
 # Replaced microserver for cases 2 and 3 as well because I was getting python exceptions when running
 # microserver if chunked encoding headers were specified for the request headers
 

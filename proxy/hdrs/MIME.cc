@@ -630,8 +630,9 @@ mime_hdr_sanity_check(MIMEHdrImpl *mh)
         if (field->m_next_dup) {
           bool found = false;
           for (blk = &(mh->m_first_fblock); blk != nullptr; blk = blk->m_next) {
-            const char *addr = (const char *)(field->m_next_dup);
-            if ((addr >= (const char *)(blk)) && (addr < (const char *)(blk) + sizeof(MIMEFieldBlockImpl))) {
+            const char *addr = reinterpret_cast<const char *>(field->m_next_dup);
+            if ((addr >= reinterpret_cast<const char *>(blk)) &&
+                (addr < reinterpret_cast<const char *>(blk) + sizeof(MIMEFieldBlockImpl))) {
               found = true;
               break;
             }
@@ -1664,8 +1665,8 @@ mime_hdr_field_delete(HdrHeap *heap, MIMEHdrImpl *mh, MIMEField *field, bool del
       if (prev_block != nullptr) {
         if (fblock->m_freetop == MIME_FIELD_BLOCK_SLOTS && fblock->contains(field)) {
           // Check if fields in all slots are deleted
-          for (int i = 0; i < MIME_FIELD_BLOCK_SLOTS; ++i) {
-            if (fblock->m_field_slots[i].m_readiness != MIME_FIELD_SLOT_READINESS_DELETED) {
+          for (auto &m_field_slot : fblock->m_field_slots) {
+            if (m_field_slot.m_readiness != MIME_FIELD_SLOT_READINESS_DELETED) {
               can_destroy_block = false;
               break;
             }
@@ -2381,7 +2382,7 @@ MIMEScanner::get(TextView &input, TextView &output, bool &output_shares_input, b
       } else {
         // This really should be an error (spec doesn't permit lone CR) but the regression tests
         // require it.
-        this->append({&RAW_CR, 1});
+        this->append(TextView(&RAW_CR, 1)); // This is to fix a core dump of the icc 19.1 compiler when {&RAW_CR, 1} is used
         m_state = MIME_PARSE_INSIDE;
       }
       break;
@@ -2510,7 +2511,7 @@ mime_parser_clear(MIMEParser *parser)
 
 ParseResult
 mime_parser_parse(MIMEParser *parser, HdrHeap *heap, MIMEHdrImpl *mh, const char **real_s, const char *real_e,
-                  bool must_copy_strings, bool eof, size_t max_hdr_field_size)
+                  bool must_copy_strings, bool eof, bool remove_ws_from_field_name, size_t max_hdr_field_size)
 {
   ParseResult err;
   bool line_is_real;
@@ -2570,8 +2571,15 @@ mime_parser_parse(MIMEParser *parser, HdrHeap *heap, MIMEHdrImpl *mh, const char
     // server MUST reject any received request message that contains
     // whitespace between a header field-name and colon with a response code
     // of 400 (Bad Request).
+    // A proxy MUST remove any such whitespace from a response message before
+    // forwarding the message downstream.
+    bool raw_print_field = true;
     if (is_ws(field_name.back())) {
-      return PARSE_RESULT_ERROR;
+      if (!remove_ws_from_field_name) {
+        return PARSE_RESULT_ERROR;
+      }
+      field_name.rtrim_if(&ParseRules::is_ws);
+      raw_print_field = false;
     }
 
     // find value first
@@ -2607,7 +2615,7 @@ mime_parser_parse(MIMEParser *parser, HdrHeap *heap, MIMEHdrImpl *mh, const char
 
     MIMEField *field = mime_field_create(heap, mh);
     mime_field_name_value_set(heap, mh, field, field_name_wks_idx, field_name.data(), field_name.size(), field_value.data(),
-                              field_value.size(), true, parsed.size(), false);
+                              field_value.size(), raw_print_field, parsed.size(), false);
     mime_hdr_field_attach(mh, field, 1, nullptr);
   }
 }

@@ -79,9 +79,12 @@ static inline int
 read_signal_and_update(int event, UnixNetVConnection *vc)
 {
   vc->recursion++;
-  if (vc->read.vio.cont) {
+  if (vc->read.vio.cont && vc->read.vio.mutex == vc->read.vio.cont->mutex) {
     vc->read.vio.cont->handleEvent(event, &vc->read.vio);
   } else {
+    if (vc->read.vio.cont) {
+      Note("read_signal_and_update: mutexes are different? vc=%p, event=%d", vc, event);
+    }
     switch (event) {
     case VC_EVENT_EOS:
     case VC_EVENT_ERROR:
@@ -110,9 +113,12 @@ static inline int
 write_signal_and_update(int event, UnixNetVConnection *vc)
 {
   vc->recursion++;
-  if (vc->write.vio.cont) {
+  if (vc->write.vio.cont && vc->write.vio.mutex == vc->write.vio.cont->mutex) {
     vc->write.vio.cont->handleEvent(event, &vc->write.vio);
   } else {
+    if (vc->write.vio.cont) {
+      Note("write_signal_and_update: mutexes are different? vc=%p, event=%d", vc, event);
+    }
     switch (event) {
     case VC_EVENT_EOS:
     case VC_EVENT_ERROR:
@@ -249,7 +255,14 @@ read_from_net(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
 
       ink_assert(niov > 0);
       ink_assert(niov <= countof(tiovec));
-      r = socketManager.readv(vc->con.fd, &tiovec[0], niov);
+      struct msghdr msg;
+
+      ink_zero(msg);
+      msg.msg_name    = const_cast<sockaddr *>(vc->get_remote_addr());
+      msg.msg_namelen = ats_ip_size(vc->get_remote_addr());
+      msg.msg_iov     = &tiovec[0];
+      msg.msg_iovlen  = niov;
+      r               = socketManager.recvmsg(vc->con.fd, &msg, 0);
 
       NET_INCREMENT_DYN_STAT(net_calls_to_read_stat);
 
@@ -288,8 +301,9 @@ read_from_net(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
     // Add data to buffer and signal continuation.
     buf.writer()->fill(r);
 #ifdef DEBUG
-    if (buf.writer()->write_avail() <= 0)
+    if (buf.writer()->write_avail() <= 0) {
       Debug("iocore_net", "read_from_net, read buffer full");
+    }
 #endif
     s->vio.ndone += r;
     net_activity(vc, thread);
@@ -317,6 +331,7 @@ read_from_net(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
       }
     }
   }
+
   // If here are is no more room, or nothing to do, disable the connection
   if (s->vio.ntodo() <= 0 || !s->enabled || !buf.writer()->write_avail()) {
     read_disable(nh, vc);
@@ -351,6 +366,12 @@ write_to_net_io(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
 
   if (!lock.is_locked() || lock.get_mutex() != s->vio.mutex.get()) {
     write_reschedule(nh, vc);
+    return;
+  }
+
+  if (vc->has_error()) {
+    vc->lerrno = vc->error;
+    write_signal_and_update(VC_EVENT_ERROR, vc);
     return;
   }
 
@@ -481,7 +502,7 @@ write_to_net_io(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
     }
 
     vc->write.triggered = 0;
-    write_signal_error(nh, vc, static_cast<int>(-total_written));
+    write_signal_error(nh, vc, static_cast<int>(-r));
     return;
   } else {                                        // Wrote data.  Finished without error
     int wbe_event = vc->write_buffer_empty_event; // save so we can clear if needed.
@@ -562,19 +583,6 @@ UnixNetVConnection::get_data(int id, void *data)
   }
 }
 
-int64_t
-UnixNetVConnection::outstanding()
-{
-  int n;
-  int ret = ioctl(this->get_socket(), TIOCOUTQ, &n);
-  // if there was an error (such as ioctl doesn't support this call on this platform) then
-  // we return -1
-  if (ret == -1) {
-    return ret;
-  }
-  return n;
-}
-
 VIO *
 UnixNetVConnection::do_io_read(Continuation *c, int64_t nbytes, MIOBuffer *buf)
 {
@@ -625,22 +633,42 @@ UnixNetVConnection::do_io_write(Continuation *c, int64_t nbytes, IOBufferReader 
   return &write.vio;
 }
 
+Continuation *
+UnixNetVConnection::read_vio_cont()
+{
+  return read.vio.cont;
+}
+
+Continuation *
+UnixNetVConnection::write_vio_cont()
+{
+  return write.vio.cont;
+}
+
 void
 UnixNetVConnection::do_io_close(int alerrno /* = -1 */)
 {
   // FIXME: the nh must not nullptr.
   ink_assert(nh);
 
-  read.enabled  = 0;
-  write.enabled = 0;
-  read.vio.buffer.clear();
+  // The vio continuations will be cleared in ::clear called from ::free
+  read.enabled    = 0;
+  write.enabled   = 0;
   read.vio.nbytes = 0;
   read.vio.op     = VIO::NONE;
-  read.vio.cont   = nullptr;
-  write.vio.buffer.clear();
+
+  if (netvc_context == NET_VCONNECTION_OUT) {
+    // do not clear the iobufs yet to guard
+    // against race condition with session pool closing
+    Debug("iocore_net", "delay vio buffer clear to protect against  race for vc %p", this);
+  } else {
+    // may be okay to delay for all VCs?
+    read.vio.buffer.clear();
+    write.vio.buffer.clear();
+  }
+
   write.vio.nbytes = 0;
   write.vio.op     = VIO::NONE;
-  write.vio.cont   = nullptr;
 
   EThread *t        = this_ethread();
   bool close_inline = !recursion && (!nh || nh->mutex->thread_holding == t);
@@ -649,6 +677,9 @@ UnixNetVConnection::do_io_close(int alerrno /* = -1 */)
   if (alerrno && alerrno != -1) {
     this->lerrno = alerrno;
   }
+
+  // Must mark for closed last in case this is a
+  // cross thread migration scenario.
   if (alerrno == -1) {
     closed = 1;
   } else {
@@ -674,7 +705,7 @@ UnixNetVConnection::do_io_shutdown(ShutdownHowTo_t howto)
     read.vio.buffer.clear();
     read.vio.nbytes = 0;
     read.vio.cont   = nullptr;
-    f.shutdown |= NET_VC_SHUTDOWN_READ;
+    f.shutdown |= NetEvent::SHUTDOWN_READ;
     break;
   case IO_SHUTDOWN_WRITE:
     socketManager.shutdown((this)->con.fd, 1);
@@ -682,7 +713,7 @@ UnixNetVConnection::do_io_shutdown(ShutdownHowTo_t howto)
     write.vio.buffer.clear();
     write.vio.nbytes = 0;
     write.vio.cont   = nullptr;
-    f.shutdown |= NET_VC_SHUTDOWN_WRITE;
+    f.shutdown |= NetEvent::SHUTDOWN_WRITE;
     break;
   case IO_SHUTDOWN_READWRITE:
     socketManager.shutdown((this)->con.fd, 2);
@@ -694,7 +725,7 @@ UnixNetVConnection::do_io_shutdown(ShutdownHowTo_t howto)
     write.vio.nbytes = 0;
     read.vio.cont    = nullptr;
     write.vio.cont   = nullptr;
-    f.shutdown       = NET_VC_SHUTDOWN_READ | NET_VC_SHUTDOWN_WRITE;
+    f.shutdown       = NetEvent::SHUTDOWN_READ | NetEvent::SHUTDOWN_WRITE;
     break;
   default:
     ink_assert(!"not reached");
@@ -866,10 +897,7 @@ UnixNetVConnection::reenable_re(VIO *vio)
   }
 }
 
-UnixNetVConnection::UnixNetVConnection()
-{
-  SET_HANDLER((NetVConnHandler)&UnixNetVConnection::startEvent);
-}
+UnixNetVConnection::UnixNetVConnection() {}
 
 // Private methods
 
@@ -945,19 +973,21 @@ UnixNetVConnection::load_buffer_and_write(int64_t towrite, MIOBufferAccessor &bu
     // If the platform doesn't support TCP Fast Open, verify that we
     // correctly disabled support in the socket option configuration.
     ink_assert(MSG_FASTOPEN != 0 || this->options.f_tcp_fastopen == false);
+    struct msghdr msg;
+
+    ink_zero(msg);
+    msg.msg_name    = const_cast<sockaddr *>(this->get_remote_addr());
+    msg.msg_namelen = ats_ip_size(this->get_remote_addr());
+    msg.msg_iov     = &tiovec[0];
+    msg.msg_iovlen  = niov;
+    int flags       = 0;
 
     if (!this->con.is_connected && this->options.f_tcp_fastopen) {
-      struct msghdr msg;
-
-      ink_zero(msg);
-      msg.msg_name    = const_cast<sockaddr *>(this->get_remote_addr());
-      msg.msg_namelen = ats_ip_size(this->get_remote_addr());
-      msg.msg_iov     = &tiovec[0];
-      msg.msg_iovlen  = niov;
-
       NET_INCREMENT_DYN_STAT(net_fastopen_attempts_stat);
-
-      r = socketManager.sendmsg(con.fd, &msg, MSG_FASTOPEN);
+      flags = MSG_FASTOPEN;
+    }
+    r = socketManager.sendmsg(con.fd, &msg, flags);
+    if (!this->con.is_connected && this->options.f_tcp_fastopen) {
       if (r < 0) {
         if (r == -EINPROGRESS || r == -EWOULDBLOCK) {
           this->con.is_connected = true;
@@ -966,9 +996,6 @@ UnixNetVConnection::load_buffer_and_write(int64_t towrite, MIOBufferAccessor &bu
         NET_INCREMENT_DYN_STAT(net_fastopen_successes_stat);
         this->con.is_connected = true;
       }
-
-    } else {
-      r = socketManager.writev(con.fd, &tiovec[0], niov);
     }
 
     if (r > 0) {
@@ -1030,22 +1057,6 @@ void
 UnixNetVConnection::netActivity(EThread *lthread)
 {
   net_activity(this, lthread);
-}
-
-int
-UnixNetVConnection::startEvent(int /* event ATS_UNUSED */, Event *e)
-{
-  MUTEX_TRY_LOCK(lock, get_NetHandler(e->ethread)->mutex, e->ethread);
-  if (!lock.is_locked()) {
-    e->schedule_in(HRTIME_MSECONDS(net_retry_delay));
-    return EVENT_CONT;
-  }
-  if (!action_.cancelled) {
-    connectUp(e->ethread, NO_FD);
-  } else {
-    free(e->ethread);
-  }
-  return EVENT_DONE;
 }
 
 int
@@ -1122,10 +1133,13 @@ UnixNetVConnection::mainEvent(int event, Event *e)
   Continuation *reader_cont     = nullptr;
   Continuation *writer_cont     = nullptr;
   ink_hrtime *signal_timeout_at = nullptr;
-  Event *t                      = nullptr;
-  Event **signal_timeout        = &t;
 
   switch (event) {
+  // Treating immediate as inactivity timeout for any
+  // deprecated remaining immediates. The previous code was using EVENT_INTERVAL
+  // and EVENT_IMMEDIATE to distinguish active and inactive timeouts.
+  // There appears to be some stray EVENT_IMMEDIATEs floating around
+  case EVENT_IMMEDIATE:
   case VC_EVENT_INACTIVITY_TIMEOUT:
     signal_event      = VC_EVENT_INACTIVITY_TIMEOUT;
     signal_timeout_at = &next_inactivity_timeout_at;
@@ -1139,7 +1153,6 @@ UnixNetVConnection::mainEvent(int event, Event *e)
     break;
   }
 
-  *signal_timeout    = nullptr;
   *signal_timeout_at = 0;
   writer_cont        = write.vio.cont;
 
@@ -1148,14 +1161,14 @@ UnixNetVConnection::mainEvent(int event, Event *e)
     return EVENT_DONE;
   }
 
-  if (read.vio.op == VIO::READ && !(f.shutdown & NET_VC_SHUTDOWN_READ)) {
+  if (read.vio.op == VIO::READ && !(f.shutdown & NetEvent::SHUTDOWN_READ)) {
     reader_cont = read.vio.cont;
     if (read_signal_and_update(signal_event, this) == EVENT_DONE) {
       return EVENT_DONE;
     }
   }
 
-  if (!*signal_timeout && !*signal_timeout_at && !closed && write.vio.op == VIO::WRITE && !(f.shutdown & NET_VC_SHUTDOWN_WRITE) &&
+  if (!*signal_timeout_at && !closed && write.vio.op == VIO::WRITE && !(f.shutdown & NetEvent::SHUTDOWN_WRITE) &&
       reader_cont != write.vio.cont && writer_cont == write.vio.cont) {
     if (write_signal_and_update(signal_event, this) == EVENT_DONE) {
       return EVENT_DONE;
@@ -1308,6 +1321,10 @@ UnixNetVConnection::clear()
   read.vio.vc_server  = nullptr;
   write.vio.vc_server = nullptr;
   options.reset();
+  if (netvc_context == NET_VCONNECTION_OUT) {
+    read.vio.buffer.clear();
+    write.vio.buffer.clear();
+  }
   closed        = 0;
   netvc_context = NET_VCONNECTION_UNSET;
   ink_assert(!read.ready_link.prev && !read.ready_link.next);
@@ -1331,7 +1348,6 @@ UnixNetVConnection::free(EThread *t)
   con.close();
 
   clear();
-  SET_CONTINUATION_HANDLER(this, (NetVConnHandler)&UnixNetVConnection::startEvent);
   ink_assert(con.fd == NO_FD);
   ink_assert(t == this_ethread());
 
@@ -1387,13 +1403,8 @@ UnixNetVConnection::migrateToCurrentThread(Continuation *cont, EThread *t)
 
   Connection hold_con;
   hold_con.move(this->con);
-  SSLNetVConnection *sslvc = dynamic_cast<SSLNetVConnection *>(this);
 
-  SSL *save_ssl = (sslvc) ? sslvc->ssl : nullptr;
-  if (save_ssl) {
-    SSLNetVCDetach(sslvc->ssl);
-    sslvc->ssl = nullptr;
-  }
+  void *arg = this->_prepareForMigration();
 
   // Do_io_close will signal the VC to be freed on the original thread
   // Since we moved the con context, the fd will not be closed
@@ -1402,29 +1413,32 @@ UnixNetVConnection::migrateToCurrentThread(Continuation *cont, EThread *t)
   this->ep.stop();
 
   // Create new VC:
-  UnixNetVConnection *netvc = nullptr;
-  if (save_ssl) {
-    SSLNetVConnection *sslvc = static_cast<SSLNetVConnection *>(sslNetProcessor.allocate_vc(t));
-    if (sslvc->populate(hold_con, cont, save_ssl) != EVENT_DONE) {
-      sslvc->do_io_close();
-      sslvc = nullptr;
-    } else {
-      // Update the SSL fields
-      sslvc->set_context(get_context());
-    }
-    netvc = sslvc;
-  } else {
-    netvc = static_cast<UnixNetVConnection *>(netProcessor.allocate_vc(t));
-    if (netvc->populate(hold_con, cont, save_ssl) != EVENT_DONE) {
-      netvc->do_io_close();
-      netvc = nullptr;
-    } else {
-      netvc->set_context(get_context());
-    }
+  UnixNetVConnection *newvc = static_cast<UnixNetVConnection *>(this->_getNetProcessor()->allocate_vc(t));
+  ink_assert(newvc != nullptr);
+  if (newvc->populate(hold_con, cont, arg) != EVENT_DONE) {
+    newvc->do_io_close();
+    newvc = nullptr;
   }
+  if (newvc) {
+    newvc->set_context(get_context());
+    newvc->options = this->options;
+  }
+
   // Do not mark this closed until the end so it does not get freed by the other thread too soon
   this->do_io_close();
-  return netvc;
+  return newvc;
+}
+
+void *
+UnixNetVConnection::_prepareForMigration()
+{
+  return nullptr;
+}
+
+NetProcessor *
+UnixNetVConnection::_getNetProcessor()
+{
+  return &netProcessor;
 }
 
 void

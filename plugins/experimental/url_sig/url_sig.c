@@ -60,6 +60,7 @@ struct config {
   pcre_extra *regex_extra;
   int pristine_url_flag;
   char *sig_anchor;
+  bool ignore_expiry;
 };
 
 static void
@@ -134,6 +135,7 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char *errbuf, int errbuf_s
   char line[300];
   int line_no = 0;
   int keynum;
+  bool eat_comment = false;
 
   cfg = TSmalloc(sizeof(struct config));
   memset(cfg, 0, sizeof(struct config));
@@ -141,7 +143,19 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char *errbuf, int errbuf_s
   while (fgets(line, sizeof(line), file) != NULL) {
     TSDebug(PLUGIN_NAME, "LINE: %s (%d)", line, (int)strlen(line));
     line_no++;
+
+    if (eat_comment) {
+      // Check if final char is EOL, if so we are done eating
+      if (line[strlen(line) - 1] == '\n') {
+        eat_comment = false;
+      }
+      continue;
+    }
     if (line[0] == '#' || strlen(line) <= 1) {
+      // Check if we have a comment longer than the full buffer if no EOL
+      if (line[strlen(line) - 1] != '\n') {
+        eat_comment = true;
+      }
       continue;
     }
     char *pos = strchr(line, '=');
@@ -216,6 +230,11 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char *errbuf, int errbuf_s
 #endif
         cfg->regex_extra = pcre_study(
           cfg->regex, options, &errptr); // We do not need to check the error here because we can still run without the studying?
+      }
+    } else if (strncmp(line, "ignore_expiry", 13) == 0) {
+      if (strncmp(value, "true", 4) == 0) {
+        cfg->ignore_expiry = true;
+        TSError("[url_sig] Plugin IGNORES sig expiration");
       }
     } else {
       TSError("[url_sig] Error parsing line %d of file %s (%s)", line_no, config_file, line);
@@ -667,17 +686,19 @@ TSRemapDoRemap(void *ih, TSHttpTxn txnp, TSRemapRequestInfo *rri)
   }
 
   // Expiration
-  cp = strstr(query, EXP_QSTRING "=");
-  if (cp != NULL) {
-    cp += strlen(EXP_QSTRING) + 1;
-    if (sscanf(cp, "%" SCNu64, &expiration) != 1 || (time_t)expiration < time(NULL)) {
-      err_log(url, "Invalid expiration, or expired");
+  if (!cfg->ignore_expiry) {
+    cp = strstr(query, EXP_QSTRING "=");
+    if (cp != NULL) {
+      cp += strlen(EXP_QSTRING) + 1;
+      if (sscanf(cp, "%" SCNu64, &expiration) != 1 || (time_t)expiration < time(NULL)) {
+        err_log(url, "Invalid expiration, or expired");
+        goto deny;
+      }
+      TSDebug(PLUGIN_NAME, "Exp: %" PRIu64, expiration);
+    } else {
+      err_log(url, "Expiration query string not found");
       goto deny;
     }
-    TSDebug(PLUGIN_NAME, "Exp: %" PRIu64, expiration);
-  } else {
-    err_log(url, "Expiration query string not found");
-    goto deny;
   }
   // Algorithm
   cp = strstr(query, ALG_QSTRING "=");

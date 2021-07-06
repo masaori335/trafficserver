@@ -22,7 +22,10 @@ Test tls server certificate verification without a pristine host header
 
 # Define default ATS
 ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True)
-server_foo = Test.MakeOriginServer("server_foo", ssl=True, options = {"--key": "{0}/signed-foo.key".format(Test.RunDirectory), "--cert": "{0}/signed-foo.pem".format(Test.RunDirectory)})
+server_foo = Test.MakeOriginServer("server_foo",
+                                   ssl=True,
+                                   options={"--key": "{0}/signed-foo.key".format(Test.RunDirectory),
+                                            "--cert": "{0}/signed-foo.pem".format(Test.RunDirectory)})
 server = Test.MakeOriginServer("server", ssl=True)
 dns = Test.MakeDNServer("dns")
 
@@ -56,7 +59,6 @@ ts.Disk.ssl_multicert_config.AddLine(
 ts.Disk.records_config.update({
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
-    'proxy.config.ssl.server.cipher_suite': 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:AES128-GCM-SHA256:AES256-GCM-SHA384:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:RC4-SHA:RC4-MD5:AES128-SHA:AES256-SHA:DES-CBC3-SHA!SRP:!DSS:!PSK:!aNULL:!eNULL:!SSLv2',
     # set global policy
     'proxy.config.ssl.client.verify.server.policy': 'ENFORCED',
     'proxy.config.ssl.client.verify.server.properties': 'ALL',
@@ -79,7 +81,6 @@ tr.Setup.Copy("ssl/signed-bar.key")
 tr.Setup.Copy("ssl/signed-bar.pem")
 tr.Processes.Default.Command = "curl -v --resolve 'bar.com:{0}:127.0.0.1' -k https://bar.com:{0}".format(ts.Variables.ssl_port)
 tr.ReturnCode = 0
-# time delay as proxy.config.http.wait_for_cache could be broken
 tr.Processes.Default.StartBefore(server_foo)
 tr.Processes.Default.StartBefore(dns)
 tr.Processes.Default.StartBefore(Test.Processes.ts)
@@ -97,4 +98,5 @@ tr2.Processes.Default.Streams.stdout = Testers.ContainsExpression("Could Not Con
 
 # Over riding the built in ERROR check since we expect tr3 to fail
 ts.Disk.diags_log.Content = Testers.ExcludesExpression("verification failed", "Make sure the signatures didn't fail")
-ts.Disk.diags_log.Content += Testers.ContainsExpression("WARNING: SNI \(bar.com\) not in certificate", "Make sure bad_bar name checked failed.")
+ts.Disk.diags_log.Content += Testers.ContainsExpression("WARNING: SNI \(bar.com\) not in certificate",
+                                                        "Make sure bad_bar name checked failed.")

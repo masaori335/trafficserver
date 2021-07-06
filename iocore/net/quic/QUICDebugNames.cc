@@ -90,6 +90,8 @@ QUICDebugNames::frame_type(QUICFrameType type)
     return "RETIRE_CONNECTION_ID";
   case QUICFrameType::NEW_TOKEN:
     return "NEW_TOKEN";
+  case QUICFrameType::HANDSHAKE_DONE:
+    return "HANDSHAKE_DONE";
   case QUICFrameType::UNKNOWN:
   default:
     return "UNKNOWN";
@@ -119,6 +121,8 @@ QUICDebugNames::error_code(uint16_t code)
     return "NO_ERROR";
   case static_cast<uint16_t>(QUICTransErrorCode::INTERNAL_ERROR):
     return "INTERNAL_ERROR";
+  case static_cast<uint16_t>(QUICTransErrorCode::CONNECTION_REFUSED):
+    return "CONNECTION_REFUSED";
   case static_cast<uint16_t>(QUICTransErrorCode::FLOW_CONTROL_ERROR):
     return "FLOW_CONTROL_ERROR";
   case static_cast<uint16_t>(QUICTransErrorCode::STREAM_LIMIT_ERROR):
@@ -131,8 +135,14 @@ QUICDebugNames::error_code(uint16_t code)
     return "FRAME_ENCODING_ERROR";
   case static_cast<uint16_t>(QUICTransErrorCode::TRANSPORT_PARAMETER_ERROR):
     return "TRANSPORT_PARAMETER_ERROR";
+  case static_cast<uint16_t>(QUICTransErrorCode::CONNECTION_ID_LIMIT_ERROR):
+    return "CONNECTION_ID_LIMIT_ERROR";
   case static_cast<uint16_t>(QUICTransErrorCode::PROTOCOL_VIOLATION):
     return "PROTOCOL_VIOLATION";
+  case static_cast<uint16_t>(QUICTransErrorCode::INVALID_TOKEN):
+    return "INVALID_TOKEN";
+  case static_cast<uint16_t>(QUICTransErrorCode::APPLICATION_ERROR):
+    return "APPLICATION_ERROR";
   case static_cast<uint16_t>(QUICTransErrorCode::CRYPTO_BUFFER_EXCEEDED):
     return "CRYPTO_BUFFER_EXCEEDED";
   default:
@@ -179,12 +189,12 @@ QUICDebugNames::transport_parameter_id(QUICTransportParameterId id)
     return "INITIAL_MAX_DATA";
   case QUICTransportParameterId::INITIAL_MAX_STREAMS_BIDI:
     return "INITIAL_MAX_STREAMS_BIDI";
-  case QUICTransportParameterId::IDLE_TIMEOUT:
-    return "IDLE_TIMEOUT";
+  case QUICTransportParameterId::MAX_IDLE_TIMEOUT:
+    return "MAX_IDLE_TIMEOUT";
   case QUICTransportParameterId::PREFERRED_ADDRESS:
     return "PREFERRED_ADDRESS";
-  case QUICTransportParameterId::MAX_PACKET_SIZE:
-    return "MAX_PACKET_SIZE";
+  case QUICTransportParameterId::MAX_UDP_PAYLOAD_SIZE:
+    return "MAX_UDP_PAYLOAD_SIZE";
   case QUICTransportParameterId::STATELESS_RESET_TOKEN:
     return "STATELESS_RESET_TOKEN";
   case QUICTransportParameterId::ACK_DELAY_EXPONENT:
@@ -199,10 +209,14 @@ QUICDebugNames::transport_parameter_id(QUICTransportParameterId id)
     return "INITIAL_MAX_STREAM_DATA_UNI";
   case QUICTransportParameterId::MAX_ACK_DELAY:
     return "INITIAL_MAX_ACK_DELAY";
-  case QUICTransportParameterId::ORIGINAL_CONNECTION_ID:
-    return "INITIAL_ORIGINAL_CONNECTION_ID";
+  case QUICTransportParameterId::ORIGINAL_DESTINATION_CONNECTION_ID:
+    return "INITIAL_ORIGINAL_DESTINATION_CONNECTION_ID";
   case QUICTransportParameterId::ACTIVE_CONNECTION_ID_LIMIT:
     return "ACTIVE_CONNECTION_ID_LIMIT";
+  case QUICTransportParameterId::INITIAL_SOURCE_CONNECTION_ID:
+    return "INITIAL_SOURCE_CONNECTION_ID";
+  case QUICTransportParameterId::RETRY_SOURCE_CONNECTION_ID:
+    return "RETRY_SOURCE_CONNECTION_ID";
   default:
     return "UNKNOWN";
   }
@@ -317,12 +331,12 @@ const char *
 QUICDebugNames::pn_space(QUICPacketNumberSpace pn_space)
 {
   switch (pn_space) {
-  case QUICPacketNumberSpace::Initial:
-    return "QUICPacketNumberSpace::Initial";
-  case QUICPacketNumberSpace::Handshake:
-    return "QUICPacketNumberSpace::Handshake";
-  case QUICPacketNumberSpace::ApplicationData:
-    return "QUICPacketNumberSpace::ApplicationData";
+  case QUICPacketNumberSpace::INITIAL:
+    return "INITIAL";
+  case QUICPacketNumberSpace::HANDSHAKE:
+    return "HANDSHAKE";
+  case QUICPacketNumberSpace::APPLICATION_DATA:
+    return "APPLCIATION_DATA";
   default:
     return "UNKNOWN";
   }

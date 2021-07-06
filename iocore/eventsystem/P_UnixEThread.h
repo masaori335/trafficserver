@@ -34,6 +34,7 @@
 #include "I_EventProcessor.h"
 
 const ink_hrtime DELAY_FOR_RETRY = HRTIME_MSECONDS(10);
+extern ink_thread_key ethread_key;
 
 TS_INLINE Event *
 EThread::schedule_imm(Continuation *cont, int callback_event, void *cookie)
@@ -79,7 +80,10 @@ TS_INLINE Event *
 EThread::schedule(Event *e)
 {
   e->ethread = this;
-  ink_assert(tt == REGULAR);
+  if (tt != REGULAR) {
+    ink_assert(tt == DEDICATED);
+    return eventProcessor.schedule(e, ET_CALL);
+  }
   if (e->continuation->mutex) {
     e->mutex = e->continuation->mutex;
   } else {
@@ -183,7 +187,9 @@ EThread::schedule_spawn(Continuation *c, int ev, void *cookie)
 TS_INLINE EThread *
 this_ethread()
 {
-  return static_cast<EThread *>(this_thread());
+  // The `dynamic_cast` has a significant performace impact (~6%).
+  // Reported by masaori and create PR #6281 to fix it.
+  return static_cast<EThread *>(ink_thread_getspecific(ethread_key));
 }
 
 TS_INLINE EThread *

@@ -22,17 +22,22 @@
  */
 
 #include "http/HttpSM.h"
-#include "http/Http1ServerSession.h"
 #include "Plugin.h"
 
 #define HttpTxnDebug(fmt, ...) SsnDebug(this, "http_txn", fmt, __VA_ARGS__)
 
-ProxyTransaction::ProxyTransaction() : VConnection(nullptr) {}
+ProxyTransaction::ProxyTransaction(ProxySession *session) : VConnection(nullptr), _proxy_ssn(session) {}
+
+ProxyTransaction::~ProxyTransaction()
+{
+  this->_sm = nullptr;
+  this->mutex.clear();
+}
 
 void
 ProxyTransaction::new_transaction(bool from_early_data)
 {
-  ink_assert(_sm == nullptr);
+  ink_release_assert(_sm == nullptr);
 
   // Defensive programming, make sure nothing persists across
   // connection re-use
@@ -43,58 +48,23 @@ ProxyTransaction::new_transaction(bool from_early_data)
   HttpTxnDebug("[%" PRId64 "] Starting transaction %d using sm [%" PRId64 "]", _proxy_ssn->connection_id(),
                _proxy_ssn->get_transact_count(), _sm->sm_id);
 
-  PluginIdentity *pi = dynamic_cast<PluginIdentity *>(this->get_netvc());
-  if (pi) {
-    _sm->plugin_tag = pi->getPluginTag();
-    _sm->plugin_id  = pi->getPluginId();
-  }
-
-  this->increment_client_transactions_stat();
-  _sm->attach_client_session(this, _reader);
-}
-
-void
-ProxyTransaction::release(IOBufferReader *r)
-{
-  HttpTxnDebug("[%" PRId64 "] session released by sm [%" PRId64 "]", _proxy_ssn ? _proxy_ssn->connection_id() : 0,
-               _sm ? _sm->sm_id : 0);
-
-  this->decrement_client_transactions_stat();
-
-  // Pass along the release to the session
-  if (_proxy_ssn) {
-    _proxy_ssn->release(this);
-  }
-}
-
-void
-ProxyTransaction::attach_server_session(Http1ServerSession *ssession, bool transaction_done)
-{
-  _proxy_ssn->attach_server_session(ssession, transaction_done);
-}
-
-void
-ProxyTransaction::destroy()
-{
-  _sm = nullptr;
-  this->mutex.clear();
-}
-
-// See if we need to schedule on the primary thread for the transaction or change the thread that is associated with the VC.
-// If we reschedule, the scheduled action is returned.  Otherwise, NULL is returned
-Action *
-ProxyTransaction::adjust_thread(Continuation *cont, int event, void *data)
-{
-  NetVConnection *vc   = this->get_netvc();
-  EThread *this_thread = this_ethread();
-  if (vc && vc->thread != this_thread) {
-    if (vc->thread->is_event_type(ET_NET)) {
-      return vc->thread->schedule_imm(cont, event, data);
-    } else { // Not a net thread, take over this thread
-      vc->thread = this_thread;
+  // PI tag valid only for internal requests
+  if (this->get_netvc()->get_is_internal_request()) {
+    PluginIdentity *pi = dynamic_cast<PluginIdentity *>(this->get_netvc());
+    if (pi) {
+      _sm->plugin_tag = pi->getPluginTag();
+      _sm->plugin_id  = pi->getPluginId();
     }
   }
-  return nullptr;
+
+  this->increment_transactions_stat();
+  _sm->attach_client_session(this);
+}
+
+bool
+ProxyTransaction::attach_server_session(PoolableSession *ssession, bool transaction_done)
+{
+  return _proxy_ssn->attach_server_session(ssession, transaction_done);
 }
 
 void
@@ -195,11 +165,6 @@ ProxyTransaction::set_outbound_transparent(bool flag)
   upstream_outbound_options.f_outbound_transparent = flag;
 }
 
-void
-ProxyTransaction::set_h2c_upgrade_flag()
-{
-}
-
 int
 ProxyTransaction::get_transaction_priority_weight() const
 {
@@ -210,4 +175,66 @@ int
 ProxyTransaction::get_transaction_priority_dependence() const
 {
   return 0;
+}
+
+void
+ProxyTransaction::transaction_done()
+{
+  SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
+  this->decrement_transactions_stat();
+}
+
+// Implement VConnection interface.
+VIO *
+ProxyTransaction::do_io_read(Continuation *c, int64_t nbytes, MIOBuffer *buf)
+{
+  return _proxy_ssn->do_io_read(c, nbytes, buf);
+}
+VIO *
+ProxyTransaction::do_io_write(Continuation *c, int64_t nbytes, IOBufferReader *buf, bool owner)
+{
+  return _proxy_ssn->do_io_write(c, nbytes, buf, owner);
+}
+
+void
+ProxyTransaction::do_io_close(int lerrno)
+{
+  _proxy_ssn->do_io_close(lerrno);
+  // this->destroy(); Parent owns this data structure.  No need for separate destroy.
+}
+
+void
+ProxyTransaction::do_io_shutdown(ShutdownHowTo_t howto)
+{
+  _proxy_ssn->do_io_shutdown(howto);
+}
+
+void
+ProxyTransaction::reenable(VIO *vio)
+{
+  _proxy_ssn->reenable(vio);
+}
+
+bool
+ProxyTransaction::has_request_body(int64_t request_content_length, bool is_chunked) const
+{
+  return request_content_length > 0 || is_chunked;
+}
+
+void
+ProxyTransaction::attach_transaction(HttpSM *attach_sm)
+{
+  _sm = attach_sm;
+}
+
+HTTPVersion
+ProxyTransaction::get_version(HTTPHdr &hdr) const
+{
+  return hdr.version_get();
+}
+
+bool
+ProxyTransaction::allow_half_open() const
+{
+  return false;
 }

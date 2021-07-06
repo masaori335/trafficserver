@@ -31,6 +31,7 @@
 #include <string.h>
 #include <openssl/ssl.h>
 #include <fcntl.h>
+#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <pthread.h>
 
@@ -58,11 +59,18 @@ SSL_locking_callback(int mode, int type, const char *file, int line)
   }
 }
 
+// In OpenSSL 1.1, locking and thread id logic was changed and the
+// CRYPTO_THREADID_set_callback function became a macro defined to be 0. In
+// later versions, therefore, static analysis tools flag the use of this as a
+// problem. Thus in order to see whether CRYPTO_THREADID_set_callback is a
+// valid function we check that it is not a defined macro.
+#if !defined(CRYPTO_THREADID_set_callback)
 void
 SSL_pthreads_thread_id(CRYPTO_THREADID *id)
 {
   CRYPTO_THREADID_set_numeric(id, (unsigned long)pthread_self());
 }
+#endif
 
 void *
 spawn_same_session_send(void *arg)
@@ -134,8 +142,9 @@ spawn_same_session_send(void *arg)
     ret = select(sfd + 1, &reads, &writes, NULL, NULL);
     if (FD_ISSET(sfd, &reads) || FD_ISSET(sfd, &writes)) {
       ret = write_ret = SSL_write(ssl, req_buf, strlen(req_buf));
-      if (write_ret > 0)
+      if (write_ret > 0) {
         post_write_ret = SSL_write(ssl, post_buf, sizeof(post_buf));
+      }
     }
   }
 
@@ -190,10 +199,11 @@ spawn_same_session_send(void *arg)
       read_bytes = SSL_read(ssl, input_buf, sizeof(input_buf));
     }
   }
-  if (read_bytes > 0 && read_bytes < 1024)
+  if (read_bytes > 0 && read_bytes < 1024) {
     input_buf[read_bytes] = '\0';
-  else
+  } else {
     input_buf[1023] = '\0';
+  }
   // printf("total_bytes=%d Received bytes=%d handshake writes=%d handshake reads=%d\n", total_read, read_bytes, write_count,
   // read_count);
 
@@ -256,10 +266,12 @@ main(int argc, char *argv[])
 
   for (rp = result; rp != NULL; rp = rp->ai_next) {
     sfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-    if (sfd == -1)
+    if (sfd == -1) {
       continue;
-    if (connect(sfd, rp->ai_addr, rp->ai_addrlen) != -1)
+    }
+    if (connect(sfd, rp->ai_addr, rp->ai_addrlen) != -1) {
       break; /* Success */
+    }
 
     close(sfd);
   }
@@ -280,7 +292,12 @@ main(int argc, char *argv[])
   }
 
   CRYPTO_set_locking_callback(SSL_locking_callback);
+
+// See the '!defined(CRYPTO_THREADID_set_callback)' comment above for why we
+// test for !defined here.
+#if !defined(CRYPTO_THREADID_set_callback)
   CRYPTO_THREADID_set_callback(SSL_pthreads_thread_id);
+#endif
 
   SSL_CTX *client_ctx = SSL_CTX_new(SSLv23_client_method());
   SSL *ssl            = SSL_new(client_ctx);
@@ -290,6 +307,12 @@ main(int argc, char *argv[])
 
   SSL_set_fd(ssl, sfd);
   int ret = SSL_connect(ssl);
+
+  if (ret <= 0) {
+    int error = SSL_get_error(ssl, ret);
+    printf("SSL_connect failed %d", error);
+    exit(1);
+  }
 
   printf("Sent request\n");
   if ((ret = SSL_write(ssl, req_buf, strlen(req_buf))) <= 0) {
@@ -301,10 +324,11 @@ main(int argc, char *argv[])
 
   char input_buf[1024];
   int read_bytes = SSL_read(ssl, input_buf, sizeof(input_buf));
-  if (read_bytes > 0 && read_bytes < 1024)
+  if (read_bytes > 0 && read_bytes < 1024) {
     input_buf[read_bytes] = '\0';
-  else
+  } else {
     input_buf[1023] = '\0';
+  }
   // printf("Received %d bytes %s\n", read_bytes, input_buf);
   SSL_SESSION *session = SSL_get_session(ssl);
   close(sfd);

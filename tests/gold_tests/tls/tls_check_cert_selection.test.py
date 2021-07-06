@@ -53,11 +53,11 @@ ts.Disk.ssl_multicert_config.AddLines([
 ts.Disk.records_config.update({
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
-    'proxy.config.ssl.server.cipher_suite': 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:AES128-GCM-SHA256:AES256-GCM-SHA384:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:RC4-SHA:RC4-MD5:AES128-SHA:AES256-SHA:DES-CBC3-SHA!SRP:!DSS:!PSK:!aNULL:!eNULL:!SSLv2',
     'proxy.config.url_remap.pristine_host_hdr': 1,
     'proxy.config.dns.nameservers': '127.0.0.1:{0}'.format(dns.Variables.Port),
     'proxy.config.exec_thread.autoconfig.scale': 1.0,
-    'proxy.config.dns.resolv_conf': 'NULL'
+    'proxy.config.dns.resolv_conf': 'NULL',
+    'proxy.config.ssl.client.verify.server.policy': 'PERMISSIVE',
 })
 
 dns.addRecords(records={"foo.com.": ["127.0.0.1"]})
@@ -72,7 +72,7 @@ tr.Processes.Default.Command = "curl -v --cacert ./signer2.pem  --resolve 'bar.c
 tr.ReturnCode = 0
 tr.Processes.Default.StartBefore(server)
 tr.Processes.Default.StartBefore(dns)
-tr.Processes.Default.StartBefore(Test.Processes.ts, ready=When.PortOpen(ts.Variables.ssl_port))
+tr.Processes.Default.StartBefore(Test.Processes.ts)
 tr.StillRunningAfter = server
 tr.StillRunningAfter = ts
 tr.Processes.Default.Streams.All = Testers.ExcludesExpression("Could Not Connect", "Curl attempt should have succeeded")

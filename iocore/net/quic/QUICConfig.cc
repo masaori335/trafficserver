@@ -44,23 +44,13 @@ quic_new_ssl_ctx()
   SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION);
 
 #ifndef OPENSSL_IS_BORINGSSL
-  // FIXME: OpenSSL (1.1.1-alpha) enable this option by default. But this shoule be removed when OpenSSL disable this by default.
+  // FIXME: OpenSSL (1.1.1-alpha) enable this option by default. But this should be removed when OpenSSL disable this by default.
   SSL_CTX_clear_options(ssl_ctx, SSL_OP_ENABLE_MIDDLEBOX_COMPAT);
 
   SSL_CTX_set_max_early_data(ssl_ctx, UINT32_C(0xFFFFFFFF));
 
-  SSL_CTX_add_custom_ext(ssl_ctx, QUICTransportParametersHandler::TRANSPORT_PARAMETER_ID,
-                         SSL_EXT_TLS_ONLY | SSL_EXT_CLIENT_HELLO | SSL_EXT_TLS1_3_ENCRYPTED_EXTENSIONS,
-                         &QUICTransportParametersHandler::add, &QUICTransportParametersHandler::free, nullptr,
-                         &QUICTransportParametersHandler::parse, nullptr);
 #else
-  // QUIC Transport Parameters are accesible with SSL_set_quic_transport_params and SSL_get_peer_quic_transport_params
-#endif
-
-#ifdef SSL_MODE_QUIC_HACK
-  // tatsuhiro-t's custom OpenSSL for QUIC draft-13
-  // https://github.com/tatsuhiro-t/openssl/tree/quic-draft-13
-  SSL_CTX_set_mode(ssl_ctx, SSL_MODE_QUIC_HACK);
+  // QUIC Transport Parameters are accessible with SSL_set_quic_transport_params and SSL_get_peer_quic_transport_params
 #endif
 
   return ssl_ctx;
@@ -92,11 +82,9 @@ quic_init_client_ssl_ctx(const QUICConfigParams *params)
     SSL_CTX_sess_set_new_cb(ssl_ctx.get(), QUIC::ssl_client_new_session);
   }
 
-#ifdef SSL_MODE_QUIC_HACK
   if (params->client_keylog_file() != nullptr) {
     SSL_CTX_set_keylog_callback(ssl_ctx.get(), QUIC::ssl_client_keylog_cb);
   }
-#endif
 
   return ssl_ctx;
 }
@@ -120,11 +108,16 @@ QUICConfigParams::initialize()
   REC_EstablishStaticConfigInt32U(this->_stateless_retry, "proxy.config.quic.server.stateless_retry_enabled");
   REC_EstablishStaticConfigInt32U(this->_vn_exercise_enabled, "proxy.config.quic.client.vn_exercise_enabled");
   REC_EstablishStaticConfigInt32U(this->_cm_exercise_enabled, "proxy.config.quic.client.cm_exercise_enabled");
+  REC_EstablishStaticConfigInt32U(this->_quantum_readiness_test_enabled_out,
+                                  "proxy.config.quic.client.quantum_readiness_test_enabled");
+  REC_EstablishStaticConfigInt32U(this->_quantum_readiness_test_enabled_in,
+                                  "proxy.config.quic.server.quantum_readiness_test_enabled");
 
   REC_ReadConfigStringAlloc(this->_server_supported_groups, "proxy.config.quic.server.supported_groups");
   REC_ReadConfigStringAlloc(this->_client_supported_groups, "proxy.config.quic.client.supported_groups");
   REC_ReadConfigStringAlloc(this->_client_session_file, "proxy.config.quic.client.session_file");
   REC_ReadConfigStringAlloc(this->_client_keylog_file, "proxy.config.quic.client.keylog_file");
+  REC_ReadConfigStringAlloc(this->_qlog_dir, "proxy.config.quic.qlog_dir");
 
   // Transport Parameters
   REC_EstablishStaticConfigInt32U(this->_no_activity_timeout_in, "proxy.config.quic.no_activity_timeout_in");
@@ -159,6 +152,7 @@ QUICConfigParams::initialize()
   REC_EstablishStaticConfigInt32U(this->_max_ack_delay_out, "proxy.config.quic.max_ack_delay_out");
   REC_EstablishStaticConfigInt32U(this->_active_cid_limit_in, "proxy.config.quic.active_cid_limit_in");
   REC_EstablishStaticConfigInt32U(this->_active_cid_limit_out, "proxy.config.quic.active_cid_limit_out");
+  REC_EstablishStaticConfigInt32U(this->_disable_active_migration, "proxy.config.quic.disable_active_migration");
 
   // Loss Detection
   REC_EstablishStaticConfigInt32U(this->_ld_packet_threshold, "proxy.config.quic.loss_detection.packet_threshold");
@@ -172,9 +166,8 @@ QUICConfigParams::initialize()
   this->_ld_initial_rtt = HRTIME_MSECONDS(timeout);
 
   // Congestion Control
-  REC_EstablishStaticConfigInt32U(this->_cc_max_datagram_size, "proxy.config.quic.congestion_control.max_datagram_size");
-  REC_EstablishStaticConfigInt32U(this->_cc_initial_window_scale, "proxy.config.quic.congestion_control.initial_window_scale");
-  REC_EstablishStaticConfigInt32U(this->_cc_minimum_window_scale, "proxy.config.quic.congestion_control.minimum_window_scale");
+  REC_EstablishStaticConfigInt32U(this->_cc_initial_window, "proxy.config.quic.congestion_control.initial_window");
+  REC_EstablishStaticConfigInt32U(this->_cc_minimum_window, "proxy.config.quic.congestion_control.minimum_window");
   REC_EstablishStaticConfigFloat(this->_cc_loss_reduction_factor, "proxy.config.quic.congestion_control.loss_reduction_factor");
   REC_EstablishStaticConfigInt32U(this->_cc_persistent_congestion_threshold,
                                   "proxy.config.quic.congestion_control.persistent_congestion_threshold");
@@ -242,6 +235,18 @@ uint32_t
 QUICConfigParams::cm_exercise_enabled() const
 {
   return this->_cm_exercise_enabled;
+}
+
+uint32_t
+QUICConfigParams::quantum_readiness_test_enabled_in() const
+{
+  return this->_quantum_readiness_test_enabled_in;
+}
+
+uint32_t
+QUICConfigParams::quantum_readiness_test_enabled_out() const
+{
+  return this->_quantum_readiness_test_enabled_out;
 }
 
 uint32_t
@@ -352,6 +357,12 @@ QUICConfigParams::active_cid_limit_out() const
   return this->_active_cid_limit_out;
 }
 
+bool
+QUICConfigParams::disable_active_migration() const
+{
+  return this->_disable_active_migration;
+}
+
 const char *
 QUICConfigParams::server_supported_groups() const
 {
@@ -395,26 +406,15 @@ QUICConfigParams::ld_initial_rtt() const
 }
 
 uint32_t
-QUICConfigParams::cc_max_datagram_size() const
-{
-  return _cc_max_datagram_size;
-}
-
-uint32_t
 QUICConfigParams::cc_initial_window() const
 {
-  // kInitialWindow:  Default limit on the initial amount of data in
-  // flight, in bytes.  Taken from [RFC6928].  The RECOMMENDED value is
-  // the minimum of 10 * kMaxDatagramSize and max(2* kMaxDatagramSize,
-  // 14600)).
-  return std::min(_cc_initial_window_scale * _cc_max_datagram_size,
-                  std::max(2 * _cc_max_datagram_size, static_cast<uint32_t>(14600)));
+  return _cc_initial_window;
 }
 
 uint32_t
 QUICConfigParams::cc_minimum_window() const
 {
-  return _cc_minimum_window_scale * _cc_max_datagram_size;
+  return _cc_minimum_window;
 }
 
 float
@@ -445,6 +445,12 @@ const char *
 QUICConfigParams::client_keylog_file() const
 {
   return this->_client_keylog_file;
+}
+
+const char *
+QUICConfigParams::qlog_dir() const
+{
+  return this->_qlog_dir;
 }
 
 //

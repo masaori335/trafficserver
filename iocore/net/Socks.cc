@@ -44,7 +44,7 @@ void
 SocksEntry::init(Ptr<ProxyMutex> &m, SocksNetVC *vc, unsigned char socks_support, unsigned char ver)
 {
   mutex  = m;
-  buf    = new_MIOBuffer();
+  buf    = new_MIOBuffer(BUFFER_SIZE_INDEX_32K);
   reader = buf->alloc_reader();
 
   socks_cmd = socks_support;
@@ -514,7 +514,6 @@ loadSocksConfiguration(socks_conf_struct *socks_conf_stuff)
   }
 #ifdef SOCKS_WITH_TS
   tmp = Load_IpMap_From_File(&socks_conf_stuff->ip_map, socks_config_fd, "no_socks");
-  //  tmp = socks_conf_stuff->ip_range.read_table_from_file(socks_config_fd, "no_socks");
 
   if (tmp) {
     Error("SOCKS Config: Error while reading ip_range: %s.", tmp);

@@ -34,6 +34,7 @@ class Http09Session;
 class Http3Session;
 class Http3HeaderFramer;
 class Http3DataFramer;
+class Http3StreamDataVIOAdaptor;
 
 class HQTransaction : public ProxyTransaction
 {
@@ -48,12 +49,10 @@ public:
   void set_inactivity_timeout(ink_hrtime timeout_in) override;
   void cancel_inactivity_timeout() override;
   void transaction_done() override;
-  bool allow_half_open() const override;
-  void destroy() override;
-  void release(IOBufferReader *r) override;
+  void release() override;
   int get_transaction_id() const override;
-  void increment_client_transactions_stat() override;
-  void decrement_client_transactions_stat() override;
+  void increment_transactions_stat() override;
+  void decrement_transactions_stat() override;
 
   // VConnection interface
   virtual VIO *do_io_read(Continuation *c, int64_t nbytes = INT64_MAX, MIOBuffer *buf = 0) override;
@@ -105,6 +104,9 @@ public:
   bool is_response_header_sent() const;
   bool is_response_body_sent() const;
 
+  // TODO:  Just a place holder for now
+  bool has_request_body(int64_t content_length, bool is_chunked_set) const override;
+
 private:
   int64_t _process_read_vio() override;
   int64_t _process_write_vio() override;
@@ -115,10 +117,10 @@ private:
   // These are for HTTP/3
   Http3FrameDispatcher _frame_dispatcher;
   Http3FrameCollector _frame_collector;
-  Http3FrameGenerator *_header_framer = nullptr;
-  Http3FrameGenerator *_data_framer   = nullptr;
-  Http3FrameHandler *_header_handler  = nullptr;
-  Http3FrameHandler *_data_handler    = nullptr;
+  Http3FrameGenerator *_header_framer      = nullptr;
+  Http3FrameGenerator *_data_framer        = nullptr;
+  Http3FrameHandler *_header_handler       = nullptr;
+  Http3StreamDataVIOAdaptor *_data_handler = nullptr;
 };
 
 /**

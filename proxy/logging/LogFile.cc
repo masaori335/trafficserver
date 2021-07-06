@@ -73,7 +73,9 @@ LogFile::LogFile(const char *name, const char *header, LogFileFormat format, uin
 {
   if (m_file_format != LOG_FILE_PIPE) {
     m_log = new BaseLogFile(name, m_signature);
-    m_log->set_hostname(Machine::instance()->hostname);
+    // Use Log::config->hostname rather than Machine::instance()->hostname
+    // because the former is reloadable.
+    m_log->set_hostname(Log::config->hostname);
   } else {
     m_log = nullptr;
   }
@@ -197,7 +199,7 @@ LogFile::open_file()
 #ifdef F_GETPIPE_SZ
     // adjust pipe size if necessary
     if (m_pipe_buffer_size) {
-      long pipe_size = (long)fcntl(m_fd, F_GETPIPE_SZ);
+      long pipe_size = static_cast<long>(fcntl(m_fd, F_GETPIPE_SZ));
       if (pipe_size == -1) {
         Error("Get pipe size failed for pipe %s: %s", m_name, strerror(errno));
       } else {
@@ -209,7 +211,7 @@ LogFile::open_file()
         Error("Set pipe size failed for pipe %s to size %d: %s", m_name, m_pipe_buffer_size, strerror(errno));
       }
 
-      pipe_size = (long)fcntl(m_fd, F_GETPIPE_SZ);
+      pipe_size = static_cast<long>(fcntl(m_fd, F_GETPIPE_SZ));
       if (pipe_size == -1) {
         Error("Get pipe size after setting it failed for pipe %s: %s", m_name, strerror(errno));
       } else {
@@ -389,6 +391,35 @@ LogFile::roll(long interval_start, long interval_end, bool reopen_after_rolling)
   }
 
   return 0;
+}
+
+/*-------------------------------------------------------------------------
+  LogFile::reopen_if_moved
+
+  Check whether the file at the log's filename exists and, if not, close
+  the current file descriptor and reopen it. This function can be used to
+  facilitate external log rotation mechanisms which will move the original
+  file to a rolled filename. Logging will happen to that same file
+  descriptor until this function is called, at which point the non-existent
+  original file will be detected, the file descriptor will be closed, and
+  the log file will be re-opened.
+
+  Returns True if the file was re-opened, false otherwise.
+  -------------------------------------------------------------------------*/
+bool
+LogFile::reopen_if_moved()
+{
+  if (!m_name) {
+    return false;
+  }
+  if (LogFile::exists(m_name)) {
+    return false;
+  }
+
+  // Both of the following log if there are problems.
+  close_file();
+  open_file();
+  return true;
 }
 
 /*-------------------------------------------------------------------------
@@ -689,7 +720,7 @@ LogFile::writeln(char *data, int len, int fd, const char *path)
     }
 
     if ((bytes_this_write = static_cast<int>(::writev(fd, (const struct iovec *)wvec, vcnt))) < 0) {
-      Warning("An error was encountered in writing to %s: %s.", ((path) ? path : "logfile"), strerror(errno));
+      SiteThrottledWarning("An error was encountered in writing to %s: %s.", ((path) ? path : "logfile"), strerror(errno));
     } else {
       total_bytes = bytes_this_write;
     }

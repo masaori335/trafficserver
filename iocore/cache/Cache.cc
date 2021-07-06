@@ -64,6 +64,7 @@ int cache_config_ram_cache_compress            = 0;
 int cache_config_ram_cache_compress_percent    = 90;
 int cache_config_ram_cache_use_seen_filter     = 1;
 int cache_config_http_max_alts                 = 3;
+int cache_config_log_alternate_eviction        = 0;
 int cache_config_dir_sync_frequency            = 60;
 int cache_config_permit_pinning                = 0;
 int cache_config_select_alternate              = 1;
@@ -573,28 +574,32 @@ CacheProcessor::start_internal(int flags)
   ink_assert((int)TS_EVENT_CACHE_SCAN_OPERATION_BLOCKED == (int)CACHE_EVENT_SCAN_OPERATION_BLOCKED);
   ink_assert((int)TS_EVENT_CACHE_SCAN_OPERATION_FAILED == (int)CACHE_EVENT_SCAN_OPERATION_FAILED);
   ink_assert((int)TS_EVENT_CACHE_SCAN_DONE == (int)CACHE_EVENT_SCAN_DONE);
-
 #if AIO_MODE == AIO_MODE_NATIVE
-  int etype            = ET_NET;
-  int n_netthreads     = eventProcessor.n_threads_for_type[etype];
-  EThread **netthreads = eventProcessor.eventthread[etype];
-  for (int i = 0; i < n_netthreads; ++i) {
-    netthreads[i]->diskHandler = new DiskHandler();
-    netthreads[i]->schedule_imm(netthreads[i]->diskHandler);
+  for (EThread *et : eventProcessor.active_group_threads(ET_NET)) {
+    et->diskHandler = new DiskHandler();
+    et->schedule_imm(et->diskHandler);
   }
 #endif
-
   start_internal_flags = flags;
   clear                = !!(flags & PROCESSOR_RECONFIGURE) || auto_clear_flag;
   fix                  = !!(flags & PROCESSOR_FIX);
   check                = (flags & PROCESSOR_CHECK) != 0;
   start_done           = 0;
-  Span *sd;
 
   /* read the config file and create the data structures corresponding
      to the file */
   gndisks = theCacheStore.n_disks;
   gdisks  = static_cast<CacheDisk **>(ats_malloc(gndisks * sizeof(CacheDisk *)));
+
+  // Temporaries to carry values between loops
+  char **paths = static_cast<char **>(alloca(sizeof(char *) * gndisks));
+  memset(paths, 0, sizeof(char *) * gndisks);
+  int *fds = static_cast<int *>(alloca(sizeof(int) * gndisks));
+  memset(fds, 0, sizeof(int) * gndisks);
+  int *sector_sizes = static_cast<int *>(alloca(sizeof(int) * gndisks));
+  memset(sector_sizes, 0, sizeof(int) * gndisks);
+  Span **sds = static_cast<Span **>(alloca(sizeof(Span *) * gndisks));
+  memset(sds, 0, sizeof(Span *) * gndisks);
 
   gndisks = 0;
   ink_aio_set_callback(new AIO_Callback_handler());
@@ -605,13 +610,15 @@ CacheProcessor::start_internal(int flags)
    create CacheDisk objects for each span in the configuration file and store in gdisks
    */
   for (unsigned i = 0; i < theCacheStore.n_disks; i++) {
-    sd = theCacheStore.disk[i];
-    char path[PATH_NAME_MAX];
+    Span *sd = theCacheStore.disk[i];
     int opts = DEFAULT_CACHE_OPTIONS;
 
-    ink_strlcpy(path, sd->pathname, sizeof(path));
+    if (!paths[gndisks]) {
+      paths[gndisks] = static_cast<char *>(alloca(PATH_NAME_MAX));
+    }
+    ink_strlcpy(paths[gndisks], sd->pathname, PATH_NAME_MAX);
     if (!sd->file_pathname) {
-      ink_strlcat(path, "/cache.db", sizeof(path));
+      ink_strlcat(paths[gndisks], "/cache.db", PATH_NAME_MAX);
       opts |= O_CREAT;
     }
 
@@ -626,11 +633,11 @@ CacheProcessor::start_internal(int flags)
       opts |= O_RDONLY;
     }
 
-    int fd         = open(path, opts, 0644);
+    int fd         = open(paths[gndisks], opts, 0644);
     int64_t blocks = sd->blocks;
 
     if (fd < 0 && (opts & O_CREAT)) { // Try without O_DIRECT if this is a file on filesystem, e.g. tmpfs.
-      fd = open(path, DEFAULT_CACHE_OPTIONS | O_CREAT, 0644);
+      fd = open(paths[gndisks], DEFAULT_CACHE_OPTIONS | O_CREAT, 0644);
     }
 
     if (fd >= 0) {
@@ -638,17 +645,17 @@ CacheProcessor::start_internal(int flags)
       if (!sd->file_pathname) {
         if (!check) {
           if (ftruncate(fd, blocks * STORE_BLOCK_SIZE) < 0) {
-            Warning("unable to truncate cache file '%s' to %" PRId64 " blocks", path, blocks);
+            Warning("unable to truncate cache file '%s' to %" PRId64 " blocks", paths[gndisks], blocks);
             diskok = false;
           }
         } else { // read-only mode checks
           struct stat sbuf;
           if (-1 == fstat(fd, &sbuf)) {
-            fprintf(stderr, "Failed to stat cache file for directory %s\n", path);
+            fprintf(stderr, "Failed to stat cache file for directory %s\n", paths[gndisks]);
             diskok = false;
           } else if (blocks != sbuf.st_size / STORE_BLOCK_SIZE) {
-            fprintf(stderr, "Cache file for directory %s is %" PRId64 " bytes, expected %" PRId64 "\n", path, sbuf.st_size,
-                    blocks * static_cast<int64_t>(STORE_BLOCK_SIZE));
+            fprintf(stderr, "Cache file for directory %s is %" PRId64 " bytes, expected %" PRId64 "\n", paths[gndisks],
+                    sbuf.st_size, blocks * static_cast<int64_t>(STORE_BLOCK_SIZE));
             diskok = false;
           }
         }
@@ -676,24 +683,17 @@ CacheProcessor::start_internal(int flags)
           Note("resetting hardware sector size from %d to %d", sector_size, STORE_BLOCK_SIZE);
           sector_size = STORE_BLOCK_SIZE;
         }
-
-        off_t skip = ROUND_TO_STORE_BLOCK((sd->offset < START_POS ? START_POS + sd->alignment : sd->offset));
-        blocks     = blocks - (skip >> STORE_BLOCK_SHIFT);
-#if AIO_MODE == AIO_MODE_NATIVE
-        eventProcessor.schedule_imm(new DiskInit(gdisks[gndisks], path, blocks, skip, sector_size, fd, clear));
-#else
-        gdisks[gndisks]->open(path, blocks, skip, sector_size, fd, clear);
-#endif
-
-        Debug("cache_hosting", "Disk: %d:%s, blocks: %" PRId64 "", gndisks, path, blocks);
-        fd = -1;
+        sector_sizes[gndisks] = sector_size;
+        fds[gndisks]          = fd;
+        sds[gndisks]          = sd;
+        fd                    = -1;
         gndisks++;
       }
     } else {
       if (errno == EINVAL) {
-        Warning("cache unable to open '%s': It must be placed on a file system that supports direct I/O.", path);
+        Warning("cache unable to open '%s': It must be placed on a file system that supports direct I/O.", paths[gndisks]);
       } else {
-        Warning("cache unable to open '%s': %s", path, strerror(errno));
+        Warning("cache unable to open '%s': %s", paths[gndisks], strerror(errno));
       }
     }
     if (fd >= 0) {
@@ -701,6 +701,8 @@ CacheProcessor::start_internal(int flags)
     }
   }
 
+  // Before we kick off asynchronous operations, make sure sufficient disks are available and we don't just shutdown
+  // Exiting with background threads in operation will likely cause a seg fault
   start_done = 1;
 
   if (gndisks == 0) {
@@ -711,7 +713,7 @@ CacheProcessor::start_internal(int flags)
     }
 
     if (this->waitForCache() > 1) {
-      Fatal("Cache initialization failed - no disks available but cache required");
+      Emergency("Cache initialization failed - no disks available but cache required");
     } else {
       Warning("unable to open cache disk(s): Cache Disabled\n");
       return -1; // pointless, AFAICT this is ignored.
@@ -721,8 +723,25 @@ CacheProcessor::start_internal(int flags)
     if (cb_after_init) {
       cb_after_init();
     }
-    Fatal("Cache initialization failed - only %d out of %d disks were valid and all were required.", gndisks,
-          theCacheStore.n_disks_in_config);
+    Emergency("Cache initialization failed - only %d out of %d disks were valid and all were required.", gndisks,
+              theCacheStore.n_disks_in_config);
+  } else if (this->waitForCache() == 2 && static_cast<unsigned int>(gndisks) < theCacheStore.n_disks_in_config) {
+    Warning("Cache initialization incomplete - only %d out of %d disks were valid.", gndisks, theCacheStore.n_disks_in_config);
+  }
+
+  // If we got here, we have enough disks to proceed
+  for (int j = 0; j < gndisks; j++) {
+    Span *sd = sds[j];
+    ink_release_assert(sds[j] != nullptr); // Defeat clang-analyzer
+    off_t skip     = ROUND_TO_STORE_BLOCK((sd->offset < START_POS ? START_POS + sd->alignment : sd->offset));
+    int64_t blocks = sd->blocks - (skip >> STORE_BLOCK_SHIFT);
+#if AIO_MODE == AIO_MODE_NATIVE
+    eventProcessor.schedule_imm(new DiskInit(gdisks[j], paths[j], blocks, skip, sector_sizes[j], fds[j], clear));
+#else
+    gdisks[j]->open(paths[j], blocks, skip, sector_sizes[j], fds[j], clear);
+#endif
+
+    Debug("cache_hosting", "Disk: %d:%s, blocks: %" PRId64 "", gndisks, paths[j], blocks);
   }
 
   return 0;
@@ -763,7 +782,9 @@ CacheProcessor::diskInitialized()
       if (cb_after_init) {
         cb_after_init();
       }
-      Fatal("Cache initialization failed - only %d of %d disks were available.", gndisks, theCacheStore.n_disks_in_config);
+      Emergency("Cache initialization failed - only %d of %d disks were available.", gndisks, theCacheStore.n_disks_in_config);
+    } else if (this->waitForCache() == 2) {
+      Warning("Cache initialization incomplete - only %d of %d disks were available.", gndisks, theCacheStore.n_disks_in_config);
     }
   }
 
@@ -911,12 +932,14 @@ CacheProcessor::cacheInitialized()
         Debug("cache_init", "CacheProcessor::cacheInitialized - cache_config_ram_cache_size == AUTO_SIZE_RAM_CACHE");
         for (i = 0; i < gnvol; i++) {
           vol = gvol[i];
-          gvol[i]->ram_cache->init(vol->dirlen() * DEFAULT_RAM_CACHE_MULTIPLIER, vol);
-          ram_cache_bytes += gvol[i]->dirlen();
-          Debug("cache_init", "CacheProcessor::cacheInitialized - ram_cache_bytes = %" PRId64 " = %" PRId64 "Mb", ram_cache_bytes,
-                ram_cache_bytes / (1024 * 1024));
-          CACHE_VOL_SUM_DYN_STAT(cache_ram_cache_bytes_total_stat, (int64_t)gvol[i]->dirlen());
 
+          if (gvol[i]->cache_vol->ramcache_enabled) {
+            gvol[i]->ram_cache->init(vol->dirlen() * DEFAULT_RAM_CACHE_MULTIPLIER, vol);
+            ram_cache_bytes += gvol[i]->dirlen();
+            Debug("cache_init", "CacheProcessor::cacheInitialized - ram_cache_bytes = %" PRId64 " = %" PRId64 "Mb", ram_cache_bytes,
+                  ram_cache_bytes / (1024 * 1024));
+            CACHE_VOL_SUM_DYN_STAT(cache_ram_cache_bytes_total_stat, (int64_t)gvol[i]->dirlen());
+          }
           vol_total_cache_bytes = gvol[i]->len - gvol[i]->dirlen();
           total_cache_bytes += vol_total_cache_bytes;
           Debug("cache_init", "CacheProcessor::cacheInitialized - total_cache_bytes = %" PRId64 " = %" PRId64 "Mb",
@@ -955,14 +978,14 @@ CacheProcessor::cacheInitialized()
         for (i = 0; i < gnvol; i++) {
           vol = gvol[i];
           double factor;
-          if (gvol[i]->cache == theCache) {
+          if (gvol[i]->cache == theCache && gvol[i]->cache_vol->ramcache_enabled) {
             ink_assert(gvol[i]->cache != nullptr);
             factor = static_cast<double>(static_cast<int64_t>(gvol[i]->len >> STORE_BLOCK_SHIFT)) / theCache->cache_size;
             Debug("cache_init", "CacheProcessor::cacheInitialized - factor = %f", factor);
             gvol[i]->ram_cache->init(static_cast<int64_t>(http_ram_cache_size * factor), vol);
             ram_cache_bytes += static_cast<int64_t>(http_ram_cache_size * factor);
             CACHE_VOL_SUM_DYN_STAT(cache_ram_cache_bytes_total_stat, (int64_t)(http_ram_cache_size * factor));
-          } else {
+          } else if (gvol[i]->cache_vol->ramcache_enabled) {
             ink_release_assert(!"Unexpected non-HTTP cache volume");
           }
           Debug("cache_init", "CacheProcessor::cacheInitialized[%d] - ram_cache_bytes = %" PRId64 " = %" PRId64 "Mb", i,
@@ -1029,7 +1052,7 @@ CacheProcessor::cacheInitialized()
 
   // TS-3848
   if (CACHE_INIT_FAILED == CacheProcessor::initialized && cacheProcessor.waitForCache() > 1) {
-    Fatal("Cache initialization failed with cache required, exiting.");
+    Emergency("Cache initialization failed with cache required, exiting.");
   }
 }
 
@@ -1361,8 +1384,6 @@ Vol::handle_dir_read(int event, void *data)
   sector_size = header->sector_size;
 
   return this->recover_data();
-
-  return EVENT_CONT;
 }
 
 int
@@ -1756,11 +1777,7 @@ Vol::dir_init_done(int /* event ATS_UNUSED */, void * /* data ATS_UNUSED */)
     ink_assert(!gvol[vol_no]);
     gvol[vol_no] = this;
     SET_HANDLER(&Vol::aggWrite);
-    if (fd == -1) {
-      cache->vol_initialized(false);
-    } else {
-      cache->vol_initialized(true);
-    }
+    cache->vol_initialized(fd != -1);
     return EVENT_DONE;
   }
 }
@@ -2041,7 +2058,7 @@ Cache::open_done()
 
   // TS-3848
   if (ready == CACHE_INIT_FAILED && cacheProcessor.waitForCache() >= 2) {
-    Fatal("Failed to initialize cache host table");
+    Emergency("Failed to initialize cache host table");
   }
 
   cacheProcessor.cacheInitialized();
@@ -2250,8 +2267,7 @@ CacheVC::handleReadDone(int event, Event *e)
            (doc_len && static_cast<int64_t>(doc_len) < cache_config_ram_cache_cutoff) || !cache_config_ram_cache_cutoff);
         if (cutoff_check && !f.doc_from_ram_cache) {
           uint64_t o = dir_offset(&dir);
-          vol->ram_cache->put(read_key, buf.get(), doc->len, http_copy_hdr, static_cast<uint32_t>(o >> 32),
-                              static_cast<uint32_t>(o));
+          vol->ram_cache->put(read_key, buf.get(), doc->len, http_copy_hdr, o);
         }
         if (!doc_len) {
           // keep a pointer to it. In case the state machine decides to
@@ -2283,7 +2299,7 @@ CacheVC::handleRead(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
   // check ram cache
   ink_assert(vol->mutex->thread_holding == this_ethread());
   int64_t o           = dir_offset(&dir);
-  int ram_hit_state   = vol->ram_cache->get(read_key, &buf, static_cast<uint32_t>(o >> 32), static_cast<uint32_t>(o));
+  int ram_hit_state   = vol->ram_cache->get(read_key, &buf, static_cast<uint64_t>(o));
   f.compressed_in_ram = (ram_hit_state > RAM_HIT_COMPRESS_NONE) ? 1 : 0;
   if (ram_hit_state >= RAM_HIT_COMPRESS_NONE) {
     goto LramHit;
@@ -2530,6 +2546,8 @@ cplist_init()
   }
 }
 
+static int fillExclusiveDisks(CacheVol *cp);
+
 void
 cplist_update()
 {
@@ -2541,7 +2559,8 @@ cplist_update()
     for (config_vol = config_volumes.cp_queue.head; config_vol; config_vol = config_vol->link.next) {
       if (config_vol->number == cp->vol_number) {
         if (cp->scheme == config_vol->scheme) {
-          config_vol->cachep = cp;
+          cp->ramcache_enabled = config_vol->ramcache_enabled;
+          config_vol->cachep   = cp;
         } else {
           /* delete this volume from all the disks */
           int d_no;
@@ -2585,6 +2604,42 @@ cplist_update()
       cp = cp->link.next;
     }
   }
+
+  // Look for (exclusive) spans forced to a specific volume but not yet referenced by any volumes in cp_list,
+  // if found then create a new volume. This also makes sure new exclusive disk volumes are created first
+  // before any other new volumes to assure proper span free space calculation and proper volume block distribution.
+  for (config_vol = config_volumes.cp_queue.head; config_vol; config_vol = config_vol->link.next) {
+    if (nullptr == config_vol->cachep) {
+      // Find out if this is a forced volume assigned exclusively to a span which was cleared (hence not referenced in cp_list).
+      // Note: non-exclusive cleared spans are not handled here, only the "exclusive"
+      bool forced_volume = false;
+      for (int d_no = 0; d_no < gndisks; d_no++) {
+        if (gdisks[d_no]->forced_volume_num == config_vol->number) {
+          forced_volume = true;
+        }
+      }
+
+      if (forced_volume) {
+        CacheVol *new_cp = new CacheVol();
+        if (nullptr != new_cp) {
+          new_cp->disk_vols = static_cast<decltype(new_cp->disk_vols)>(ats_malloc(gndisks * sizeof(DiskVol *)));
+          if (nullptr != new_cp->disk_vols) {
+            memset(new_cp->disk_vols, 0, gndisks * sizeof(DiskVol *));
+            new_cp->vol_number = config_vol->number;
+            new_cp->scheme     = config_vol->scheme;
+            config_vol->cachep = new_cp;
+            fillExclusiveDisks(config_vol->cachep);
+            cp_list.enqueue(new_cp);
+          } else {
+            delete new_cp;
+          }
+        }
+      }
+    } else {
+      // Fill if this is exclusive disk.
+      fillExclusiveDisks(config_vol->cachep);
+    }
+  }
 }
 
 static int
@@ -2598,20 +2653,32 @@ fillExclusiveDisks(CacheVol *cp)
     if (gdisks[i]->forced_volume_num != volume_number) {
       continue;
     }
-    /* The user had created several volumes before - clear the disk
-       and create one volume for http */
+
+    /* OK, this should be an "exclusive" disk (span). */
+    diskCount++;
+
+    /* There should be a single "forced" volume and no other volumes should exist on this "exclusive" disk (span) */
+    bool found_nonforced_volumes = false;
     for (int j = 0; j < static_cast<int>(gdisks[i]->header->num_volumes); j++) {
       if (volume_number != gdisks[i]->disk_vols[j]->vol_number) {
-        Note("Clearing Disk: %s", gdisks[i]->path);
-        gdisks[i]->delete_all_volumes();
+        found_nonforced_volumes = true;
         break;
       }
     }
-    diskCount++;
+
+    if (found_nonforced_volumes) {
+      /* The user had created several volumes before - clear the disk and create one volume for http */
+      Note("Clearing Disk: %s", gdisks[i]->path);
+      gdisks[i]->delete_all_volumes();
+    } else if (1 == gdisks[i]->header->num_volumes) {
+      /* "Forced" volumes take the whole disk (span) hence nothing more to do for this span. */
+      continue;
+    }
+
+    /* Now, volumes have been either deleted or did not exist to begin with so we need to create them. */
 
     int64_t size_diff = gdisks[i]->num_usable_blocks;
     DiskVolBlock *dpb;
-
     do {
       dpb = gdisks[i]->create_volume(volume_number, size_diff, cp->scheme);
       if (dpb) {
@@ -2627,6 +2694,8 @@ fillExclusiveDisks(CacheVol *cp)
       }
     } while ((size_diff > 0));
   }
+
+  /* Report back the number of disks (spans) that were assigned to volume specified by volume_number. */
   return diskCount;
 }
 
@@ -2691,7 +2760,11 @@ cplist_reconfigure()
     /* sum up the total space available on all the disks.
        round down the space to 128 megabytes */
     for (int i = 0; i < gndisks; i++) {
-      tot_space_in_blks += (gdisks[i]->num_usable_blocks / blocks_per_vol) * blocks_per_vol;
+      // Exclude exclusive disks (with forced volumes) from the following total space calculation,
+      // in such a way forced volumes will not impact volume percentage calculations.
+      if (-1 == gdisks[i]->forced_volume_num) {
+        tot_space_in_blks += (gdisks[i]->num_usable_blocks / blocks_per_vol) * blocks_per_vol;
+      }
     }
 
     double percent_remaining = 100.00;
@@ -2702,33 +2775,46 @@ cplist_reconfigure()
           Warning("no volumes created");
           return -1;
         }
-        int64_t space_in_blks = static_cast<int64_t>(((config_vol->percent / percent_remaining)) * tot_space_in_blks);
+
+        // Find if the volume is forced and if it is then calculate the total forced volume size.
+        // Forced volumes take the whole span (disk) also sum all disk space this volume is forced to.
+        int64_t tot_forced_space_in_blks = 0;
+        for (int i = 0; i < gndisks; i++) {
+          if (config_vol->number == gdisks[i]->forced_volume_num) {
+            tot_forced_space_in_blks += (gdisks[i]->num_usable_blocks / blocks_per_vol) * blocks_per_vol;
+          }
+        }
+
+        int64_t space_in_blks = 0;
+        if (0 == tot_forced_space_in_blks) {
+          // Calculate the space as percentage of total space in blocks.
+          space_in_blks = static_cast<int64_t>(((config_vol->percent / percent_remaining)) * tot_space_in_blks);
+        } else {
+          // Forced volumes take all disk space, so no percentage calculations here.
+          space_in_blks = tot_forced_space_in_blks;
+        }
 
         space_in_blks = space_in_blks >> (20 - STORE_BLOCK_SHIFT);
         /* round down to 128 megabyte multiple */
         space_in_blks    = (space_in_blks >> 7) << 7;
         config_vol->size = space_in_blks;
-        tot_space_in_blks -= space_in_blks << (20 - STORE_BLOCK_SHIFT);
-        percent_remaining -= (config_vol->size < 128) ? 0 : config_vol->percent;
+
+        if (0 == tot_forced_space_in_blks) {
+          tot_space_in_blks -= space_in_blks << (20 - STORE_BLOCK_SHIFT);
+          percent_remaining -= (config_vol->size < 128) ? 0 : config_vol->percent;
+        }
       }
       if (config_vol->size < 128) {
         Warning("the size of volume %d (%" PRId64 ") is less than the minimum required volume size %d", config_vol->number,
                 (int64_t)config_vol->size, 128);
         Warning("volume %d is not created", config_vol->number);
       }
-      Debug("cache_hosting", "Volume: %d Size: %" PRId64, config_vol->number, (int64_t)config_vol->size);
+      Debug("cache_hosting", "Volume: %d Size: %" PRId64 " Ramcache: %d", config_vol->number, (int64_t)config_vol->size,
+            config_vol->ramcache_enabled);
     }
     cplist_update();
+
     /* go through volume config and grow and create volumes */
-
-    for (config_vol = config_volumes.cp_queue.head; config_vol; config_vol = config_vol->link.next) {
-      // if volume is given exclusive disks, fill here and continue
-      if (!config_vol->cachep) {
-        continue;
-      }
-      fillExclusiveDisks(config_vol->cachep);
-    }
-
     for (config_vol = config_volumes.cp_queue.head; config_vol; config_vol = config_vol->link.next) {
       size = config_vol->size;
       if (size < 128) {
@@ -3070,6 +3156,9 @@ ink_cache_init(ts::ModuleVersion v)
 
   REC_EstablishStaticConfigInt32(cache_config_http_max_alts, "proxy.config.cache.limits.http.max_alts");
   Debug("cache_init", "proxy.config.cache.limits.http.max_alts = %d", cache_config_http_max_alts);
+
+  REC_EstablishStaticConfigInt32(cache_config_log_alternate_eviction, "proxy.config.cache.log.alternate.eviction");
+  Debug("cache_init", "proxy.config.cache.log.alternate.eviction = %d", cache_config_log_alternate_eviction);
 
   REC_EstablishStaticConfigInteger(cache_config_ram_cache_cutoff, "proxy.config.cache.ram_cache_cutoff");
   Debug("cache_init", "cache_config_ram_cache_cutoff = %" PRId64 " = %" PRId64 "Mb", cache_config_ram_cache_cutoff,

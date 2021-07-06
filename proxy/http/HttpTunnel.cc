@@ -477,6 +477,7 @@ HttpTunnel::reset()
   }
 #endif
 
+  call_sm       = false;
   num_producers = 0;
   num_consumers = 0;
   ink_zero(consumers);
@@ -956,6 +957,9 @@ HttpTunnel::producer_run(HttpTunnelProducer *p)
       // Start the writes now that we know we will consume all the initial data
       c->write_vio = c->vc->do_io_write(this, c_write, c->buffer_reader);
       ink_assert(c_write > 0);
+      if (c->write_vio == nullptr) {
+        consumer_handler(VC_EVENT_ERROR, c);
+      }
     }
   }
   if (p->alive) {
@@ -997,16 +1001,18 @@ HttpTunnel::producer_handler_dechunked(int event, HttpTunnelProducer *p)
 
   // We only interested in translating certain events
   switch (event) {
-  case VC_EVENT_READ_READY:
   case VC_EVENT_READ_COMPLETE:
   case HTTP_TUNNEL_EVENT_PRECOMPLETE:
   case VC_EVENT_EOS:
+    p->alive = false; // Update the producer state for final_consumer_bytes_to_write
+    /* fallthrough */
+  case VC_EVENT_READ_READY:
     p->last_event = p->chunked_handler.last_server_event = event;
     if (p->chunked_handler.generate_chunked_content()) { // We are done, make sure the consumer is activated
       HttpTunnelConsumer *c;
       for (c = p->consumer_list.head; c; c = c->link.next) {
         if (c->alive) {
-          c->write_vio->nbytes = p->chunked_handler.chunked_size;
+          c->write_vio->nbytes = final_consumer_bytes_to_write(p, c);
           // consumer_handler(VC_EVENT_WRITE_COMPLETE, c);
         }
       }
@@ -1230,7 +1236,7 @@ HttpTunnel::consumer_reenable(HttpTunnelConsumer *c)
 {
   HttpTunnelProducer *p = c->producer;
 
-  if (p && p->alive && p->read_buffer->write_avail() > 0) {
+  if (p && p->alive) {
     // Only do flow control if enabled and the producer is an external
     // source.  Otherwise disable by making the backlog zero. Because
     // the backlog short cuts quit when the value is equal (or
@@ -1308,6 +1314,10 @@ HttpTunnel::consumer_handler(int event, HttpTunnelConsumer *c)
   switch (event) {
   case VC_EVENT_WRITE_READY:
     this->consumer_reenable(c);
+    // Once we get a write ready from the origin, we can assume the connect to some degree succeeded
+    if (c->vc_type == HT_HTTP_SERVER) {
+      sm->t_state.current.server->clear_connect_fail();
+    }
     break;
 
   case VC_EVENT_WRITE_COMPLETE:
@@ -1329,6 +1339,12 @@ HttpTunnel::consumer_handler(int event, HttpTunnelConsumer *c)
     if (c->producer && c->producer->handler_state == 0) {
       if (event == VC_EVENT_WRITE_COMPLETE) {
         c->producer->handler_state = HTTP_SM_POST_SUCCESS;
+        // If the consumer completed, presumably the producer successfully read
+        c->producer->read_success = true;
+        // Go ahead and clean up the producer side
+        if (p->alive) {
+          producer_handler(VC_EVENT_READ_COMPLETE, p);
+        }
       } else if (c->vc_type == HT_HTTP_SERVER) {
         c->producer->handler_state = HTTP_SM_POST_UA_FAIL;
       } else if (c->vc_type == HT_HTTP_CLIENT) {
@@ -1351,7 +1367,7 @@ HttpTunnel::consumer_handler(int event, HttpTunnelConsumer *c)
     //    the SM since the reenabling has the side effect
     //    updating the buffer state for the VConnection
     //    that is being reenabled
-    if (p->alive && p->read_vio && p->read_buffer->write_avail() > 0) {
+    if (p->alive && p->read_vio) {
       if (p->is_throttled()) {
         this->consumer_reenable(c);
       } else {
@@ -1416,6 +1432,7 @@ HttpTunnel::chain_abort_all(HttpTunnelProducer *p)
     }
     p->read_vio = nullptr;
     p->vc->do_io_close(EHTTP_ERROR);
+    HTTP_INCREMENT_DYN_STAT(http_origin_shutdown_tunnel_abort);
     update_stats_after_abort(p->vc_type);
   }
 }
@@ -1495,9 +1512,7 @@ HttpTunnel::finish_all_internal(HttpTunnelProducer *p, bool chain)
         ink_assert(c->write_vio->nbytes >= 0);
 
         if (c->write_vio->nbytes < 0) {
-          // TODO: Wtf, printf?
-          fprintf(stderr, "[HttpTunnel::finish_all_internal] ERROR: Incorrect total_bytes - c->skip_bytes = %" PRId64 "\n",
-                  static_cast<int64_t>(total_bytes - c->skip_bytes));
+          Error("Incorrect total_bytes - c->skip_bytes = %" PRId64 "\n", total_bytes - c->skip_bytes);
         }
       }
 
@@ -1610,6 +1625,7 @@ HttpTunnel::main_handler(int event, void *data)
       ink_assert(c->write_vio == (VIO *)data || c->vc == ((VIO *)data)->vc_server);
       sm_callback = consumer_handler(event, c);
     } else {
+      // Presumably a delayed event we can ignore now
       internal_error(); // do nothing
     }
   }

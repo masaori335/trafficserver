@@ -18,6 +18,7 @@
 
 AM_CPPFLAGS += \
   $(iocore_include_dirs) \
+  -I$(abs_top_srcdir)/include \
   -I$(abs_top_srcdir)/lib \
   -I$(abs_top_srcdir)/lib/records \
   -I$(abs_top_srcdir)/proxy \
@@ -29,7 +30,7 @@ AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/mgmt \
   -I$(abs_top_srcdir)/mgmt/utils \
   $(TS_INCLUDES) \
-  @OPENSSL_INCLUDES@
+  @OPENSSL_INCLUDES@ @YAMLCPP_INCLUDES@
 
 noinst_LIBRARIES = libquic.a
 
@@ -44,6 +45,8 @@ QUICPPProtector_impl = QUICPacketPayloadProtector_openssl.cc
 QUICTLS_impl = QUICTLS_openssl.cc
 QUICKeyGenerator_impl = QUICKeyGenerator_openssl.cc
 endif
+
+QLog_impl = qlog/QLogEvent.cc qlog/QLogFrame.cc qlog/QLog.cc
 
 libquic_a_SOURCES = \
   QUICGlobals.cc \
@@ -68,7 +71,6 @@ libquic_a_SOURCES = \
   QUICPacketProtectionKeyInfo.cc \
   QUICTLS.cc \
   $(QUICTLS_impl) \
-  QUICKeyGenerator.cc \
   $(QUICKeyGenerator_impl) \
   QUICKeyGenerator.cc \
   QUICHKDF.cc \
@@ -85,6 +87,8 @@ libquic_a_SOURCES = \
   QUICPathManager.cc \
   QUICPathValidator.cc \
   QUICPinger.cc \
+  QUICRetryIntegrityTag.cc \
+  QUICResetTokenTable.cc \
   QUICFrameGenerator.cc \
   QUICFrameRetransmitter.cc \
   QUICAddrVerifyState.cc \
@@ -94,7 +98,8 @@ libquic_a_SOURCES = \
   QUICStreamFactory.cc \
   QUICPadder.cc \
   QUICContext.cc \
-  QUICTokenCreator.cc
+  QUICTokenCreator.cc \
+  $(QLog_impl)
 
 #
 # Check Programs
@@ -129,12 +134,12 @@ TESTS = $(check_PROGRAMS)
 
 test_CPPFLAGS = \
   $(AM_CPPFLAGS) \
-  -I$(abs_top_srcdir)/tests/include
+  -I$(abs_top_srcdir)/tests/include -O0
 
 test_LDADD = \
   libquic.a \
-  $(top_builddir)/iocore/eventsystem/libinkevent.a \
   $(top_builddir)/lib/records/librecords_p.a \
+  $(top_builddir)/iocore/eventsystem/libinkevent.a \
   $(top_builddir)/mgmt/libmgmt_p.la \
   $(top_builddir)/proxy/shared/libUglyLogStubs.a \
   $(top_builddir)/src/tscore/libtscore.la \

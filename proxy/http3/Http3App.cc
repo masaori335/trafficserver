@@ -27,6 +27,7 @@
 
 #include "P_Net.h"
 #include "P_VConnection.h"
+#include "P_QUICNetVConnection.h"
 
 #include "Http3.h"
 #include "Http3Config.h"
@@ -194,7 +195,7 @@ Http3App::_handle_uni_stream_on_read_ready(int /* event */, QUICStreamIO *stream
   case Http3StreamType::QPACK_DECODER: {
     this->_set_qpack_stream(type, stream_io);
   }
-  case Http3StreamType::UNKOWN:
+  case Http3StreamType::UNKNOWN:
   default:
     // TODO: just ignore or trigger QUIC STOP_SENDING frame with HTTP_UNKNOWN_STREAM_TYPE
     break;
@@ -240,7 +241,7 @@ Http3App::_handle_uni_stream_on_write_ready(int /* event */, QUICStreamIO *strea
   case Http3StreamType::QPACK_DECODER: {
     this->_set_qpack_stream(it->second, stream_io);
   }
-  case Http3StreamType::UNKOWN:
+  case Http3StreamType::UNKNOWN:
   case Http3StreamType::PUSH:
   default:
     break;

@@ -84,7 +84,7 @@ url_mapping::~url_mapping()
 }
 
 void
-url_mapping::Print()
+url_mapping::Print() const
 {
   char from_url_buf[131072], to_url_buf[131072];
 
@@ -93,6 +93,13 @@ url_mapping::Print()
   printf("\t %s %s=> %s %s <%s> [plugins %s enabled; running with %zu plugins]\n", from_url_buf, unique ? "(unique)" : "",
          to_url_buf, homePageRedirect ? "(R)" : "", tag ? tag : "", _plugin_inst_list.size() > 0 ? "are" : "not",
          _plugin_inst_list.size());
+}
+
+std::string
+url_mapping::PrintRemapHitCount() const
+{
+  std::string result = "{\"fromURL\": \"" + remapKey + "\", \"hit_count\": " + std::to_string(_hitCount) + "}";
+  return result;
 }
 
 /**

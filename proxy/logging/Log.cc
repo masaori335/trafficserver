@@ -58,9 +58,7 @@
 // Log global objects
 inkcoreapi LogObject *Log::error_log = nullptr;
 LogFieldList Log::global_field_list;
-LogFormat *Log::global_scrap_format = nullptr;
-LogObject *Log::global_scrap_object = nullptr;
-Log::LoggingMode Log::logging_mode  = LOG_MODE_NONE;
+Log::LoggingMode Log::logging_mode = LOG_MODE_NONE;
 
 // Flush thread stuff
 EventNotify *Log::preproc_notify;
@@ -72,6 +70,7 @@ int Log::preproc_threads;
 int Log::init_status                  = 0;
 int Log::config_flags                 = 0;
 bool Log::logging_mode_changed        = false;
+bool Log::log_rotate_signal_received  = false;
 uint32_t Log::periodic_tasks_interval = PERIODIC_TASKS_INTERVAL_FALLBACK;
 
 // Hash table for LogField symbols
@@ -99,8 +98,8 @@ make_alias_map(Ptr<LogFieldAliasTable> &table)
 void
 Log::change_configuration()
 {
-  LogConfig *prev       = Log::config;
-  LogConfig *new_config = nullptr;
+  LogConfig *prev_config = Log::config;
+  LogConfig *new_config  = nullptr;
 
   Debug("log-config", "Changing configuration ...");
 
@@ -111,10 +110,10 @@ Log::change_configuration()
   // grab the _APImutex so we can transfer the api objects to
   // the new config
   //
-  ink_mutex_acquire(prev->log_object_manager._APImutex);
+  ink_mutex_acquire(prev_config->log_object_manager._APImutex);
   Debug("log-api-mutex", "Log::change_configuration acquired api mutex");
 
-  new_config->init(Log::config);
+  new_config->init(prev_config);
 
   // Make the new LogConfig active.
   ink_atomic_swap(&Log::config, new_config);
@@ -125,7 +124,7 @@ Log::change_configuration()
   // this happens, then the new TextLogObject will be immediately lost. Traffic
   // Server would crash the next time the plugin referenced the freed object.
 
-  ink_mutex_release(prev->log_object_manager._APImutex);
+  ink_mutex_release(prev_config->log_object_manager._APImutex);
   Debug("log-api-mutex", "Log::change_configuration released api mutex");
 
   // Register the new config in the config processor; the old one will now be scheduled for a
@@ -135,7 +134,7 @@ Log::change_configuration()
 
   // If we replaced the logging configuration, flush any log
   // objects that weren't transferred to the new config ...
-  prev->log_object_manager.flush_all_objects();
+  prev_config->log_object_manager.flush_all_objects();
 
   Debug("log-config", "... new configuration in place");
 }
@@ -240,19 +239,17 @@ Log::periodic_tasks(long time_now)
       if (error_log) {
         error_log->roll_files(time_now);
       }
-      if (global_scrap_object) {
-        global_scrap_object->roll_files(time_now);
-      }
       Log::config->log_object_manager.roll_files(time_now);
       Log::config->roll_log_files_now = false;
     } else {
       if (error_log) {
         error_log->roll_files(time_now);
       }
-      if (global_scrap_object) {
-        global_scrap_object->roll_files(time_now);
-      }
       Log::config->log_object_manager.roll_files(time_now);
+    }
+    if (log_rotate_signal_received) {
+      Log::config->log_object_manager.reopen_moved_log_files();
+      log_rotate_signal_received = false;
     }
   }
 }
@@ -447,6 +444,11 @@ Log::init_fields()
   global_field_list.add(field, false);
   field_symbol_hash.emplace("cqpv", field);
 
+  field = new LogField("server_req_protocol_version", "sqpv", LogField::dINT, &LogAccess::marshal_server_req_protocol_version,
+                       reinterpret_cast<LogField::UnmarshalFunc>(&LogAccess::unmarshal_str));
+  global_field_list.add(field, false);
+  field_symbol_hash.emplace("sqpv", field);
+
   field = new LogField("client_req_header_len", "cqhl", LogField::sINT, &LogAccess::marshal_client_req_header_len,
                        &LogAccess::unmarshal_int_to_str);
   global_field_list.add(field, false);
@@ -466,6 +468,16 @@ Log::init_fields()
                        reinterpret_cast<LogField::UnmarshalFunc>(&LogAccess::unmarshal_str));
   global_field_list.add(field, false);
   field_symbol_hash.emplace("cssn", field);
+
+  field = new LogField("client_ssl_cert_provided", "cscert", LogField::STRING, &LogAccess::marshal_client_provided_cert,
+                       reinterpret_cast<LogField::UnmarshalFunc>(&LogAccess::unmarshal_int_to_str));
+  global_field_list.add(field, false);
+  field_symbol_hash.emplace("cscert", field);
+
+  field = new LogField("proxy_ssl_cert_provided", "pscert", LogField::STRING, &LogAccess::marshal_proxy_provided_cert,
+                       reinterpret_cast<LogField::UnmarshalFunc>(&LogAccess::unmarshal_int_to_str));
+  global_field_list.add(field, false);
+  field_symbol_hash.emplace("pscert", field);
 
   field = new LogField("process_uuid", "puuid", LogField::STRING, &LogAccess::marshal_process_uuid,
                        reinterpret_cast<LogField::UnmarshalFunc>(&LogAccess::unmarshal_str));
@@ -516,6 +528,11 @@ Log::init_fields()
                        reinterpret_cast<LogField::UnmarshalFunc>(&LogAccess::unmarshal_str));
   global_field_list.add(field, false);
   field_symbol_hash.emplace("cqssu", field);
+
+  field = new LogField("client_sec_alpn", "cqssa", LogField::STRING, &LogAccess::marshal_client_security_alpn,
+                       reinterpret_cast<LogField::UnmarshalFunc>(&LogAccess::unmarshal_str));
+  global_field_list.add(field, false);
+  field_symbol_hash.emplace("cqssa", field);
 
   Ptr<LogFieldAliasTable> finish_status_map = make_ptr(new LogFieldAliasTable);
   finish_status_map->init(N_LOG_FINISH_CODE_TYPES, LOG_FINISH_FIN, "FIN", LOG_FINISH_INTR, "INTR", LOG_FINISH_TIMEOUT, "TIMEOUT");
@@ -593,7 +610,7 @@ Log::init_fields()
 
   Ptr<LogFieldAliasTable> cache_code_map = make_ptr(new LogFieldAliasTable);
   cache_code_map->init(
-    52, SQUID_LOG_EMPTY, "UNDEFINED", SQUID_LOG_TCP_HIT, "TCP_HIT", SQUID_LOG_TCP_DISK_HIT, "TCP_DISK_HIT", SQUID_LOG_TCP_MEM_HIT,
+    53, SQUID_LOG_EMPTY, "UNDEFINED", SQUID_LOG_TCP_HIT, "TCP_HIT", SQUID_LOG_TCP_DISK_HIT, "TCP_DISK_HIT", SQUID_LOG_TCP_MEM_HIT,
     "TCP_MEM_HIT", SQUID_LOG_TCP_MISS, "TCP_MISS", SQUID_LOG_TCP_EXPIRED_MISS, "TCP_EXPIRED_MISS", SQUID_LOG_TCP_REFRESH_HIT,
     "TCP_REFRESH_HIT", SQUID_LOG_TCP_REF_FAIL_HIT, "TCP_REFRESH_FAIL_HIT", SQUID_LOG_TCP_REFRESH_MISS, "TCP_REFRESH_MISS",
     SQUID_LOG_TCP_CLIENT_REFRESH, "TCP_CLIENT_REFRESH_MISS", SQUID_LOG_TCP_IMS_HIT, "TCP_IMS_HIT", SQUID_LOG_TCP_IMS_MISS,
@@ -612,7 +629,7 @@ Log::init_fields()
     "ERR_CANNOT_FETCH", SQUID_LOG_ERR_NO_RELAY, "ERR_NO_RELAY", SQUID_LOG_ERR_DISK_IO, "ERR_DISK_IO",
     SQUID_LOG_ERR_ZERO_SIZE_OBJECT, "ERR_ZERO_SIZE_OBJECT", SQUID_LOG_ERR_PROXY_DENIED, "ERR_PROXY_DENIED",
     SQUID_LOG_ERR_WEBFETCH_DETECTED, "ERR_WEBFETCH_DETECTED", SQUID_LOG_ERR_FUTURE_1, "ERR_FUTURE_1", SQUID_LOG_ERR_LOOP_DETECTED,
-    "ERR_LOOP_DETECTED", SQUID_LOG_ERR_UNKNOWN, "ERR_UNKNOWN");
+    "ERR_LOOP_DETECTED", SQUID_LOG_ERR_UNKNOWN, "ERR_UNKNOWN", SQUID_LOG_TCP_CF_HIT, "TCP_CF_HIT");
 
   Ptr<LogFieldAliasTable> cache_subcode_map = make_ptr(new LogFieldAliasTable);
   cache_subcode_map->init(2, SQUID_SUBCODE_EMPTY, "NONE", SQUID_SUBCODE_NUM_REDIRECTIONS_EXCEEDED, "NUM_REDIRECTIONS_EXCEEDED");
@@ -623,7 +640,7 @@ Log::init_fields()
                            SQUID_HIT_LEVEL_3, "HIT_DISK",                               // Also SQUID_HIT_DISK
                            SQUID_HIT_LEVEL_4, "HIT_CLUSTER",                            // Also SQUID_HIT_CLUSTER
                            SQUID_HIT_LEVEL_5, "HIT_NET",                                // Also SQUID_HIT_NET
-                           SQUID_HIT_LEVEL_6, "HIT_LEVEL_6", SQUID_HIT_LEVEL_7, "HIT_LEVEL_7", SQUID_HIT_LEVEL_8, "HIT_LEVEL_8",
+                           SQUID_HIT_LEVEL_6, "HIT_RWW", SQUID_HIT_LEVEL_7, "HIT_LEVEL_7", SQUID_HIT_LEVEL_8, "HIT_LEVEL_8",
                            SQUID_HIT_LEVEl_9, "HIT_LEVEL_9", SQUID_MISS_NONE, "MISS", SQUID_MISS_HTTP_NON_CACHE,
                            "MISS_HTTP_NON_CACHE", SQUID_MISS_HTTP_NO_DLE, "MISS_HTTP_NO_DLE", SQUID_MISS_HTTP_NO_LE,
                            "MISS_HTTP_NO_LE", SQUID_MISS_HTTP_CONTENT, "MISS_HTTP_CONTENT", SQUID_MISS_PRAGMA_NOCACHE,
@@ -933,7 +950,7 @@ Log::init_fields()
   field_symbol_hash.emplace("ppdip", field);
 
   field = new LogField("version_build_number", "vbn", LogField::STRING, &LogAccess::marshal_version_build_number,
-                       (LogField::UnmarshalFunc)&LogAccess::unmarshal_str);
+                       reinterpret_cast<LogField::UnmarshalFunc>(&LogAccess::unmarshal_str));
   global_field_list.add(field, false);
   field_symbol_hash.emplace("vbn", field);
 
@@ -968,6 +985,14 @@ Log::handle_periodic_tasks_int_change(const char * /* name ATS_UNUSED */, RecDat
     Debug("log-periodic", "periodic task interval changed to %u", periodic_tasks_interval);
   }
   return REC_ERR_OKAY;
+}
+
+int
+Log::handle_log_rotation_request()
+{
+  Debug("log", "Request to reopen rotated log files.");
+  log_rotate_signal_received = true;
+  return 0;
 }
 
 void
@@ -1052,13 +1077,6 @@ Log::init_when_enabled()
     }
 
     LogConfig::register_mgmt_callbacks();
-    // setup global scrap object
-    //
-    global_scrap_format = MakeTextLogFormat();
-    global_scrap_object = new LogObject(
-      global_scrap_format, Log::config->logfile_dir, "scrapfile.log", LOG_FILE_BINARY, nullptr, Log::config->rolling_enabled,
-      Log::config->preproc_threads, Log::config->rolling_interval_sec, Log::config->rolling_offset_hr, Log::config->rolling_size_mb,
-      /* auto create */ false, Log::config->rolling_max_count, Log::config->rolling_min_count);
 
     // create the flush thread
     create_threads();
@@ -1099,11 +1117,9 @@ Log::create_threads()
   flush_notify    = new EventNotify;
   flush_data_list = new InkAtomicList;
 
-  sprintf(desc, "Logging flush buffer list");
-  ink_atomiclist_init(flush_data_list, desc, 0);
+  ink_atomiclist_init(flush_data_list, "Logging flush buffer list", 0);
   Continuation *flush_cont = new LoggingFlushContinuation(0);
-  sprintf(desc, "[LOG_FLUSH]");
-  eventProcessor.spawn_thread(flush_cont, desc, stacksize);
+  eventProcessor.spawn_thread(flush_cont, "[LOG_FLUSH]", stacksize);
 }
 
 /*-------------------------------------------------------------------------
@@ -1359,7 +1375,7 @@ Log::flush_thread_main(void * /* args ATS_UNUSED */)
       // make sure we're open & ready to write
       logfile->check_fd();
       if (!logfile->is_open()) {
-        Warning("File:%s was closed, have dropped (%d) bytes.", logfile->get_name(), total_bytes);
+        SiteThrottledWarning("File:%s was closed, have dropped (%d) bytes.", logfile->get_name(), total_bytes);
 
         RecIncrRawStat(log_rsb, mutex->thread_holding, log_stat_bytes_lost_before_written_to_disk_stat, total_bytes);
         delete fdata;
@@ -1385,8 +1401,8 @@ Log::flush_thread_main(void * /* args ATS_UNUSED */)
         len = ::write(logfilefd, &buf[bytes_written], total_bytes - bytes_written);
 
         if (len < 0) {
-          Error("Failed to write log to %s: [tried %d, wrote %d, %s]", logfile->get_name(), total_bytes - bytes_written,
-                bytes_written, strerror(errno));
+          SiteThrottledError("Failed to write log to %s: [tried %d, wrote %d, %s]", logfile->get_name(),
+                             total_bytes - bytes_written, bytes_written, strerror(errno));
 
           RecIncrRawStat(log_rsb, mutex->thread_holding, log_stat_bytes_lost_before_written_to_disk_stat,
                          total_bytes - bytes_written);

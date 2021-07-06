@@ -98,6 +98,41 @@ CacheVC::updateVector(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
       if (od->move_resident_alt && get_alternate_index(write_vector, od->single_doc_key) == 0) {
         od->move_resident_alt = false;
       }
+      if (cache_config_log_alternate_eviction) {
+        // Initially there was an attempt to make alternate eviction a log
+        // field. However it was discovered this could not work because this
+        // code, in which alternates are evicted, happens during the processing
+        // of IO which happens after transaction logs are emitted and after the
+        // HttpSM is destructed. Instead, therefore, alternate eviction logging
+        // was implemented for diags.log with the
+        // proxy.config.cache.log.alternate.eviction toggle.
+        CacheHTTPInfo *info = write_vector->get(0);
+        HTTPHdr *request    = info->request_get();
+        if (request->valid()) {
+          // Marking the request's target as dirty will guarantee that the
+          // internal members of the request used for printing the URL will be
+          // coherent and valid by the time it is printed.
+          request->mark_target_dirty();
+          // In contrast to url_string_get, this url_print interface doesn't
+          // use HTTPHdr's m_heap which is not valid at this point because the
+          // HttpSM is most likely gone.
+          int url_length = request->url_printed_length();
+          ats_scoped_mem<char> url_text;
+          url_text   = static_cast<char *>(ats_malloc(url_length + 1));
+          int index  = 0;
+          int offset = 0;
+          // url_print does not NULL terminate, so url_length instead of url_length + 1.
+          int ret                    = request->url_print(url_text.get(), url_length, &index, &offset);
+          url_text.get()[url_length] = '\0';
+          if (ret == 0) {
+            Note("Could not print URL of evicted alternate.");
+          } else {
+            Status("The maximum number of alternates was exceeded for a resource. "
+                   "An alternate was evicted for URL: %.*s",
+                   url_length, url_text.get());
+          }
+        }
+      }
       write_vector->remove(0, true);
     }
     if (vec) {
@@ -164,7 +199,7 @@ CacheVC::updateVector(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
    - f.update. Used only if the write_vector needs to be written to disk.
      Used to set the length of the alternate to total_len.
    - write_vector. Used only if frag_type == CACHE_FRAG_TYPE_HTTP &&
-     (f.use_fist_key || f.evac_vector) is set. Write_vector is written to disk
+     (f.use_first_key || f.evac_vector) is set. Write_vector is written to disk
    - alternate_index. Used only if write_vector needs to be written to disk.
      Used to find out the VC's alternate in the write_vector and set its
      length to tatal_len.
@@ -521,8 +556,7 @@ CacheVC::evacuateDocDone(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
           }
           if (dir_overwrite(&doc->first_key, vol, &dir, &overwrite_dir)) {
             int64_t o = dir_offset(&overwrite_dir), n = dir_offset(&dir);
-            vol->ram_cache->fixup(&doc->first_key, static_cast<uint32_t>(o >> 32), static_cast<uint32_t>(o),
-                                  static_cast<uint32_t>(n >> 32), static_cast<uint32_t>(n));
+            vol->ram_cache->fixup(&doc->first_key, static_cast<uint64_t>(o), static_cast<uint64_t>(n));
           }
         } else {
           DDebug("cache_evac", "evacuating earliest: %X %d", (int)doc->key.slice32(0), (int)dir_offset(&overwrite_dir));

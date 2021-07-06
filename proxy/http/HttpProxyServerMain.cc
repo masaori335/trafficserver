@@ -27,7 +27,7 @@
 #include "HttpSessionAccept.h"
 #include "ReverseProxy.h"
 #include "HttpSessionManager.h"
-#include "HttpUpdateSM.h"
+#include "remap/RemapHitCount.h"
 #ifdef USE_HTTP_DEBUG_LISTS
 #include "Http1ClientSession.h"
 #endif
@@ -40,6 +40,7 @@
 #include "HttpConnectionCount.h"
 #include "HttpProxyServerMain.h"
 #if TS_USE_QUIC == 1
+#include "P_QUICNetProcessor.h"
 #include "P_QUICNextProtocolAccept.h"
 #include "http3/Http3SessionAccept.h"
 #endif
@@ -55,6 +56,10 @@ static Ptr<ProxyMutex> ssl_plugin_mutex;
 std::mutex proxyServerMutex;
 std::condition_variable proxyServerCheck;
 bool et_net_threads_ready = false;
+
+std::mutex etUdpMutex;
+std::condition_variable etUdpCheck;
+bool et_udp_threads_ready = false;
 
 extern int num_of_net_threads;
 extern int num_accept_threads;
@@ -237,11 +242,17 @@ MakeHttpProxyAcceptor(HttpProxyAcceptor &acceptor, HttpProxyPort &port, unsigned
 
     quic->enableProtocols(port.m_session_protocol_preference);
 
-    // HTTP/3
-    quic->registerEndpoint(TS_ALPN_PROTOCOL_HTTP_3, new Http3SessionAccept(accept_opt));
+    // HTTP/0.9 over QUIC draft-27 (for interop only, will be removed)
+    quic->registerEndpoint(TS_ALPN_PROTOCOL_HTTP_QUIC_D27, new Http3SessionAccept(accept_opt));
+
+    // HTTP/3 draft-27
+    quic->registerEndpoint(TS_ALPN_PROTOCOL_HTTP_3_D27, new Http3SessionAccept(accept_opt));
 
     // HTTP/0.9 over QUIC (for interop only, will be removed)
     quic->registerEndpoint(TS_ALPN_PROTOCOL_HTTP_QUIC, new Http3SessionAccept(accept_opt));
+
+    // HTTP/3
+    quic->registerEndpoint(TS_ALPN_PROTOCOL_HTTP_3, new Http3SessionAccept(accept_opt));
 
     quic->proxyPort  = &port;
     acceptor._accept = quic;
@@ -316,6 +327,15 @@ init_HttpProxyServer()
     lock.unlock();
     proxyServerCheck.notify_one();
   }
+
+#if TS_USE_QUIC == 1
+  if (eventProcessor.has_tg_started(ET_UDP)) {
+    std::unique_lock<std::mutex> lock(etUdpMutex);
+    et_udp_threads_ready = true;
+    lock.unlock();
+    etUdpCheck.notify_one();
+  }
+#endif
 }
 
 void
@@ -353,14 +373,9 @@ start_HttpProxyServer()
     // NULL. It would be useful to be able to detect errors and spew them here though.
   }
 
-#if TS_HAS_TESTS
-  if (is_action_tag_set("http_update_test")) {
-    init_http_update_test();
-  }
-#endif
-
   // Set up stat page for http connection count
   statPagesManager.register_http("connection_count", register_ShowConnectionCount);
+  statPagesManager.register_http("remap_hits", register_ShowRemapHitCount);
 
   // Alert plugins that connections will be accepted.
   APIHook *hook = lifecycle_hooks->get(TS_LIFECYCLE_PORTS_READY_HOOK);

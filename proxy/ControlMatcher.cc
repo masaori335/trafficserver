@@ -105,7 +105,7 @@ template <class Data, class MatchResult> HostMatcher<Data, MatchResult>::~HostMa
 //
 template <class Data, class MatchResult>
 void
-HostMatcher<Data, MatchResult>::Print()
+HostMatcher<Data, MatchResult>::Print() const
 {
   printf("\tHost/Domain Matcher with %d elements\n", num_el);
   host_lookup->Print(PrintFunc);
@@ -150,7 +150,7 @@ HostMatcher<Data, MatchResult>::AllocateSpace(int num_entries)
 //
 template <class Data, class MatchResult>
 void
-HostMatcher<Data, MatchResult>::Match(RequestData *rdata, MatchResult *result)
+HostMatcher<Data, MatchResult>::Match(RequestData *rdata, MatchResult *result) const
 {
   void *opaque_ptr;
   Data *data_ptr;
@@ -256,7 +256,7 @@ template <class Data, class MatchResult> UrlMatcher<Data, MatchResult>::~UrlMatc
 //
 template <class Data, class MatchResult>
 void
-UrlMatcher<Data, MatchResult>::Print()
+UrlMatcher<Data, MatchResult>::Print() const
 {
   printf("\tUrl Matcher with %d elements\n", num_el);
   for (int i = 0; i < num_el; i++) {
@@ -335,7 +335,7 @@ UrlMatcher<Data, MatchResult>::NewEntry(matcher_line *line_info)
 //
 template <class Data, class MatchResult>
 void
-UrlMatcher<Data, MatchResult>::Match(RequestData *rdata, MatchResult *result)
+UrlMatcher<Data, MatchResult>::Match(RequestData *rdata, MatchResult *result) const
 {
   char *url_str;
 
@@ -383,13 +383,13 @@ template <class Data, class MatchResult> RegexMatcher<Data, MatchResult>::~Regex
 }
 
 //
-// void RegexMatcher<Data,MatchResult>::Print()
+// void RegexMatcher<Data,MatchResult>::Print() const
 //
 //   Debugging function
 //
 template <class Data, class MatchResult>
 void
-RegexMatcher<Data, MatchResult>::Print()
+RegexMatcher<Data, MatchResult>::Print() const
 {
   printf("\tRegex Matcher with %d elements\n", num_el);
   for (int i = 0; i < num_el; i++) {
@@ -482,7 +482,7 @@ RegexMatcher<Data, MatchResult>::NewEntry(matcher_line *line_info)
 //
 template <class Data, class MatchResult>
 void
-RegexMatcher<Data, MatchResult>::Match(RequestData *rdata, MatchResult *result)
+RegexMatcher<Data, MatchResult>::Match(RequestData *rdata, MatchResult *result) const
 {
   char *url_str;
   int r;
@@ -500,10 +500,10 @@ RegexMatcher<Data, MatchResult>::Match(RequestData *rdata, MatchResult *result)
   if (url_str == nullptr) {
     url_str = ats_strdup("");
   }
+
   // INKqa12980
   // The function unescapifyStr() is already called in
   // HttpRequestData::get_string(); therefore, no need to call again here.
-  // unescapifyStr(url_str);
 
   for (int i = 0; i < num_el; i++) {
     r = pcre_exec(re_array[i], nullptr, url_str, strlen(url_str), 0, 0, nullptr, 0);
@@ -535,7 +535,7 @@ HostRegexMatcher<Data, MatchResult>::HostRegexMatcher(const char *name, const ch
 //
 template <class Data, class MatchResult>
 void
-HostRegexMatcher<Data, MatchResult>::Match(RequestData *rdata, MatchResult *result)
+HostRegexMatcher<Data, MatchResult>::Match(RequestData *rdata, MatchResult *result) const
 {
   const char *url_str;
   int r;
@@ -649,7 +649,7 @@ IpMatcher<Data, MatchResult>::NewEntry(matcher_line *line_info)
 //
 template <class Data, class MatchResult>
 void
-IpMatcher<Data, MatchResult>::Match(sockaddr const *addr, RequestData *rdata, MatchResult *result)
+IpMatcher<Data, MatchResult>::Match(sockaddr const *addr, RequestData *rdata, MatchResult *result) const
 {
   void *raw;
   if (ip_map.contains(addr, &raw)) {
@@ -661,13 +661,13 @@ IpMatcher<Data, MatchResult>::Match(sockaddr const *addr, RequestData *rdata, Ma
 
 template <class Data, class MatchResult>
 void
-IpMatcher<Data, MatchResult>::Print()
+IpMatcher<Data, MatchResult>::Print() const
 {
   printf("\tIp Matcher with %d elements, %zu ranges.\n", num_el, ip_map.count());
-  for (IpMap::iterator spot(ip_map.begin()), limit(ip_map.end()); spot != limit; ++spot) {
+  for (auto &spot : ip_map) {
     char b1[INET6_ADDRSTRLEN], b2[INET6_ADDRSTRLEN];
-    printf("\tRange %s - %s ", ats_ip_ntop(spot->min(), b1, sizeof b1), ats_ip_ntop(spot->max(), b2, sizeof b2));
-    static_cast<Data *>(spot->data())->Print();
+    printf("\tRange %s - %s ", ats_ip_ntop(spot.min(), b1, sizeof b1), ats_ip_ntop(spot.max(), b2, sizeof b2));
+    static_cast<Data *>(spot.data())->Print();
   }
 }
 
@@ -718,7 +718,7 @@ template <class Data, class MatchResult> ControlMatcher<Data, MatchResult>::~Con
 //
 template <class Data, class MatchResult>
 void
-ControlMatcher<Data, MatchResult>::Print()
+ControlMatcher<Data, MatchResult>::Print() const
 {
   printf("Control Matcher Table: %s\n", matcher_name);
   if (hostMatch != nullptr) {
@@ -739,13 +739,13 @@ ControlMatcher<Data, MatchResult>::Print()
 }
 
 // void ControlMatcher<Data, MatchResult>::Match(RequestData* rdata
-//                                          MatchResult* result)
+//                                          MatchResult* result) const
 //
 //   Queries each table for the MatchResult*
 //
 template <class Data, class MatchResult>
 void
-ControlMatcher<Data, MatchResult>::Match(RequestData *rdata, MatchResult *result)
+ControlMatcher<Data, MatchResult>::Match(RequestData *rdata, MatchResult *result) const
 {
   if (hostMatch != nullptr) {
     hostMatch->Match(rdata, result);
@@ -796,6 +796,7 @@ ControlMatcher<Data, MatchResult>::BuildTableFromString(char *file_buf)
     // We have an empty file
     return 0;
   }
+
   // First get the number of entries
   tmp = bufTok.iterFirst(&i_state);
   while (tmp != nullptr) {
@@ -912,8 +913,7 @@ ControlMatcher<Data, MatchResult>::BuildTableFromString(char *file_buf)
         Result::failure("%s discarding %s entry with unknown type at line %d", matcher_name, config_file_path, current->line_num);
     }
 
-    // Check to see if there was an error in creating
-    //   the NewEntry
+    // Check to see if there was an error in creating the NewEntry
     if (error.failed()) {
       SignalError(error.message(), alarmAlready);
     }
@@ -954,30 +954,6 @@ ControlMatcher<Data, MatchResult>::BuildTable()
 
 /****************************************************************
  *    TEMPLATE INSTANTIATIONS GO HERE
- *
- *  We have to explicitly instantiate the templates so that
- *   everything works on with dec ccx, sun CC, and g++
- *
- *  Details on the different comipilers:
- *
- *  dec ccx: Does not seem to instantiate anything automatically
- *         so it needs all templates manually instantiated
- *
- *  sun CC: Automatic instantiation works but since we make
- *         use of the templates in other files, instantiation
- *         only occurs when those files are compiled, breaking
- *         the dependency system.  Explict instantiation
- *         in this file causes the templates to be reinstantiated
- *         when this file changes.
- *
- *         Also, does not give error messages about template
- *           compilation problems.  Requires the -verbose=template
- *           flage to error messages
- *
- *  g++: Requires instantiation to occur in the same file as the
- *         the implementation.  Instantiating ControlMatcher
- *         automatically instatiatiates the other templates since
- *         ControlMatcher makes use of them
  *
  ****************************************************************/
 

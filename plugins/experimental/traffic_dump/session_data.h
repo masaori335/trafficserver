@@ -1,14 +1,19 @@
-/** @session_handler.h
+/** @file
+
   Traffic Dump session handling encapsulation.
+
   @section license License
+
   Licensed to the Apache Software Foundation (ASF) under one
   or more contributor license agreements.  See the NOTICE file
   distributed with this work for additional information
- regarding copyright ownership.  The ASF licenses this file
+  regarding copyright ownership.  The ASF licenses this file
   to you under the Apache License, Version 2.0 (the
   "License"); you may not use this file except in compliance
   with the License.  You may obtain a copy of the License at
+
       http://www.apache.org/licenses/LICENSE-2.0
+
   Unless required by applicable law or agreed to in writing, software
   distributed under the License is distributed on an "AS IS" BASIS,
   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,6 +25,8 @@
 
 #include <atomic>
 #include <cstdlib>
+#include <mutex>
+#include <string>
 #include <string_view>
 
 #include "ts/ts.h"
@@ -60,10 +67,16 @@ private:
   ts::file::path log_name;
   /// Whether the first transaction in this session has been written.
   bool has_written_first_transaction = false;
+  /// The HTTP version specified in the client protocol stack, or empty string
+  /// if it was not specified.
+  std::string http_version_in_client_stack;
 
-  TSCont aio_cont       = nullptr; /// AIO continuation callback
-  TSCont txn_cont       = nullptr; /// Transaction continuation callback
-  TSMutex disk_io_mutex = nullptr; /// AIO mutex
+  TSCont aio_cont = nullptr; /// AIO continuation callback
+  TSCont txn_cont = nullptr; /// Transaction continuation callback
+
+  // The following has to be recursive because the stack does not unwind
+  // between event invocations.
+  std::recursive_mutex disk_io_mutex; /// The mutex for guarding IO calls.
 
   //
   // Static Variables
@@ -120,19 +133,19 @@ public:
    */
   static void set_max_disk_usage(int64_t new_max_disk_usage);
 
-#if 0
-  // TODO: This will eventually be used by TransactionData to dump
-  // the server protocol description in the "server-response" node,
-  // but the TS API does not yet support this.
-
   /** Get the JSON string that describes the server session stack.
    *
-   * @param[in] ssnp The reference to the server session.
+   * The server side protocol description may change on a per-transaction
+   * basis. Therefore we print this for each transaction and take an TSHttpTxn
+   * instead of a TSHttpSsn that the analogous get_client_protocol_description
+   * receives.
    *
-   * @return A JSON description of the server protocol stack.
+   * @param[in] txnp The reference to the transaction.
+   *
+   * @return A JSON description of the server protocol stack for the
+   * transaction.
    */
-  static std::string get_server_protocol_description(TSHttpSsn ssnp);
-#endif
+  std::string get_server_protocol_description(TSHttpTxn txnp);
 
   /** Write the string to the session's dump file.
    *
@@ -152,6 +165,19 @@ public:
    */
   int write_transaction_to_disk(std::string_view content);
 
+  /** The HTTP version specified in the client-side protocol stack.
+   *
+   * The client protocol stack is obtained at session negotiation, before HTTP
+   * traffic is passed. So it may contain stack information if it was
+   * negotiated in the TLS handshake, as is often the case with HTTP/2, but it
+   * may not. This function returns whether the protocol stack contained HTTP
+   * information or not.
+   *
+   * @return The HTTP version in the client stack or empty string if it was not
+   * specified.
+   */
+  std::string get_http_version_in_client_stack() const;
+
 private:
   /** Write the string to the session's dump file.
    *
@@ -164,13 +190,37 @@ private:
    */
   int write_to_disk_no_lock(std::string_view content);
 
+  using get_protocol_stack_f  = std::function<TSReturnCode(int, const char **, int *)>;
+  using get_tls_description_f = std::function<std::string()>;
+  using handle_http_version_f = std::function<void(std::string_view)>;
+
+  /** Create the protocol stack for a session.
+   *
+   * This function encapsulates the logic common between the client-side and
+   * server-side logic for populating a protocol stack.
+   *
+   * @param[in] get_protocol_stack The function to use to populate a protocol
+   * stack.
+   *
+   * @param[in] get_tls_node The function to use to populate the tls node.
+   *
+   * @param[in] handle_http_version A function that performs arbitrary logic
+   * given the HTTP/2 protocol version.
+   *
+   * @return The description of the protocol stack and True if the stack
+   * contained an HTTP description, false otherwise.
+   */
+  std::string get_protocol_stack_helper(const get_protocol_stack_f &get_protocol_stack, const get_tls_description_f &get_tls_node,
+                                        const handle_http_version_f &handle_http_version);
+
   /** Get the JSON string that describes the client session stack.
    *
    * @param[in] ssnp The reference to the client session.
    *
-   * @return A JSON description of the client protocol stack.
+   * @return A description of the client protocol stack and True if the stack
+   * contained an HTTP description, false otherwise.
    */
-  static std::string get_client_protocol_description(TSHttpSsn ssnp);
+  std::string get_client_protocol_description(TSHttpSsn ssnp);
 
   /** The handler callback for when async IO is done. Used for cleanup. */
   static int session_aio_handler(TSCont contp, TSEvent event, void *edata);

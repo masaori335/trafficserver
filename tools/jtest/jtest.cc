@@ -446,7 +446,7 @@ FD::close()
 
 #define MAX_FILE_ARGUMENTS 100
 
-typedef struct {
+struct InkWebURLComponents {
   char sche[MAX_URL_LEN + 1];
   char host[MAX_URL_LEN + 1];
   char port[MAX_URL_LEN + 1];
@@ -466,7 +466,7 @@ typedef struct {
   int rel_url;
   int leading_slash;
   int is_path_name;
-} InkWebURLComponents;
+};
 
 static int ink_web_remove_dots(char *src, char *dest, int *leadingslash, int max_dest_len);
 
@@ -4800,7 +4800,7 @@ ink_web_escapify_string(char *dest_in, char *src_in, int max_dest_len)
   int quit   = 0;
 
   while ((*src != 0) && (dcount < max_dest_len) && (quit == 0)) {
-    if ((char *)memchr(dontescapify, *src, INT_MAX) || ParseRules::is_alpha(*src) || ParseRules::is_digit(*src)) {
+    if ((char *)strchr(dontescapify, *src) || ParseRules::is_alpha(*src) || ParseRules::is_digit(*src)) {
       /* this is regular character, don't escapify it */
       if (dcount + 1 < max_dest_len) {
         *dest++ = *src;

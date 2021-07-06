@@ -112,13 +112,14 @@ private:
 struct pRecord : ATSConsistentHashNode {
   char hostname[MAXDNAME + 1];
   int port;
-  time_t failedAt;
-  int failCount;
+  std::atomic<time_t> failedAt = 0;
+  std::atomic<int> failCount   = 0;
   int32_t upAt;
   const char *scheme; // for which parent matches (if any)
   int idx;
   float weight;
   char hash_string[MAXDNAME + 1];
+  std::atomic<int> retriers = 0;
 };
 
 typedef ControlMatcher<ParentRecord, ParentResult> P_table;
@@ -136,7 +137,9 @@ public:
   Result Init(matcher_line *line_info);
   bool DefaultInit(char *val);
   void UpdateMatch(ParentResult *result, RequestData *rdata);
-  void Print();
+
+  void Print() const;
+
   pRecord *parents           = nullptr;
   pRecord *secondary_parents = nullptr;
   int num_parents            = 0;
@@ -185,16 +188,18 @@ struct ParentResult {
   int port;
   bool retry;
   bool chash_init[MAX_GROUP_RINGS] = {false};
-  HostStatus_t first_choice_status = HostStatus_t::HOST_STATUS_INIT;
+  TSHostStatus first_choice_status = TSHostStatus::TS_HOST_STATUS_INIT;
+  bool do_not_cache_response       = false;
 
   void
   reset()
   {
     ink_zero(*this);
-    line_number   = -1;
-    result        = PARENT_UNDEFINED;
-    mapWrapped[0] = false;
-    mapWrapped[1] = false;
+    line_number           = -1;
+    result                = PARENT_UNDEFINED;
+    mapWrapped[0]         = false;
+    mapWrapped[1]         = false;
+    do_not_cache_response = false;
   }
 
   bool
@@ -330,6 +335,9 @@ struct ParentSelectionPolicy {
 class ParentSelectionStrategy
 {
 public:
+  int max_retriers = 0;
+
+  ParentSelectionStrategy() { REC_ReadConfigInteger(max_retriers, "proxy.config.http.parent_proxy.max_trans_retries"); }
   //
   // Return the pRecord.
   virtual pRecord *getParents(ParentResult *result) = 0;
@@ -434,9 +442,6 @@ public:
 
 // Helper Functions
 ParentRecord *createDefaultParent(char *val);
-void reloadDefaultParent(char *val);
-void reloadParentFile();
-int parentSelection_CB(const char *name, RecDataT data_type, RecData data, void *cookie);
 
 // Unit Test Functions
 void show_result(ParentResult *aParentResult);

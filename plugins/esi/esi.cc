@@ -59,7 +59,7 @@ struct OptionInfo {
 };
 
 static HandlerManager *gHandlerManager = nullptr;
-static Utils::HeaderValueList gWhitelistCookies;
+static Utils::HeaderValueList gAllowlistCookies;
 
 #define DEBUG_TAG "plugin_esi"
 #define PROCESSOR_DEBUG_TAG "plugin_esi_processor"
@@ -254,7 +254,7 @@ ContData::init()
       data_fetcher = new HttpDataFetcherImpl(contp, client_addr, createDebugTag(FETCHER_DEBUG_TAG, contp, fetcher_tag));
     }
     if (!esi_vars) {
-      esi_vars = new Variables(createDebugTag(VARS_DEBUG_TAG, contp, vars_tag), &TSDebug, &TSError, gWhitelistCookies);
+      esi_vars = new Variables(createDebugTag(VARS_DEBUG_TAG, contp, vars_tag), &TSDebug, &TSError, gAllowlistCookies);
     }
 
     esi_proc = new EsiProcessor(
@@ -288,7 +288,7 @@ ContData::getClientState()
 
   if (!esi_vars) {
     string vars_tag;
-    esi_vars = new Variables(createDebugTag(VARS_DEBUG_TAG, contp, vars_tag), &TSDebug, &TSError, gWhitelistCookies);
+    esi_vars = new Variables(createDebugTag(VARS_DEBUG_TAG, contp, vars_tag), &TSDebug, &TSError, gAllowlistCookies);
   }
   if (!data_fetcher) {
     string fetcher_tag;
@@ -510,7 +510,6 @@ ContData::~ContData()
 static int
 removeCacheHandler(TSCont contp, TSEvent /* event ATS_UNUSED */, void * /* edata ATS_UNUSED */)
 {
-  // TSDebug(DEBUG_TAG, "[%s] event: %d", __FUNCTION__, (int)event);
   TSContDestroy(contp);
   // just ignore cache remove message
   return 0;
@@ -579,7 +578,8 @@ removeCacheKey(TSHttpTxn txnp)
 static void
 cacheNodeList(ContData *cont_data)
 {
-  if (TSHttpTxnAborted(cont_data->txnp) == TS_SUCCESS) {
+  bool client_abort;
+  if (TSHttpTxnAborted(cont_data->txnp, &client_abort) == TS_SUCCESS) {
     TSDebug(cont_data->debug_tag, "[%s] Not caching node list as txn has been aborted", __FUNCTION__);
     return;
   }
@@ -610,7 +610,7 @@ cacheNodeList(ContData *cont_data)
   string body("");
   cont_data->esi_proc->packNodeList(body, false);
   char buf[64];
-  snprintf(buf, 64, "%s: %d\r\n\r\n", TS_MIME_FIELD_CONTENT_LENGTH, (int)body.size());
+  snprintf(buf, 64, "%s: %d\r\n\r\n", TS_MIME_FIELD_CONTENT_LENGTH, static_cast<int>(body.size()));
 
   post_request.append(buf);
   post_request.append(body);
@@ -775,7 +775,7 @@ transformData(TSCont contp)
             out_data_len = 0;
             out_data     = "";
           } else {
-            TSDebug(cont_data->debug_tag, "[%s] Compressed document from size %d to %d bytes", __FUNCTION__, out_data_len,
+            TSDebug(cont_data->debug_tag, "[%s] Compressed document from size %d to %d bytes via gzip", __FUNCTION__, out_data_len,
                     static_cast<int>(cdata.size()));
             out_data_len = cdata.size();
             out_data     = cdata.data();
@@ -840,12 +840,9 @@ transformData(TSCont contp)
         if (!cont_data->esi_gzip->stream_encode(out_data, cdata)) {
           TSError("[esi][%s] Error while gzipping content", __FUNCTION__);
         } else {
-          TSDebug(cont_data->debug_tag, "[%s] Compressed document from size %d to %d bytes", __FUNCTION__,
+          TSDebug(cont_data->debug_tag, "[%s] Compressed document from size %d to %d bytes via EsiGzip", __FUNCTION__,
                   static_cast<int>(out_data.size()), static_cast<int>(cdata.size()));
         }
-      }
-
-      if (cont_data->gzip_output) {
         if (TSIOBufferWrite(TSVIOBufferGet(cont_data->output_vio), cdata.data(), cdata.size()) == TS_ERROR) {
           TSError("[esi][%s] Error while writing bytes to downstream VC", __FUNCTION__);
           return 0;
@@ -1339,13 +1336,6 @@ isCacheObjTransformable(TSHttpTxn txnp, bool *intercept_header, bool *head_only)
     return false;
   }
   if (obj_status == TS_CACHE_LOOKUP_HIT_FRESH) {
-    /*
-    time_t respTime;
-    if (TSHttpTxnCachedRespTimeGet(txnp, &respTime) == TS_SUCCESS) {
-      TSError("[%s] RespTime; %d", __FUNCTION__, (int)respTime);
-    }
-    */
-
     TSDebug(DEBUG_TAG, "[%s] doc found in cache, will add transformation", __FUNCTION__);
     return isTxnTransformable(txnp, true, intercept_header, head_only);
   }
@@ -1564,7 +1554,7 @@ loadHandlerConf(const char *file_name, Utils::KeyValueMap &handler_conf)
       conf_lines.push_back(string(buf));
     }
     TSfclose(conf_file);
-    Utils::parseKeyValueConfig(conf_lines, handler_conf, gWhitelistCookies);
+    Utils::parseKeyValueConfig(conf_lines, handler_conf, gAllowlistCookies);
     TSDebug(DEBUG_TAG, "[%s] Loaded handler conf file [%s]", __FUNCTION__, file_name);
   } else {
     TSError("[esi][%s] Failed to open handler config file [%s]", __FUNCTION__, file_name);

@@ -30,9 +30,9 @@
 
 // Data Structures and Classes
 struct Config {
-  static constexpr int64_t const blockbytesmin     = 1024 * 256;       // 256KB
-  static constexpr int64_t const blockbytesmax     = 1024 * 1024 * 32; // 32MB
-  static constexpr int64_t const blockbytesdefault = 1024 * 1024;      // 1MB
+  static constexpr int64_t const blockbytesmin     = 1024 * 256;        // 256KB
+  static constexpr int64_t const blockbytesmax     = 1024 * 1024 * 128; // 128MB
+  static constexpr int64_t const blockbytesdefault = 1024 * 1024;       // 1MB
 
   int64_t m_blockbytes{blockbytesdefault};
   std::string m_remaphost; // remap host to use for loopback slice GET
@@ -41,8 +41,9 @@ struct Config {
   RegexType m_regex_type{None};
   pcre *m_regex{nullptr};
   pcre_extra *m_regex_extra{nullptr};
-  bool m_throttle{false}; // internal block throttling
-  int m_paceerrsecs{0};   // -1 disable logging, 0 no pacing, max 60s
+  int m_paceerrsecs{0}; // -1 disable logging, 0 no pacing, max 60s
+  enum RefType { First, Relative };
+  RefType m_reftype{First}; // reference slice is relative to request
 
   // Convert optarg to bytes
   static int64_t bytesFrom(char const *const valstr);

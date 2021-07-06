@@ -34,7 +34,7 @@ struct QUICHandshakeMsgs {
   uint8_t *buf        = nullptr; //< pointer to the buffer
   size_t max_buf_len  = 0;       //< size of buffer
   size_t offsets[5]   = {0};     //< offset to the each encryption level - {initial, zero_rtt, handshake, one_rtt, total length}
-  uint16_t error_code = 0;       //< CRYPTO_ERROR - TLS Alert Desciption + 0x100
+  uint16_t error_code = 0;       //< CRYPTO_ERROR - TLS Alert Description + 0x100
 };
 
 class QUICHandshakeProtocol
@@ -43,11 +43,11 @@ public:
   QUICHandshakeProtocol(QUICPacketProtectionKeyInfo &pp_key_info) : _pp_key_info(pp_key_info) {}
   virtual ~QUICHandshakeProtocol(){};
 
-  virtual int handshake(QUICHandshakeMsgs *out, const QUICHandshakeMsgs *in)              = 0;
+  virtual int handshake(QUICHandshakeMsgs **out, const QUICHandshakeMsgs *in)             = 0;
   virtual void reset()                                                                    = 0;
   virtual bool is_handshake_finished() const                                              = 0;
   virtual bool is_ready_to_derive() const                                                 = 0;
-  virtual int initialize_key_materials(QUICConnectionId cid)                              = 0;
+  virtual int initialize_key_materials(QUICConnectionId cid, QUICVersion)                 = 0;
   virtual const char *negotiated_cipher_suite() const                                     = 0;
   virtual void negotiated_application_name(const uint8_t **name, unsigned int *len) const = 0;
 
@@ -58,6 +58,8 @@ public:
 
   virtual QUICEncryptionLevel current_encryption_level() const = 0;
   virtual void abort_handshake()                               = 0;
+  virtual bool has_crypto_error() const                        = 0;
+  virtual uint64_t crypto_error() const                        = 0;
 
 protected:
   QUICPacketProtectionKeyInfo &_pp_key_info;

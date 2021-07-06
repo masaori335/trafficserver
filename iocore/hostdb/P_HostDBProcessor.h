@@ -37,7 +37,6 @@
 extern int hostdb_enable;
 extern int hostdb_migrate_on_demand;
 extern int hostdb_lookup_timeout;
-extern int hostdb_insert_timeout;
 extern int hostdb_re_dns_on_reload;
 
 // 0 = obey, 1 = ignore, 2 = min(X,ttl), 3 = max(X,ttl)
@@ -141,6 +140,7 @@ enum HostDB_Stats {
   hostdb_ttl_stat,         // D average TTL
   hostdb_ttl_expires_stat, // D == TTL Expires
   hostdb_re_dns_on_reload_stat,
+  hostdb_insert_duplicate_to_pending_dns_stat,
   HostDB_Stat_Count
 };
 
@@ -183,7 +183,6 @@ typedef std::map<ts::ConstBuffer, IpAddr, CmpConstBuffferCaseInsensitive> HostsF
 struct RefCountedHostsFileMap : public RefCountObj {
   HostsFileMap hosts_file_map;
   ats_scoped_str HostFileText;
-  ink_time_t next_sync_time; // time of the next sync
 };
 
 //
@@ -370,7 +369,7 @@ HostDBRoundRobin::select_best_srv(char *target, InkRand *rand, ink_time_t now, i
   if (len == 0) { // all failed
     result = &info(current++ % good);
   } else if (weight == 0) { // srv weight is 0
-    result = &info(current++ % len);
+    result = infos[current++ % len];
   } else {
     uint32_t xx = rand->random() % weight;
     for (i = 0; i < len - 1 && xx >= infos[i]->data.srv.srv_weight; ++i)
@@ -460,7 +459,6 @@ struct HostDBContinuation : public Continuation {
   int dnsPendingEvent(int event, Event *e);
   int backgroundEvent(int event, Event *e);
   int retryEvent(int event, Event *e);
-  int removeEvent(int event, Event *e);
   int setbyEvent(int event, Event *e);
 
   /// Recompute the hash and update ancillary values.

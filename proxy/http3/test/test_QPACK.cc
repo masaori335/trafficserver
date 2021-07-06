@@ -41,7 +41,7 @@ extern char appname[256];
 extern char pattern[256];
 
 constexpr int ACK_MODE_IMMEDIATE = 1;
-constexpr int ACK_MODE_NONE      = 0;
+// constexpr int ACK_MODE_NONE      = 0;
 
 constexpr int MAX_SEQUENCE = 1024;
 
@@ -158,7 +158,7 @@ output_encoder_stream_data(FILE *fd, TestQUICStream *stream)
   uint64_t stream_id = 0;
   fwrite(reinterpret_cast<uint8_t *>(&stream_id), 8, 1, fd);
 
-  // Skip 32 bits for Legnth
+  // Skip 32 bits for Length
   fseek(fd, 4, SEEK_CUR);
 
   // Write QPACKData
@@ -169,7 +169,7 @@ output_encoder_stream_data(FILE *fd, TestQUICStream *stream)
     total += nread;
   }
 
-  // Back to the posistion for Length
+  // Back to the position for Length
   fseek(fd, -(total + 4), SEEK_CUR);
 
   // Write Length
@@ -189,7 +189,7 @@ output_encoded_data(FILE *fd, uint64_t stream_id, IOBufferReader *header_block_r
   stream_id = htobe64(stream_id);
   fwrite(reinterpret_cast<uint8_t *>(&stream_id), 8, 1, fd);
 
-  // Skip 32 bits for Legnth
+  // Skip 32 bits for Length
   fseek(fd, 4, SEEK_CUR);
 
   // Write QPACKData
@@ -200,7 +200,7 @@ output_encoded_data(FILE *fd, uint64_t stream_id, IOBufferReader *header_block_r
     total += nread;
   }
 
-  // Back to the posistion for Length
+  // Back to the position for Length
   fseek(fd, -(total + 4), SEEK_CUR);
 
   // Write Length
@@ -221,17 +221,16 @@ output_decoded_headers(FILE *fd, HTTPHdr **headers, uint64_t n)
     }
     fprintf(fd, "# stream %" PRIu64 "\n", i + 1);
     MIMEFieldIter field_iter;
-    for (MIMEField *field = header_set->iter_get_first(&field_iter); field != nullptr;
-         field            = header_set->iter_get_next(&field_iter)) {
-      int name_len;
-      int value_len;
+    for (auto const &field : *header_set) {
+      int name_len  = 0;
+      int value_len = 0;
       Arena arena;
-      const char *name   = field->name_get(&name_len);
+      const char *name   = field.name_get(&name_len);
       char *lowered_name = arena.str_store(name, name_len);
       for (int i = 0; i < name_len; i++) {
         lowered_name[i] = ParseRules::ink_tolower(lowered_name[i]);
       }
-      const char *value = field->value_get(&value_len);
+      const char *value = field.value_get(&value_len);
       fprintf(fd, "%.*s\t%.*s\n", name_len, lowered_name, value_len, value);
     }
     fprintf(fd, "\n");
@@ -301,7 +300,7 @@ test_encode(const char *qif_file, const char *out_file, int dts, int mbs, int am
   qpack->set_stream(decoder_stream);
 
   uint64_t stream_id                  = 1;
-  MIOBuffer *header_block             = new_MIOBuffer();
+  MIOBuffer *header_block             = new_MIOBuffer(BUFFER_SIZE_INDEX_32K);
   uint64_t header_block_len           = 0;
   IOBufferReader *header_block_reader = header_block->alloc_reader();
   for (int i = 0; i < n_requests; ++i) {

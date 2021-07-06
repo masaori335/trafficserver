@@ -34,6 +34,7 @@ AM_CPPFLAGS += \
 	-I$(abs_top_srcdir)/proxy \
 	-I$(abs_top_srcdir)/proxy/http \
 	-I$(abs_top_srcdir)/proxy/hdrs \
+	-I$(abs_top_srcdir)/lib/yamlcpp/include \
 	$(TS_INCLUDES)
 
 libmgmt_c_la_SOURCES = \
@@ -51,7 +52,9 @@ libmgmt_p_la_SOURCES = \
 	ProcessManager.cc \
 	ProcessManager.h \
 	ProxyConfig.cc \
-	ProxyConfig.h
+	ProxyConfig.h \
+	YamlCfg.cc \
+	YamlCfg.h
 
 libmgmt_lm_la_SOURCES = \
 	$(libmgmt_COMMON) \
@@ -65,8 +68,6 @@ libmgmt_lm_la_SOURCES = \
 	LocalManager.h \
 	ConfigManager.cc \
 	ConfigManager.h \
-	DerivativeMetrics.cc \
-	DerivativeMetrics.h \
 	WebMgmtUtils.cc \
 	WebMgmtUtils.h
 

@@ -22,6 +22,7 @@ Test sslheaders plugin.
 '''
 
 Test.SkipUnless(
+    Condition.PluginExists('sslheaders.so'),
     Condition.HasCurlFeature('http2'),
 )
 
@@ -34,28 +35,22 @@ request_header = {
 response_header = {"headers": "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n", "timestamp": "1469733493.993", "body": ""}
 server.addResponse("sessionlog.json", request_header, response_header)
 
-ts = Test.MakeATSProcess("ts", enable_tls=True)
+# Disable the cache to make sure each request is forwarded to the origin
+# server.
+ts = Test.MakeATSProcess("ts", enable_tls=True, enable_cache=False)
 
-ts.addSSLfile("ssl/server.pem")
-ts.addSSLfile("ssl/server.key")
+ts.addDefaultSSLFiles()
 # ts.addSSLfile("ssl/signer.pem")
 
 ts.Disk.records_config.update({
     'proxy.config.diags.debug.enabled': 0,
     'proxy.config.diags.debug.tags': 'http',
-    'proxy.config.http.cache.http': 0,  # Make sure each request is forwarded to the origin server.
     'proxy.config.proxy_name': 'Poxy_Proxy',  # This will be the server name.
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.http.server_ports': (
         'ipv4:{0} ipv4:{1}:proto=http2;http:ssl ipv6:{0} ipv6:{1}:proto=http2;http:ssl'
         .format(ts.Variables.port, ts.Variables.ssl_port)),
-#    'proxy.config.ssl.client.verify.server':  0,
-#    'proxy.config.ssl.server.cipher_suite': 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:AES128-GCM-SHA256:AES256-GCM-SHA384:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:RC4-SHA:RC4-MD5:AES128-SHA:AES256-SHA:DES-CBC3-SHA!SRP:!DSS:!PSK:!aNULL:!eNULL:!SSLv2',
-#    'proxy.config.url_remap.pristine_host_hdr' : 1,
-    #    'proxy.config.ssl.client.certification_level': 2,
-    #    'proxy.config.ssl.CA.cert.filename': '{0}/signer.pem'.format(ts.Variables.SSLDir),
-    #    'proxy.config.ssl.TLSv1_3': 0
 })
 
 ts.Disk.ssl_multicert_config.AddLine(

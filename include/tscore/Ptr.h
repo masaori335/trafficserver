@@ -99,10 +99,12 @@ template <class T> class Ptr
 public:
   explicit Ptr(T *p = nullptr);
   Ptr(const Ptr<T> &);
+  Ptr(Ptr<T> &&);
   ~Ptr();
 
   void clear();
   Ptr<T> &operator=(const Ptr<T> &);
+  Ptr<T> &operator=(Ptr<T> &&);
   Ptr<T> &operator=(T *);
 
   T *
@@ -179,8 +181,6 @@ public:
 
 private:
   T *m_ptr;
-
-  friend class CoreUtils;
 };
 
 template <typename T>
@@ -207,6 +207,11 @@ template <class T> inline Ptr<T>::Ptr(const Ptr<T> &src) : m_ptr(src.m_ptr)
   if (m_ptr) {
     m_ptr->refcount_inc();
   }
+}
+
+template <class T> inline Ptr<T>::Ptr(Ptr<T> &&src) : m_ptr(src.m_ptr)
+{
+  src.m_ptr = nullptr;
 }
 
 template <class T> inline Ptr<T>::~Ptr()
@@ -255,6 +260,18 @@ inline Ptr<T> &
 Ptr<T>::operator=(const Ptr<T> &src)
 {
   return (operator=(src.m_ptr));
+}
+
+template <class T>
+inline Ptr<T> &
+Ptr<T>::operator=(Ptr<T> &&src)
+{
+  if (this != &src) {
+    this->~Ptr();
+    m_ptr     = src.m_ptr;
+    src.m_ptr = nullptr;
+  }
+  return *this;
 }
 
 // Bit of subtly here for the flipped version of equality checks

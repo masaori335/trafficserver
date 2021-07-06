@@ -191,9 +191,8 @@ QPACK::encode(uint64_t stream_id, HTTPHdr &header_set, MIOBuffer *header_block, 
   IOBufferBlock *compressed_headers = new_IOBufferBlock();
   compressed_headers->alloc(BUFFER_SIZE_INDEX_2K);
 
-  MIMEFieldIter field_iter;
-  for (MIMEField *field = header_set.iter_get_first(&field_iter); field != nullptr; field = header_set.iter_get_next(&field_iter)) {
-    int ret            = this->_encode_header(*field, base_index, compressed_headers, referred_index);
+  for (auto &field : header_set) {
+    int ret            = this->_encode_header(field, base_index, compressed_headers, referred_index);
     largest_reference  = std::max(largest_reference, referred_index);
     smallest_reference = std::min(smallest_reference, referred_index);
     if (ret < 0) {
@@ -1106,7 +1105,7 @@ QPACK::_on_encoder_stream_read_ready(QUICStreamIO &stream_io)
       }
       QPACKDebug("Received Dynamic Table Size Update: max_size=%d", max_size);
       this->_dynamic_table.update_size(max_size);
-    } else { // Duplicatex
+    } else { // Duplicates
       uint16_t index;
       if (this->_read_duplicate(stream_io, index) < 0) {
         this->_abort_decode();
@@ -1266,7 +1265,7 @@ QPACK::DynamicTable::lookup(const char *name, int name_len, const char *value, i
     return {candidate_index, match_type};
   }
 
-  // TODO Use a tree for better perfomance
+  // TODO Use a tree for better performance
   for (; i <= end; i = (i + 1) % this->_max_entries) {
     if (name_len != 0 && this->_entries[i].name_len == name_len) {
       this->_storage->read(this->_entries[i].offset, &tmp_name, this->_entries[i].name_len, &tmp_value,
@@ -1397,7 +1396,7 @@ QPACK::DynamicTable::unref_entry(uint16_t index)
 }
 
 uint16_t
-QPACK::DynamicTable::largest_index()
+QPACK::DynamicTable::largest_index() const
 {
   return this->_entries_inserted;
 }
@@ -1531,7 +1530,7 @@ QPACK::_write_dynamic_table_size_update(uint16_t max_size)
 }
 
 int
-QPACK::_write_table_state_syncrhonize(uint16_t insert_count)
+QPACK::_write_table_state_synchronize(uint16_t insert_count)
 {
   IOBufferBlock *instruction = new_IOBufferBlock();
   instruction->alloc(TS_IOBUFFER_SIZE_INDEX_128);
@@ -1802,7 +1801,8 @@ QPACK::DynamicTableStorage::~DynamicTableStorage()
 }
 
 void
-QPACK::DynamicTableStorage::read(uint16_t offset, const char **name, uint16_t name_len, const char **value, uint16_t value_len)
+QPACK::DynamicTableStorage::read(uint16_t offset, const char **name, uint16_t name_len, const char **value,
+                                 uint16_t value_len) const
 {
   *name  = reinterpret_cast<const char *>(this->_data + offset);
   *value = reinterpret_cast<const char *>(this->_data + offset + name_len);

@@ -26,14 +26,11 @@
 #include <cassert>
 #include "tscore/Arena.h"
 #include "tscore/CryptoHash.h"
+#include "tscore/HTTPVersion.h"
 #include "MIME.h"
 #include "URL.h"
 
 #include "tscore/ink_apidefs.h"
-
-#define HTTP_VERSION(a, b) ((((a)&0xFFFF) << 16) | ((b)&0xFFFF))
-#define HTTP_MINOR(v) ((v)&0xFFFF)
-#define HTTP_MAJOR(v) (((v) >> 16) & 0xFFFF)
 
 class Http2HeaderTable;
 
@@ -105,7 +102,7 @@ enum HTTPWarningCode {
   HTTP_WARNING_CODE_MISC_WARNING           = 199
 };
 
-/* squild log codes
+/* squid log codes
    There is code (e.g. logstats) that depends on these errors coming at the end of this enum */
 enum SquidLogCode {
   SQUID_LOG_EMPTY                     = '0',
@@ -154,6 +151,7 @@ enum SquidLogCode {
   SQUID_LOG_ERR_NO_RELAY              = 'C',
   SQUID_LOG_ERR_DISK_IO               = 'D',
   SQUID_LOG_ERR_ZERO_SIZE_OBJECT      = 'E',
+  SQUID_LOG_TCP_CF_HIT                = 'F', // Collapsed forwarding HIT also known as Read while write hit
   SQUID_LOG_ERR_PROXY_DENIED          = 'G',
   SQUID_LOG_ERR_WEBFETCH_DETECTED     = 'H',
   SQUID_LOG_ERR_FUTURE_1              = 'I',
@@ -162,13 +160,13 @@ enum SquidLogCode {
   SQUID_LOG_ERR_UNKNOWN               = 'Z'
 };
 
-// squild log subcodes
+// squid log subcodes
 enum SquidSubcode {
   SQUID_SUBCODE_EMPTY                     = '0',
   SQUID_SUBCODE_NUM_REDIRECTIONS_EXCEEDED = '1',
 };
 
-/* squid hieratchy codes */
+/* squid hierarchy codes */
 enum SquidHierarchyCode {
   SQUID_HIER_EMPTY                           = '0',
   SQUID_HIER_NONE                            = '1',
@@ -236,7 +234,8 @@ enum SquidHitMissCode {
   SQUID_HIT_SSD     = SQUID_HIT_LEVEL_2,
   SQUID_HIT_DISK    = SQUID_HIT_LEVEL_3,
   SQUID_HIT_CLUSTER = SQUID_HIT_LEVEL_4,
-  SQUID_HIT_NET     = SQUID_HIT_LEVEL_5
+  SQUID_HIT_NET     = SQUID_HIT_LEVEL_5,
+  SQUID_HIT_RWW     = SQUID_HIT_LEVEL_6
 };
 
 enum HTTPType {
@@ -247,8 +246,8 @@ enum HTTPType {
 
 struct HTTPHdrImpl : public HdrHeapObjImpl {
   // HdrHeapObjImpl is 4 bytes
-  HTTPType m_polarity; // request or response or unknown
-  int32_t m_version;   // cooked version number
+  HTTPType m_polarity;   // request or response or unknown
+  HTTPVersion m_version; // cooked version number
   // 12 bytes means 4 bytes padding here on 64-bit architectures
   union {
     struct {
@@ -425,8 +424,7 @@ inkcoreapi int http_hdr_print(HdrHeap *heap, HTTPHdrImpl *hh, char *buf, int buf
 
 void http_hdr_describe(HdrHeapObjImpl *obj, bool recurse = true);
 
-// int32_t                  http_hdr_version_get (HTTPHdrImpl *hh);
-inkcoreapi void http_hdr_version_set(HTTPHdrImpl *hh, int32_t ver);
+inkcoreapi bool http_hdr_version_set(HTTPHdrImpl *hh, const HTTPVersion &ver);
 
 const char *http_hdr_method_get(HTTPHdrImpl *hh, int *length);
 inkcoreapi void http_hdr_method_set(HdrHeap *heap, HTTPHdrImpl *hh, const char *method, int16_t method_wks_idx, int method_length,
@@ -451,7 +449,7 @@ ParseResult http_parser_parse_resp(HTTPParser *parser, HdrHeap *heap, HTTPHdrImp
                                    bool must_copy_strings, bool eof);
 
 HTTPStatus http_parse_status(const char *start, const char *end);
-int32_t http_parse_version(const char *start, const char *end);
+HTTPVersion http_parse_version(const char *start, const char *end);
 
 /*
 HTTPValAccept*         http_parse_accept (const char *buf, Arena *arena);
@@ -464,28 +462,7 @@ HTTPValRange*          http_parse_range (const char *buf, Arena *arena);
 */
 HTTPValTE *http_parse_te(const char *buf, int len, Arena *arena);
 
-class HTTPVersion
-{
-public:
-  HTTPVersion()                        = default;
-  HTTPVersion(HTTPVersion const &that) = default;
-  explicit HTTPVersion(int32_t version);
-  HTTPVersion(int ver_major, int ver_minor);
-
-  void set(HTTPVersion ver);
-  void set(int ver_major, int ver_minor);
-
-  HTTPVersion &operator=(const HTTPVersion &hv) = default;
-  int operator==(const HTTPVersion &hv) const;
-  int operator!=(const HTTPVersion &hv) const;
-  int operator>(const HTTPVersion &hv) const;
-  int operator<(const HTTPVersion &hv) const;
-  int operator>=(const HTTPVersion &hv) const;
-  int operator<=(const HTTPVersion &hv) const;
-
-public:
-  int32_t m_version{HTTP_VERSION(1, 0)};
-};
+inkcoreapi bool is_http_hdr_version_supported(const HTTPVersion &http_version);
 
 class IOBufferReader;
 
@@ -531,7 +508,7 @@ public:
   void version_set(HTTPVersion version);
 
   const char *method_get(int *length);
-  int method_get_wksidx();
+  int method_get_wksidx() const;
   void method_set(const char *value, int length);
 
   URL *url_create(URL *url);
@@ -546,9 +523,8 @@ public:
       and invoking @c URL::string_get if the host is in a header
       field and not explicitly in the URL.
    */
-  char *url_string_get(Arena *arena    = nullptr, ///< Arena to use, or @c malloc if NULL.
-                       int *length     = nullptr, ///< Store string length here.
-                       bool normalized = false    ///< Scheme and host normalized to lower case letters.
+  char *url_string_get(Arena *arena = nullptr, ///< Arena to use, or @c malloc if NULL.
+                       int *length  = nullptr  ///< Store string length here.
   );
   /** Get a string with the effective URL in it.
       This is automatically allocated if needed in the request heap.
@@ -562,23 +538,44 @@ public:
       Output is not null terminated.
       @return 0 on failure, non-zero on success.
    */
-  int url_print(char *buff,             ///< Output buffer
-                int length,             ///< Length of @a buffer
-                int *offset,            ///< [in,out] ???
-                int *skip,              ///< [in,out] ???
-                bool normalized = false ///< host/scheme normalized to lower case
+  int url_print(char *buff,                                       ///< Output buffer
+                int length,                                       ///< Length of @a buffer
+                int *offset,                                      ///< [in,out] ???
+                int *skip,                                        ///< [in,out] ???
+                unsigned normalization_flags = URLNormalize::NONE ///< host/scheme normalized to lower case
   );
 
   /** Return the length of the URL that url_print() will create.
       @return -1 on failure, non-negative on success.
    */
-  int url_printed_length();
+  int url_printed_length(unsigned normalizaion_flags = URLNormalize::NONE);
 
   /** Get the URL path.
       This is a reference, not allocated.
       @return A pointer to the path or @c NULL if there is no valid URL.
   */
   const char *path_get(int *length ///< Storage for path length.
+  );
+
+  /** Get the URL matrix params.
+      This is a reference, not allocated.
+      @return A pointer to the matrix params or @c NULL if there is no valid URL.
+  */
+  const char *params_get(int *length ///< Storage for param length.
+  );
+
+  /** Get the URL query.
+      This is a reference, not allocated.
+      @return A pointer to the query or @c NULL if there is no valid URL.
+  */
+  const char *query_get(int *length ///< Storage for query length.
+  );
+
+  /** Get the URL fragment.
+      This is a reference, not allocated.
+      @return A pointer to the fragment or @c NULL if there is no valid URL.
+  */
+  const char *fragment_get(int *length ///< Storage for fragement length.
   );
 
   /** Get the target host name.
@@ -643,6 +640,8 @@ public:
                         size_t max_request_line_size = UINT16_MAX, size_t max_hdr_field_size = UINT16_MAX);
   ParseResult parse_resp(HTTPParser *parser, IOBufferReader *r, int *bytes_used, bool eof);
 
+  bool check_hdr_implements();
+
 public:
   // Utility routines
   bool is_cache_control_set(const char *cc_directive_wks);
@@ -672,88 +671,6 @@ protected:
 private:
   friend class UrlPrintHack; // don't ask.
 };
-
-/*-------------------------------------------------------------------------
-  -------------------------------------------------------------------------*/
-
-inline HTTPVersion::HTTPVersion(int32_t version) : m_version(version) {}
-
-/*-------------------------------------------------------------------------
-  -------------------------------------------------------------------------*/
-
-inline HTTPVersion::HTTPVersion(int ver_major, int ver_minor) : m_version(HTTP_VERSION(ver_major, ver_minor)) {}
-
-/*-------------------------------------------------------------------------
-  -------------------------------------------------------------------------*/
-
-inline void
-HTTPVersion::set(HTTPVersion ver)
-{
-  m_version = ver.m_version;
-}
-
-/*-------------------------------------------------------------------------
-  -------------------------------------------------------------------------*/
-
-inline void
-HTTPVersion::set(int ver_major, int ver_minor)
-{
-  m_version = HTTP_VERSION(ver_major, ver_minor);
-}
-
-/*-------------------------------------------------------------------------
-  -------------------------------------------------------------------------*/
-
-inline int
-HTTPVersion::operator==(const HTTPVersion &hv) const
-{
-  return (m_version == hv.m_version);
-}
-
-/*-------------------------------------------------------------------------
-  -------------------------------------------------------------------------*/
-
-inline int
-HTTPVersion::operator!=(const HTTPVersion &hv) const
-{
-  return (m_version != hv.m_version);
-}
-
-/*-------------------------------------------------------------------------
-  -------------------------------------------------------------------------*/
-
-inline int
-HTTPVersion::operator>(const HTTPVersion &hv) const
-{
-  return (m_version > hv.m_version);
-}
-
-/*-------------------------------------------------------------------------
-  -------------------------------------------------------------------------*/
-
-inline int
-HTTPVersion::operator<(const HTTPVersion &hv) const
-{
-  return (m_version < hv.m_version);
-}
-
-/*-------------------------------------------------------------------------
-  -------------------------------------------------------------------------*/
-
-inline int
-HTTPVersion::operator>=(const HTTPVersion &hv) const
-{
-  return (m_version >= hv.m_version);
-}
-
-/*-------------------------------------------------------------------------
-  -------------------------------------------------------------------------*/
-
-inline int
-HTTPVersion::operator<=(const HTTPVersion &hv) const
-{
-  return (m_version <= hv.m_version);
-}
 
 /*-------------------------------------------------------------------------
   -------------------------------------------------------------------------*/
@@ -933,20 +850,11 @@ HTTPHdr::type_get() const
 /*-------------------------------------------------------------------------
   -------------------------------------------------------------------------*/
 
-inline int32_t
-http_hdr_version_get(HTTPHdrImpl *hh)
-{
-  return (hh->m_version);
-}
-
-/*-------------------------------------------------------------------------
-  -------------------------------------------------------------------------*/
-
 inline HTTPVersion
 HTTPHdr::version_get() const
 {
   ink_assert(valid());
-  return HTTPVersion(http_hdr_version_get(m_http));
+  return m_http->m_version;
 }
 
 /*-------------------------------------------------------------------------
@@ -972,14 +880,14 @@ is_header_keep_alive(const HTTPVersion &http_version, const MIMEField *con_hdr)
       con_token = CON_TOKEN_CLOSE;
   }
 
-  if (HTTPVersion(1, 0) == http_version) {
+  if (HTTP_1_0 == http_version) {
     keep_alive = (con_token == CON_TOKEN_KEEP_ALIVE) ? (HTTP_KEEPALIVE) : (HTTP_NO_KEEPALIVE);
-  } else if (HTTPVersion(1, 1) == http_version) {
+  } else if (HTTP_1_1 == http_version) {
     // We deviate from the spec here.  If the we got a response where
     //   where there is no Connection header and the request 1.0 was
     //   1.0 don't treat this as keep-alive since Netscape-Enterprise/3.6 SP1
     //   server doesn't
-    keep_alive = ((con_token == CON_TOKEN_KEEP_ALIVE) || (con_token == CON_TOKEN_NONE && HTTPVersion(1, 1) == http_version)) ?
+    keep_alive = ((con_token == CON_TOKEN_KEEP_ALIVE) || (con_token == CON_TOKEN_NONE && HTTP_1_1 == http_version)) ?
                    (HTTP_KEEPALIVE) :
                    (HTTP_NO_KEEPALIVE);
   } else {
@@ -1033,7 +941,7 @@ inline void
 HTTPHdr::version_set(HTTPVersion version)
 {
   ink_assert(valid());
-  http_hdr_version_set(m_http, version.m_version);
+  http_hdr_version_set(m_http, version);
 }
 
 /*-------------------------------------------------------------------------
@@ -1049,7 +957,7 @@ HTTPHdr::method_get(int *length)
 }
 
 inline int
-HTTPHdr::method_get_wksidx()
+HTTPHdr::method_get_wksidx() const
 {
   ink_assert(valid());
   ink_assert(m_http->m_polarity == HTTP_TYPE_REQUEST);
@@ -1310,6 +1218,27 @@ HTTPHdr::path_get(int *length)
 {
   URL *url = this->url_get();
   return url ? url->path_get(length) : nullptr;
+}
+
+inline const char *
+HTTPHdr::params_get(int *length)
+{
+  URL *url = this->url_get();
+  return url ? url->params_get(length) : nullptr;
+}
+
+inline const char *
+HTTPHdr::query_get(int *length)
+{
+  URL *url = this->url_get();
+  return url ? url->query_get(length) : nullptr;
+}
+
+inline const char *
+HTTPHdr::fragment_get(int *length)
+{
+  URL *url = this->url_get();
+  return url ? url->fragment_get(length) : nullptr;
 }
 
 inline const char *

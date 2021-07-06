@@ -53,7 +53,7 @@ CacheHostMatcher::~CacheHostMatcher()
 //  Debugging Method
 //
 void
-CacheHostMatcher::Print()
+CacheHostMatcher::Print() const
 {
   printf("\tHost/Domain Matcher with %d elements\n", num_el);
   host_lookup->Print(PrintFunc);
@@ -96,7 +96,7 @@ CacheHostMatcher::AllocateSpace(int num_entries)
 //    arg hostname
 //
 void
-CacheHostMatcher::Match(const char *rdata, int rlen, CacheHostResult *result)
+CacheHostMatcher::Match(const char *rdata, int rlen, CacheHostResult *result) const
 {
   void *opaque_ptr;
   CacheHostRecord *data_ptr;
@@ -111,6 +111,7 @@ CacheHostMatcher::Match(const char *rdata, int rlen, CacheHostResult *result)
   if (rlen == 0) {
     return;
   }
+
   char *data = static_cast<char *>(ats_malloc(rlen + 1));
   memcpy(data, rdata, rlen);
   *(data + rlen) = '\0';
@@ -208,7 +209,7 @@ CacheHostTable::~CacheHostTable()
 //   Debugging method
 //
 void
-CacheHostTable::Print()
+CacheHostTable::Print() const
 {
   printf("Control Matcher Table: %s\n", matcher_name);
   if (hostMatch != nullptr) {
@@ -222,7 +223,7 @@ CacheHostTable::Print()
 //   Queries each table for the Result*
 //
 void
-CacheHostTable::Match(const char *rdata, int rlen, CacheHostResult *result)
+CacheHostTable::Match(const char *rdata, int rlen, CacheHostResult *result) const
 {
   hostMatch->Match(rdata, rlen, result);
 }
@@ -272,6 +273,7 @@ CacheHostTable::BuildTableFromString(const char *config_file_path, char *file_bu
     }
     return 0;
   }
+
   // First get the number of entries
   tmp = bufTok.iterFirst(&i_state);
   while (tmp != nullptr) {
@@ -587,7 +589,7 @@ CacheHostRecord::UpdateMatch(CacheHostResult *r, char * /* rd ATS_UNUSED */)
 }
 
 void
-CacheHostRecord::Print()
+CacheHostRecord::Print() const
 {
 }
 
@@ -650,12 +652,13 @@ ConfigVolumes::BuildListFromString(char *config_file_path, char *file_buf)
     line_num++;
 
     char *end;
-    char *line_end    = nullptr;
-    const char *err   = nullptr;
-    int volume_number = 0;
-    CacheType scheme  = CACHE_NONE_TYPE;
-    int size          = 0;
-    int in_percent    = 0;
+    char *line_end        = nullptr;
+    const char *err       = nullptr;
+    int volume_number     = 0;
+    CacheType scheme      = CACHE_NONE_TYPE;
+    int size              = 0;
+    int in_percent        = 0;
+    bool ramcache_enabled = true;
 
     while (true) {
       // skip all blank spaces at beginning of line
@@ -743,6 +746,18 @@ ConfigVolumes::BuildListFromString(char *config_file_path, char *file_buf)
         } else {
           in_percent = 0;
         }
+      } else if (strcasecmp(tmp, "ramcache") == 0) { // match ramcache
+        tmp += 9;
+        if (!strcasecmp(tmp, "false")) {
+          tmp += 5;
+          ramcache_enabled = false;
+        } else if (!strcasecmp(tmp, "true")) {
+          tmp += 4;
+          ramcache_enabled = true;
+        } else {
+          err = "Unexpected end of line";
+          break;
+        }
       }
 
       // ends here
@@ -765,9 +780,10 @@ ConfigVolumes::BuildListFromString(char *config_file_path, char *file_buf)
       } else {
         configp->in_percent = false;
       }
-      configp->scheme = scheme;
-      configp->size   = size;
-      configp->cachep = nullptr;
+      configp->scheme           = scheme;
+      configp->size             = size;
+      configp->cachep           = nullptr;
+      configp->ramcache_enabled = ramcache_enabled;
       cp_queue.enqueue(configp);
       num_volumes++;
       if (scheme == CACHE_HTTP_TYPE) {
@@ -775,7 +791,8 @@ ConfigVolumes::BuildListFromString(char *config_file_path, char *file_buf)
       } else {
         ink_release_assert(!"Unexpected non-HTTP cache volume");
       }
-      Debug("cache_hosting", "added volume=%d, scheme=%d, size=%d percent=%d", volume_number, scheme, size, in_percent);
+      Debug("cache_hosting", "added volume=%d, scheme=%d, size=%d percent=%d, ramcache enabled=%d", volume_number, scheme, size,
+            in_percent, ramcache_enabled);
     }
 
     tmp = bufTok.iterNext(&i_state);

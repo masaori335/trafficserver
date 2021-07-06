@@ -21,11 +21,11 @@
   limitations under the License.
  */
 
-#include "HttpSessionManager.h"
+class EThread;
+class Continuation;
 void
 initialize_thread_for_http_sessions(EThread *, int)
 {
-  ink_assert(false);
 }
 
 #include "P_UnixNet.h"
@@ -148,7 +148,8 @@ HttpRequestData::get_client_ip()
   return nullptr;
 }
 
-SslAPIHooks *ssl_hooks = nullptr;
+SslAPIHooks *ssl_hooks             = nullptr;
+LifecycleAPIHooks *lifecycle_hooks = nullptr;
 StatPagesManager statPagesManager;
 
 #include "ProcessManager.h"

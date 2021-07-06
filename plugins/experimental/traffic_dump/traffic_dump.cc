@@ -1,8 +1,11 @@
-/** @traffic_dump.cc
+/** @file
+
   Plugin Traffic Dump captures traffic on a per session basis. A sampling ratio can be set via plugin.config or traffic_ctl to dump
   one out of n sessions. The dump file schema can be found
   https://github.com/apache/trafficserver/tree/master/tests/tools/lib/replay_schema.json
+
   @section license License
+
   Licensed to the Apache Software Foundation (ASF) under one
   or more contributor license agreements.  See the NOTICE file
   distributed with this work for additional information
@@ -10,7 +13,9 @@
   to you under the Apache License, Version 2.0 (the
   "License"); you may not use this file except in compliance
   with the License.  You may obtain a copy of the License at
+
       http://www.apache.org/licenses/LICENSE-2.0
+
   Unless required by applicable law or agreed to in writing, software
   distributed under the License is distributed on an "AS IS" BASIS,
   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -38,14 +43,14 @@ global_message_handler(TSCont contp, TSEvent event, void *edata)
     std::string_view tag(msg->tag, strlen(msg->tag));
     if (tag.substr(0, PLUGIN_PREFIX.size()) == PLUGIN_PREFIX) {
       tag.remove_prefix(PLUGIN_PREFIX.size());
-      if (tag == "sample") {
+      if (tag == "sample" && msg->data_size) {
         const auto new_sample_size = static_cast<int64_t>(strtol(static_cast<char const *>(msg->data), nullptr, 0));
         TSDebug(debug_tag, "TS_EVENT_LIFECYCLE_MSG: Received Msg to change sample size to %" PRId64 "bytes", new_sample_size);
         SessionData::set_sample_pool_size(new_sample_size);
       } else if (tag == "reset") {
         TSDebug(debug_tag, "TS_EVENT_LIFECYCLE_MSG: Received Msg to reset disk usage counter");
         SessionData::reset_disk_usage();
-      } else if (tag == "limit") {
+      } else if (tag == "limit" && msg->data_size) {
         const auto new_max_disk_usage = static_cast<int64_t>(strtol(static_cast<char const *>(msg->data), nullptr, 0));
         TSDebug(debug_tag, "TS_EVENT_LIFECYCLE_MSG: Received Msg to change max disk usage to %" PRId64 "bytes", new_max_disk_usage);
         SessionData::set_max_disk_usage(new_max_disk_usage);

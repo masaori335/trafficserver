@@ -41,7 +41,6 @@ ts.Disk.records_config.update({
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.TLSv1_3': 0,
-    'proxy.config.ssl.server.cipher_suite': 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:AES128-GCM-SHA256:AES256-GCM-SHA384:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:RC4-SHA:RC4-MD5:AES128-SHA:AES256-SHA:DES-CBC3-SHA!SRP:!DSS:!PSK:!aNULL:!eNULL:!SSLv2',
     'proxy.config.exec_thread.autoconfig.scale': 1.0,
     'proxy.config.log.max_secs_per_buffer': 1
 })
@@ -55,7 +54,7 @@ ts.Disk.remap_config.AddLine(
 )
 
 ts.Disk.logging_yaml.AddLines(
-'''
+    '''
 logging:
   formats:
     - name: testformat
@@ -67,32 +66,36 @@ logging:
 '''.split("\n")
 )
 
-Test.PreparePlugin(os.path.join(Test.Variables.AtsTestToolsDir, 'plugins', 'ssl_hook_test.cc'), ts, '-preaccept=1')
+Test.PrepareTestPlugin(os.path.join(Test.Variables.AtsTestPluginsDir, 'ssl_secret_load_test.so'), ts)
 
 tr = Test.AddTestRun("Test two HTTP/1.1 requests over one TLS connection")
 tr.Processes.Default.StartBefore(server)
 tr.Processes.Default.StartBefore(Test.Processes.ts)
 tr.StillRunningAfter = ts
 tr.StillRunningAfter = server
-tr.Processes.Default.Command = 'curl -k -v --http1.1  -H \'host:example.com:{0}\' https://127.0.0.1:{0} https://127.0.0.1:{0}'.format(ts.Variables.ssl_port)
+tr.Processes.Default.Command = 'curl -k -v --http1.1  -H \'host:example.com:{0}\' https://127.0.0.1:{0} https://127.0.0.1:{0}'.format(
+    ts.Variables.ssl_port)
 tr.Processes.Default.ReturnCode = 0
 
 tr = Test.AddTestRun("Test two HTTP/1.1 requests over two TLS connections")
 tr.StillRunningAfter = ts
 tr.StillRunningAfter = server
-tr.Processes.Default.Command = 'curl -k -v --http1.1  -H \'host:example.com:{0}\' https://127.0.0.1:{0}; curl -k -v --http1.1 -H \'host:example.com:{0}\'  https://127.0.0.1:{0}'.format(ts.Variables.ssl_port)
+tr.Processes.Default.Command = 'curl -k -v --http1.1  -H \'host:example.com:{0}\' https://127.0.0.1:{0}; curl -k -v --http1.1 -H \'host:example.com:{0}\'  https://127.0.0.1:{0}'.format(
+    ts.Variables.ssl_port)
 tr.Processes.Default.ReturnCode = 0
 
 tr = Test.AddTestRun("Test two HTTP/2 requests over one TLS connection")
 tr.StillRunningAfter = ts
 tr.StillRunningAfter = server
-tr.Processes.Default.Command = 'curl -k -v --http2  -H \'host:example.com:{0}\' https://127.0.0.1:{0} https://127.0.0.1:{0}'.format(ts.Variables.ssl_port)
+tr.Processes.Default.Command = 'curl -k -v --http2  -H \'host:example.com:{0}\' https://127.0.0.1:{0} https://127.0.0.1:{0}'.format(
+    ts.Variables.ssl_port)
 tr.Processes.Default.ReturnCode = 0
 
 tr = Test.AddTestRun("Test two HTTP/2 requests over two TLS connections")
 tr.StillRunningAfter = ts
 tr.StillRunningAfter = server
-tr.Processes.Default.Command = 'curl -k -v --http2  -H \'host:example.com:{0}\' https://127.0.0.1:{0}; curl -k -v --http1.1 -H \'host:example.com:{0}\'  https://127.0.0.1:{0}'.format(ts.Variables.ssl_port)
+tr.Processes.Default.Command = 'curl -k -v --http2  -H \'host:example.com:{0}\' https://127.0.0.1:{0}; curl -k -v --http1.1 -H \'host:example.com:{0}\'  https://127.0.0.1:{0}'.format(
+    ts.Variables.ssl_port)
 tr.Processes.Default.ReturnCode = 0
 
 # Just a check to flush out the traffic log until we have a clean shutdown for traffic_server

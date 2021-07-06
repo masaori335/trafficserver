@@ -360,7 +360,7 @@ escapify_url_common(Arena *arena, char *url, size_t len_in, int *len_out, char *
   //
   size_t out_len = len_in + 2 * count;
 
-  if (dst && out_len > dst_size) {
+  if (dst && (out_len + 1) > dst_size) {
     *len_out = 0;
     return nullptr;
   }
@@ -670,14 +670,9 @@ marshalMimeHdr(MIMEHdr *hdr, char *buf)
   ts::FixedBufferWriter bw(buf, bwSize);
 
   if (hdr) {
-    MIMEFieldIter mfIter;
-    const MIMEField *mfp = hdr->iter_get_first(&mfIter);
-
-    while (mfp) {
-      marshalStr(bw, *mfp, &MIMEField::name_get);
-      marshalStr(bw, *mfp, &MIMEField::value_get);
-
-      mfp = hdr->iter_get_next(&mfIter);
+    for (auto const &mfp : *hdr) {
+      marshalStr(bw, mfp, &MIMEField::name_get);
+      marshalStr(bw, mfp, &MIMEField::value_get);
     }
   }
 

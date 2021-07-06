@@ -354,7 +354,7 @@ LogAccess::marshal_str(char *dest, const char *source, int padded_len)
   // bytes to avoid UMR errors when the buffer is written.
   //
   size_t real_len = (::strlen(source) + 1);
-  while ((int)real_len < padded_len) {
+  while (static_cast<int>(real_len) < padded_len) {
     dest[real_len] = '$';
     real_len++;
   }
@@ -1144,7 +1144,7 @@ void
 LogAccess::set_client_req_url(char *buf, int len)
 {
   if (buf) {
-    m_client_req_url_len = len;
+    m_client_req_url_len = std::min(len, m_client_req_url_len);
     ink_strlcpy(m_client_req_url_str, buf, m_client_req_url_len + 1);
   }
 }
@@ -1153,7 +1153,7 @@ void
 LogAccess::set_client_req_url_canon(char *buf, int len)
 {
   if (buf) {
-    m_client_req_url_canon_len = len;
+    m_client_req_url_canon_len = std::min(len, m_client_req_url_canon_len);
     ink_strlcpy(m_client_req_url_canon_str, buf, m_client_req_url_canon_len + 1);
   }
 }
@@ -1162,7 +1162,7 @@ void
 LogAccess::set_client_req_unmapped_url_canon(char *buf, int len)
 {
   if (buf && m_client_req_unmapped_url_canon_str) {
-    m_client_req_unmapped_url_canon_len = len;
+    m_client_req_unmapped_url_canon_len = std::min(len, m_client_req_unmapped_url_canon_len);
     ink_strlcpy(m_client_req_unmapped_url_canon_str, buf, m_client_req_unmapped_url_canon_len + 1);
   }
 }
@@ -1171,7 +1171,7 @@ void
 LogAccess::set_client_req_unmapped_url_path(char *buf, int len)
 {
   if (buf && m_client_req_unmapped_url_path_str) {
-    m_client_req_unmapped_url_path_len = len;
+    m_client_req_unmapped_url_path_len = std::min(len, m_client_req_unmapped_url_path_len);
     ink_strlcpy(m_client_req_unmapped_url_path_str, buf, m_client_req_unmapped_url_path_len + 1);
   }
 }
@@ -1180,7 +1180,7 @@ void
 LogAccess::set_client_req_unmapped_url_host(char *buf, int len)
 {
   if (buf && m_client_req_unmapped_url_host_str) {
-    m_client_req_unmapped_url_host_len = len;
+    m_client_req_unmapped_url_host_len = std::min(len, m_client_req_unmapped_url_host_len);
     ink_strlcpy(m_client_req_unmapped_url_host_str, buf, m_client_req_unmapped_url_host_len + 1);
   }
 }
@@ -1190,7 +1190,7 @@ LogAccess::set_client_req_url_path(char *buf, int len)
 {
   //?? use m_client_req_unmapped_url_path_str for now..may need to enhance later..
   if (buf && m_client_req_unmapped_url_path_str) {
-    m_client_req_url_path_len = len;
+    m_client_req_url_path_len = std::min(len, m_client_req_url_path_len);
     ink_strlcpy(m_client_req_unmapped_url_path_str, buf, m_client_req_url_path_len + 1);
   }
 }
@@ -1300,11 +1300,49 @@ LogAccess::marshal_client_sni_server_name(char *buf)
 
 /*-------------------------------------------------------------------------
   -------------------------------------------------------------------------*/
+int
+LogAccess::marshal_client_provided_cert(char *buf)
+{
+  int provided_cert = 0;
+  if (m_http_sm) {
+    auto txn = m_http_sm->get_ua_txn();
+    if (txn) {
+      auto ssn = txn->get_proxy_ssn();
+      if (ssn) {
+        auto ssl = ssn->ssl();
+        if (ssl) {
+          provided_cert = ssl->client_provided_certificate();
+        }
+      }
+    }
+  }
+  if (buf) {
+    marshal_int(buf, provided_cert);
+  }
+  return INK_MIN_ALIGN;
+}
+
+/*-------------------------------------------------------------------------
+  -------------------------------------------------------------------------*/
+int
+LogAccess::marshal_proxy_provided_cert(char *buf)
+{
+  int provided_cert = 0;
+  if (m_http_sm) {
+    provided_cert = m_http_sm->server_connection_provided_cert;
+  }
+  if (buf) {
+    marshal_int(buf, provided_cert);
+  }
+  return INK_MIN_ALIGN;
+}
+/*-------------------------------------------------------------------------
+  -------------------------------------------------------------------------*/
 
 int
 LogAccess::marshal_version_build_number(char *buf)
 {
-  int len = sizeof(appVersionInfo.BldNumStr);
+  int len = LogAccess::strlen(appVersionInfo.BldNumStr);
   if (buf) {
     marshal_str(buf, appVersionInfo.BldNumStr, len);
   }
@@ -1321,15 +1359,15 @@ LogAccess::marshal_proxy_protocol_version(char *buf)
   int len                 = INK_MIN_ALIGN;
 
   if (m_http_sm) {
-    NetVConnection::ProxyProtocolVersion ver = m_http_sm->t_state.pp_info.proxy_protocol_version;
+    ProxyProtocolVersion ver = m_http_sm->t_state.pp_info.version;
     switch (ver) {
-    case NetVConnection::ProxyProtocolVersion::V1:
+    case ProxyProtocolVersion::V1:
       version_str = "V1";
       break;
-    case NetVConnection::ProxyProtocolVersion::V2:
+    case ProxyProtocolVersion::V2:
       version_str = "V2";
       break;
-    case NetVConnection::ProxyProtocolVersion::UNDEFINED:
+    case ProxyProtocolVersion::UNDEFINED:
     default:
       version_str = "-";
       break;
@@ -1349,7 +1387,7 @@ int
 LogAccess::marshal_proxy_protocol_src_ip(char *buf)
 {
   sockaddr const *ip = nullptr;
-  if (m_http_sm && m_http_sm->t_state.pp_info.proxy_protocol_version != NetVConnection::ProxyProtocolVersion::UNDEFINED) {
+  if (m_http_sm && m_http_sm->t_state.pp_info.version != ProxyProtocolVersion::UNDEFINED) {
     ip = &m_http_sm->t_state.pp_info.src_addr.sa;
   }
   return marshal_ip(buf, ip);
@@ -1361,7 +1399,7 @@ int
 LogAccess::marshal_proxy_protocol_dst_ip(char *buf)
 {
   sockaddr const *ip = nullptr;
-  if (m_http_sm && m_http_sm->t_state.pp_info.proxy_protocol_version != NetVConnection::ProxyProtocolVersion::UNDEFINED) {
+  if (m_http_sm && m_http_sm->t_state.pp_info.version != ProxyProtocolVersion::UNDEFINED) {
     ip = &m_http_sm->t_state.pp_info.dst_addr.sa;
   }
   return marshal_ip(buf, ip);
@@ -1697,15 +1735,14 @@ int
 LogAccess::marshal_client_req_http_version(char *buf)
 {
   if (buf) {
-    int64_t major = 0;
-    int64_t minor = 0;
     if (m_client_request) {
       HTTPVersion versionObject = m_client_request->version_get();
-      major                     = HTTP_MAJOR(versionObject.m_version);
-      minor                     = HTTP_MINOR(versionObject.m_version);
+      marshal_int(buf, versionObject.get_major());
+      marshal_int((buf + INK_MIN_ALIGN), versionObject.get_minor());
+    } else {
+      marshal_int(buf, 0);
+      marshal_int((buf + INK_MIN_ALIGN), 0);
     }
-    marshal_int(buf, major);
-    marshal_int((buf + INK_MIN_ALIGN), minor);
   }
   return (2 * INK_MIN_ALIGN);
 }
@@ -1723,11 +1760,41 @@ LogAccess::marshal_client_req_protocol_version(char *buf)
   if (::strlen(protocol_str) == 4 && strncmp("http", protocol_str, 4) == 0) {
     if (m_client_request) {
       HTTPVersion versionObject = m_client_request->version_get();
-      int64_t major             = HTTP_MAJOR(versionObject.m_version);
-      int64_t minor             = HTTP_MINOR(versionObject.m_version);
-      if (major == 1 && minor == 1) {
+      if (versionObject == HTTP_1_1) {
         protocol_str = "http/1.1";
-      } else if (major == 1 && minor == 0) {
+      } else if (versionObject == HTTP_1_0) {
+        protocol_str = "http/1.0";
+      } // else invalid http version
+    } else {
+      protocol_str = "*";
+    }
+
+    len = LogAccess::strlen(protocol_str);
+  }
+
+  if (buf) {
+    marshal_str(buf, protocol_str, len);
+  }
+
+  return len;
+}
+
+/*-------------------------------------------------------------------------
+  -------------------------------------------------------------------------*/
+
+int
+LogAccess::marshal_server_req_protocol_version(char *buf)
+{
+  const char *protocol_str = m_http_sm->server_protocol;
+  int len                  = LogAccess::strlen(protocol_str);
+
+  // Set major & minor versions when protocol_str is not "http/2".
+  if (::strlen(protocol_str) == 4 && strncmp("http", protocol_str, 4) == 0) {
+    if (m_proxy_request) {
+      HTTPVersion versionObject = m_proxy_request->version_get();
+      if (versionObject == HTTP_1_1) {
+        protocol_str = "http/1.1";
+      } else if (versionObject == HTTP_1_0) {
         protocol_str = "http/1.0";
       } // else invalid http version
     } else {
@@ -1968,6 +2035,24 @@ LogAccess::marshal_client_security_curve(char *buf)
 
   if (buf) {
     marshal_str(buf, curve, round_len);
+  }
+
+  return round_len;
+}
+
+int
+LogAccess::marshal_client_security_alpn(char *buf)
+{
+  const char *alpn = "-";
+  if (const int alpn_id = m_http_sm->client_alpn_id; alpn_id != SessionProtocolNameRegistry::INVALID) {
+    ts::TextView client_sec_alpn = globalSessionProtocolNameRegistry.nameFor(alpn_id);
+    alpn                         = client_sec_alpn.data();
+  }
+
+  int round_len = LogAccess::strlen(alpn);
+
+  if (buf) {
+    marshal_str(buf, alpn, round_len);
   }
 
   return round_len;
@@ -2366,8 +2451,8 @@ LogAccess::marshal_server_resp_http_version(char *buf)
     int64_t major = 0;
     int64_t minor = 0;
     if (m_server_response) {
-      major = HTTP_MAJOR(m_server_response->version_get().m_version);
-      minor = HTTP_MINOR(m_server_response->version_get().m_version);
+      major = m_server_response->version_get().get_major();
+      minor = m_server_response->version_get().get_minor();
     }
     marshal_int(buf, major);
     marshal_int((buf + INK_MIN_ALIGN), minor);
@@ -2493,8 +2578,8 @@ LogAccess::marshal_cache_resp_http_version(char *buf)
     int64_t major = 0;
     int64_t minor = 0;
     if (m_cache_response) {
-      major = HTTP_MAJOR(m_cache_response->version_get().m_version);
-      minor = HTTP_MINOR(m_cache_response->version_get().m_version);
+      major = m_cache_response->version_get().get_major();
+      minor = m_cache_response->version_get().get_minor();
     }
     marshal_int(buf, major);
     marshal_int((buf + INK_MIN_ALIGN), minor);
@@ -2728,7 +2813,8 @@ LogAccess::marshal_cache_collapsed_connection_success(char *buf)
 
       // We increment open_write_tries beyond the max when we want to jump back to the read state for collapsing
       if ((m_http_sm->get_cache_sm().get_open_write_tries() > (m_http_sm->t_state.txn_conf->max_cache_open_write_retries)) &&
-          ((code == SQUID_LOG_TCP_HIT) || (code == SQUID_LOG_TCP_MEM_HIT) || (code == SQUID_LOG_TCP_DISK_HIT))) {
+          ((code == SQUID_LOG_TCP_HIT) || (code == SQUID_LOG_TCP_MEM_HIT) || (code == SQUID_LOG_TCP_DISK_HIT) ||
+           (code == SQUID_LOG_TCP_CF_HIT))) {
         // Attempted collapsed connection and got a hit, success
         id = 1;
       } else if (m_http_sm->get_cache_sm().get_open_write_tries() > (m_http_sm->t_state.txn_conf->max_cache_open_write_retries)) {

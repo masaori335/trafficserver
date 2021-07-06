@@ -22,7 +22,10 @@ Test.SkipUnless(
     Condition.HasCurlFeature('http2')
 )
 
-ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True)
+if Condition.HasATSFeature('TS_USE_QUIC') and Condition.HasCurlFeature('http3'):
+    ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True, enable_quic=True)
+else:
+    ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True)
 server = Test.MakeOriginServer("server", delay=8)
 
 request_header = {"headers": "GET /file HTTP/1.1\r\nHost: *\r\n\r\n", "timestamp": "5678", "body": ""}
@@ -49,14 +52,19 @@ ts.Disk.ssl_multicert_config.AddLine(
 
 tr = Test.AddTestRun("tr")
 tr.Processes.Default.StartBefore(server)
-tr.Processes.Default.StartBefore(ts, ready=When.PortOpen(ts.Variables.port))
+tr.Processes.Default.StartBefore(ts)
 tr.Processes.Default.Command = 'curl -i  http://127.0.0.1:{0}/file'.format(ts.Variables.port)
 tr.Processes.Default.Streams.stdout = Testers.ContainsExpression("Activity Timeout", "Request should fail with active timeout")
 
-tr2= Test.AddTestRun("tr")
+tr2 = Test.AddTestRun("tr")
 tr2.Processes.Default.Command = 'curl -k -i --http1.1 https://127.0.0.1:{0}/file'.format(ts.Variables.ssl_port)
 tr2.Processes.Default.Streams.stdout = Testers.ContainsExpression("Activity Timeout", "Request should fail with active timeout")
 
-tr3= Test.AddTestRun("tr")
+tr3 = Test.AddTestRun("tr")
 tr3.Processes.Default.Command = 'curl -k -i --http2 https://127.0.0.1:{0}/file'.format(ts.Variables.ssl_port)
 tr3.Processes.Default.Streams.stdout = Testers.ContainsExpression("Activity Timeout", "Request should fail with active timeout")
+
+if Condition.HasATSFeature('TS_USE_QUIC') and Condition.HasCurlFeature('http3'):
+    tr4 = Test.AddTestRun("tr")
+    tr4.Processes.Default.Command = 'curl -k -i --http3 https://127.0.0.1:{0}/file'.format(ts.Variables.ssl_port)
+    tr4.Processes.Default.Streams.stdout = Testers.ContainsExpression("Activity Timeout", "Request should fail with active timeout")

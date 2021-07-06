@@ -32,13 +32,10 @@ server = Test.MakeOriginServer("server")
 
 request_header = {"headers": "GET / HTTP/1.1\r\nHost: does.not.matter\r\n\r\n", "timestamp": "1469733493.993", "body": ""}
 response_header = {"headers": "HTTP/1.1 200 OK\r\nConnection: close\r\nCache-control: max-age=85000\r\n\r\n",
-    "timestamp": "1469733493.993", "body": "xxx"}
+                   "timestamp": "1469733493.993", "body": "xxx"}
 server.addResponse("sessionlog.json", request_header, response_header)
 
 ts.Disk.records_config.update({
-    # Do not accept connections from clients until cache subsystem is operational.
-    'proxy.config.http.wait_for_cache': 1,
-
     'proxy.config.diags.debug.enabled': 0,
     'proxy.config.diags.debug.tags': 'http|dns',
 })
@@ -77,11 +74,12 @@ def reallyLong():
         retval += ' -H "x-header{}: {}"'.format(i, value)
     return retval
 
+
 tr = Test.AddTestRun()
 tr.Processes.Default.StartBefore(server)
 tr.Processes.Default.StartBefore(Test.Processes.ts)
 tr.Processes.Default.Command = (
-'curl "http://127.0.0.1:{0}" --user-agent "007" --verbose '.format(ts.Variables.port) + reallyLong()
+    'curl "http://127.0.0.1:{0}" --user-agent "007" --verbose '.format(ts.Variables.port) + reallyLong()
 )
 tr.Processes.Default.ReturnCode = 0
 
@@ -89,7 +87,7 @@ tr.Processes.Default.ReturnCode = 0
 #
 tr = Test.AddTestRun()
 tr.Processes.Default.Command = (
-'curl "http://127.0.0.1:{0}" --user-agent "007" --verbose '.format(ts.Variables.port) + reallyLong()
+    'curl "http://127.0.0.1:{0}" --user-agent "007" --verbose '.format(ts.Variables.port) + reallyLong()
 )
 tr.Processes.Default.ReturnCode = 0
 

@@ -27,36 +27,112 @@
 
  */
 
+#include "HttpSM.h"
 #include "nexthop_test_stubs.h"
 
-#include "HttpTransact.h"
-
+HttpSM::HttpSM() : Continuation(nullptr), vc_table(this) {}
 void
-br(HttpRequestData *h, const char *os_hostname, sockaddr const *dest_ip)
+HttpSM::cleanup()
 {
-  HdrHeap *heap = new_HdrHeap(HdrHeap::DEFAULT_SIZE + 64);
-  h->hdr        = new HTTPHdr();
-  h->hdr->create(HTTP_TYPE_REQUEST, heap);
-  h->hostname_str = ats_strdup(os_hostname);
-  h->xact_start   = time(nullptr);
-  ink_zero(h->src_ip);
-  ink_zero(h->dest_ip);
-  ats_ip_copy(&h->dest_ip.sa, dest_ip);
-  h->incoming_port = 80;
-  h->api_info      = new HttpApiInfo();
+}
+void
+HttpSM::destroy()
+{
+}
+void
+HttpSM::handle_api_return()
+{
+}
+void
+HttpSM::set_next_state()
+{
+}
+
+HttpVCTable::HttpVCTable(HttpSM *smp)
+{
+  sm = smp;
+}
+HttpCacheAction::HttpCacheAction() {}
+void
+HttpCacheAction::cancel(Continuation *c)
+{
+}
+PostDataBuffers::~PostDataBuffers() {}
+void
+APIHooks::clear()
+{
+}
+
+HttpTunnel::HttpTunnel() {}
+HttpCacheSM::HttpCacheSM() {}
+HttpHookState::HttpHookState() {}
+HttpTunnelConsumer::HttpTunnelConsumer() {}
+HttpTunnelProducer::HttpTunnelProducer() {}
+ChunkedHandler::ChunkedHandler() {}
+
+alignas(OverridableHttpConfigParams) char _my_txn_conf[sizeof(OverridableHttpConfigParams)];
+
+// this is done to cleanup and avoid memory leaks in the unit tests.
+static HdrHeap *myHeap = nullptr;
+void
+br_destroy(HttpSM &sm)
+{
+  HttpRequestData *h = &sm.t_state.request_data;
+  if (myHeap != nullptr) {
+    myHeap->destroy();
+    myHeap = nullptr;
+  }
+  delete h->hdr;
+  delete h->api_info;
+  ats_free(h->hostname_str);
 }
 
 void
-br_reinit(HttpRequestData *h)
+build_request(int64_t sm_id, HttpSM *sm, sockaddr_in *ip, const char *os_hostname, sockaddr const *dest_ip)
 {
-  if (h->hdr) {
-    ats_free(h->hdr);
-    ats_free(h->hostname_str);
-    if (h->hdr) {
-      delete h->hdr;
-    }
-    if (h->api_info) {
-      delete h->api_info;
+  sm->sm_id = sm_id;
+
+  if (myHeap == nullptr) {
+    myHeap = new_HdrHeap(HdrHeap::DEFAULT_SIZE + 64);
+  }
+  if (sm->t_state.request_data.hdr != nullptr) {
+    delete sm->t_state.request_data.hdr;
+  }
+  sm->t_state.request_data.hdr = new HTTPHdr();
+  sm->t_state.request_data.hdr->create(HTTP_TYPE_REQUEST, myHeap);
+  if (sm->t_state.request_data.hostname_str != nullptr) {
+    ats_free(sm->t_state.request_data.hostname_str);
+  }
+  sm->t_state.request_data.hostname_str = ats_strdup(os_hostname);
+  sm->t_state.request_data.xact_start   = time(nullptr);
+  ink_zero(sm->t_state.request_data.src_ip);
+  ink_zero(sm->t_state.request_data.dest_ip);
+  ats_ip_copy(&sm->t_state.request_data.dest_ip.sa, dest_ip);
+  sm->t_state.request_data.incoming_port = 80;
+  if (sm->t_state.request_data.api_info != nullptr) {
+    delete sm->t_state.request_data.api_info;
+  }
+  sm->t_state.request_data.api_info = new HttpApiInfo();
+  if (ip != nullptr) {
+    memcpy(&sm->t_state.request_data.src_ip.sa, ip, sizeof(sm->t_state.request_data.src_ip.sa));
+  }
+  sm->t_state.request_data.xact_start = time(0);
+
+  memset(_my_txn_conf, 0, sizeof(_my_txn_conf));
+  OverridableHttpConfigParams *oride = reinterpret_cast<OverridableHttpConfigParams *>(_my_txn_conf);
+  oride->parent_retry_time           = 1;
+  oride->parent_fail_threshold       = 1;
+  sm->t_state.txn_conf               = reinterpret_cast<OverridableHttpConfigParams *>(_my_txn_conf);
+}
+
+void
+GetConfigInteger(int *v, const char *n)
+{
+  if (v != nullptr && n != nullptr) {
+    if (strcmp(n, "proxy.config.http.parent_proxy.max_trans_retries") == 0) {
+      *v = 1;
+    } else {
+      *v = 0;
     }
   }
 }
@@ -89,7 +165,7 @@ HttpRequestData::get_ip()
 sockaddr const *
 HttpRequestData::get_client_ip()
 {
-  return nullptr;
+  return &src_ip.sa;
 }
 
 #include "InkAPIInternal.h"
@@ -100,12 +176,20 @@ ConfigUpdateCbTable::invoke(char const *p)
 
 #include "I_Machine.h"
 
+static Machine *my_machine = nullptr;
+
 Machine::Machine(char const *hostname, sockaddr const *addr) {}
-Machine::~Machine() {}
+Machine::~Machine()
+{
+  delete my_machine;
+}
 Machine *
 Machine::instance()
 {
-  return new Machine(nullptr, nullptr);
+  if (my_machine == nullptr) {
+    my_machine = new Machine(nullptr, nullptr);
+  }
+  return my_machine;
 }
 bool
 Machine::is_self(const char *name)
@@ -117,19 +201,36 @@ Machine::is_self(const char *name)
 
 HostStatRec::HostStatRec(){};
 HostStatus::HostStatus() {}
-HostStatus::~HostStatus(){};
-HostStatRec *
-HostStatus::getHostStatus(const char *name)
+
+HostStatus::~HostStatus()
 {
-  // for unit tests only, always return a record with HOST_STATUS_UP
-  static HostStatRec rec;
-  rec.status = HostStatus_t::HOST_STATUS_UP;
-  return &rec;
+  for (auto i = this->hosts_statuses.begin(); i != this->hosts_statuses.end(); ++i) {
+    delete i->second;
+  }
 }
-void
-HostStatus::setHostStatus(char const *host, HostStatus_t status, unsigned int, unsigned int)
+
+HostStatRec *
+HostStatus::getHostStatus(const std::string_view name)
 {
-  NH_Debug("next_hop", "setting host status for '%s' to %s", host, HostStatusNames[status]);
+  if (this->hosts_statuses[std::string(name)] == nullptr) {
+    // for unit tests only, always return a record with HOST_STATUS_UP, if it wasn't set with setHostStatus
+    static HostStatRec rec;
+    rec.status = TSHostStatus::TS_HOST_STATUS_UP;
+    return &rec;
+  }
+  return this->hosts_statuses[std::string(name)];
+}
+
+void
+HostStatus::setHostStatus(const std::string_view host, TSHostStatus status, unsigned int down_time, unsigned int reason)
+{
+  if (this->hosts_statuses[std::string(host)] == nullptr) {
+    this->hosts_statuses[std::string(host)] = new (HostStatRec);
+  }
+  this->hosts_statuses[std::string(host)]->status          = status;
+  this->hosts_statuses[std::string(host)]->reasons         = reason;
+  this->hosts_statuses[std::string(host)]->local_down_time = down_time;
+  NH_Debug("next_hop", "setting host status for '%.*s' to %s", host.size(), host.data(), HostStatusNames[status]);
 }
 
 #include "I_UDPConnection.h"

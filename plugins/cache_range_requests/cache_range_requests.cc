@@ -29,6 +29,7 @@
 #include "ts/ts.h"
 #include "ts/remap.h"
 
+#include <cinttypes>
 #include <cstdio>
 #include <cstring>
 #include <getopt.h>
@@ -41,10 +42,10 @@
 
 namespace
 {
-typedef enum parent_select_mode {
+using parent_select_mode_t = enum parent_select_mode {
   PS_DEFAULT,      // Default ATS parent selection mode
   PS_CACHEKEY_URL, // Set parent selection url to cache_key url
-} parent_select_mode_t;
+};
 
 struct pluginconfig {
   parent_select_mode_t ps_mode{PS_DEFAULT};
@@ -58,7 +59,7 @@ struct txndata {
 };
 
 // Header for optional revalidation
-constexpr std::string_view X_IMS_HEADER = {"X-CRR-IMS"};
+constexpr std::string_view X_IMS_HEADER = {"X-Crr-Ims"};
 
 // pluginconfig struct (global plugin only)
 pluginconfig *gPluginConfig = {nullptr};
@@ -240,6 +241,7 @@ range_header_check(TSHttpTxn txnp, pluginconfig *const pc)
               TSMLoc const imsloc = TSMimeHdrFieldFind(hdr_buf, hdr_loc, X_IMS_HEADER.data(), X_IMS_HEADER.size());
               if (TS_NULL_MLOC != imsloc) {
                 time_t const itime = TSMimeHdrFieldValueDateGet(hdr_buf, hdr_loc, imsloc);
+                DEBUG_LOG("Servicing the '%.*s' header", (int)X_IMS_HEADER.size(), X_IMS_HEADER.data());
                 TSHandleMLocRelease(hdr_buf, hdr_loc, imsloc);
                 if (0 < itime) {
                   txn_state->ims_time = itime;
@@ -431,6 +433,7 @@ set_header(TSMBuffer buf, TSMLoc hdr_loc, const char *header, int len, const cha
     bool first = true;
 
     while (field_loc) {
+      tmp = TSMimeHdrFieldNextDup(buf, hdr_loc, field_loc);
       if (first) {
         first = false;
         if (TS_SUCCESS == TSMimeHdrFieldValueStringSet(buf, hdr_loc, field_loc, -1, val, val_len)) {
@@ -439,7 +442,6 @@ set_header(TSMBuffer buf, TSMLoc hdr_loc, const char *header, int len, const cha
       } else {
         TSMimeHdrFieldDestroy(buf, hdr_loc, field_loc);
       }
-      tmp = TSMimeHdrFieldNextDup(buf, hdr_loc, field_loc);
       TSHandleMLocRelease(buf, hdr_loc, field_loc);
       field_loc = tmp;
     }
@@ -477,6 +479,8 @@ handle_cache_lookup_complete(TSHttpTxn txnp, txndata *const txn_state)
   if (TS_SUCCESS == TSHttpTxnCacheLookupStatusGet(txnp, &cachestat)) {
     if (TS_CACHE_LOOKUP_HIT_FRESH == cachestat) {
       time_t const ch_time = get_date_from_cached_hdr(txnp);
+      DEBUG_LOG("IMS Cached header time %jd vs IMS %jd", static_cast<intmax_t>(ch_time),
+                static_cast<intmax_t>(txn_state->ims_time));
       if (ch_time < txn_state->ims_time) {
         TSHttpTxnCacheLookupStatusSet(txnp, TS_CACHE_LOOKUP_HIT_STALE);
         if (TSIsDebugTagSet(PLUGIN_NAME)) {

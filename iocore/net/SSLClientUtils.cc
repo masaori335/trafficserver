@@ -27,11 +27,15 @@
 
 #include "P_Net.h"
 #include "P_SSLClientUtils.h"
+#include "P_SSLNetVConnection.h"
 #include "YamlSNIConfig.h"
 #include "SSLDiags.h"
+#include "SSLSessionCache.h"
 
 #include <openssl/err.h>
 #include <openssl/pem.h>
+
+SSLOriginSessionCache *origin_sess_cache;
 
 int
 verify_callback(int signature_ok, X509_STORE_CTX *ctx)
@@ -41,7 +45,7 @@ verify_callback(int signature_ok, X509_STORE_CTX *ctx)
   int err;
   SSL *ssl;
 
-  SSLDebug("Entered verify cb");
+  Debug("ssl_verify", "Entered cert verify callback");
 
   /*
    * Retrieve the pointer to the SSL of the connection currently treated
@@ -53,7 +57,7 @@ verify_callback(int signature_ok, X509_STORE_CTX *ctx)
   // No enforcing, go away
   if (netvc == nullptr) {
     // No netvc, very bad.  Go away.  Things are not good.
-    Warning("Netvc gone by in verify_callback");
+    Debug("ssl_verify", "WARNING, NetVC is NULL in cert verify callback");
     return false;
   } else if (netvc->options.verifyServerPolicy == YamlSNIConfig::Policy::DISABLED) {
     return true; // Tell them that all is well
@@ -69,7 +73,7 @@ verify_callback(int signature_ok, X509_STORE_CTX *ctx)
 
   if (check_sig) {
     if (!signature_ok) {
-      SSLDebug("verify error:num=%d:%s:depth=%d", err, X509_verify_cert_error_string(err), depth);
+      Debug("ssl_verify", "verification error:num=%d:%s:depth=%d", err, X509_verify_cert_error_string(err), depth);
       const char *sni_name;
       char buff[INET6_ADDRSTRLEN];
       ats_ip_ntop(netvc->get_remote_addr(), buff, INET6_ADDRSTRLEN);
@@ -104,7 +108,7 @@ verify_callback(int signature_ok, X509_STORE_CTX *ctx)
       ats_ip_ntop(netvc->get_remote_addr(), buff, INET6_ADDRSTRLEN);
     }
     if (validate_hostname(cert, sni_name, false, &matched_name)) {
-      SSLDebug("Hostname %s verified OK, matched %s", netvc->options.sni_servername.get(), matched_name);
+      Debug("ssl_verify", "Hostname %s verified OK, matched %s", sni_name, matched_name);
       ats_free(matched_name);
     } else { // Name validation failed
       // Get the server address if we did't already compute it
@@ -136,6 +140,38 @@ verify_callback(int signature_ok, X509_STORE_CTX *ctx)
   }
   // Made it this far.  All is good
   return true;
+}
+
+static int
+ssl_client_cert_callback(SSL *ssl, void * /*arg*/)
+{
+  SSLNetVConnection *netvc = SSLNetVCAccess(ssl);
+  SSL_CTX *ctx             = SSL_get_SSL_CTX(ssl);
+  if (ctx) {
+    // Do not need to free either the cert or the ssl_ctx
+    // both are internal pointers
+    X509 *cert = SSL_CTX_get0_certificate(ctx);
+    netvc->set_sent_cert(cert != nullptr ? 2 : 1);
+    Debug("ssl_verify", "sent cert: %d", cert != nullptr ? 2 : 1);
+  }
+  return 1;
+}
+
+static int
+ssl_new_session_callback(SSL *ssl, SSL_SESSION *sess)
+{
+  std::string sni_addr = get_sni_addr(ssl);
+  if (!sni_addr.empty()) {
+    std::string lookup_key;
+    ts::bwprint(lookup_key, "{}:{}:{}", sni_addr.c_str(), SSL_get_SSL_CTX(ssl), get_verify_str(ssl));
+    origin_sess_cache->insert_session(lookup_key, sess, ssl);
+    return 1;
+  } else {
+    if (is_debug_tag_set("ssl.origin_session_cache")) {
+      Debug("ssl.origin_session_cache", "Failed to fetch SNI/IP.");
+    }
+    return 0;
+  }
 }
 
 SSL_CTX *
@@ -186,10 +222,16 @@ SSLInitClientContext(const SSLConfigParams *params)
   }
 #endif
 
-  SSL_CTX_set_verify(client_ctx, SSL_VERIFY_PEER, verify_callback);
   SSL_CTX_set_verify_depth(client_ctx, params->client_verify_depth);
   if (SSLConfigParams::init_ssl_ctx_cb) {
     SSLConfigParams::init_ssl_ctx_cb(client_ctx, false);
+  }
+
+  SSL_CTX_set_cert_cb(client_ctx, ssl_client_cert_callback, nullptr);
+
+  if (params->ssl_origin_session_cache == 1) {
+    SSL_CTX_set_session_cache_mode(client_ctx, SSL_SESS_CACHE_CLIENT | SSL_SESS_CACHE_NO_AUTO_CLEAR | SSL_SESS_CACHE_NO_INTERNAL);
+    SSL_CTX_sess_set_new_cb(client_ctx, ssl_new_session_callback);
   }
 
   return client_ctx;

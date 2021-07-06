@@ -37,7 +37,7 @@ AM_CPPFLAGS += \
 
 TESTS = $(check_PROGRAMS)
 
-check_PROGRAMS = test_certlookup test_UDPNet
+check_PROGRAMS = test_certlookup test_UDPNet test_libinknet
 noinst_LIBRARIES = libinknet.a
 
 test_certlookup_LDFLAGS = \
@@ -85,8 +85,38 @@ test_UDPNet_SOURCES = \
 	libinknet_stub.cc \
 	test_I_UDPNet.cc
 
+test_libinknet_SOURCES = \
+	unit_tests/test_ProxyProtocol.cc
+
+test_libinknet_CPPFLAGS = \
+	$(AM_CPPFLAGS) \
+	$(iocore_include_dirs) \
+	-I$(abs_top_srcdir)/tests/include \
+	-I$(abs_top_srcdir)/proxy \
+	-I$(abs_top_srcdir)/proxy/hdrs \
+	-I$(abs_top_srcdir)/proxy/http \
+	-I$(abs_top_srcdir)/proxy/logging \
+	-I$(abs_top_srcdir)/mgmt \
+	-I$(abs_top_srcdir)/mgmt/utils \
+	@OPENSSL_INCLUDES@
+
+test_libinknet_LDFLAGS = \
+	@AM_LDFLAGS@ \
+	@OPENSSL_LDFLAGS@ \
+	@YAMLCPP_LDFLAGS@
+
+test_libinknet_LDADD = \
+	libinknet.a \
+	$(top_builddir)/iocore/eventsystem/libinkevent.a \
+	$(top_builddir)/mgmt/libmgmt_p.la \
+	$(top_builddir)/lib/records/librecords_p.a \
+	$(top_builddir)/src/tscore/libtscore.la \
+	$(top_builddir)/src/tscpp/util/libtscpputil.la \
+	$(top_builddir)/proxy/ParentSelectionStrategy.o \
+	@HWLOC_LIBS@ @OPENSSL_LIBS@ @LIBPCRE@ @YAMLCPP_LIBS@
+
 libinknet_a_SOURCES = \
-        ALPNSupport.cc \
+	ALPNSupport.cc \
 	BIO_fastopen.cc \
 	BIO_fastopen.h \
 	Connection.cc \
@@ -103,7 +133,7 @@ libinknet_a_SOURCES = \
 	YamlSNIConfig.cc \
 	Net.cc \
 	NetVConnection.cc \
-        P_ALPNSupport.h \
+	P_ALPNSupport.h \
 	P_SNIActionPerformer.h \
 	P_CompletionUtil.h \
 	P_Connection.h \
@@ -113,6 +143,7 @@ libinknet_a_SOURCES = \
 	P_Socks.h \
 	P_SSLCertLookup.h \
 	P_SSLConfig.h \
+        P_SSLSecret.h \
 	P_SSLNetAccept.h \
 	P_SSLNetProcessor.h \
 	P_SSLNetVConnection.h \
@@ -120,9 +151,9 @@ libinknet_a_SOURCES = \
 	P_SSLNextProtocolSet.h \
 	P_SSLSNI.h \
 	P_SSLUtils.h \
+	P_SSLClientCoordinator.h \
 	P_SSLClientUtils.h \
 	P_OCSPStapling.h \
-	P_Socks.h \
 	P_UDPConnection.h \
 	P_UDPIOEvent.h \
 	P_UDPNet.h \
@@ -138,8 +169,10 @@ libinknet_a_SOURCES = \
 	ProxyProtocol.cc \
 	Socks.cc \
 	SSLCertLookup.cc \
+	SSLClientCoordinator.cc \
 	SSLClientUtils.cc \
 	SSLConfig.cc \
+        SSLSecret.cc \
 	SSLDiags.cc \
 	SSLInternal.cc \
 	SSLNetAccept.cc \
@@ -153,7 +186,9 @@ libinknet_a_SOURCES = \
 	SSLSessionTicket.cc \
 	SSLUtils.cc \
 	OCSPStapling.cc \
-	Socks.cc \
+	TLSBasicSupport.cc \
+	TLSSessionResumptionSupport.cc \
+	TLSSNISupport.cc \
 	UDPIOEvent.cc \
 	UnixConnection.cc \
 	UnixNet.cc \

@@ -22,9 +22,18 @@ Test tls server certificate verification options
 
 # Define default ATS
 ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True)
-server_foo = Test.MakeOriginServer("server_foo", ssl=True, options = {"--key": "{0}/signed-foo.key".format(Test.RunDirectory), "--cert": "{0}/signed-foo.pem".format(Test.RunDirectory)})
-server_bar = Test.MakeOriginServer("server_bar", ssl=True, options = {"--key": "{0}/signed-bar.key".format(Test.RunDirectory), "--cert": "{0}/signed-bar.pem".format(Test.RunDirectory)})
-server_wild = Test.MakeOriginServer("server_wild", ssl=True, options = {"--key": "{0}/wild.key".format(Test.RunDirectory), "--cert": "{0}/wild-signed.pem".format(Test.RunDirectory)})
+server_foo = Test.MakeOriginServer("server_foo",
+                                   ssl=True,
+                                   options={"--key": "{0}/signed-foo.key".format(Test.RunDirectory),
+                                            "--cert": "{0}/signed-foo.pem".format(Test.RunDirectory)})
+server_bar = Test.MakeOriginServer("server_bar",
+                                   ssl=True,
+                                   options={"--key": "{0}/signed-bar.key".format(Test.RunDirectory),
+                                            "--cert": "{0}/signed-bar.pem".format(Test.RunDirectory)})
+server_wild = Test.MakeOriginServer("server_wild",
+                                    ssl=True,
+                                    options={"--key": "{0}/signed-wild.key".format(Test.RunDirectory),
+                                             "--cert": "{0}/signed-wild.pem".format(Test.RunDirectory)})
 server = Test.MakeOriginServer("server", ssl=True)
 
 request_foo_header = {"headers": "GET / HTTP/1.1\r\nHost: foo.com\r\n\r\n", "timestamp": "1469733493.993", "body": ""}
@@ -47,8 +56,8 @@ ts.addSSLfile("ssl/server.pem")
 ts.addSSLfile("ssl/server.key")
 ts.addSSLfile("ssl/signer.pem")
 ts.addSSLfile("ssl/signer.key")
-ts.addSSLfile("ssl/wild.key")
-ts.addSSLfile("ssl/wild-signed.pem")
+ts.addSSLfile("ssl/signed-wild.key")
+ts.addSSLfile("ssl/signed-wild.pem")
 
 ts.Disk.remap_config.AddLine(
     'map / https://127.0.0.1:{0}'.format(server.Variables.SSL_Port))
@@ -74,7 +83,6 @@ ts.Disk.ssl_multicert_config.AddLine(
 ts.Disk.records_config.update({
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
-    'proxy.config.ssl.server.cipher_suite': 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:AES128-GCM-SHA256:AES256-GCM-SHA384:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:RC4-SHA:RC4-MD5:AES128-SHA:AES256-SHA:DES-CBC3-SHA!SRP:!DSS:!PSK:!aNULL:!eNULL:!SSLv2',
     # set global policy
     'proxy.config.ssl.client.verify.server.policy': 'PERMISSIVE',
     'proxy.config.ssl.client.verify.server.properties': 'SIGNATURE',
@@ -85,16 +93,16 @@ ts.Disk.records_config.update({
 })
 
 ts.Disk.sni_yaml.AddLines([
-  'sni:',
-  '- fqdn: bar.com',
-  '  verify_server_policy: ENFORCED',
-  '  verify_server_properties: ALL',
-  '- fqdn: "*.wild.com"',
-  '  verify_server_policy: ENFORCED',
-  '  verify_server_properties: ALL',
-  '- fqdn: bad_bar.com',
-  '  verify_server_policy: ENFORCED',
-  '  verify_server_properties: ALL'
+    'sni:',
+    '- fqdn: bar.com',
+    '  verify_server_policy: ENFORCED',
+    '  verify_server_properties: ALL',
+    '- fqdn: "*.wild.com"',
+    '  verify_server_policy: ENFORCED',
+    '  verify_server_properties: ALL',
+    '- fqdn: bad_bar.com',
+    '  verify_server_policy: ENFORCED',
+    '  verify_server_properties: ALL'
 ])
 
 tr = Test.AddTestRun("Permissive-Test")
@@ -102,11 +110,10 @@ tr.Setup.Copy("ssl/signed-foo.key")
 tr.Setup.Copy("ssl/signed-foo.pem")
 tr.Setup.Copy("ssl/signed-bar.key")
 tr.Setup.Copy("ssl/signed-bar.pem")
-tr.Setup.Copy("ssl/wild-signed.pem")
-tr.Setup.Copy("ssl/wild.key")
+tr.Setup.Copy("ssl/signed-wild.pem")
+tr.Setup.Copy("ssl/signed-wild.key")
 tr.Processes.Default.Command = "curl -v -k -H \"host: foo.com\" https://127.0.0.1:{0}".format(ts.Variables.ssl_port)
 tr.ReturnCode = 0
-# time delay as proxy.config.http.wait_for_cache could be broken
 tr.Processes.Default.StartBefore(server_foo)
 tr.Processes.Default.StartBefore(server_bar)
 tr.Processes.Default.StartBefore(server)
@@ -146,4 +153,5 @@ tr5.StillRunningAfter = ts
 
 # Over riding the built in ERROR check since we expect tr3 to fail
 ts.Disk.diags_log.Content = Testers.ExcludesExpression("verification failed", "Make sure the signatures didn't fail")
-ts.Disk.diags_log.Content += Testers.ContainsExpression("WARNING: SNI \(bad_bar.com\) not in certificate", "Make sure bad_bar name checked failed.")
+ts.Disk.diags_log.Content += Testers.ContainsExpression(
+    "WARNING: SNI \(bad_bar.com\) not in certificate", "Make sure bad_bar name checked failed.")

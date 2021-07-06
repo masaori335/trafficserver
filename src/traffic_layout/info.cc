@@ -111,6 +111,7 @@ produce_features(bool json)
   print_feature("TS_USE_HWLOC", TS_USE_HWLOC, json);
   print_feature("TS_USE_SET_RBIO", TS_USE_SET_RBIO, json);
   print_feature("TS_USE_TLS13", TS_USE_TLS13, json);
+  print_feature("TS_USE_QUIC", TS_USE_QUIC, json);
   print_feature("TS_USE_LINUX_NATIVE_AIO", TS_USE_LINUX_NATIVE_AIO, json);
   print_feature("TS_HAS_SO_PEERCRED", TS_HAS_SO_PEERCRED, json);
   print_feature("TS_USE_REMOTE_UNWINDING", TS_USE_REMOTE_UNWINDING, json);
@@ -123,7 +124,6 @@ produce_features(bool json)
   print_feature("TS_MAX_THREADS_IN_EACH_THREAD_TYPE", TS_MAX_THREADS_IN_EACH_THREAD_TYPE, json);
   print_feature("TS_MAX_NUMBER_EVENT_THREADS", TS_MAX_NUMBER_EVENT_THREADS, json);
   print_feature("TS_MAX_HOST_NAME_LEN", TS_MAX_HOST_NAME_LEN, json);
-  print_feature("SPLIT_DNS", SPLIT_DNS, json);
   print_feature("TS_PKGSYSUSER", TS_PKGSYSUSER, json);
   print_feature("TS_PKGSYSGROUP", TS_PKGSYSGROUP, json, true);
   if (json) {

@@ -28,6 +28,7 @@
 #include "P_NetAccept.h"
 #include "quic/QUICTypes.h"
 #include "quic/QUICConnectionTable.h"
+#include "quic/QUICResetTokenTable.h"
 
 class QUICClosedConCollector;
 class QUICNetVConnection;
@@ -37,11 +38,11 @@ class QUICPacketHeaderProtector;
 class QUICPacketHandler
 {
 public:
-  QUICPacketHandler();
+  QUICPacketHandler(QUICResetTokenTable &rtable);
   ~QUICPacketHandler();
 
   void send_packet(const QUICPacket &packet, QUICNetVConnection *vc, const QUICPacketHeaderProtector &pn_protector);
-  void send_packet(QUICNetVConnection *vc, Ptr<IOBufferBlock> udp_payload);
+  void send_packet(QUICNetVConnection *vc, const Ptr<IOBufferBlock> &udp_payload);
 
   void close_connection(QUICNetVConnection *conn);
 
@@ -49,25 +50,28 @@ protected:
   void _send_packet(const QUICPacket &packet, UDPConnection *udp_con, IpEndpoint &addr, uint32_t pmtu,
                     const QUICPacketHeaderProtector *ph_protector, int dcil);
   void _send_packet(UDPConnection *udp_con, IpEndpoint &addr, Ptr<IOBufferBlock> udp_payload);
+  QUICConnection *_check_stateless_reset(const uint8_t *buf, size_t buf_len);
 
   // FIXME Remove this
-  // QUICPacketHandler could be a continuation, but NetAccept is a contination too.
+  // QUICPacketHandler could be a continuation, but NetAccept is a continuation too.
   virtual Continuation *_get_continuation() = 0;
 
   Event *_collector_event                       = nullptr;
   QUICClosedConCollector *_closed_con_collector = nullptr;
 
   virtual void _recv_packet(int event, UDPPacket *udpPacket) = 0;
+
+  QUICResetTokenTable &_rtable;
 };
 
 /*
- * @class QUICPacketHanderIn
+ * @class QUICPacketHandlerIn
  * @brief QUIC Packet Handler for incoming connections
  */
 class QUICPacketHandlerIn : public NetAccept, public QUICPacketHandler
 {
 public:
-  QUICPacketHandlerIn(const NetProcessor::AcceptOptions &opt, QUICConnectionTable &ctable);
+  QUICPacketHandlerIn(const NetProcessor::AcceptOptions &opt, QUICConnectionTable &ctable, QUICResetTokenTable &rtable);
   ~QUICPacketHandlerIn();
 
   // NetAccept
@@ -83,19 +87,23 @@ protected:
 private:
   void _recv_packet(int event, UDPPacket *udp_packet) override;
   int _stateless_retry(const uint8_t *buf, uint64_t buf_len, UDPConnection *connection, IpEndpoint from, QUICConnectionId dcid,
-                       QUICConnectionId scid, QUICConnectionId *original_cid);
+                       QUICConnectionId scid, QUICConnectionId *original_cid, QUICConnectionId *retry_cid, QUICVersion version);
+  bool _send_stateless_reset(QUICConnectionId dcid, uint32_t instance_id, UDPConnection *udp_con, IpEndpoint &addr,
+                             size_t maximum_size);
+  void _send_invalid_token_error(const uint8_t *initial_packet, uint64_t initial_packet_len, UDPConnection *connection,
+                                 IpEndpoint from);
 
   QUICConnectionTable &_ctable;
 };
 
 /*
- * @class QUICPacketHanderOut
+ * @class QUICPacketHandlerOut
  * @brief QUIC Packet Handler for outgoing connections
  */
 class QUICPacketHandlerOut : public Continuation, public QUICPacketHandler
 {
 public:
-  QUICPacketHandlerOut();
+  QUICPacketHandlerOut(QUICResetTokenTable &rtable);
   ~QUICPacketHandlerOut(){};
 
   void init(QUICNetVConnection *vc);

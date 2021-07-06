@@ -125,11 +125,11 @@ TransformTerminus::TransformTerminus(TransformVConnection *tvc)
   SET_HANDLER(&TransformTerminus::handle_event);
 }
 
-#define RETRY()                                                  \
-  if (ink_atomic_increment((int *)&m_event_count, 1) < 0) {      \
-    ink_assert(!"not reached");                                  \
-  }                                                              \
-  eventProcessor.schedule_in(this, HRTIME_MSECONDS(10), ET_NET); \
+#define RETRY()                                             \
+  if (ink_atomic_increment((int *)&m_event_count, 1) < 0) { \
+    ink_assert(!"not reached");                             \
+  }                                                         \
+  this_ethread()->schedule_in(this, HRTIME_MSECONDS(10));   \
   return 0;
 
 int
@@ -280,7 +280,7 @@ TransformTerminus::do_io_read(Continuation *c, int64_t nbytes, MIOBuffer *buf)
   }
   Debug("transform", "[TransformTerminus::do_io_read] event_count %d", m_event_count);
 
-  eventProcessor.schedule_imm(this, ET_NET);
+  this_ethread()->schedule_imm_local(this);
 
   return &m_read_vio;
 }
@@ -305,7 +305,7 @@ TransformTerminus::do_io_write(Continuation *c, int64_t nbytes, IOBufferReader *
   }
   Debug("transform", "[TransformTerminus::do_io_write] event_count %d", m_event_count);
 
-  eventProcessor.schedule_imm(this, ET_NET);
+  this_ethread()->schedule_imm_local(this);
 
   return &m_write_vio;
 }
@@ -335,7 +335,7 @@ TransformTerminus::do_io_close(int error)
   m_write_vio.op = VIO::NONE;
   m_write_vio.buffer.clear();
 
-  eventProcessor.schedule_imm(this, ET_NET);
+  this_ethread()->schedule_imm_local(this);
 }
 
 /*-------------------------------------------------------------------------
@@ -368,7 +368,7 @@ TransformTerminus::reenable(VIO *vio)
       ink_assert(!"not reached");
     }
     Debug("transform", "[TransformTerminus::reenable] event_count %d", m_event_count);
-    eventProcessor.schedule_imm(this, ET_NET);
+    this_ethread()->schedule_imm_local(this);
   } else {
     Debug("transform", "[TransformTerminus::reenable] skipping due to "
                        "pending events");
@@ -549,7 +549,7 @@ TransformControl::handle_event(int event, void * /* edata ATS_UNUSED */)
     }
     ink_assert(m_tvc != nullptr);
 
-    m_write_buf = new_MIOBuffer();
+    m_write_buf = new_MIOBuffer(BUFFER_SIZE_INDEX_32K);
     s           = m_write_buf->end();
     e           = m_write_buf->buf_end();
 
@@ -561,7 +561,7 @@ TransformControl::handle_event(int event, void * /* edata ATS_UNUSED */)
   }
 
   case TRANSFORM_READ_READY: {
-    MIOBuffer *buf = new_empty_MIOBuffer();
+    MIOBuffer *buf = new_empty_MIOBuffer(BUFFER_SIZE_INDEX_32K);
 
     m_read_buf = buf->alloc_reader();
     m_tvc->do_io_read(this, INT64_MAX, buf);
@@ -652,7 +652,7 @@ NullTransform::handle_event(int event, void *edata)
       ink_assert(m_output_vc != nullptr);
 
       if (!m_output_vio) {
-        m_output_buf    = new_empty_MIOBuffer();
+        m_output_buf    = new_empty_MIOBuffer(BUFFER_SIZE_INDEX_32K);
         m_output_reader = m_output_buf->alloc_reader();
         m_output_vio    = m_output_vc->do_io_write(this, m_write_vio.nbytes, m_output_reader);
       }
@@ -731,7 +731,7 @@ void
 TransformTest::run()
 {
   if (is_action_tag_set("transform_test")) {
-    eventProcessor.schedule_imm(new TransformControl(), ET_NET);
+    this_ethread()->schedule_imm_local(new TransformControl());
   }
 }
 #endif
@@ -802,7 +802,7 @@ RangeTransform::handle_event(int event, void *edata)
       ink_assert(m_output_vc != nullptr);
 
       if (!m_output_vio) {
-        m_output_buf    = new_empty_MIOBuffer();
+        m_output_buf    = new_empty_MIOBuffer(BUFFER_SIZE_INDEX_32K);
         m_output_reader = m_output_buf->alloc_reader();
         m_output_vio    = m_output_vc->do_io_write(this, m_output_cl, m_output_reader);
 
@@ -849,6 +849,10 @@ RangeTransform::transform_to_range()
   const int64_t *end, *start;
   int64_t prev_end = 0;
   int64_t *done_byte;
+
+  if (m_current_range >= m_num_range_fields) {
+    return;
+  }
 
   end       = &m_ranges[m_current_range]._end;
   done_byte = &m_ranges[m_current_range]._done_byte;

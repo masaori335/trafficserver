@@ -44,6 +44,7 @@
 #include <typeinfo>
 #include <type_traits>
 #include <unordered_map>
+#include <limits>
 
 #include "tscore/AtomicBit.h"
 #include "tscore/ink_assert.h"
@@ -359,7 +360,7 @@ namespace details
   /// Bool specializations
 
   template <typename Derived_t>
-  const bool
+  bool
   fieldGet(const void *fld_ptr, FieldId<Derived_t, bool> const &field)
   {
     return bool((*static_cast<const uint8_t *>(fld_ptr)) & field.desc->mask);
@@ -395,7 +396,7 @@ namespace details
   /// std::atomic<bool> specializations (same as bool)
 
   template <typename Derived_t>
-  inline const bool
+  inline bool
   fieldGet(void const *fld_ptr, FieldId<Derived_t, std::atomic<bool>> const &field)
   {
     return bool(fld_ptr & field.mask);

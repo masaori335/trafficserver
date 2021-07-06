@@ -823,8 +823,7 @@ dir_lookaside_fixup(const CacheKey *key, Vol *d)
       DDebug("dir_lookaside", "fixup %X %X offset %" PRId64 " phase %d %d", key->slice32(0), key->slice32(1),
              dir_offset(&b->new_dir), dir_phase(&b->new_dir), res);
       int64_t o = dir_offset(&b->dir), n = dir_offset(&b->new_dir);
-      d->ram_cache->fixup(key, static_cast<uint32_t>(o >> 32), static_cast<uint32_t>(o), static_cast<uint32_t>(n >> 32),
-                          static_cast<uint32_t>(n));
+      d->ram_cache->fixup(key, static_cast<uint64_t>(o), static_cast<uint64_t>(n));
       d->lookaside[i].remove(b);
       free_EvacuationBlock(b, d->mutex->thread_holding);
       return res;
@@ -989,7 +988,7 @@ sync_cache_dir_on_shutdown()
         if (buf_huge) {
           ats_free_hugepage(buf, buflen);
         } else {
-          ats_memalign_free(buf);
+          ats_free(buf);
         }
         buf = nullptr;
       }
@@ -1024,7 +1023,7 @@ sync_cache_dir_on_shutdown()
     if (buf_huge) {
       ats_free_hugepage(buf, buflen);
     } else {
-      ats_memalign_free(buf);
+      ats_free(buf);
     }
     buf = nullptr;
   }
@@ -1045,7 +1044,7 @@ Lrestart:
       if (buf_huge) {
         ats_free_hugepage(buf, buflen);
       } else {
-        ats_memalign_free(buf);
+        ats_free(buf);
       }
       buflen   = 0;
       buf      = nullptr;
@@ -1122,7 +1121,7 @@ Lrestart:
           if (buf_huge) {
             ats_free_hugepage(buf, buflen);
           } else {
-            ats_memalign_free(buf);
+            ats_free(buf);
           }
           buf = nullptr;
         }

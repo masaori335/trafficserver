@@ -24,9 +24,11 @@
 #include "QUICFrameDispatcher.h"
 #include "QUICDebugNames.h"
 
-static constexpr char tag[] = "quic_net";
+static constexpr char tag[]   = "quic_net";
+static constexpr char v_tag[] = "v_quic_net";
 
 #define QUICDebug(fmt, ...) Debug(tag, "[%s] " fmt, this->_info->cids().data(), ##__VA_ARGS__)
+#define QUICVDebug(fmt, ...) Debug(v_tag, "[%s] " fmt, this->_info->cids().data(), ##__VA_ARGS__)
 
 //
 // Frame Dispatcher
@@ -42,8 +44,9 @@ QUICFrameDispatcher::add_handler(QUICFrameHandler *handler)
 }
 
 QUICConnectionErrorUPtr
-QUICFrameDispatcher::receive_frames(QUICEncryptionLevel level, const uint8_t *payload, uint16_t size, bool &ack_only,
-                                    bool &is_flow_controlled, bool *has_non_probing_frame, const QUICPacket *packet)
+QUICFrameDispatcher::receive_frames(QUICContext &ctx, QUICEncryptionLevel level, const uint8_t *payload, uint16_t size,
+                                    bool &ack_only, bool &is_flow_controlled, bool *has_non_probing_frame,
+                                    const QUICPacketR *packet)
 {
   uint16_t cursor               = 0;
   ack_only                      = true;
@@ -63,14 +66,16 @@ QUICFrameDispatcher::receive_frames(QUICEncryptionLevel level, const uint8_t *pa
 
     QUICFrameType type = frame.type();
 
+    ctx.trigger(QUICContext::CallbackEvent::FRAME_RECV, frame);
+
     if (type == QUICFrameType::STREAM) {
       is_flow_controlled = true;
     }
 
-    if (is_debug_tag_set(tag) && type != QUICFrameType::PADDING) {
+    if (is_debug_tag_set(v_tag) && type != QUICFrameType::PADDING) {
       char msg[1024];
       frame.debug_msg(msg, sizeof(msg));
-      QUICDebug("[RX] | %s", msg);
+      QUICVDebug("[RX] | %s", msg);
     }
 
     if (type != QUICFrameType::PADDING && type != QUICFrameType::ACK) {

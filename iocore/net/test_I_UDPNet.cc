@@ -31,8 +31,13 @@
 #include "I_EventSystem.h"
 #include "I_Net.h"
 #include "I_UDPNet.h"
+#if defined(darwin)
+#include "P_UDPConnection.h"
+#include "P_UDPPacket.h"
+#else
 #include "I_UDPPacket.h"
 #include "I_UDPConnection.h"
+#endif
 
 #include "diags.i"
 
@@ -47,12 +52,12 @@ class EchoServer : public Continuation
 {
 public:
   EchoServer() : Continuation(new_ProxyMutex()) { SET_HANDLER(&EchoServer::start); };
-  bool start();
+  int start(int, void *);
   int handle_packet(int event, void *data);
 };
 
-bool
-EchoServer::start()
+int
+EchoServer::start(int, void *)
 {
   SET_HANDLER(&EchoServer::handle_packet);
 
@@ -61,7 +66,7 @@ EchoServer::start()
   addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   addr.sin_port        = 0;
 
-  udpNet.UDPBind(static_cast<Continuation *>(this), reinterpret_cast<sockaddr const *>(&addr), 1048576, 1048576);
+  udpNet.UDPBind(static_cast<Continuation *>(this), reinterpret_cast<sockaddr const *>(&addr), -1, 1048576, 1048576);
 
   return true;
 }

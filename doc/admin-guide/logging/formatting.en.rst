@@ -170,7 +170,8 @@ crsc  Proxy Cache    Cache Result Sub-Code. More specific code to complement the
                      Cache Result Code.
 chm   Proxy Cache    Cache Hit-Miss status. Specifies the level of cache from
                      which this request was served by |TS|. Currently supports
-                     only RAM (``HIT_RAM``) vs disk (``HIT_DISK``).
+                     only RAM (``HIT_RAM``), disk (``HIT_DISK``) and Read While Write (``HIT_RWW``).
+                     HIT_RWW could imply either HIT_RAM or HIT_DISK.
 cwr   Proxy Cache    Cache Write Result. Specifies the result of attempting to
                      write to cache: not relevant (``-``), no cache write
                      (``WL_MISS``), write interrupted (``INTR``), error while
@@ -505,7 +506,7 @@ shi   Origin Server  IP address resolved via DNS by |TS| for the origin server.
 shn   Origin Server  Host name of the origin server.
 nhi   Origin Server  Destination IP address of next hop
 nhp   Origin Server  Destination port of next hop
-ppv   Proxy Protocol Proxy Protocol Version used (if any) between the Loadbalancer
+ppv   Proxy Protocol Proxy Protocol Version used (if any) between the Load Balancer
       Version        and |TS|
 pps   Proxy Protocol Source IP received via Proxy Protocol context from the LB to
       Source IP      the |TS|
@@ -564,8 +565,10 @@ were in effect for a given event.
 ===== ===================== ===================================================
 Field Source                Description
 ===== ===================== ===================================================
-cqhv  Client Request        Client request HTTP version.
+cqhv  Client Request        Client request HTTP version. Deprecated since 9.0.
+                            Use ``cqpv`` instead.
 cqpv  Client Request        Client request protocol and version.
+sqpv  Proxy Request         Origin negotiated protocol and version
 csshv Cached Proxy Response Origin server's HTTP version from cached version of
                             the document in |TS| proxy cache.
 sshv  Origin Response       Origin server's response HTTP version.
@@ -597,35 +600,45 @@ SSL / Encryption
 ~~~~~~~~~~~~~~~~
 
 .. _cssn:
+.. _cscert:
 .. _cqssl:
 .. _cqssr:
 .. _cqssv:
 .. _cqssc:
 .. _cqssu:
+.. _cqssa:
 .. _pqssl:
+.. _pscert:
 
 Fields which expose the use, or lack thereof, of specific SSL and encryption
 features.
 
-===== ============== ==========================================================
-Field Source         Description
-===== ============== ==========================================================
-cssn  Client TLS     SNI server name in client Hello message in TLS handshake.
-      Hello          If no server name present in Hello, or the transaction
-                     was not over TLS (over TCP), this field will contain
-                     ``-``.
-cqssl Client Request SSL client request status indicates if this client
-                     connection is over SSL.
-cqssr Client Request SSL session ticket reused status; indicates if the current
-                     request hit the SSL session ticket and avoided a full SSL
-                     handshake.
-cqssv Client Request SSL version used to communicate with the client.
-cqssc Client Request SSL Cipher used by |TS| to communicate with the client.
-cqssu Client Request SSL Elliptic Curve used by |TS| to communicate with the
-                     client when using an ECDHE cipher.
-pqssl Proxy Request  Indicates whether the connection from |TS| to the origin
-                     was over SSL or not.
-===== ============== ==========================================================
+====== ============== ==========================================================
+Field  Source         Description
+====== ============== ==========================================================
+cssn   Client TLS     SNI server name in client Hello message in TLS handshake.
+       Hello          If no server name present in Hello, or the transaction
+                      was not over TLS (over TCP), this field will contain
+                      ``-``.
+cscert Client Request 1 if |TS| requested certificate from client during TLS
+                      handshake. 0 otherwise.
+cqssl  Client Request SSL client request status indicates if this client
+                      connection is over SSL.
+cqssr  Client Request SSL session ticket reused status; indicates if the current
+                      request hit the SSL session ticket and avoided a full SSL
+                      handshake.
+cqssv  Client Request SSL version used to communicate with the client.
+cqssc  Client Request SSL Cipher used by |TS| to communicate with the client.
+cqssu  Client Request SSL Elliptic Curve used by |TS| to communicate with the
+                      client when using an ECDHE cipher.
+cqssa  Client Request ALPN Protocol ID negotiated with the client.
+pqssl  Proxy Request  Indicates whether the connection from |TS| to the origin
+                      was over SSL or not.
+pscert Proxy Request  1 if origin requested certificate from |TS| during TLS
+                      handshake but no client certificate was defined. 2 if origin
+                      requested certificate from |TS| during TLS handshake and a
+                      client certificate was defined. 0 otherwise.
+====== ============== ==========================================================
 
 .. _admin-logging-fields-status:
 

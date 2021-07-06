@@ -341,6 +341,7 @@ The Apache Traffic Server Administration Manual will explain what these strings 
  proxy.config.cache.hosting_filename
  proxy.config.cache.ip_allow.filename
  proxy.config.cache.limits.http.max_alts
+ proxy.config.cache.log.alternate.eviction
  proxy.config.cache.max_disk_errors
  proxy.config.cache.max_doc_size
  proxy.config.cache.min_average_object_size
@@ -474,13 +475,11 @@ The Apache Traffic Server Administration Manual will explain what these strings 
  proxy.config.http.per_server.connection.max
  proxy.config.http.origin_min_keep_alive_connections
  proxy.config.http.parent_proxies
- proxy.config.http.parent_proxy.connect_attempts_timeout
  proxy.config.http.parent_proxy.fail_threshold
  proxy.config.http.parent_proxy.file
  proxy.config.http.parent_proxy.per_parent_connect_attempts
  proxy.config.http.parent_proxy.retry_time
  proxy.config.http.parent_proxy.total_connect_attempts
- proxy.config.http.post_connect_attempts_timeout
  proxy.config.http.post_copy_size
  proxy.config.http.push_method_enabled
  proxy.config.http.quick_filter.mask
@@ -579,7 +578,6 @@ The Apache Traffic Server Administration Manual will explain what these strings 
  proxy.config.ssl.client.cert.path
  proxy.config.ssl.client.private_key.filename
  proxy.config.ssl.client.private_key.path
- proxy.config.ssl.client.verify.server
  proxy.config.ssl.server.cert_chain.filename
  proxy.config.ssl.server.cert.path
  proxy.config.ssl.server.cipher_suite

@@ -37,16 +37,14 @@
 #include <cstdio>
 #include <bitset>
 #include <map>
-
-#ifdef HAVE_CTYPE_H
 #include <cctype>
-#endif
+#include <string_view>
 
 #include "tscore/ink_platform.h"
 #include "tscore/ink_inet.h"
+#include "tscore/ink_resolver.h"
 #include "tscore/IpMap.h"
 #include "tscore/Regex.h"
-#include "string_view"
 #include "tscore/BufferWriter.h"
 #include "HttpProxyAPIEnums.h"
 #include "ProxyConfig.h"
@@ -67,6 +65,7 @@ enum {
   http_current_client_transactions_stat,
   http_total_incoming_connections_stat,
   http_current_server_transactions_stat,
+  http_pooled_server_connections_stat,
 
   //  Http Abort information (from HttpNetConnection)
   http_ua_msecs_counts_errors_pre_accept_hangups_stat,
@@ -86,6 +85,7 @@ enum {
   http_total_parent_switches_stat,
   http_total_parent_retries_exhausted_stat,
   http_total_parent_marked_down_count,
+  http_background_fill_total_count_stat,
   http_current_parent_proxy_connections_stat,
   http_current_server_connections_stat,
   http_current_cache_connections_stat,
@@ -177,6 +177,7 @@ enum {
   // cache result stats
   http_cache_hit_fresh_stat,
   http_cache_hit_mem_fresh_stat,
+  http_cache_hit_rww_stat,
   http_cache_hit_reval_stat,
   http_cache_hit_ims_stat,
   http_cache_hit_stale_served_stat,
@@ -327,6 +328,40 @@ enum {
 
   http_origin_connections_throttled_stat,
 
+  http_origin_connect_adjust_thread_stat,
+  http_cache_open_write_adjust_thread_stat,
+
+  http_origin_shutdown_pool_lock_contention,
+  http_origin_shutdown_migration_failure,
+  http_origin_shutdown_tunnel_server,
+  http_origin_shutdown_tunnel_server_no_keep_alive,
+  http_origin_shutdown_tunnel_server_eos,
+  http_origin_shutdown_tunnel_server_plugin_tunnel,
+  http_origin_shutdown_tunnel_server_detach,
+  http_origin_shutdown_tunnel_client,
+  http_origin_shutdown_tunnel_transform_read,
+  http_origin_shutdown_release_no_sharing,
+  http_origin_shutdown_release_no_server,
+  http_origin_shutdown_release_no_keep_alive,
+  http_origin_shutdown_release_invalid_response,
+  http_origin_shutdown_release_invalid_request,
+  http_origin_shutdown_release_modified,
+  http_origin_shutdown_release_misc,
+  http_origin_shutdown_cleanup_entry,
+  http_origin_shutdown_tunnel_abort,
+
+  http_dead_server_no_requests,
+
+  http_origin_reuse,
+  http_origin_not_found,
+  http_origin_reuse_fail,
+  http_origin_make_new,
+  http_origin_no_sharing,
+  http_origin_body,
+  http_origin_private,
+  http_origin_close_private,
+  http_origin_raw,
+
   http_stat_count
 };
 
@@ -466,10 +501,12 @@ struct OverridableHttpConfigParams {
 
   MgmtInt server_min_keep_alive_conns         = 0;
   MgmtByte server_session_sharing_match       = 0;
+  char *server_session_sharing_match_str      = nullptr;
   MgmtByte auth_server_session_private        = 1;
   MgmtByte fwd_proxy_auth_to_parent           = 0;
   MgmtByte uncacheable_requests_bypass_parent = 1;
   MgmtByte attach_server_session_to_client    = 0;
+  MgmtInt max_proxy_cycles                    = 0;
 
   MgmtByte forward_connect_method = 0;
 
@@ -497,6 +534,7 @@ struct OverridableHttpConfigParams {
   // Forwarded //
   ///////////////
   HttpForwarded::OptionBitSet insert_forwarded;
+  MgmtInt proxy_protocol_out = -1;
 
   //////////////////////
   //  Version Hell    //
@@ -564,7 +602,6 @@ struct OverridableHttpConfigParams {
   //////////////////////////////
   // server verification mode //
   //////////////////////////////
-  MgmtByte ssl_client_verify_server         = 0;
   char *ssl_client_verify_server_policy     = nullptr;
   char *ssl_client_verify_server_properties = nullptr;
   char *ssl_client_sni_policy               = nullptr;
@@ -626,7 +663,8 @@ struct OverridableHttpConfigParams {
   MgmtInt connect_attempts_max_retries_dead_server = 3;
   MgmtInt connect_attempts_rr_retries              = 3;
   MgmtInt connect_attempts_timeout                 = 30;
-  MgmtInt post_connect_attempts_timeout            = 1800;
+
+  MgmtInt connect_dead_policy = 2;
 
   ////////////////////////////////////
   // parent proxy connect attempts //
@@ -635,10 +673,9 @@ struct OverridableHttpConfigParams {
   MgmtInt parent_retry_time           = 300;
   MgmtInt parent_fail_threshold       = 10;
   MgmtInt per_parent_connect_attempts = 2;
-  MgmtInt parent_connect_timeout      = 30;
 
   MgmtInt down_server_timeout    = 300;
-  MgmtInt client_abort_threshold = 10;
+  MgmtInt client_abort_threshold = 1000;
 
   // open read failure retries.
   MgmtInt max_cache_open_read_retries = -1;
@@ -681,6 +718,9 @@ struct OverridableHttpConfigParams {
   char *ssl_client_cert_filename        = nullptr;
   char *ssl_client_private_key_filename = nullptr;
   char *ssl_client_ca_cert_filename     = nullptr;
+
+  // Host Resolution order
+  HostResData host_res_data;
 };
 
 /////////////////////////////////////////////////////////////
@@ -743,6 +783,9 @@ public:
   MgmtInt post_copy_size = 2048;
   MgmtInt max_post_size  = 0;
 
+  MgmtInt max_payload_iobuf_index = BUFFER_SIZE_INDEX_32K;
+  MgmtInt max_msg_iobuf_index     = BUFFER_SIZE_INDEX_32K;
+
   char *redirect_actions_string                        = nullptr;
   IpMap *redirect_actions_map                          = nullptr;
   RedirectEnabled::Action redirect_actions_self_action = RedirectEnabled::Action::INVALID;
@@ -778,7 +821,6 @@ public:
 
   MgmtByte send_100_continue_response = 0;
   MgmtByte disallow_post_100_continue = 0;
-  MgmtByte keepalive_internal_vc      = 0;
 
   MgmtByte server_session_sharing_pool = TS_SERVER_SESSION_SHARING_POOL_THREAD;
 
@@ -850,6 +892,7 @@ inline HttpConfigParams::~HttpConfigParams()
   ats_free(proxy_response_via_string);
   ats_free(anonymize_other_header_list);
   ats_free(oride.body_factory_template_base);
+  ats_free(oride.server_session_sharing_match_str);
   ats_free(oride.proxy_response_server_string);
   ats_free(oride.global_user_agent_header);
   ats_free(oride.ssl_client_cert_filename);
@@ -859,6 +902,7 @@ inline HttpConfigParams::~HttpConfigParams()
   ats_free(reverse_proxy_no_host_redirect);
   ats_free(redirect_actions_string);
   ats_free(oride.ssl_client_sni_policy);
+  ats_free(oride.host_res_data.conf_value);
 
   delete connect_ports;
   delete redirect_actions_map;

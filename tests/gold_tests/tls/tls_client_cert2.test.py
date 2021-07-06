@@ -24,8 +24,19 @@ Test client certs to origin selected via wildcard names in sni
 ts = Test.MakeATSProcess("ts", command="traffic_server", select_ports=True)
 cafile = "{0}/signer.pem".format(Test.RunDirectory)
 cafile2 = "{0}/signer2.pem".format(Test.RunDirectory)
-server = Test.MakeOriginServer("server", ssl=True, options = { "--clientCA": cafile, "--clientverify": ""}, clientcert="{0}/signed-foo.pem".format(Test.RunDirectory), clientkey="{0}/signed-foo.key".format(Test.RunDirectory))
-server2 = Test.MakeOriginServer("server2", ssl=True, options = { "--clientCA": cafile2, "--clientverify": ""}, clientcert="{0}/signed2-bar.pem".format(Test.RunDirectory), clientkey="{0}/signed-bar.key".format(Test.RunDirectory))
+server = Test.MakeOriginServer("server",
+                               ssl=True,
+                               options={"--clientCA": cafile,
+                                        "--clientverify": ""},
+                               clientcert="{0}/signed-foo.pem".format(Test.RunDirectory),
+                               clientkey="{0}/signed-foo.key".format(Test.RunDirectory))
+server2 = Test.MakeOriginServer("server2",
+                                ssl=True,
+                                options={"--clientCA": cafile2,
+                                         "--clientverify": ""},
+                                clientcert="{0}/signed2-bar.pem".format(Test.RunDirectory),
+                                clientkey="{0}/signed-bar.key".format(Test.RunDirectory))
+server4 = Test.MakeOriginServer("server4")
 server.Setup.Copy("ssl/signer.pem")
 server.Setup.Copy("ssl/signer2.pem")
 server.Setup.Copy("ssl/signed-foo.pem")
@@ -63,10 +74,9 @@ ts.Disk.records_config.update({
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.client.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.client.private_key.path': '{0}'.format(ts.Variables.SSLDir),
-    'proxy.config.ssl.client.verify.server':  0,
-    'proxy.config.ssl.server.cipher_suite': 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:AES128-GCM-SHA256:AES256-GCM-SHA384:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:RC4-SHA:RC4-MD5:AES128-SHA:AES256-SHA:DES-CBC3-SHA!SRP:!DSS:!PSK:!aNULL:!eNULL:!SSLv2',
     'proxy.config.exec_thread.autoconfig.scale': 1.0,
-    'proxy.config.url_remap.pristine_host_hdr' : 1,
+    'proxy.config.url_remap.pristine_host_hdr': 1,
+    'proxy.config.ssl.client.verify.server.policy': 'PERMISSIVE',
 })
 
 ts.Disk.ssl_multicert_config.AddLine(
@@ -95,10 +105,22 @@ ts.Disk.sni_yaml.AddLines([
     '  client_key: {0}/signed-foo.key'.format(ts.Variables.SSLDir),
 ])
 
+ts.Disk.logging_yaml.AddLines(
+    '''
+logging:
+  formats:
+    - name: testformat
+      format: '%<pssc> %<cquc> %<pscert> %<cscert>'
+  logs:
+    - mode: ascii
+      format: testformat
+      filename: squid
+'''.split("\n")
+)
 
 # Should succeed
 tr = Test.AddTestRun("bob.bar.com to server 1")
-tr.Processes.Default.StartBefore(Test.Processes.ts, ready=When.PortOpen(ts.Variables.port))
+tr.Processes.Default.StartBefore(Test.Processes.ts)
 tr.Processes.Default.StartBefore(server)
 tr.Processes.Default.StartBefore(server2)
 tr.StillRunningAfter = ts
@@ -108,7 +130,7 @@ tr.Processes.Default.Command = "curl -H host:bob.bar.com  http://127.0.0.1:{0}/c
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.Streams.stdout = Testers.ExcludesExpression("Could Not Connect", "Check response")
 
-#Should fail
+# Should fail
 trfail = Test.AddTestRun("bob.bar.com to server 2")
 trfail.StillRunningAfter = ts
 trfail.StillRunningAfter = server
@@ -126,7 +148,7 @@ tr.Processes.Default.Command = "curl -H host:bob.foo.com  http://127.0.0.1:{0}/c
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.Streams.stdout = Testers.ExcludesExpression("Could Not Connect", "Check response")
 
-#Should fail
+# Should fail
 trfail = Test.AddTestRun("bob.foo.com to server 2")
 trfail.StillRunningAfter = ts
 trfail.StillRunningAfter = server
@@ -144,7 +166,7 @@ tr.Processes.Default.Command = "curl -H host:random.bar.com  http://127.0.0.1:{0
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.Streams.stdout = Testers.ExcludesExpression("Could Not Connect", "Check response")
 
-#Should fail
+# Should fail
 trfail = Test.AddTestRun("random.bar.com to server 1")
 trfail.StillRunningAfter = ts
 trfail.StillRunningAfter = server
@@ -162,7 +184,7 @@ tr.Processes.Default.Command = "curl -H host:random.foo.com  http://127.0.0.1:{0
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.Streams.stdout = Testers.ContainsExpression("Could Not Connect", "Check response")
 
-#Should fail
+# Should fail
 trfail = Test.AddTestRun("random.foo.com to server 1")
 trfail.StillRunningAfter = ts
 trfail.StillRunningAfter = server
@@ -170,3 +192,11 @@ trfail.StillRunningAfter = server2
 trfail.Processes.Default.Command = 'curl -H host:random.foo.com  http://127.0.0.1:{0}/case1'.format(ts.Variables.port)
 trfail.Processes.Default.ReturnCode = 0
 trfail.Processes.Default.Streams.stdout = Testers.ContainsExpression("Could Not Connect", "Check response")
+
+tr = Test.AddTestRun("Wait for the access log to write out")
+tr.Processes.Default.StartBefore(server4, ready=When.FileExists(ts.Disk.squid_log))
+tr.StillRunningAfter = ts
+tr.Processes.Default.Command = 'echo "Log file exists"'
+tr.Processes.Default.ReturnCode = 0
+
+ts.Disk.squid_log.Content = "gold/proxycert2-accesslog.gold"

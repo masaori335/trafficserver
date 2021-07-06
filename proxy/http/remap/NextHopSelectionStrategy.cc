@@ -21,13 +21,18 @@
   limitations under the License.
  */
 
+#include <optional>
+
 #include <yaml-cpp/yaml.h>
+#include <YamlCfg.h>
 #include "I_Machine.h"
+#include "HttpSM.h"
 #include "NextHopSelectionStrategy.h"
 
 // ring mode strings
 constexpr std::string_view alternate_rings = "alternate_ring";
 constexpr std::string_view exhaust_rings   = "exhaust_ring";
+constexpr std::string_view peering_rings   = "peering_ring";
 
 // health check strings
 constexpr std::string_view active_health_check  = "active";
@@ -38,16 +43,24 @@ constexpr const char *policy_strings[] = {"NH_UNDEFINED", "NH_FIRST_LIVE", "NH_R
 
 NextHopSelectionStrategy::NextHopSelectionStrategy(const std::string_view &name, const NHPolicyType &policy)
 {
-  strategy_name = name;
-  policy_type   = policy;
-  NH_Debug(NH_DEBUG_TAG, "Using a selection strategy of type %s", policy_strings[policy]);
+  int _max_retriers = 0;
+  strategy_name     = name;
+  policy_type       = policy;
+  NH_GetConfig(_max_retriers, "proxy.config.http.parent_proxy.max_trans_retries");
+
+  // config settings may not be available when running unit tests.
+  // so use the max_retriers default setting.
+  if (_max_retriers > 0) {
+    max_retriers = _max_retriers;
+  }
+  NH_Debug(NH_DEBUG_TAG, "Using a selection strategy of type %s, max_retriers: %d", policy_strings[policy], max_retriers);
 }
 
 //
 // parse out the data for this strategy.
 //
 bool
-NextHopSelectionStrategy::Init(const YAML::Node &n)
+NextHopSelectionStrategy::Init(ts::Yaml::Map &n)
 {
   NH_Debug(NH_DEBUG_TAG, "calling Init()");
 
@@ -80,16 +93,22 @@ NextHopSelectionStrategy::Init(const YAML::Node &n)
       ignore_self_detect = n["ignore_self_detect"].as<bool>();
     }
 
+    if (n["cache_peer_result"]) {
+      cache_peer_result = n["cache_peer_result"].as<bool>();
+    }
+
     // failover node.
-    YAML::Node failover_node;
-    if (n["failover"]) {
-      failover_node = n["failover"];
+    YAML::Node failover_node_n = n["failover"];
+    if (failover_node_n) {
+      ts::Yaml::Map failover_node{failover_node_n};
       if (failover_node["ring_mode"]) {
         auto ring_mode_val = failover_node["ring_mode"].Scalar();
         if (ring_mode_val == alternate_rings) {
           ring_mode = NH_ALTERNATE_RING;
         } else if (ring_mode_val == exhaust_rings) {
           ring_mode = NH_EXHAUST_RING;
+        } else if (ring_mode_val == peering_rings) {
+          ring_mode = NH_PEERING_RING;
         } else {
           ring_mode = NH_ALTERNATE_RING;
           NH_Note("Invalid 'ring_mode' value, '%s', for the strategy named '%s', using default '%s'.", ring_mode_val.c_str(),
@@ -99,7 +118,11 @@ NextHopSelectionStrategy::Init(const YAML::Node &n)
       if (failover_node["max_simple_retries"]) {
         max_simple_retries = failover_node["max_simple_retries"].as<int>();
       }
+      if (failover_node["max_unavailable_retries"]) {
+        max_unavailable_retries = failover_node["max_unavailable_retries"].as<int>();
+      }
 
+      // response codes for simple retry.
       YAML::Node resp_codes_node;
       if (failover_node["response_codes"]) {
         resp_codes_node = failover_node["response_codes"];
@@ -107,8 +130,8 @@ NextHopSelectionStrategy::Init(const YAML::Node &n)
           NH_Error("Error in the response_codes definition for the strategy named '%s', skipping response_codes.",
                    strategy_name.c_str());
         } else {
-          for (unsigned int k = 0; k < resp_codes_node.size(); ++k) {
-            auto code = resp_codes_node[k].as<int>();
+          for (auto &&k : resp_codes_node) {
+            auto code = k.as<int>();
             if (code > 300 && code < 599) {
               resp_codes.add(code);
             } else {
@@ -116,6 +139,24 @@ NextHopSelectionStrategy::Init(const YAML::Node &n)
             }
           }
           resp_codes.sort();
+        }
+      }
+      YAML::Node markdown_codes_node;
+      if (failover_node["markdown_codes"]) {
+        markdown_codes_node = failover_node["markdown_codes"];
+        if (markdown_codes_node.Type() != YAML::NodeType::Sequence) {
+          NH_Error("Error in the markdown_codes definition for the strategy named '%s', skipping markdown_codes.",
+                   strategy_name.c_str());
+        } else {
+          for (auto &&k : markdown_codes_node) {
+            auto code = k.as<int>();
+            if (code > 300 && code < 599) {
+              markdown_codes.add(code);
+            } else {
+              NH_Note("Skipping invalid markdown response code '%d' for the strategy named '%s'.", code, strategy_name.c_str());
+            }
+          }
+          markdown_codes.sort();
         }
       }
       YAML::Node health_check_node;
@@ -136,12 +177,12 @@ NextHopSelectionStrategy::Init(const YAML::Node &n)
           }
         }
       }
+      failover_node.done();
     }
 
     // parse and load the host data
-    YAML::Node groups_node;
-    if (n["groups"]) {
-      groups_node = n["groups"];
+    YAML::Node groups_node = n["groups"];
+    if (groups_node) {
       // a groups list is required.
       if (groups_node.Type() != YAML::NodeType::Sequence) {
         throw std::invalid_argument("Invalid groups definition, expected a sequence, '" + strategy_name + "' cannot be loaded.");
@@ -174,128 +215,53 @@ NextHopSelectionStrategy::Init(const YAML::Node &n)
               host_rec->group_index                = grp;
               host_rec->host_index                 = hst;
               if (mach->is_self(host_rec->hostname.c_str())) {
-                h_stat.setHostStatus(host_rec->hostname.c_str(), HostStatus_t::HOST_STATUS_DOWN, 0, Reason::SELF_DETECT);
+                h_stat.setHostStatus(host_rec->hostname.c_str(), TSHostStatus::TS_HOST_STATUS_DOWN, 0, Reason::SELF_DETECT);
               }
               hosts_inner.push_back(std::move(host_rec));
               num_parents++;
             }
+            passive_health.insert(hosts_inner);
             host_groups.push_back(std::move(hosts_inner));
           }
         }
       }
     }
   } catch (std::exception &ex) {
-    NH_Note("Error parsing the strategy named '%s' due to '%s', this strategy will be ignored.", strategy_name.c_str(), ex.what());
+    NH_Error("Error parsing the strategy named '%s' due to '%s', this strategy will be ignored.", strategy_name.c_str(), ex.what());
     return false;
+  }
+
+  if (ring_mode == NH_PEERING_RING) {
+    if (groups != 2) {
+      NH_Error("ring mode is '%s', requires two host groups (peering group and an upstream group).", peering_rings.data());
+      return false;
+    }
+    if (policy_type != NH_CONSISTENT_HASH) {
+      NH_Error("ring mode '%s', is only implemented for a 'consistent_hash' policy.", peering_rings.data());
+      return false;
+    }
   }
 
   return true;
 }
 
 void
-NextHopSelectionStrategy::markNextHopDown(const uint64_t sm_id, ParentResult &result, const uint64_t fail_threshold,
-                                          const uint64_t retry_time, time_t now)
+NextHopSelectionStrategy::markNextHop(TSHttpTxn txnp, const char *hostname, const int port, const NHCmd status, void *ih,
+                                      const time_t now)
 {
-  time_t _now;
-  now == 0 ? _now = time(nullptr) : _now = now;
-  uint32_t new_fail_count                = 0;
-
-  //  Make sure that we are being called back with with a
-  //  result structure with a selected parent.
-  if (result.result != PARENT_SPECIFIED) {
-    return;
-  }
-  // If we were set through the API we currently have not failover
-  //   so just return fail
-  if (result.is_api_result()) {
-    ink_assert(0);
-    return;
-  }
-  uint32_t hst_size = host_groups[result.last_group].size();
-  ink_assert(result.last_parent < hst_size);
-  std::shared_ptr<HostRecord> h = host_groups[result.last_group][result.last_parent];
-
-  // If the parent has already been marked down, just increment
-  //   the failure count.  If this is the first mark down on a
-  //   parent we need to both set the failure time and set
-  //   count to one. If this was the result of a retry, we
-  //   must update move the failedAt timestamp to now so that we
-  //   continue negative cache the parent
-  if (h->failedAt == 0 || result.retry == true) {
-    { // start of lock_guard scope.
-      std::lock_guard<std::mutex> lock(h->_mutex);
-      if (h->failedAt == 0) {
-        // Mark the parent failure time.
-        h->failedAt = _now;
-        if (result.retry == false) {
-          new_fail_count = h->failCount = 1;
-        }
-      } else if (result.retry == true) {
-        h->failedAt = _now;
-      }
-    } // end of lock_guard scope
-    NH_Note("[%" PRIu64 "] NextHop %s marked as down %s:%d", sm_id, (result.retry) ? "retry" : "initially", h->hostname.c_str(),
-            h->getPort(scheme));
-
-  } else {
-    int old_count = 0;
-
-    // if the last failure was outside the retry window, set the failcount to 1 and failedAt to now.
-    { // start of lock_guard_scope
-      std::lock_guard<std::mutex> lock(h->_mutex);
-      if ((h->failedAt + retry_time) < static_cast<unsigned>(_now)) {
-        h->failCount = 1;
-        h->failedAt  = _now;
-      } else {
-        old_count = h->failCount = 1;
-      }
-      new_fail_count = old_count + 1;
-    } // end of lock_guard
-    NH_Debug(NH_DEBUG_TAG, "[%" PRIu64 "] Parent fail count increased to %d for %s:%d", sm_id, new_fail_count, h->hostname.c_str(),
-             h->getPort(scheme));
-  }
-
-  if (new_fail_count >= fail_threshold) {
-    h->set_unavailable();
-    NH_Note("[%" PRIu64 "] Failure threshold met failcount:%d >= threshold:%" PRIu64 ", http parent proxy %s:%d marked down", sm_id,
-            new_fail_count, fail_threshold, h->hostname.c_str(), h->getPort(scheme));
-    NH_Debug(NH_DEBUG_TAG, "[%" PRIu64 "] NextHop %s:%d marked unavailable, h->available=%s", sm_id, h->hostname.c_str(),
-             h->getPort(scheme), (h->available) ? "true" : "false");
-  }
-}
-
-void
-NextHopSelectionStrategy::markNextHopUp(const uint64_t sm_id, ParentResult &result)
-{
-  //  Make sure that we are being called back with with a
-  //   result structure with a parent that is being retried
-  ink_assert(result.retry == true);
-  if (result.result != PARENT_SPECIFIED) {
-    return;
-  }
-  // If we were set through the API we currently have not failover
-  //   so just return fail
-  if (result.is_api_result()) {
-    ink_assert(0);
-    return;
-  }
-  uint32_t hst_size = host_groups[result.last_group].size();
-  ink_assert(result.last_parent < hst_size);
-  std::shared_ptr<HostRecord> h = host_groups[result.last_group][result.last_parent];
-
-  if (!h->available) {
-    h->set_available();
-    NH_Note("[%" PRIu64 "] http parent proxy %s:%d restored", sm_id, h->hostname.c_str(), h->getPort(scheme));
-  }
+  return passive_health.markNextHop(txnp, hostname, port, status, ih, now);
 }
 
 bool
-NextHopSelectionStrategy::nextHopExists(const uint64_t sm_id)
+NextHopSelectionStrategy::nextHopExists(TSHttpTxn txnp, void *ih)
 {
+  HttpSM *sm    = reinterpret_cast<HttpSM *>(txnp);
+  int64_t sm_id = sm->sm_id;
+
   for (uint32_t gg = 0; gg < groups; gg++) {
-    for (uint32_t hh = 0; hh < host_groups[gg].size(); hh++) {
-      HostRecord *p = host_groups[gg][hh].get();
-      if (p->available) {
+    for (auto &hh : host_groups[gg]) {
+      HostRecord *p = hh.get();
+      if (p->available.load()) {
         NH_Debug(NH_DEBUG_TAG, "[%" PRIu64 "] found available next hop %s", sm_id, p->hostname.c_str());
         return true;
       }
@@ -304,49 +270,77 @@ NextHopSelectionStrategy::nextHopExists(const uint64_t sm_id)
   return false;
 }
 
+ParentRetry_t
+NextHopSelectionStrategy::responseIsRetryable(int64_t sm_id, HttpTransact::CurrentInfo &current_info, HTTPStatus response_code)
+{
+  unsigned sa = current_info.simple_retry_attempts;
+  unsigned ua = current_info.unavailable_server_retry_attempts;
+
+  NH_Debug(NH_DEBUG_TAG,
+           "[%" PRIu64 "] response_code %d, simple_retry_attempts: %d max_simple_retries: %d, unavailable_server_retry_attempts: "
+           "%d, max_unavailable_retries: %d",
+           sm_id, response_code, sa, this->max_simple_retries, ua, max_unavailable_retries);
+  if (this->resp_codes.contains(response_code) && sa < this->max_simple_retries && sa < this->num_parents) {
+    NH_Debug(NH_DEBUG_TAG, "[%" PRIu64 "] response code %d is retryable, returning PARENT_RETRY_SIMPLE", sm_id, response_code);
+    return PARENT_RETRY_SIMPLE;
+  }
+  if (this->markdown_codes.contains(response_code) && ua < this->max_unavailable_retries && ua < this->num_parents) {
+    NH_Debug(NH_DEBUG_TAG, "[%" PRIu64 "] response code %d is retryable, returning PARENT_RETRY_UNAVAILABLE_SERVER", sm_id,
+             response_code);
+    return PARENT_RETRY_UNAVAILABLE_SERVER;
+  }
+  NH_Debug(NH_DEBUG_TAG, "[%" PRIu64 "] response code %d is not retryable, returning PARENT_RETRY_NONE", sm_id, response_code);
+  return PARENT_RETRY_NONE;
+}
+
 namespace YAML
 {
 template <> struct convert<HostRecord> {
   static bool
   decode(const Node &node, HostRecord &nh)
   {
-    YAML::Node nd;
-    bool merge_tag_used = false;
+    ts::Yaml::Map map{node};
+    ts::Yaml::Map *mmap{&map};
+    std::optional<ts::Yaml::Map> mergeable_map;
 
     // check for YAML merge tag.
-    if (node["<<"]) {
-      nd             = node["<<"];
-      merge_tag_used = true;
-    } else {
-      nd = node;
+    YAML::Node mergeable_map_n = map["<<"];
+    if (mergeable_map_n) {
+      mergeable_map.emplace(mergeable_map_n);
+      mmap = &mergeable_map.value();
     }
 
     // lookup the hostname
-    if (nd["host"]) {
-      nh.hostname = nd["host"].Scalar();
+    if ((*mmap)["host"]) {
+      nh.hostname = (*mmap)["host"].Scalar();
     } else {
       throw std::invalid_argument("Invalid host definition, missing host name.");
     }
 
     // lookup the port numbers supported by this host.
-    YAML::Node proto = nd["protocol"];
+    YAML::Node proto = (*mmap)["protocol"];
 
     if (proto.Type() != YAML::NodeType::Sequence) {
       throw std::invalid_argument("Invalid host protocol definition, expected a sequence.");
     } else {
-      for (unsigned int ii = 0; ii < proto.size(); ii++) {
-        YAML::Node protocol_node       = proto[ii];
-        std::shared_ptr<NHProtocol> pr = std::make_shared<NHProtocol>(protocol_node.as<NHProtocol>());
+      for (auto &&ii : proto) {
+        const YAML::Node &protocol_node = ii;
+        std::shared_ptr<NHProtocol> pr  = std::make_shared<NHProtocol>(protocol_node.as<NHProtocol>());
         nh.protocols.push_back(std::move(pr));
       }
     }
 
-    // get the host's weight
-    YAML::Node weight;
-    if (merge_tag_used) {
-      weight    = node["weight"];
-      nh.weight = weight.as<float>();
-    } else if ((weight = nd["weight"])) {
+    // get the host's weight, allowing override of weight in merged map
+    YAML::Node weight = map["weight"];
+    if (mmap != &map) {
+      // weight must always be looked up in the merged map, even if overridden, so it's presence will not
+      // cause an exception when mmap->done() is called
+      YAML::Node w = (*mmap)["weight"];
+      if (!weight) {
+        weight = w;
+      }
+    }
+    if (weight) {
       nh.weight = weight.as<float>();
     } else {
       NH_Note("No weight is defined for the host '%s', using default 1.0", nh.hostname.data());
@@ -354,9 +348,14 @@ template <> struct convert<HostRecord> {
     }
 
     // get the host's optional hash_string
-    YAML::Node hash;
-    if ((hash = nd["hash_string"])) {
+    YAML::Node hash{(*mmap)["hash_string"]};
+    if (hash) {
       nh.hash_string = hash.Scalar();
+    }
+
+    map.done();
+    if (mmap != &map) {
+      mmap->done();
     }
 
     return true;
@@ -367,21 +366,27 @@ template <> struct convert<NHProtocol> {
   static bool
   decode(const Node &node, NHProtocol &nh)
   {
-    if (node["scheme"]) {
-      if (node["scheme"].Scalar() == "http") {
+    ts::Yaml::Map map{node};
+
+    if (map["scheme"]) {
+      if (map["scheme"].Scalar() == "http") {
         nh.scheme = NH_SCHEME_HTTP;
-      } else if (node["scheme"].Scalar() == "https") {
+      } else if (map["scheme"].Scalar() == "https") {
         nh.scheme = NH_SCHEME_HTTPS;
       } else {
         nh.scheme = NH_SCHEME_NONE;
       }
     }
-    if (node["port"]) {
-      nh.port = node["port"].as<int>();
+    if (map["port"]) {
+      nh.port = map["port"].as<int>();
+      if ((nh.port <= 0) || (nh.port > 65535)) {
+        throw YAML::ParserException(map["port"].Mark(), "port number must be in (inclusive) range 0 - 65,536");
+      }
     }
-    if (node["health_check_url"]) {
-      nh.health_check_url = node["health_check_url"].Scalar();
+    if (map["health_check_url"]) {
+      nh.health_check_url = map["health_check_url"].Scalar();
     }
+    map.done();
     return true;
   }
 };

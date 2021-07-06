@@ -30,10 +30,10 @@ connections. The configuration is driven by the SNI values provided by the inbou
 file consists of a set of configuration items, each identified by an SNI value (``fqdn``).
 When an inbound TLS connection is made, the SNI value from the TLS negotiation is matched against
 the items specified by this file and if there is a match, the values specified in that item override
-the defaults. This is done during the inbound connection processing and be some outbound properties
+the defaults. This is done during the inbound connection processing; some outbound properties
 can be overridden again later, such as via :file:`remap.config` or plugins.
 
-By default this is named :file:`sni.yaml`. The file can be changed by setting
+By default this is named :file:`sni.yaml`. The filename can be changed by setting
 :ts:cv:`proxy.config.ssl.servername.filename`. This file is loaded on start up and by
 :option:`traffic_ctl config reload` if the file has been modified since process start.
 
@@ -42,7 +42,6 @@ Each table is a set of key / value pairs that create a configuration item. This 
 wildcard entries. To apply an SNI based setting on all the server names with a common upper level domain name,
 the user needs to enter the fqdn in the configuration with a ``*.`` followed by the common domain name. (``*.yahoo.com`` for example).
 
-.. _override-verify-origin-server:
 .. _override-verify-server-policy:
 .. _override-verify-server-properties:
 .. _override-host-sni-policy:
@@ -67,17 +66,24 @@ verify_server_properties  One of the values :code:`NONE`, :code:`SIGNATURE`, :co
                           By default this is :ts:cv:`proxy.config.ssl.client.verify.server.properties`.
                           This controls what Traffic Server checks when evaluating the origin certificate.
 
-verify_origin_server      Deprecated.  Use verify_server_policy and verify_server_properties instead.
-                          One of the values :code:`NONE`, :code:`MODERATE`, or :code:`STRICT`.
-                          By default this is :ts:cv:`proxy.config.ssl.client.verify.server`.
-
 verify_client             One of the values :code:`NONE`, :code:`MODERATE`, or :code:`STRICT`.
                           If ``NONE`` is specified, |TS| requests no certificate.  If ``MODERATE`` is specified
                           |TS| will verify a certificate that is presented by the client, but it will not
-                          fail the TLS handshake if new certificate is presented.  If ``STRICT`` is specified
+                          fail the TLS handshake if no certificate is presented.  If ``STRICT`` is specified
                           the client must resent a certificate during the TLS handshake.
 
                           By default this is :ts:cv:`proxy.config.ssl.client.certification_level`.
+
+verify_client_ca_certs    Specifies an alternate set of certificate authority certs to use to verify the
+                          client cert.  The value must be either a file path, or a nested set of key /
+                          value pairs.  If the value is a file path, it must specify a file containing the
+                          CA certs.  Otherwise, there should be up to two nested pairs.  The possible keys
+                          are ``file`` and ``dir``.  The value for ``file`` must be a file path for a file
+                          containing CA certs.  The value for ``dir`` must be a file path for an OpenSSL
+                          X509 hashed directory containing CA certs.  If a given file path does not being
+                          with ``/`` , it must be relative to the |TS| configuration directory.
+                          ``verify_client_ca_certs`` can only be used with capbilities provided by
+                          OpenSSL 1.0.2 or later.
 
 host_sni_policy           One of the values :code:`DISABLED`, :code:`PERMISSIVE`, or :code:`ENFORCED`.
 
@@ -108,11 +114,12 @@ client_key                The file containing the client private key that corres
                           |TS| tries to use a private key in client_cert.  Otherwise,
                           :ts:cv:`proxy.config.ssl.client.private_key.filename` is used.
 
+client_sni_policy         Policy of SNI on outbound connection.
+
+                          If not specified, the value of :ts:cv:`proxy.config.ssl.client.sni_policy` is used.
+
 http2                     Indicates whether the H2 protocol should be added to or removed from the
                           protocol negotiation list.  The valid values are :code:`on` or :code:`off`.
-
-disable_h2                Deprecated for the more general h2 setting.  Setting disable_h2
-                          to :code:`true` is the same as setting http2 to :code:`on`.
 
 tunnel_route              Destination as an FQDN and port, separated by a colon ``:``.
                           Match group number can be specified by ``$N`` where N should refer to a specified group
@@ -133,6 +140,11 @@ partial_blind_route       Destination as an FQDN and port, separated by a colon 
                           In addition partial_blind_route creates a new TLS connection to the specified origin.
                           It does not interpret the decrypted data before passing it to the origin TLS
                           connection, so the contents do not need to be HTTP.
+
+tunnel_alpn               List of ALPN Protocol Ids for Partial Blind Tunnel.
+
+                          ATS negotiates application protocol with the client on behalf of the origin server.
+                          This only works with ``partial_blind_route``.
 ========================= ========================================================================================
 
 Client verification, via ``verify_client``, corresponds to setting
@@ -239,7 +251,7 @@ Use FQDN captured group to match in ``tunnel_route``.
 FQDN ``some.foo.com`` will match and the captured string will be replaced in the ``tunnel_route`` which will end up being
 ``some.myfoo``.
 Second part is using multiple groups, having ``bob.bar.example.com`` as FQDN, ``tunnel_route`` will end up being
-``bar.some.example.yahoo``.
+``bar.some.bob.yahoo``.
 
 See Also
 ========

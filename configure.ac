@@ -151,7 +151,6 @@ AC_SUBST([build_number])
 #
 # Debug
 #
-
 AC_MSG_CHECKING([whether to enable debugging])
 AC_ARG_ENABLE([debug],
   [AS_HELP_STRING([--enable-debug],[turn on debugging])],
@@ -167,6 +166,15 @@ AC_ARG_ENABLE([mime-sanity-check],
   [enable_mime_sanity_check=no]
 )
 AC_MSG_RESULT([$enable_mime_sanity_check])
+
+AC_MSG_CHECKING([whether to enable all asserts, a cheaper debug])
+AC_ARG_ENABLE([all-asserts],
+  [AS_HELP_STRING([--enable-all-asserts],[turn on all code asserts, both debug and release])],
+  [],
+  [enable_all_asserts=no]
+)
+AC_MSG_RESULT([$enable_all_asserts])
+
 
 # Enable code coverage instrumentation only if requested by the user.
 AC_MSG_CHECKING([whether to code coverage])
@@ -358,18 +366,6 @@ AC_ARG_ENABLE([docs],
 AC_MSG_RESULT([Will build documentation: $enable_doc_build])
 AM_CONDITIONAL([BUILD_DOCS], [test "xyes" = "x$enable_doc_build"])
 AM_CONDITIONAL([BUILD_MANPAGES], [test "xtrue" = "x$build_manpages"])
-
-#
-# Remote Coverity Prevent commit
-#
-AC_MSG_CHECKING([whether to commit cov defects to remote host])
-AC_ARG_ENABLE([remote-cov-commit],
-  [AS_HELP_STRING([--enable-remote-cov-commit[=HOST]], [commit cov defects to remote host [HOST=localhost]])],
-  [],
-  [enable_remote_cov_commit=localhost]
-)
-AC_MSG_RESULT([$enable_remote_cov_commit])
-AC_SUBST([enable_remote_cov_commit])
 
 #
 # WCCP
@@ -841,7 +837,7 @@ case $host_os_def in
       #  #279 is "controlling expression is constant" (which is e.g. TSReleaseAssert(!"Unexpected Event");
       common_opt="-pipe -Wall -wd873 -wd279"
       debug_opt="-g $common_opt"
-      release_opt="-g $common_opt $optimization_flags -axsse4.2 -fno-strict-aliasing"
+      release_opt="-g $common_opt $optimizing_flags -axsse4.2 -fno-strict-aliasing"
       cxx_opt="-Wno-invalid-offsetof"
     ])
 
@@ -969,12 +965,16 @@ if test "x${enable_debug}" = "xyes"; then
   TS_ADDTO(AM_CFLAGS, [${cc_oflag_dbg}])
   TS_ADDTO(AM_CXXFLAGS, [${cxx_oflag_dbg}])
   TS_ADDTO(AM_CPPFLAGS, [-DDEBUG -D_DEBUG])
-  if test "x${enable_mime_sanity_check}" = "xyes"; then
-    TS_ADDTO(AM_CPPFLAGS, [-DENABLE_MIME_SANITY_CHECK])
-  fi
 else
   TS_ADDTO(AM_CFLAGS, [${cc_oflag_opt}])
   TS_ADDTO(AM_CXXFLAGS, [${cxx_oflag_opt}])
+fi
+
+if test "x${enable_mime_sanity_check}" = "xyes"; then
+  TS_ADDTO(AM_CPPFLAGS, [-DENABLE_MIME_SANITY_CHECK])
+fi
+if test "x${enable_all_asserts}" = "xyes"; then
+  TS_ADDTO(AM_CPPFLAGS, [-DENABLE_ALL_ASSERTS])
 fi
 
 # Flags for ASAN
@@ -1261,17 +1261,21 @@ enable_quic=no
 AC_MSG_CHECKING([whether APIs for QUIC are available])
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <openssl/ssl.h>]],
                                    [[
-                                     #ifdef OPENSSL_IS_BORINGSSL
                                      SSL_QUIC_METHOD var;
-                                     #else
-                                     #ifndef SSL_MODE_QUIC_HACK
-                                     # error no hack for quic
-                                     #endif
-                                     #endif
                                    ]])
                   ],
-                  [AC_MSG_RESULT([yes]); enable_quic=yes],
-                  [AC_MSG_RESULT([no])])
+                  [
+                    AC_MSG_RESULT([yes])
+                    enable_quic=yes
+                    _quic_saved_LIBS=$LIBS
+                    TS_ADDTO(LIBS, [$OPENSSL_LIBS])
+                    AC_CHECK_FUNCS(SSL_set_quic_early_data_enabled)
+                    LIBS=$_quic_saved_LIBS
+                  ],
+                  [
+                    AC_MSG_RESULT([no])
+                  ])
+
 AM_CONDITIONAL([ENABLE_QUIC], [test "x$enable_quic" = "xyes"])
 TS_ARG_ENABLE_VAR([use], [quic])
 AC_SUBST(use_quic)
@@ -1285,6 +1289,9 @@ TS_CHECK_CRYPTO_SET_CIPHERSUITES
 # Check for openssl early data support
 TS_CHECK_EARLY_DATA
 
+# Check for openssl session ticket support
+TS_CHECK_SESSION_TICKET
+
 saved_LIBS="$LIBS"
 TS_ADDTO([LIBS], ["$OPENSSL_LIBS"])
 
@@ -1294,6 +1301,8 @@ AC_CHECK_FUNCS([ \
   CRYPTO_set_mem_functions \
   HMAC_CTX_new \
   X509_get0_signature \
+  ERR_get_error_all \
+  SHA1 \
 ])
 
 AC_CHECK_FUNC([ASN1_STRING_get0_data], [],
@@ -1346,7 +1355,7 @@ AC_EGREP_CPP(yes, [
   #endif
   ], [
     AC_MSG_RESULT(yes)
-    AS_IF([test "x${enable_experimental_plugins}" = "xyes"], [
+    AS_IF([test "x${enable_experimental_plugins}" = "xyes" && test -z "$openssl_is_boringssl"], [
       enable_ja3_plugin=yes
     ])
   ], [AC_MSG_RESULT(no)])
@@ -1401,7 +1410,7 @@ TS_CHECK_BROTLI
 TS_CHECK_LUAJIT
 
 #
-# Enable experimental/uri_singing plugin
+# Enable experimental/uri_signing plugin
 # This is here, instead of above, because it needs to know if PCRE is available.
 #
 
@@ -1517,7 +1526,7 @@ AS_IF([test "x$event_interface" = "xauto"], [
       ;;
     xkqueue)
       use_kqueue=1
-      AC_MSG_RESULT([forced to port])
+      AC_MSG_RESULT([forced to kqueue])
       ;;
     *)
       AC_MSG_RESULT([failed])
@@ -1552,6 +1561,8 @@ __saved_CXXFLAGS="${CXXFLAGS}"
 __saved_CFLAGS="${CFLAGS}"
 
 has_128bit_cas=0
+# Don't add the -mcx16 flag unless needed and it compiles cleanly.
+needs_mcx16_for_cas=0
 
 TS_TRY_COMPILE_NO_WARNING([],[
     __int128_t x = 0;
@@ -1570,6 +1581,7 @@ TS_TRY_COMPILE_NO_WARNING([],[
       ], [
         AC_MSG_RESULT(yes)
         has_128bit_cas=1
+        needs_mcx16_for_cas=1
       ], [
         AC_MSG_RESULT(no)
     ])
@@ -1580,11 +1592,9 @@ CFLAGS="${__saved_CFLAGS}"
 AC_LANG_POP
 AC_SUBST(has_128bit_cas)
 
-AS_IF([test "x$has_128bit_cas" = "x1"], [
-  AS_IF([test "x$ax_cv_c_compiler_vendor" != "xintel"], [
+AS_IF([test "x$needs_mcx16_for_cas" = "x1"], [
     TS_ADDTO(AM_CFLAGS, [-mcx16])
     TS_ADDTO(AM_CXXFLAGS, [-mcx16])
-  ])
 ])
 
 # Check for POSIX capabilities library.
@@ -1679,12 +1689,66 @@ AC_SUBST(use_hwloc)
 #
 AC_CHECK_HEADERS([GeoIP.h], [
   AC_CHECK_LIB([GeoIP], [GeoIP_new], [
-    AC_SUBST([GEO_LIBS], ["-lGeoIP"])
+    AC_SUBST([GEOIP_LIBS], ["-lGeoIP"])
+    AC_SUBST(has_geoip, 1)
   ], [
-    AC_SUBST([GEO_LIBS], [""])
+    AC_SUBST([GEOIP_LIBS], [""])
+    AC_SUBST(has_geoip, 0)
   ])
 ])
 
+AM_CONDITIONAL([HAS_GEOIP], [test "x${has_geoip}" = "x1" ])
+
+#
+# Check for libmaxmind.  This is the maxmind v2 API where GeoIP is the legacy
+# v1 dat file based API
+#
+AC_CHECK_HEADERS([maxminddb.h], [
+  AC_CHECK_LIB([maxminddb], [MMDB_open], [
+    AC_SUBST([MAXMINDDB_LIBS], ["-lmaxminddb"])
+    AC_SUBST(has_maxminddb, 1)
+  ], [
+    AC_SUBST([MAXMINDDB_LIBS], [""])
+    AC_SUBST(has_maxminddb, 0)
+  ])
+])
+
+AM_CONDITIONAL([HAS_MAXMINDDB], [test "x${has_maxminddb}" = "x1" ])
+
+AC_ARG_WITH([hrw-geo-provider],
+  [AS_HELP_STRING([--with-hrw-geo-provider=geoip|maxminddb],[geo provider to use with header_rewrite [default=auto] ])],
+  [geo_provider=$withval],
+  [geo_provider="auto"]
+)
+use_hrw_geoip=0
+use_hrw_maxminddb=0
+
+AS_IF([test "x$geo_provider" = "xauto"], [
+  if test "x$has_geoip" = "x1"; then
+    use_hrw_geoip=1
+    AC_MSG_NOTICE([Using GeoIP interface for header_rewrite])
+  elif test "x$has_maxminddb" = "x1"; then
+    use_hrw_maxminddb=1
+    AC_MSG_NOTICE([Using MaxMindDB interface for header_rewrite])
+  fi
+],[
+  case "x$geo_provider" in
+    xgeoip)
+      use_hrw_geoip=1
+      AC_MSG_RESULT([forced to GeoIP])
+      ;;
+    xmaxminddb)
+      use_hrw_maxminddb=1
+      AC_MSG_RESULT([forced to MaxMindDB])
+      ;;
+    *)
+      AC_MSG_RESULT([failed])
+      AC_MSG_FAILURE([unknown geo interface $geo_provider])
+  esac
+])
+
+AC_SUBST(use_hrw_geoip)
+AC_SUBST(use_hrw_maxminddb)
 
 # Right now, the healthcheck plugins requires inotify_init (and friends)
 AM_CONDITIONAL([BUILD_HEALTHCHECK_PLUGIN], [ test "$ac_cv_func_inotify_init" = "yes" ])
@@ -1961,7 +2025,7 @@ if test "x${ac_cv_member_struct_tcp_info_tcpi_data_segs_out}" = "xyes"; then
 fi
 
 if test "x${with_profiler}" = "xyes"; then
-AC_CHECK_HEADERS([google/profiler.h \
+AC_CHECK_HEADERS([gperftools/profiler.h \
                   ], [], [])
 fi
 
@@ -2069,7 +2133,6 @@ AC_SUBST(has_so_mark)
 AC_SUBST(has_ip_tos)
 AC_SUBST(has_so_peercred)
 
-TS_CHECK_LOOPBACK_IFACE
 TS_CHECK_MACRO_IN6_IS_ADDR_UNSPECIFIED
 
 AC_CHECK_TYPE([struct tcp_info],
@@ -2216,6 +2279,7 @@ AC_CONFIG_FILES([
   tools/trafficserver.pc
   tools/tsxs
   tests/unit_tests/Makefile
+  tests/Makefile
 ])
 
 # -----------------------------------------------------------------------------

@@ -36,6 +36,9 @@
 #include "diags.h"
 #include "quic_client.h"
 
+#include "P_SSLUtils.h"
+#include "P_SSLConfig.h"
+
 #define THREADS 1
 
 constexpr size_t stacksize = 1048576;
@@ -61,8 +64,10 @@ main(int argc, const char **argv)
     {"output", 'o', "Write to FILE instead of stdout", "S1023", config.output, nullptr, nullptr},
     {"port", 'p', "Port", "S15", config.port, nullptr, nullptr},
     {"path", 'P', "Path", "S1017", config.path, nullptr, nullptr},
+    {"server", 's', "Server name", "S127", config.server_name, nullptr, nullptr},
     {"debug", 'T', "Vertical-bar-separated Debug Tags", "S1023", config.debug_tags, nullptr, nullptr},
-    {"close", 'c', "Enable connection close excercise", "F", &config.close, nullptr, nullptr},
+    {"close", 'c', "Enable connection close exercise", "F", &config.close, nullptr, nullptr},
+    {"reset", 'r', "Enable stateless reset exercise", "F", &config.reset, nullptr, nullptr},
     {"http0_9", '-', "Enable HTTP/0.9", "T", &config.http0_9, nullptr, nullptr},
     {"http3", '-', "Enable HTTP/3", "F", &config.http3, nullptr, nullptr},
 
@@ -262,7 +267,8 @@ HttpRequestData::get_client_ip()
   return nullptr;
 }
 
-SslAPIHooks *ssl_hooks = nullptr;
+SslAPIHooks *ssl_hooks             = nullptr;
+LifecycleAPIHooks *lifecycle_hooks = nullptr;
 StatPagesManager statPagesManager;
 
 #include "HttpDebugNames.h"
@@ -299,14 +305,8 @@ HttpSM::handle_api_return()
   ink_abort("do not call stub");
 }
 
-int
-HttpSM::kill_this_async_hook(int /* event ATS_UNUSED */, void * /* data ATS_UNUSED */)
-{
-  return EVENT_DONE;
-}
-
 void
-HttpSM::attach_client_session(ProxyTransaction *, IOBufferReader *)
+HttpSM::attach_client_session(ProxyTransaction *)
 {
   ink_abort("do not call stub");
 }

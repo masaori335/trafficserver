@@ -31,9 +31,12 @@
 #pragma once
 
 #include "I_EventSystem.h"
-#include <vector>
 #include "P_SSLNextProtocolAccept.h"
+#include "SSLTypes.h"
+
 #include "tscore/ink_inet.h"
+
+#include <vector>
 
 class ActionItem
 {
@@ -49,7 +52,7 @@ public:
     std::optional<std::vector<std::string>> _fqdn_wildcard_captured_groups;
   };
 
-  virtual int SNIAction(Continuation *cont, const Context &ctx) const = 0;
+  virtual int SNIAction(TLSSNISupport *snis, const Context &ctx) const = 0;
 
   /**
     This method tests whether this action would have been triggered by a
@@ -72,14 +75,17 @@ public:
   ~ControlH2() override {}
 
   int
-  SNIAction(Continuation *cont, const Context &ctx) const override
+  SNIAction(TLSSNISupport *snis, const Context &ctx) const override
   {
-    auto ssl_vc = dynamic_cast<SSLNetVConnection *>(cont);
+    auto ssl_vc            = dynamic_cast<SSLNetVConnection *>(snis);
+    const char *servername = ssl_vc->get_server_name();
     if (ssl_vc) {
       if (!enable_h2) {
         ssl_vc->disableProtocol(TS_ALPN_PROTOCOL_INDEX_HTTP_2_0);
+        Debug("ssl_sni", "H2 disabled, fqdn [%s]", servername);
       } else {
         ssl_vc->enableProtocol(TS_ALPN_PROTOCOL_INDEX_HTTP_2_0);
+        Debug("ssl_sni", "H2 enabled, fqdn [%s]", servername);
       }
     }
     return SSL_TLSEXT_ERR_OK;
@@ -92,28 +98,40 @@ private:
 class TunnelDestination : public ActionItem
 {
 public:
-  TunnelDestination(const std::string_view &dest, bool decrypt, bool tls_upstream)
-    : destination(dest), tunnel_decrypt(decrypt), tls_upstream(tls_upstream)
+  TunnelDestination(const std::string_view &dest, SNIRoutingType type, const std::vector<int> &alpn)
+    : destination(dest), type(type), alpn_ids(alpn)
   {
     need_fix = (destination.find_first_of('$') != std::string::npos);
   }
   ~TunnelDestination() override {}
 
   int
-  SNIAction(Continuation *cont, const Context &ctx) const override
+  SNIAction(TLSSNISupport *snis, const Context &ctx) const override
   {
     // Set the netvc option?
-    SSLNetVConnection *ssl_netvc = dynamic_cast<SSLNetVConnection *>(cont);
+    SSLNetVConnection *ssl_netvc = dynamic_cast<SSLNetVConnection *>(snis);
+    const char *servername       = ssl_netvc->get_server_name();
     if (ssl_netvc) {
       // If needed, we will try to amend the tunnel destination.
       if (ctx._fqdn_wildcard_captured_groups && need_fix) {
         const auto &fixed_dst = replace_match_groups(destination, *ctx._fqdn_wildcard_captured_groups);
-        ssl_netvc->set_tunnel_destination(fixed_dst, tunnel_decrypt, tls_upstream);
-        Debug("TunnelDestination", "Destination now is [%s], configured [%s]", fixed_dst.c_str(), destination.c_str());
+        ssl_netvc->set_tunnel_destination(fixed_dst, type);
+        Debug("ssl_sni", "Destination now is [%s], configured [%s], fqdn [%s]", fixed_dst.c_str(), destination.c_str(), servername);
       } else {
-        ssl_netvc->set_tunnel_destination(destination, tunnel_decrypt, tls_upstream);
+        ssl_netvc->set_tunnel_destination(destination, type);
+        Debug("ssl_sni", "Destination now is [%s], fqdn [%s]", destination.c_str(), servername);
+      }
+
+      if (type == SNIRoutingType::BLIND) {
+        ssl_netvc->attributes = HttpProxyPort::TRANSPORT_BLIND_TUNNEL;
+      }
+
+      // ALPN
+      for (int id : alpn_ids) {
+        ssl_netvc->enableProtocol(id);
       }
     }
+
     return SSL_TLSEXT_ERR_OK;
   }
 
@@ -184,34 +202,45 @@ private:
   }
 
   std::string destination;
-
-  bool tunnel_decrypt;
+  SNIRoutingType type = SNIRoutingType::NONE;
+  const std::vector<int> &alpn_ids;
   bool need_fix;
-  bool tls_upstream;
 };
 
 class VerifyClient : public ActionItem
 {
   uint8_t mode;
+  std::string ca_file;
+  std::string ca_dir;
 
 public:
-  VerifyClient(const char *param) : mode(atoi(param)) {}
-  VerifyClient(uint8_t param) : mode(param) {}
-  ~VerifyClient() override {}
+  VerifyClient(uint8_t param, std::string_view file, std::string_view dir) : mode(param), ca_file(file), ca_dir(dir) {}
+  VerifyClient(const char *param, std::string_view file, std::string_view dir) : VerifyClient(atoi(param), file, dir) {}
+  ~VerifyClient() override;
+
   int
-  SNIAction(Continuation *cont, const Context &ctx) const override
+  SNIAction(TLSSNISupport *snis, const Context &ctx) const override
   {
-    auto ssl_vc = dynamic_cast<SSLNetVConnection *>(cont);
-    Debug("ssl_sni", "action verify param %d", this->mode);
+    auto ssl_vc            = dynamic_cast<SSLNetVConnection *>(snis);
+    const char *servername = ssl_vc->get_server_name();
+    Debug("ssl_sni", "action verify param %d, fqdn [%s]", this->mode, servername);
     setClientCertLevel(ssl_vc->ssl, this->mode);
+    ssl_vc->set_ca_cert_file(ca_file, ca_dir);
+    setClientCertCACerts(ssl_vc->ssl, ssl_vc->get_ca_cert_file(), ssl_vc->get_ca_cert_dir());
+
     return SSL_TLSEXT_ERR_OK;
   }
+
   bool
   TestClientSNIAction(const char *servername, const IpEndpoint &ep, int &policy) const override
   {
     // This action is triggered by a SNI if it was set
     return true;
   }
+
+  // No copying or moving.
+  VerifyClient(VerifyClient const &) = delete;
+  VerifyClient &operator=(VerifyClient const &) = delete;
 };
 
 class HostSniPolicy : public ActionItem
@@ -222,12 +251,14 @@ public:
   HostSniPolicy(const char *param) : policy(atoi(param)) {}
   HostSniPolicy(uint8_t param) : policy(param) {}
   ~HostSniPolicy() override {}
+
   int
-  SNIAction(Continuation *cont, const Context &ctx) const override
+  SNIAction(TLSSNISupport *snis, const Context &ctx) const override
   {
     // On action this doesn't do anything
     return SSL_TLSEXT_ERR_OK;
   }
+
   bool
   TestClientSNIAction(const char *servername, const IpEndpoint &ep, int &in_policy) const override
   {
@@ -251,15 +282,17 @@ public:
 #endif
   TLSValidProtocols() : protocol_mask(max_mask) {}
   TLSValidProtocols(unsigned long protocols) : unset(false), protocol_mask(protocols) {}
+
   int
-  SNIAction(Continuation *cont, const Context &ctx) const override
+  SNIAction(TLSSNISupport *snis, const Context & /* ctx */) const override
   {
     if (!unset) {
-      auto ssl_vc = dynamic_cast<SSLNetVConnection *>(cont);
-      Debug("ssl_sni", "TLSValidProtocol param 0%x", static_cast<unsigned int>(this->protocol_mask));
-      ssl_vc->protocol_mask_set = true;
-      ssl_vc->protocol_mask     = protocol_mask;
+      auto ssl_vc            = dynamic_cast<SSLNetVConnection *>(snis);
+      const char *servername = ssl_vc->get_server_name();
+      Debug("ssl_sni", "TLSValidProtocol param 0%x, fqdn [%s]", static_cast<unsigned int>(this->protocol_mask), servername);
+      ssl_vc->set_valid_tls_protocols(protocol_mask, TLSValidProtocols::max_mask);
     }
+
     return SSL_TLSEXT_ERR_OK;
   }
 };
@@ -292,14 +325,14 @@ public:
   } // end function SNI_IpAllow
 
   int
-  SNIAction(Continuation *cont, const Context &ctx) const override
+  SNIAction(TLSSNISupport *snis, const Context &ctx) const override
   {
     // i.e, ip filtering is not required
     if (ip_map.count() == 0) {
       return SSL_TLSEXT_ERR_OK;
     }
 
-    auto ssl_vc = dynamic_cast<SSLNetVConnection *>(cont);
+    auto ssl_vc = dynamic_cast<SSLNetVConnection *>(snis);
     auto ip     = ssl_vc->get_remote_endpoint();
 
     // check the allowed ips
@@ -312,13 +345,39 @@ public:
       return SSL_TLSEXT_ERR_ALERT_FATAL;
     }
   }
+
   bool
   TestClientSNIAction(const char *servrername, const IpEndpoint &ep, int &policy) const override
   {
     bool retval = false;
-    if (ip_map.contains(ep)) {
-      retval = true;
+    if (ip_map.count() > 0) {
+      // Only triggers if the map didn't contain the address
+      retval = !ip_map.contains(ep);
     }
     return retval;
   }
+};
+
+/**
+   Override proxy.config.ssl.client.sni_policy by client_sni_policy in sni.yaml
+ */
+class OutboundSNIPolicy : public ActionItem
+{
+public:
+  OutboundSNIPolicy(const std::string_view &p) : policy(p) {}
+  ~OutboundSNIPolicy() override {}
+
+  int
+  SNIAction(TLSSNISupport *snis, const Context &ctx) const override
+  {
+    // TODO: change design to avoid this dynamic_cast
+    auto ssl_vc = dynamic_cast<SSLNetVConnection *>(snis);
+    if (ssl_vc && !policy.empty()) {
+      ssl_vc->options.outbound_sni_policy = policy;
+    }
+    return SSL_TLSEXT_ERR_OK;
+  }
+
+private:
+  std::string_view policy{};
 };

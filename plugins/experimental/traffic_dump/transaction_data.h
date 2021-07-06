@@ -1,6 +1,9 @@
-/** @txn_data.h
+/** @file
+
   Traffic Dump data specific to transactions.
+
   @section license License
+
   Licensed to the Apache Software Foundation (ASF) under one
   or more contributor license agreements.  See the NOTICE file
   distributed with this work for additional information
@@ -8,7 +11,9 @@
   to you under the Apache License, Version 2.0 (the
   "License"); you may not use this file except in compliance
   with the License.  You may obtain a copy of the License at
+
       http://www.apache.org/licenses/LICENSE-2.0
+
   Unless required by applicable law or agreed to in writing, software
   distributed under the License is distributed on an "AS IS" BASIS,
   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -34,8 +39,18 @@ namespace traffic_dump
 class TransactionData
 {
 private:
+  /// The TSHttpTxn of the associated HTTP transaction.
+  TSHttpTxn _txnp = nullptr;
+
+  /// The HTTP version in the client-side protocol stack or empty string
+  /// if it was not specified there.
+  std::string _http_version_from_client_stack;
+
   /** The string for the JSON content of this transaction. */
-  std::string txn_json;
+  std::string _txn_json;
+
+  /** The '"protocol" node for this transaction's server-side connection. */
+  std::string _server_protocol_description;
 
   // The index to be used for the TS API for storing this TransactionData on a
   // per-transaction basis.
@@ -57,13 +72,21 @@ public:
    */
   static bool init();
 
-  /// Read the txn information from TSMBuffer and write the header information.
-  /// This function does not write the content node.
-  std::string write_message_node_no_content(TSMBuffer &buffer, TSMLoc &hdr_loc);
+  /** Read the txn information from TSMBuffer and write the header information.
+   * This function does not write the content node.
+   *
+   * @param[in] http_version An optional specification for the HTTP "version"
+   * node.
+   */
+  std::string write_message_node_no_content(TSMBuffer &buffer, TSMLoc &hdr_loc, std::string_view http_version = "");
 
-  /// Read the txn information from TSMBuffer and write the header information including
-  /// the content node describing the body characteristics.
-  std::string write_message_node(TSMBuffer &buffer, TSMLoc &hdr_loc, int64_t num_body_bytes);
+  /** Read the txn information from TSMBuffer and write the header information including
+   * the content node describing the body characteristics.
+   *
+   * @param[in] http_version An optional specification for the HTTP "version"
+   * node.
+   */
+  std::string write_message_node(TSMBuffer &buffer, TSMLoc &hdr_loc, int64_t num_body_bytes, std::string_view http_version = "");
 
   /// The handler callback for transaction events.
   static int global_transaction_handler(TSCont contp, TSEvent event, void *edata);
@@ -82,6 +105,18 @@ private:
    * @return A comma-separated string representing the sensitive HTTP fields.
    */
   static std::string get_sensitive_field_description();
+
+  /** Construct a TransactionData object.
+   *
+   * Note that this constructor is private since only the global handler
+   * creates these at the moment.
+   *
+   * @param[in] txnp The TSHttpTxn for the associated HTTP transaction.
+   *
+   * @param[in] http_version_from_client_stack The HTTP version as specified in
+   *    the protocol stack, or empty string if no so specified.
+   */
+  TransactionData(TSHttpTxn txnp, std::string_view http_version_from_client_stack);
 
   /** Inspect the field to see whether it is sensitive and return a generic value
    * of equal size to the original if it is.
@@ -105,6 +140,22 @@ private:
    * @return The view without the scheme prefix.
    */
   std::string_view remove_scheme_prefix(std::string_view url);
+
+  /** Write the "client-request" node to _txn_json.
+   *
+   * Note that the "content" node is not written with this function, so it will
+   * have to be written later.
+   */
+  void write_client_request_node_no_content(TSMBuffer &buffer, TSMLoc &hdr_loc);
+
+  /// Write the "proxy-request" node to _txn_json.
+  void write_proxy_request_node(TSMBuffer &buffer, TSMLoc &hdr_loc);
+
+  /// Write the "server-response" node to _txn_json.
+  void write_server_response_node(TSMBuffer &buffer, TSMLoc &hdr_loc);
+
+  /// Write the "proxy-response" node to _txn_json.
+  void write_proxy_response_node(TSMBuffer &buffer, TSMLoc &hdr_loc);
 };
 
 } // namespace traffic_dump

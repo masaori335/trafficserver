@@ -27,15 +27,14 @@ Test.ContinueOnFail = True
 ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True)
 server = Test.MakeOriginServer("server")
 
-#**testname is required**
+# **testname is required**
 testName = ""
 request_header = {"headers": "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n", "timestamp": "1469733493.993", "body": ""}
 response_header = {"headers": "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n", "timestamp": "1469733493.993", "body": ""}
 server.addResponse("sessionlog.json", request_header, response_header)
 
 # ATS Configuration
-ts.addSSLfile("../remap/ssl/server.pem")
-ts.addSSLfile("../remap/ssl/server.key")
+ts.addDefaultSSLFiles()
 
 ts.Disk.records_config.update({
     'proxy.config.diags.debug.enabled': 1,

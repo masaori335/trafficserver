@@ -21,6 +21,7 @@
 #include <pthread.h>
 #include <getopt.h>
 #include <inttypes.h>
+#include <pthread.h>
 
 #include "ts_lua_util.h"
 
@@ -39,6 +40,9 @@ static uint64_t ts_lua_g_http_next_id = 0;
 
 static ts_lua_main_ctx *ts_lua_main_ctx_array   = NULL;
 static ts_lua_main_ctx *ts_lua_g_main_ctx_array = NULL;
+
+static pthread_key_t lua_g_state_key;
+static pthread_key_t lua_state_key;
 
 // records.config entry injected by plugin
 static char const *const ts_lua_mgmt_state_str   = "proxy.config.plugin.lua.max_states";
@@ -76,7 +80,7 @@ typedef struct {
 } ts_lua_plugin_stats;
 
 ts_lua_plugin_stats *
-create_plugin_stats(ts_lua_main_ctx *const main_ctx_array)
+create_plugin_stats(ts_lua_main_ctx *const main_ctx_array, char const *const *stat_strs)
 {
   ts_lua_plugin_stats *const stats = TSmalloc(sizeof(ts_lua_plugin_stats));
   memset(stats, 0, sizeof(ts_lua_plugin_stats));
@@ -87,15 +91,7 @@ create_plugin_stats(ts_lua_main_ctx *const main_ctx_array)
   stats->gc_kb   = 0;
   stats->threads = 0;
 
-  char const *const *stat_strs = NULL;
-  int max_state_count          = 0;
-  if (main_ctx_array == ts_lua_main_ctx_array) { // remap
-    stat_strs       = ts_lua_stat_strs;
-    max_state_count = ts_lua_max_state_count;
-  } else { // global
-    stat_strs       = ts_lua_g_stat_strs;
-    max_state_count = ts_lua_max_state_count;
-  }
+  int const max_state_count = ts_lua_max_state_count;
 
   for (int ind = 0; ind < TS_LUA_IND_SIZE; ++ind) {
     stats->stat_inds[ind] = TSStatCreate(stat_strs[ind], TS_RECORDDATATYPE_INT, TS_STAT_NON_PERSISTENT, TS_STAT_SYNC_SUM);
@@ -137,7 +133,7 @@ create_lua_vms()
       ts_lua_max_state_count = TS_LUA_MAX_STATE_COUNT;
     } else {
       ts_lua_max_state_count = (int)mgmt_state;
-      TSDebug(TS_LUA_DEBUG_TAG, "[%s] found %s: [%d]", __FUNCTION__, ts_lua_mgmt_state_str, (int)ts_lua_max_state_count);
+      TSDebug(TS_LUA_DEBUG_TAG, "[%s] found %s: [%d]", __FUNCTION__, ts_lua_mgmt_state_str, ts_lua_max_state_count);
     }
 
     if (ts_lua_max_state_count < 1) {
@@ -315,11 +311,13 @@ TSRemapInit(TSRemapInterface *api_info, char *errbuf, int errbuf_size)
   if (NULL == ts_lua_main_ctx_array) {
     ts_lua_main_ctx_array = create_lua_vms();
     if (NULL != ts_lua_main_ctx_array) {
+      pthread_key_create(&lua_state_key, NULL);
+
       TSCont const lcontp = TSContCreate(lifecycleHandler, TSMutexCreate());
       TSContDataSet(lcontp, ts_lua_main_ctx_array);
       TSLifecycleHookAdd(TS_LIFECYCLE_MSG_HOOK, lcontp);
 
-      ts_lua_plugin_stats *const plugin_stats = create_plugin_stats(ts_lua_main_ctx_array);
+      ts_lua_plugin_stats *const plugin_stats = create_plugin_stats(ts_lua_main_ctx_array, ts_lua_stat_strs);
 
       // start the stats management
       if (NULL != plugin_stats) {
@@ -483,9 +481,13 @@ ts_lua_remap_plugin_init(void *ih, TSHttpTxn rh, TSRemapRequestInfo *rri)
 
   int remap     = (rri == NULL ? 0 : 1);
   instance_conf = (ts_lua_instance_conf *)ih;
-  req_id        = __sync_fetch_and_add(&ts_lua_http_next_id, 1);
 
-  main_ctx = &ts_lua_main_ctx_array[req_id % instance_conf->states];
+  main_ctx = pthread_getspecific(lua_state_key);
+  if (main_ctx == NULL) {
+    req_id   = __sync_fetch_and_add(&ts_lua_http_next_id, 1);
+    main_ctx = &ts_lua_main_ctx_array[req_id % instance_conf->states];
+    pthread_setspecific(lua_state_key, main_ctx);
+  }
 
   TSMutexLock(main_ctx->mutexp);
 
@@ -585,11 +587,14 @@ globalHookHandler(TSCont contp, TSEvent event ATS_UNUSED, void *edata)
 
   ts_lua_instance_conf *conf = (ts_lua_instance_conf *)TSContDataGet(contp);
 
-  req_id = __sync_fetch_and_add(&ts_lua_g_http_next_id, 1);
+  main_ctx = pthread_getspecific(lua_g_state_key);
+  if (main_ctx == NULL) {
+    req_id = __sync_fetch_and_add(&ts_lua_g_http_next_id, 1);
+    TSDebug(TS_LUA_DEBUG_TAG, "[%s] req_id: %" PRId64, __FUNCTION__, req_id);
+    main_ctx = &ts_lua_g_main_ctx_array[req_id % conf->states];
+    pthread_setspecific(lua_g_state_key, main_ctx);
+  }
 
-  main_ctx = &ts_lua_g_main_ctx_array[req_id % conf->states];
-
-  TSDebug(TS_LUA_DEBUG_TAG, "[%s] req_id: %" PRId64, __FUNCTION__, req_id);
   TSMutexLock(main_ctx->mutexp);
 
   http_ctx           = ts_lua_create_http_ctx(main_ctx, conf);
@@ -748,11 +753,13 @@ TSPluginInit(int argc, const char *argv[])
   if (NULL == ts_lua_g_main_ctx_array) {
     ts_lua_g_main_ctx_array = create_lua_vms();
     if (NULL != ts_lua_g_main_ctx_array) {
+      pthread_key_create(&lua_g_state_key, NULL);
+
       TSCont const contp = TSContCreate(lifecycleHandler, TSMutexCreate());
       TSContDataSet(contp, ts_lua_g_main_ctx_array);
       TSLifecycleHookAdd(TS_LIFECYCLE_MSG_HOOK, contp);
 
-      ts_lua_plugin_stats *const plugin_stats = create_plugin_stats(ts_lua_main_ctx_array);
+      ts_lua_plugin_stats *const plugin_stats = create_plugin_stats(ts_lua_g_main_ctx_array, ts_lua_g_stat_strs);
 
       if (NULL != plugin_stats) {
         TSCont const scontp = TSContCreate(statsHandler, TSMutexCreate());

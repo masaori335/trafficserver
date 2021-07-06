@@ -32,7 +32,7 @@ class HQSession : public ProxySession
 public:
   using super = ProxySession; ///< Parent type
 
-  HQSession(NetVConnection *vc) : ProxySession(vc){};
+  HQSession(NetVConnection *vc);
   virtual ~HQSession();
 
   // Implement VConnection interface
@@ -43,9 +43,12 @@ public:
   void reenable(VIO *vio) override;
 
   // Implement ProxySession interface
+  const char *get_protocol_string() const override;
+  int populate_protocol(std::string_view *result, int size) const override;
   void new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOBufferReader *reader) override;
   void start() override;
   void destroy() override;
+  void free() override;
   void release(ProxyTransaction *trans) override;
   int get_transact_count() const override;
 
@@ -56,6 +59,8 @@ public:
 private:
   // this should be unordered map?
   Queue<HQTransaction> _transaction_list;
+
+  char _protocol_string[16];
 };
 
 class Http3Session : public HQSession
@@ -67,10 +72,9 @@ public:
   ~Http3Session();
 
   // ProxySession interface
-  const char *get_protocol_string() const override;
-  int populate_protocol(std::string_view *result, int size) const override;
-  void increment_current_active_client_connections_stat() override;
-  void decrement_current_active_client_connections_stat() override;
+  HTTPVersion get_version(HTTPHdr &hdr) const override;
+  void increment_current_active_connections_stat() override;
+  void decrement_current_active_connections_stat() override;
 
   QPACK *local_qpack();
   QPACK *remote_qpack();
@@ -92,10 +96,9 @@ public:
   ~Http09Session();
 
   // ProxySession interface
-  const char *get_protocol_string() const override;
-  int populate_protocol(std::string_view *result, int size) const override;
-  void increment_current_active_client_connections_stat() override;
-  void decrement_current_active_client_connections_stat() override;
+  HTTPVersion get_version(HTTPHdr &hdr) const override;
+  void increment_current_active_connections_stat() override;
+  void decrement_current_active_connections_stat() override;
 
 private:
 };

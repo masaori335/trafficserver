@@ -21,14 +21,16 @@
   limitations under the License.
  */
 
-#ifndef __P_QUICNET_H__
-#define __P_QUICNET_H__
+#pragma once
 
 #include <bitset>
 
 #include "tscore/ink_platform.h"
 
 #include "P_Net.h"
+#include "quic/QUICTypes.h"
+#include "P_QUICNetProcessor.h"
+#include "P_QUICNetVConnection.h"
 
 class NetHandler;
 typedef int (NetHandler::*NetContHandler)(int, void *);
@@ -74,4 +76,3 @@ get_QUICPollCont(EThread *t)
 }
 
 extern ClassAllocator<QUICPollEvent> quicPollEventAllocator;
-#endif

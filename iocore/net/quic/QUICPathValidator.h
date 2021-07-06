@@ -37,15 +37,15 @@ public:
     : _cinfo(info), _on_validation_callback(callback)
   {
   }
-  bool is_validating(const QUICPath &path);
-  bool is_validated(const QUICPath &path);
+  bool is_validating(const QUICPath &path) const;
+  bool is_validated(const QUICPath &path) const;
   void validate(const QUICPath &path);
 
   // QUICFrameHandler
   std::vector<QUICFrameType> interests() override;
   QUICConnectionErrorUPtr handle_frame(QUICEncryptionLevel level, const QUICFrame &frame) override;
 
-  // QUICFrameGeneratro
+  // QUICFrameGenerator
   bool will_generate_frame(QUICEncryptionLevel level, size_t current_packet_size, bool ack_eliciting, uint32_t seq_num) override;
   QUICFrame *generate_frame(uint8_t *buf, QUICEncryptionLevel level, uint64_t connection_credit, uint16_t maximum_frame_size,
                             size_t current_packet_size, uint32_t seq_num) override;
@@ -62,8 +62,8 @@ private:
   public:
     ValidationJob(){};
     ~ValidationJob(){};
-    bool is_validating();
-    bool is_validated();
+    bool is_validating() const;
+    bool is_validated() const;
     void start();
     bool validate_response(const uint8_t *data);
     bool has_more_challenges() const;

@@ -49,9 +49,11 @@ const std::string_view IP_PROTO_TAG_TLS_1_3("tls/1.3"sv);
 const std::string_view IP_PROTO_TAG_HTTP_0_9("http/0.9"sv);
 const std::string_view IP_PROTO_TAG_HTTP_1_0("http/1.0"sv);
 const std::string_view IP_PROTO_TAG_HTTP_1_1("http/1.1"sv);
-const std::string_view IP_PROTO_TAG_HTTP_2_0("h2"sv);     // HTTP/2 over TLS
-const std::string_view IP_PROTO_TAG_HTTP_QUIC("hq-23"sv); // HTTP/0.9 over QUIC
-const std::string_view IP_PROTO_TAG_HTTP_3("h3-23"sv);    // HTTP/3 over QUIC
+const std::string_view IP_PROTO_TAG_HTTP_2_0("h2"sv);         // HTTP/2 over TLS
+const std::string_view IP_PROTO_TAG_HTTP_QUIC("hq-29"sv);     // HTTP/0.9 over QUIC
+const std::string_view IP_PROTO_TAG_HTTP_3("h3-29"sv);        // HTTP/3 over QUIC
+const std::string_view IP_PROTO_TAG_HTTP_QUIC_D27("hq-27"sv); // HTTP/0.9 over QUIC (draft-27)
+const std::string_view IP_PROTO_TAG_HTTP_3_D27("h3-27"sv);    // HTTP/3 over QUIC (draft-27)
 
 const std::string_view UNIX_PROTO_TAG{"unix"sv};
 
@@ -64,7 +66,7 @@ ink_inet_addr(const char *s)
   uint32_t base = 10;
 
   if (nullptr == s) {
-    return htonl((uint32_t)-1);
+    return htonl(static_cast<uint32_t>(-1));
   }
 
   while (n < 4) {
@@ -103,7 +105,7 @@ ink_inet_addr(const char *s)
   }
 
   if (*pc && !ParseRules::is_wslfcr(*pc)) {
-    return htonl((uint32_t)-1);
+    return htonl(static_cast<uint32_t>(-1));
   }
 
   switch (n) {
@@ -111,21 +113,21 @@ ink_inet_addr(const char *s)
     return htonl(u[0]);
   case 2:
     if (u[0] > 0xff || u[1] > 0xffffff) {
-      return htonl((uint32_t)-1);
+      return htonl(static_cast<uint32_t>(-1));
     }
     return htonl((u[0] << 24) | u[1]);
   case 3:
     if (u[0] > 0xff || u[1] > 0xff || u[2] > 0xffff) {
-      return htonl((uint32_t)-1);
+      return htonl(static_cast<uint32_t>(-1));
     }
     return htonl((u[0] << 24) | (u[1] << 16) | u[2]);
   case 4:
     if (u[0] > 0xff || u[1] > 0xff || u[2] > 0xff || u[3] > 0xff) {
-      return htonl((uint32_t)-1);
+      return htonl(static_cast<uint32_t>(-1));
     }
     return htonl((u[0] << 24) | (u[1] << 16) | (u[2] << 8) | u[3]);
   }
-  return htonl((uint32_t)-1);
+  return htonl(static_cast<uint32_t>(-1));
 }
 
 const char *
@@ -458,6 +460,27 @@ IpAddr::toString(char *dest, size_t len) const
   IpEndpoint ip;
   ip.assign(*this);
   ats_ip_ntop(&ip, dest, len);
+  return dest;
+}
+
+sockaddr *
+IpAddr::toSockAddr(sockaddr *dest) const
+{
+  if (AF_INET == _family) {
+    dest->sa_family         = AF_INET;
+    ats_ip4_addr_cast(dest) = _addr._ip4;
+#if HAVE_STRUCT_SOCKADDR_SA_LEN
+    dest->sa_len = sizeof(sockaddr_in);
+#endif
+  } else if (AF_INET6 == _family) {
+    dest->sa_family         = AF_INET6;
+    ats_ip6_addr_cast(dest) = _addr._ip6;
+#if HAVE_STRUCT_SOCKADDR_SA_LEN
+    dest->sa_len = sizeof(sockaddr_in6);
+#endif
+  } else {
+    dest->sa_family = AF_UNSPEC;
+  }
   return dest;
 }
 

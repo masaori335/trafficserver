@@ -23,7 +23,10 @@
 
 #include "HTTP2.h"
 #include "HPACK.h"
+
 #include "tscore/ink_assert.h"
+#include "tscpp/util/LocalBuffer.h"
+
 #include "records/P_RecCore.h"
 #include "records/P_RecProcess.h"
 
@@ -495,9 +498,8 @@ http2_convert_header_from_2_to_1_1(HTTPHdr *headers)
   }
 
   // Check validity of all names and values
-  MIMEFieldIter iter;
-  for (auto *mf = headers->iter_get_first(&iter); mf != nullptr; mf = headers->iter_get_next(&iter)) {
-    if (!mf->name_is_valid() || !mf->value_is_valid()) {
+  for (auto &mf : *headers) {
+    if (!mf.name_is_valid() || !mf.value_is_valid()) {
       return PARSE_RESULT_ERROR;
     }
   }
@@ -584,12 +586,12 @@ http2_convert_header_from_1_1_to_2(HTTPHdr *headers)
       const char *value = headers->host_get(&value_len);
 
       if (headers->is_port_in_header()) {
-        int port            = headers->port_get();
-        char *host_and_port = static_cast<char *>(ats_malloc(value_len + 8));
+        int port = headers->port_get();
+        ts::LocalBuffer<char> buf(value_len + 8);
+        char *host_and_port = buf.data();
         value_len           = snprintf(host_and_port, value_len + 8, "%.*s:%d", value_len, value, port);
 
         field->value_set(headers->m_heap, headers->m_mime, host_and_port, value_len);
-        ats_free(host_and_port);
       } else {
         field->value_set(headers->m_heap, headers->m_mime, value, value_len);
       }
@@ -602,12 +604,13 @@ http2_convert_header_from_1_1_to_2(HTTPHdr *headers)
     if (MIMEField *field = headers->field_find(HTTP2_VALUE_PATH, HTTP2_LEN_PATH); field != nullptr) {
       int value_len;
       const char *value = headers->path_get(&value_len);
-      char *path        = static_cast<char *>(ats_malloc(value_len + 1));
-      path[0]           = '/';
+
+      ts::LocalBuffer<char> buf(value_len + 1);
+      char *path = buf.data();
+      path[0]    = '/';
       memcpy(path + 1, value, value_len);
 
       field->value_set(headers->m_heap, headers->m_mime, path, value_len + 1);
-      ats_free(path);
     } else {
       ink_abort("initialize HTTP/2 pseudo-headers");
       return PARSE_RESULT_ERROR;
@@ -703,8 +706,8 @@ http2_decode_header_blocks(HTTPHdr *hdr, const uint8_t *buf_start, const uint32_
   if (is_trailing_header) {
     expected_pseudo_header_count = 0;
   }
-  for (field = hdr->iter_get_first(&iter); field != nullptr; field = hdr->iter_get_next(&iter)) {
-    value = field->name_get(&len);
+  for (auto &field : *hdr) {
+    value = field.name_get(&len);
     // Pseudo headers must appear before regular headers
     if (len && value[0] == ':') {
       ++pseudo_header_count;
@@ -801,6 +804,9 @@ float Http2::min_avg_window_update             = 2560.0;
 uint32_t Http2::con_slow_log_threshold         = 0;
 uint32_t Http2::stream_slow_log_threshold      = 0;
 uint32_t Http2::header_table_size_limit        = 65536;
+uint32_t Http2::write_buffer_block_size        = 262144;
+float Http2::write_size_threshold              = 0.5;
+uint32_t Http2::write_time_threshold           = 100;
 
 void
 Http2::init()
@@ -828,6 +834,9 @@ Http2::init()
   REC_EstablishStaticConfigInt32U(con_slow_log_threshold, "proxy.config.http2.connection.slow.log.threshold");
   REC_EstablishStaticConfigInt32U(stream_slow_log_threshold, "proxy.config.http2.stream.slow.log.threshold");
   REC_EstablishStaticConfigInt32U(header_table_size_limit, "proxy.config.http2.header_table_size_limit");
+  REC_EstablishStaticConfigInt32U(write_buffer_block_size, "proxy.config.http2.write_buffer_block_size");
+  REC_EstablishStaticConfigFloat(write_size_threshold, "proxy.config.http2.write_size_threshold");
+  REC_EstablishStaticConfigInt32U(write_time_threshold, "proxy.config.http2.write_time_threshold");
 
   // If any settings is broken, ATS should not start
   ink_release_assert(http2_settings_parameter_is_valid({HTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, max_concurrent_streams_in}));

@@ -22,8 +22,14 @@ Test tls server certificate verification options
 
 # Define default ATS
 ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True)
-server_foo = Test.MakeOriginServer("server_foo", ssl=True, options = {"--key": "{0}/signed-foo.key".format(Test.RunDirectory), "--cert": "{0}/signed-foo.pem".format(Test.RunDirectory)})
-server_bar = Test.MakeOriginServer("server_bar", ssl=True, options = {"--key": "{0}/signed-bar.key".format(Test.RunDirectory), "--cert": "{0}/signed-bar.pem".format(Test.RunDirectory)})
+server_foo = Test.MakeOriginServer("server_foo",
+                                   ssl=True,
+                                   options={"--key": "{0}/signed-foo.key".format(Test.RunDirectory),
+                                            "--cert": "{0}/signed-foo.pem".format(Test.RunDirectory)})
+server_bar = Test.MakeOriginServer("server_bar",
+                                   ssl=True,
+                                   options={"--key": "{0}/signed-bar.key".format(Test.RunDirectory),
+                                            "--cert": "{0}/signed-bar.pem".format(Test.RunDirectory)})
 server = Test.MakeOriginServer("server", ssl=True)
 
 request_foo_header = {"headers": "GET / HTTP/1.1\r\nHost: foo.com\r\n\r\n", "timestamp": "1469733493.993", "body": ""}
@@ -66,24 +72,22 @@ ts.Disk.ssl_multicert_config.AddLine(
 ts.Disk.records_config.update({
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
-    'proxy.config.ssl.server.cipher_suite': 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:AES128-GCM-SHA256:AES256-GCM-SHA384:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:RC4-SHA:RC4-MD5:AES128-SHA:AES256-SHA:DES-CBC3-SHA!SRP:!DSS:!PSK:!aNULL:!eNULL:!SSLv2',
-    # set global policy
-    'proxy.config.ssl.client.verify.server': 2,
     'proxy.config.ssl.client.CA.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.client.CA.cert.filename': 'signer.pem',
     'proxy.config.url_remap.pristine_host_hdr': 1,
     'proxy.config.exec_thread.autoconfig.scale': 1.0,
-    'proxy.config.ssl.client.sni_policy': 'host'
+    'proxy.config.ssl.client.sni_policy': 'host',
+    'proxy.config.ssl.client.verify.server.policy': 'PERMISSIVE'
 })
 
 ts.Disk.sni_yaml.AddLines([
-  'sni:',
-  '- fqdn: bar.com',
-  '  verify_server_policy: ENFORCED',
-  '  verify_server_properties: ALL',
-  '- fqdn: bad_bar.com',
-  '  verify_server_policy: ENFORCED',
-  '  verify_server_properties: ALL'
+    'sni:',
+    '- fqdn: bar.com',
+    '  verify_server_policy: ENFORCED',
+    '  verify_server_properties: ALL',
+    '- fqdn: bad_bar.com',
+    '  verify_server_policy: ENFORCED',
+    '  verify_server_properties: ALL'
 ])
 
 tr = Test.AddTestRun("Permissive-Test")
@@ -124,5 +128,7 @@ tr3.StillRunningAfter = server
 tr3.StillRunningAfter = ts
 
 # Over riding the built in ERROR check since we expect tr3 to fail
-ts.Disk.diags_log.Content = Testers.ContainsExpression("WARNING: SNI \(bad_bar.com\) not in certificate. Action=Terminate", "Make sure bad_bar name checked failed.")
-ts.Disk.diags_log.Content += Testers.ContainsExpression("WARNING: SNI \(random.com\) not in certificate. Action=Continue ", "Permissive failure for random")
+ts.Disk.diags_log.Content = Testers.ContainsExpression(
+    "WARNING: SNI \(bad_bar.com\) not in certificate. Action=Terminate", "Make sure bad_bar name checked failed.")
+ts.Disk.diags_log.Content += Testers.ContainsExpression(
+    "WARNING: SNI \(random.com\) not in certificate. Action=Continue ", "Permissive failure for random")

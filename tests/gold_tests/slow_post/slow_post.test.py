@@ -16,7 +16,10 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-import os
+
+Test.SkipUnless(
+    Condition.PluginExists('request_buffer.so')
+)
 
 
 class SlowPostAttack:
@@ -34,8 +37,10 @@ class SlowPostAttack:
         response_header = {"headers": "HTTP/1.1 200 OK\r\nServer: microserver\r\nConnection: close\r\n\r\n",
                            "timestamp": "1469733493.993", "body": ""}
         self._server.addResponse("sessionlog.json", request_header, response_header)
-        request_header2 = {"headers": "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\nHost: www.example.com\r\nConnection: keep-alive\r\n\r\n",
-                           "timestamp": "1469733493.993", "body": "a\r\na\r\na\r\n\r\n"}
+        request_header2 = {
+            "headers": "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\nHost: www.example.com\r\nConnection: keep-alive\r\n\r\n",
+            "timestamp": "1469733493.993",
+            "body": "a\r\na\r\na\r\n\r\n"}
         response_header2 = {"headers": "HTTP/1.1 200 OK\r\nServer: microserver\r\nConnection: close\r\n\r\n",
                             "timestamp": "1469733493.993", "body": ""}
         self._server.addResponse("sessionlog.json", request_header2, response_header2)
@@ -46,13 +51,11 @@ class SlowPostAttack:
             'map / http://127.0.0.1:{0}'.format(self._server.Variables.Port)
         )
         # This plugin can enable request buffer for POST.
-        Test.PreparePlugin(os.path.join(Test.Variables.AtsTestToolsDir, 'plugins', 'request_buffer.c'), self._ts)
+        Test.PrepareInstalledPlugin('request_buffer.so', self._ts)
         self._ts.Disk.records_config.update({
             'proxy.config.diags.debug.enabled': 1,
             'proxy.config.diags.debug.tags': 'http',
             'proxy.config.http.per_server.connection.max': self._origin_max_connections,
-            # Disable queueing when connection reaches limit
-            'proxy.config.http.per_server.connection.queue_size': 0,
         })
 
     def run(self):

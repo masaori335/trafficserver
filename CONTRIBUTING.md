@@ -16,7 +16,7 @@ New Issues process replacing old Jira
 1. If there is an issue/feature, an existing Jira Ticket, and no code, then
    create a Github _Issue_.  Copy the relevant information into the Github
    _Issue_ and request the Jira Ticket to be closed. Hopefully this use case
-   won’t happen very often.
+   won't happen very often.
 
 2. If there is an issue/feature and no code, then create a Github _Issue_.
    When there is code later, create a Github Pull Request and reference the
@@ -58,10 +58,13 @@ are a few simple rules to follow:
 8. Make sure you run **clang-format** before making the _PR_. This is easiest
    done with e.g. "make clang-format", which works on macOS and Linux.
 
-9. When making backports, make sure you mark the _PR_ for the appropriate
+9. Make sure you run **autopep8** before making the _PR_. This is easiest
+   done with e.g. "make autopep8".
+
+10. When making backports, make sure you mark the _PR_ for the appropriate
    Github branch (e.g. **6.2.x**).
 
-10. If you are making backports to an LTS branch, remember that the job of
+11. If you are making backports to an LTS branch, remember that the job of
    merging such a _PR_ is the duty of the release manager.
 
 

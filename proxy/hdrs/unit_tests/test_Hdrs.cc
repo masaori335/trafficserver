@@ -45,7 +45,7 @@ TEST_CASE("HdrTestHttpParse", "[proxy][hdrtest]")
     int expected_result;
     int expected_bytes_consumed;
   };
-  static const std::array<Test, 20> tests = {{
+  static const std::array<Test, 21> tests = {{
     {"GET /index.html HTTP/1.0\r\n", PARSE_RESULT_DONE, 26},
     {"GET /index.html HTTP/1.0\r\n\r\n***BODY****", PARSE_RESULT_DONE, 28},
     {"GET /index.html HTTP/1.0\r\nUser-Agent: foobar\r\n\r\n***BODY****", PARSE_RESULT_DONE, 48},
@@ -65,6 +65,7 @@ TEST_CASE("HdrTestHttpParse", "[proxy][hdrtest]")
     {"GET /index.html HTTP/1.0\nUser-Agent: foobar\nBoo: foo\n", PARSE_RESULT_DONE, 53},
     {"GET /index.html HTTP/1.0\r\nUser-Agent: foobar\r\n", PARSE_RESULT_DONE, 46},
     {"GET /index.html HTTP/1.0\r\n", PARSE_RESULT_DONE, 26},
+    {"GET /index.html hTTP/1.0\r\n", PARSE_RESULT_ERROR, 26},
     {"", PARSE_RESULT_ERROR, 0},
   }};
 
@@ -861,7 +862,7 @@ TEST_CASE("HdrTest", "[proxy][hdrtest]")
     bool must_copy_strs = false;
 
     hdr.create(nullptr);
-    err = hdr.parse(&parser, &start, end, must_copy_strs, false);
+    err = hdr.parse(&parser, &start, end, must_copy_strs, false, false);
 
     REQUIRE(err >= 0);
 

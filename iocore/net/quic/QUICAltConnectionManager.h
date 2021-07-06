@@ -31,12 +31,14 @@
 #include "QUICConnection.h"
 
 class QUICConnectionTable;
+class QUICResetTokenTable;
 
 class QUICAltConnectionManager : public QUICFrameHandler, public QUICFrameGenerator
 {
 public:
-  QUICAltConnectionManager(QUICConnection *qc, QUICConnectionTable &ctable, const QUICConnectionId &peer_initial_cid,
-                           uint32_t instance_id, uint8_t active_cid_limit, const IpEndpoint *preferred_endpoint_ipv4 = nullptr,
+  QUICAltConnectionManager(QUICConnection *qc, QUICConnectionTable &ctable, QUICResetTokenTable &rtable,
+                           const QUICConnectionId &peer_initial_cid, uint32_t instance_id, uint8_t active_cid_limit,
+                           const IpEndpoint *preferred_endpoint_ipv4 = nullptr,
                            const IpEndpoint *preferred_endpoint_ipv6 = nullptr);
   ~QUICAltConnectionManager();
 
@@ -54,7 +56,7 @@ public:
   /**
    * Migrate to new CID
    *
-   * cid need to match with one of alt CID that AltConnnectionManager prepared.
+   * cid need to match with one of alt CID that AltConnectionManager prepared.
    */
   bool migrate_to(const QUICConnectionId &cid, QUICStatelessResetToken &new_reset_token);
 
@@ -95,6 +97,7 @@ private:
 
   QUICConnection *_qc = nullptr;
   QUICConnectionTable &_ctable;
+  QUICResetTokenTable &_rtable;
   AltConnectionInfo _alt_quic_connection_ids_local[8]; // 8 is perhaps enough
   std::vector<AltConnectionInfo> _alt_quic_connection_ids_remote;
   std::queue<uint64_t> _retired_seq_nums;
@@ -107,7 +110,7 @@ private:
 
   AltConnectionInfo _generate_next_alt_con_info();
   void _init_alt_connection_ids();
-  bool _update_alt_connection_id(uint64_t chosen_seq_num);
+  void _update_alt_connection_id(uint64_t chosen_seq_num);
 
   void _records_new_connection_id_frame(QUICEncryptionLevel level, const QUICNewConnectionIdFrame &frame);
   void _records_retire_connection_id_frame(QUICEncryptionLevel, const QUICRetireConnectionIdFrame &frame);

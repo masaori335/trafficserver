@@ -27,16 +27,17 @@
 #include "QUICIntUtil.h"
 #include "QUICTransportParameters.h"
 #include "QUICConnection.h"
-#include "QUICHandshake.h"
 #include "QUICDebugNames.h"
 #include "QUICTLS.h"
 #include "QUICTypes.h"
 
 static constexpr char tag[] = "quic_handshake";
 
-static constexpr uint32_t TP_ERROR_LENGTH = 0x010000;
-static constexpr uint32_t TP_ERROR_VALUE  = 0x020000;
-// static constexpr uint32_t TP_ERROR_MUST_EXIST     = 0x030000;
+static constexpr int TRANSPORT_PARAMETERS_MAXIMUM_SIZE = 65535;
+
+static constexpr uint32_t TP_ERROR_LENGTH         = 0x010000;
+static constexpr uint32_t TP_ERROR_VALUE          = 0x020000;
+static constexpr uint32_t TP_ERROR_MUST_EXIST     = 0x030000;
 static constexpr uint32_t TP_ERROR_MUST_NOT_EXIST = 0x040000;
 
 QUICTransportParameters::Value::Value(const uint8_t *data, uint16_t len) : _len(len)
@@ -69,6 +70,14 @@ QUICTransportParameters::Value::len() const
   return this->_len;
 }
 
+QUICTransportParameters::QUICTransportParameters(const uint8_t *buf, size_t len, QUICVersion version)
+{
+  this->_load(buf, len, version);
+  if (is_debug_tag_set(tag)) {
+    this->_print();
+  }
+}
+
 QUICTransportParameters::~QUICTransportParameters()
 {
   for (auto p : this->_parameters) {
@@ -77,23 +86,20 @@ QUICTransportParameters::~QUICTransportParameters()
 }
 
 void
-QUICTransportParameters::_load(const uint8_t *buf, size_t len)
+QUICTransportParameters::_load(const uint8_t *buf, size_t len, QUICVersion version)
 {
   bool has_error   = false;
   const uint8_t *p = buf;
-
-  // Read size of parameters field
-  uint16_t nbytes = (p[0] << 8) + p[1];
-  p += 2;
+  size_t l;
+  uint64_t param_id;
+  uint64_t param_len;
 
   // Read parameters
-  const uint8_t *end = p + nbytes;
-  while (p < end) {
+  while (len) {
     // Read ID
-    uint16_t id = 0;
-    if (end - p >= 2) {
-      id = (p[0] << 8) + p[1];
-      p += 2;
+    if (!QUICVariableInt::decode(param_id, l, p, len)) {
+      len -= l;
+      p += l;
     } else {
       has_error = true;
       break;
@@ -101,25 +107,25 @@ QUICTransportParameters::_load(const uint8_t *buf, size_t len)
 
     // Check duplication
     // An endpoint MUST treat receipt of duplicate transport parameters as a connection error of type TRANSPORT_PARAMETER_ERROR
-    if (this->_parameters.find(id) != this->_parameters.end()) {
+    if (this->_parameters.find(param_id) != this->_parameters.end()) {
       has_error = true;
       break;
     }
 
     // Read length of value
-    uint16_t len = 0;
-    if (end - p >= 2) {
-      len = (p[0] << 8) + p[1];
-      p += 2;
+    if (!QUICVariableInt::decode(param_len, l, p, len)) {
+      len -= l;
+      p += l;
     } else {
       has_error = true;
       break;
     }
 
     // Store parameter
-    if (end - p >= len) {
-      this->_parameters.insert(std::make_pair(id, new Value(p, len)));
-      p += len;
+    if (len >= param_len) {
+      this->_parameters.insert(std::make_pair(param_id, new Value(p, param_len)));
+      len -= param_len;
+      p += param_len;
     } else {
       has_error = true;
       break;
@@ -132,7 +138,7 @@ QUICTransportParameters::_load(const uint8_t *buf, size_t len)
   }
 
   // Validate parameters
-  int res = this->_validate_parameters();
+  int res = this->_validate_parameters(version);
   if (res < 0) {
     Debug(tag, "Transport parameter is not valid (err=%d)", res);
     this->_valid = false;
@@ -142,7 +148,7 @@ QUICTransportParameters::_load(const uint8_t *buf, size_t len)
 }
 
 int
-QUICTransportParameters::_validate_parameters() const
+QUICTransportParameters::_validate_parameters(QUICVersion version) const
 {
   decltype(this->_parameters)::const_iterator ite;
 
@@ -158,12 +164,12 @@ QUICTransportParameters::_validate_parameters() const
   if ((ite = this->_parameters.find(QUICTransportParameterId::INITIAL_MAX_STREAMS_UNI)) != this->_parameters.end()) {
   }
 
-  if ((ite = this->_parameters.find(QUICTransportParameterId::IDLE_TIMEOUT)) != this->_parameters.end()) {
+  if ((ite = this->_parameters.find(QUICTransportParameterId::MAX_IDLE_TIMEOUT)) != this->_parameters.end()) {
   }
 
-  if ((ite = this->_parameters.find(QUICTransportParameterId::MAX_PACKET_SIZE)) != this->_parameters.end()) {
+  if ((ite = this->_parameters.find(QUICTransportParameterId::MAX_UDP_PAYLOAD_SIZE)) != this->_parameters.end()) {
     if (QUICIntUtil::read_nbytes_as_uint(ite->second->data(), ite->second->len()) < 1200) {
-      return -(TP_ERROR_VALUE | QUICTransportParameterId::MAX_PACKET_SIZE);
+      return -(TP_ERROR_VALUE | QUICTransportParameterId::MAX_UDP_PAYLOAD_SIZE);
     }
   }
 
@@ -250,34 +256,24 @@ void
 QUICTransportParameters::store(uint8_t *buf, uint16_t *len) const
 {
   uint8_t *p = buf;
+  size_t l;
 
-  // Write QUIC versions
-  this->_store(p, len);
-  p += *len;
-
-  // Write parameters
-  // XXX parameters_size will be written later
-  uint8_t *parameters_size = p;
-  p += sizeof(uint16_t);
-
+  *len = 0;
   for (auto &it : this->_parameters) {
     // TODO Skip non-MUST parameters that have their default values
-    p[0] = (it.first & 0xff00) >> 8;
-    p[1] = it.first & 0xff;
-    p += 2;
-    p[0] = (it.second->len() & 0xff00) >> 8;
-    p[1] = it.second->len() & 0xff;
-    p += 2;
+    QUICVariableInt::encode(p, TRANSPORT_PARAMETERS_MAXIMUM_SIZE, l, it.first);
+    p += l;
+    QUICVariableInt::encode(p, TRANSPORT_PARAMETERS_MAXIMUM_SIZE, l, it.second->len());
+    p += l;
     memcpy(p, it.second->data(), it.second->len());
     p += it.second->len();
   }
 
-  ptrdiff_t n = p - parameters_size - sizeof(uint16_t);
-
-  parameters_size[0] = (n & 0xff00) >> 8;
-  parameters_size[1] = n & 0xff;
-
   *len = (p - buf);
+
+  if (is_debug_tag_set(tag)) {
+    this->_print();
+  }
 }
 
 void
@@ -298,18 +294,17 @@ QUICTransportParameters::_print() const
       Debug(tag, "%s (%" PRIu32 "): %s", QUICDebugNames::transport_parameter_id(p.first), static_cast<uint16_t>(p.first), hex_str);
     } else if (QUICTransportParameterId::PREFERRED_ADDRESS == p.first) {
       QUICPreferredAddress pref_addr(p.second->data(), p.second->len());
-      char cid_hex_str[QUICConnectionId::MAX_HEX_STR_LENGTH];
       char token_hex_str[QUICStatelessResetToken::LEN * 2 + 1];
       char ep_ipv4_hex_str[512];
       char ep_ipv6_hex_str[512];
-      pref_addr.cid().hex(cid_hex_str, sizeof(cid_hex_str));
       to_hex_str(token_hex_str, sizeof(token_hex_str), pref_addr.token().buf(), QUICStatelessResetToken::LEN);
       ats_ip_nptop(pref_addr.endpoint_ipv4(), ep_ipv4_hex_str, sizeof(ep_ipv4_hex_str));
       ats_ip_nptop(pref_addr.endpoint_ipv6(), ep_ipv6_hex_str, sizeof(ep_ipv6_hex_str));
       Debug(tag, "%s: Endpoint(IPv4)=%s, Endpoint(IPv6)=%s, CID=%s, Token=%s", QUICDebugNames::transport_parameter_id(p.first),
-            ep_ipv4_hex_str, ep_ipv6_hex_str, cid_hex_str, token_hex_str);
+            ep_ipv4_hex_str, ep_ipv6_hex_str, pref_addr.cid().hex().c_str(), token_hex_str);
     } else {
-      Debug(tag, "%s: (long data)", QUICDebugNames::transport_parameter_id(p.first));
+      Debug(tag, "%s (%" PRIu32 "): (%u byte data)", QUICDebugNames::transport_parameter_id(p.first),
+            static_cast<uint16_t>(p.first), p.second->len());
     }
   }
 }
@@ -318,18 +313,9 @@ QUICTransportParameters::_print() const
 // QUICTransportParametersInClientHello
 //
 
-QUICTransportParametersInClientHello::QUICTransportParametersInClientHello(const uint8_t *buf, size_t len)
+QUICTransportParametersInClientHello::QUICTransportParametersInClientHello(const uint8_t *buf, size_t len, QUICVersion version)
+  : QUICTransportParameters(buf, len, version)
 {
-  this->_load(buf, len);
-  if (is_debug_tag_set(tag)) {
-    this->_print();
-  }
-}
-
-void
-QUICTransportParametersInClientHello::_store(uint8_t *buf, uint16_t *len) const
-{
-  *len = 0;
 }
 
 std::ptrdiff_t
@@ -339,9 +325,9 @@ QUICTransportParametersInClientHello::_parameters_offset(const uint8_t *) const
 }
 
 int
-QUICTransportParametersInClientHello::_validate_parameters() const
+QUICTransportParametersInClientHello::_validate_parameters(QUICVersion version) const
 {
-  int res = QUICTransportParameters::_validate_parameters();
+  int res = QUICTransportParameters::_validate_parameters(version);
   if (res < 0) {
     return res;
   }
@@ -349,12 +335,20 @@ QUICTransportParametersInClientHello::_validate_parameters() const
   decltype(this->_parameters)::const_iterator ite;
 
   // MUST NOTs
-  if ((ite = this->_parameters.find(QUICTransportParameterId::STATELESS_RESET_TOKEN)) != this->_parameters.end()) {
-    return -(TP_ERROR_MUST_NOT_EXIST | QUICTransportParameterId::STATELESS_RESET_TOKEN);
+  if ((ite = this->_parameters.find(QUICTransportParameterId::ORIGINAL_DESTINATION_CONNECTION_ID)) != this->_parameters.end()) {
+    return -(TP_ERROR_MUST_NOT_EXIST | QUICTransportParameterId::ORIGINAL_DESTINATION_CONNECTION_ID);
   }
 
   if ((ite = this->_parameters.find(QUICTransportParameterId::PREFERRED_ADDRESS)) != this->_parameters.end()) {
     return -(TP_ERROR_MUST_NOT_EXIST | QUICTransportParameterId::PREFERRED_ADDRESS);
+  }
+
+  if ((ite = this->_parameters.find(QUICTransportParameterId::RETRY_SOURCE_CONNECTION_ID)) != this->_parameters.end()) {
+    return -(TP_ERROR_MUST_NOT_EXIST | QUICTransportParameterId::RETRY_SOURCE_CONNECTION_ID);
+  }
+
+  if ((ite = this->_parameters.find(QUICTransportParameterId::STATELESS_RESET_TOKEN)) != this->_parameters.end()) {
+    return -(TP_ERROR_MUST_NOT_EXIST | QUICTransportParameterId::STATELESS_RESET_TOKEN);
   }
 
   return 0;
@@ -364,24 +358,10 @@ QUICTransportParametersInClientHello::_validate_parameters() const
 // QUICTransportParametersInEncryptedExtensions
 //
 
-QUICTransportParametersInEncryptedExtensions::QUICTransportParametersInEncryptedExtensions(const uint8_t *buf, size_t len)
+QUICTransportParametersInEncryptedExtensions::QUICTransportParametersInEncryptedExtensions(const uint8_t *buf, size_t len,
+                                                                                           QUICVersion version)
+  : QUICTransportParameters(buf, len, version)
 {
-  this->_load(buf, len);
-  if (is_debug_tag_set(tag)) {
-    this->_print();
-  }
-}
-
-void
-QUICTransportParametersInEncryptedExtensions::_store(uint8_t *buf, uint16_t *len) const
-{
-  *len = 0;
-}
-
-void
-QUICTransportParametersInEncryptedExtensions::add_version(QUICVersion version)
-{
-  this->_versions[this->_n_versions++] = version;
 }
 
 std::ptrdiff_t
@@ -391,21 +371,36 @@ QUICTransportParametersInEncryptedExtensions::_parameters_offset(const uint8_t *
 }
 
 int
-QUICTransportParametersInEncryptedExtensions::_validate_parameters() const
+QUICTransportParametersInEncryptedExtensions::_validate_parameters(QUICVersion version) const
 {
-  int res = QUICTransportParameters::_validate_parameters();
+  int res = QUICTransportParameters::_validate_parameters(version);
   if (res < 0) {
     return res;
   }
 
   decltype(this->_parameters)::const_iterator ite;
 
-  // MUSTs if the server sent a Retry packet
-  if ((ite = this->_parameters.find(QUICTransportParameterId::ORIGINAL_CONNECTION_ID)) != this->_parameters.end()) {
-    // We cannot check the length because it's not a fixed length.
-  } else {
-    // TODO Need a way that checks if we received a Retry from the server
-    // return -(TP_ERROR_MUST_EXIST | QUICTransportParameterId::ORIGINAL_CONNECTION_ID);
+  // MUSTs
+  if (version == QUIC_SUPPORTED_VERSIONS[0]) { // draft-28
+    if ((ite = this->_parameters.find(QUICTransportParameterId::INITIAL_SOURCE_CONNECTION_ID)) != this->_parameters.end()) {
+      // We cannot check the length because it's not a fixed length.
+    } else {
+      return -(TP_ERROR_MUST_EXIST | QUICTransportParameterId::INITIAL_SOURCE_CONNECTION_ID);
+    }
+
+    if ((ite = this->_parameters.find(QUICTransportParameterId::ORIGINAL_DESTINATION_CONNECTION_ID)) != this->_parameters.end()) {
+      // We cannot check the length because it's not a fixed length.
+    } else {
+      return -(TP_ERROR_MUST_EXIST | QUICTransportParameterId::ORIGINAL_DESTINATION_CONNECTION_ID);
+    }
+
+    // MUSTs if the server sent a Retry packet, but MUST NOT if the server did not send a Retry packet
+    // TODO Check if the server sent Retry packet
+    if ((ite = this->_parameters.find(QUICTransportParameterId::RETRY_SOURCE_CONNECTION_ID)) != this->_parameters.end()) {
+      // return -(TP_ERROR_MUST_NOT_EXIST | QUICTransportParameterId::RETRY_SOURCE_CONNECTION_ID);
+    } else {
+      // return -(TP_ERROR_MUST_EXIST | QUICTransportParameterId::RETRY_SOURCE_CONNECTION_ID);
+    }
   }
 
   // MAYs
@@ -423,50 +418,3 @@ QUICTransportParametersInEncryptedExtensions::_validate_parameters() const
 
   return 0;
 }
-
-#ifndef OPENSSL_IS_BORINGSSL
-
-static constexpr int TRANSPORT_PARAMETERS_MAXIMUM_SIZE = 65535;
-
-//
-// QUICTransportParametersHandler
-//
-
-int
-QUICTransportParametersHandler::add(SSL *s, unsigned int ext_type, unsigned int context, const unsigned char **out, size_t *outlen,
-                                    X509 *x, size_t chainidx, int *al, void *add_arg)
-{
-  QUICTLS *qtls = static_cast<QUICTLS *>(SSL_get_ex_data(s, QUIC::ssl_quic_tls_index));
-  *out          = reinterpret_cast<const unsigned char *>(ats_malloc(TRANSPORT_PARAMETERS_MAXIMUM_SIZE));
-  qtls->local_transport_parameters()->store(const_cast<uint8_t *>(*out), reinterpret_cast<uint16_t *>(outlen));
-
-  return 1;
-}
-
-void
-QUICTransportParametersHandler::free(SSL *s, unsigned int ext_type, unsigned int context, const unsigned char *out, void *add_arg)
-{
-  ats_free(const_cast<unsigned char *>(out));
-}
-
-int
-QUICTransportParametersHandler::parse(SSL *s, unsigned int ext_type, unsigned int context, const unsigned char *in, size_t inlen,
-                                      X509 *x, size_t chainidx, int *al, void *parse_arg)
-{
-  QUICTLS *qtls = static_cast<QUICTLS *>(SSL_get_ex_data(s, QUIC::ssl_quic_tls_index));
-
-  switch (context) {
-  case SSL_EXT_CLIENT_HELLO:
-    qtls->set_remote_transport_parameters(std::make_shared<QUICTransportParametersInClientHello>(in, inlen));
-    break;
-  case SSL_EXT_TLS1_3_ENCRYPTED_EXTENSIONS:
-    qtls->set_remote_transport_parameters(std::make_shared<QUICTransportParametersInEncryptedExtensions>(in, inlen));
-    break;
-  default:
-    // Do nothing
-    break;
-  }
-
-  return 1;
-}
-#endif

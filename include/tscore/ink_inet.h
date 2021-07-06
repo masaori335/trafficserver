@@ -45,7 +45,18 @@ IN6_IS_ADDR_UNSPECIFIED(in6_addr const *addr)
 }
 #endif
 
-// IP protocol stack tags.
+/*
+ * IP protocol stack tags.
+ *
+ * When adding support for an additional protocol, the following minimum steps
+ * should be done:
+ *
+ * 1. This set of string_views should be updated with the new tag.
+ * 2. A populate_protocol function overload should be implemented for the
+ *    appropriate VConnection or ProxySession virtual function.
+ * 3. Traffic Dump should be updated to handle the new tag in:
+ *    plugins/experimental/traffic_dump/session_data.cc
+ */
 extern const std::string_view IP_PROTO_TAG_IPV4;
 extern const std::string_view IP_PROTO_TAG_IPV6;
 extern const std::string_view IP_PROTO_TAG_UDP;
@@ -61,6 +72,8 @@ extern const std::string_view IP_PROTO_TAG_HTTP_1_1;
 extern const std::string_view IP_PROTO_TAG_HTTP_2_0;
 extern const std::string_view IP_PROTO_TAG_HTTP_QUIC;
 extern const std::string_view IP_PROTO_TAG_HTTP_3;
+extern const std::string_view IP_PROTO_TAG_HTTP_QUIC_D27;
+extern const std::string_view IP_PROTO_TAG_HTTP_3_D27;
 
 struct IpAddr; // forward declare.
 
@@ -168,8 +181,10 @@ inkcoreapi uint32_t ats_inet_addr(const char *s);
 const char *ats_ip_ntop(const struct sockaddr *addr, char *dst, size_t size);
 
 // --
-/// Size in bytes of an IPv6 address.
-static size_t const TS_IP6_SIZE = sizeof(in6_addr);
+/// Size in bytes of an port and IPv4/IPv6 address.
+static constexpr size_t TS_IP4_SIZE  = sizeof(in_addr_t); ///< 4
+static constexpr size_t TS_IP6_SIZE  = sizeof(in6_addr);  ///< 16
+static constexpr size_t TS_PORT_SIZE = sizeof(in_port_t); ///< 2
 
 /// Reset an address to invalid.
 /// @note Useful for marking a member as not yet set.
@@ -1215,6 +1230,16 @@ struct IpAddr {
   char *toString(char *dest, ///< [out] Destination string buffer.
                  size_t len  ///< [in] Size of buffer.
   ) const;
+
+  /** Write the address to a socket address.
+   *
+   * @param dest Socket address to update.
+   * @return @a dest
+   *
+   * The address and family are updated. The port is unchanged. @a dest is assumed to be the
+   * appropriate underlying type for the family of @a this.
+   */
+  sockaddr *toSockAddr(sockaddr *dest) const;
 
   /// Equality.
   bool

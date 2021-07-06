@@ -22,6 +22,7 @@
  */
 
 #include "P_Net.h"
+#include "P_QUICNet.h"
 #include "quic/QUICEvents.h"
 
 ClassAllocator<QUICPollEvent> quicPollEventAllocator("quicPollEvent");
@@ -65,10 +66,10 @@ QUICPollCont::_process_long_header_packet(QUICPollEvent *e, NetHandler *nh)
   UDPPacketInternal *p = e->packet;
   // FIXME: VC is nullptr ?
   QUICNetVConnection *vc = static_cast<QUICNetVConnection *>(e->con);
-  uint8_t *buf           = (uint8_t *)p->getIOBlockChain()->buf();
+  uint8_t *buf           = reinterpret_cast<uint8_t *>(p->getIOBlockChain()->buf());
 
   QUICPacketType ptype;
-  QUICPacketLongHeader::type(ptype, buf, 1);
+  QUICLongHeaderPacketR::type(ptype, buf, 1);
   if (ptype == QUICPacketType::INITIAL && !vc->read.triggered) {
     SCOPED_MUTEX_LOCK(lock, vc->mutex, this_ethread());
     vc->read.triggered = 1;
@@ -146,7 +147,7 @@ QUICPollCont::pollEvent(int, Event *)
   }
 
   while ((e = result.pop())) {
-    buf = (uint8_t *)e->packet->getIOBlockChain()->buf();
+    buf = reinterpret_cast<uint8_t *>(e->packet->getIOBlockChain()->buf());
     if (QUICInvariants::is_long_header(buf)) {
       // Long Header Packet with Connection ID, has a valid type value.
       this->_process_long_header_packet(e, nh);
@@ -165,7 +166,7 @@ initialize_thread_for_quic_net(EThread *thread)
   NetHandler *nh       = get_NetHandler(thread);
   QUICPollCont *quicpc = get_QUICPollCont(thread);
 
-  new ((ink_dummy_for_new *)quicpc) QUICPollCont(thread->mutex, nh);
+  new (reinterpret_cast<ink_dummy_for_new *>(quicpc)) QUICPollCont(thread->mutex, nh);
 
   thread->schedule_every(quicpc, -HRTIME_MSECONDS(UDP_PERIOD));
 }
