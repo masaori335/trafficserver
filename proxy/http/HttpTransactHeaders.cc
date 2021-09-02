@@ -215,7 +215,7 @@ HttpTransactHeaders::copy_header_fields(HTTPHdr *src_hdr, HTTPHdr *new_hdr, bool
 
   // Nuke hop-by-hop headers
   //
-  //    The hop-by-hop header fields are layed out by the spec
+  //    The hop-by-hop header fields are laid out by the spec
   //    with two adjustments
   //      1) we treat TE as hop-by-hop because spec implies
   //         that it is by declaring anyone who sends a TE must
@@ -599,6 +599,10 @@ HttpTransactHeaders::generate_and_set_squid_codes(HTTPHdr *header, char *via_str
     break;
   case VIA_ERROR_LOOP_DETECTED:
     log_code  = SQUID_LOG_ERR_LOOP_DETECTED;
+    hier_code = SQUID_HIER_NONE;
+    break;
+  case VIA_ERROR_UNKNOWN:
+    log_code  = SQUID_LOG_ERR_UNKNOWN;
     hier_code = SQUID_HIER_NONE;
     break;
   default:
@@ -1008,7 +1012,7 @@ HttpTransactHeaders::add_forwarded_field_to_request(HttpTransact::State *s, HTTP
       hdr << "by=_" << m.uuid.getString();
     }
 
-    if (optSet[HttpForwarded::BY_IP] and (m.ip_string_len > 0)) {
+    if (optSet[HttpForwarded::BY_IP] and m.ip.isValid()) {
       if (hdr.size()) {
         hdr << ';';
       }
@@ -1234,6 +1238,22 @@ HttpTransactHeaders::normalize_accept_encoding(const OverridableHttpConfigParams
         } else {
           header->field_delete(ae_field);
           Debug("http_trans", "[Headers::normalize_accept_encoding] removed non-br Accept-Encoding");
+        }
+      } else if (normalize_ae == 3) {
+        // Force Accept-Encoding header to br,gzip, or br, or gzip, or no header.
+        if (HttpTransactCache::match_content_encoding(ae_field, "br") &&
+            HttpTransactCache::match_content_encoding(ae_field, "gzip")) {
+          header->field_value_set(ae_field, "br, gzip", 8);
+          Debug("http_trans", "[Headers::normalize_accept_encoding] normalized Accept-Encoding to br, gzip");
+        } else if (HttpTransactCache::match_content_encoding(ae_field, "br")) {
+          header->field_value_set(ae_field, "br", 2);
+          Debug("http_trans", "[Headers::normalize_accept_encoding] normalized Accept-Encoding to br");
+        } else if (HttpTransactCache::match_content_encoding(ae_field, "gzip")) {
+          header->field_value_set(ae_field, "gzip", 4);
+          Debug("http_trans", "[Headers::normalize_accept_encoding] normalized Accept-Encoding to gzip");
+        } else {
+          header->field_delete(ae_field);
+          Debug("http_trans", "[Headers::normalize_accept_encoding] removed non-br non-gzip Accept-Encoding");
         }
       } else {
         static bool logged = false;

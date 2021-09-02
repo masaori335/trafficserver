@@ -136,7 +136,7 @@ std::set<std::string> valid_sni_config_keys = {TS_fqdn,
                                                TS_client_sni_policy,
                                                TS_http2,
                                                TS_ip_allow,
-#if TS_USE_HELLO_CB
+#if TS_USE_HELLO_CB || defined(OPENSSL_IS_BORINGSSL)
                                                TS_valid_tls_versions_in,
 #endif
                                                TS_host_sni_policy};
@@ -174,7 +174,7 @@ template <> struct convert<YamlSNIConfig::Item> {
     }
 
     if (node[TS_verify_client_ca_certs]) {
-#if !defined(SSL_set1_verify_cert_store)
+#if !TS_HAS_VERIFY_CERT_STORE
       // TS was compiled with an older version of the OpenSSL interface, that doesn't have
       // SSL_set1_verify_cert_store().  We need this macro in order to set the CA certs for verifying clients
       // after the client sends the SNI server name.

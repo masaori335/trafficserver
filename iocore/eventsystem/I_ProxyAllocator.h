@@ -69,30 +69,30 @@ void thread_freeup(Allocator &a, ProxyAllocator &l);
 
 #if 1
 
-// Potentially empty varaiable arguments -- non-standard GCC way
+// Potentially empty variable arguments -- non-standard GCC way
 //
 #define THREAD_ALLOC(_a, _t, ...) thread_alloc(::_a, _t->_a, ##__VA_ARGS__)
 #define THREAD_ALLOC_INIT(_a, _t, ...) thread_alloc(::_a, _t->_a, ##__VA_ARGS__)
 
 #else
 
-// Potentially empty varaiable arguments -- Standard C++20 way
+// Potentially empty variable arguments -- Standard C++20 way
 //
 #define THREAD_ALLOC(_a, _t, ...) thread_alloc(::_a, _t->_a __VA_OPT__(, ) __VA_ARGS__)
 #define THREAD_ALLOC_INIT(_a, _t, ...) thread_alloc(::_a, _t->_a __VA_OPT__(, ) __VA_ARGS__)
 
 #endif
 
-#define THREAD_FREE(_p, _a, _t)                              \
-  do {                                                       \
-    ::_a.destroy_if_enabled(_p);                             \
-    if (!cmd_disable_pfreelist) {                            \
-      *(char **)_p    = (char *)_t->_a.freelist;             \
-      _t->_a.freelist = _p;                                  \
-      _t->_a.allocated++;                                    \
-      if (_t->_a.allocated > thread_freelist_high_watermark) \
-        thread_freeup(::_a.raw(), _t->_a);                   \
-    } else {                                                 \
-      ::_a.raw().free_void(_p);                              \
-    }                                                        \
+#define THREAD_FREE(_p, _a, _t)                                                                    \
+  do {                                                                                             \
+    ::_a.destroy_if_enabled(_p);                                                                   \
+    if (!cmd_disable_pfreelist) {                                                                  \
+      *(char **)_p    = (char *)_t->_a.freelist;                                                   \
+      _t->_a.freelist = _p;                                                                        \
+      _t->_a.allocated++;                                                                          \
+      if (thread_freelist_high_watermark > 0 && _t->_a.allocated > thread_freelist_high_watermark) \
+        thread_freeup(::_a.raw(), _t->_a);                                                         \
+    } else {                                                                                       \
+      ::_a.raw().free_void(_p);                                                                    \
+    }                                                                                              \
   } while (0)

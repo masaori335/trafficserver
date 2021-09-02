@@ -313,7 +313,7 @@ HttpVCTable::cleanup_all()
 
 /*
  * Helper functions to ensure that the parallel
- * API set timeouts are set consistenly with the records.config settings
+ * API set timeouts are set consistently with the records.config settings
  */
 ink_hrtime
 HttpSM::get_server_inactivity_timeout()
@@ -375,7 +375,7 @@ void
 HttpSM::destroy()
 {
   cleanup();
-  httpSMAllocator.free(this);
+  THREAD_FREE(this, httpSMAllocator, this_thread());
 }
 
 void
@@ -820,7 +820,7 @@ HttpSM::state_read_client_request_header(int event, void *data)
       t_state.http_return_code = HTTP_STATUS_REQUEST_URI_TOO_LONG :
       t_state.http_return_code = HTTP_STATUS_NONE;
 
-    if (!is_http_hdr_version_supported(t_state.hdr_info.client_request.version_get())) {
+    if (!is_http1_hdr_version_supported(t_state.hdr_info.client_request.version_get())) {
       t_state.http_return_code = HTTP_STATUS_HTTPVER_NOT_SUPPORTED;
     }
 
@@ -1662,7 +1662,7 @@ plugins required to work with sni_routing.
 // void HttpSM::handle_api_return()
 //
 //   Figures out what to do after calling api callouts
-//    have finished.  This messy and I would like
+//    have finished.  This is messy and I would like
 //    to come up with a cleaner way to handle the api
 //    return.  The way we are doing things also makes a
 //    mess of set_next_state()
@@ -1991,12 +1991,20 @@ int
 HttpSM::state_read_server_response_header(int event, void *data)
 {
   STATE_ENTER(&HttpSM::state_read_server_response_header, event);
+  // If we had already received EOS, just go away. We would sometimes see
+  // a WRITE event appear after receiving EOS from the server connection
+  if (server_entry->eos) {
+    return 0;
+  } else if (data == server_entry->write_vio) {
+    return this->state_send_server_request_header(event, data);
+  }
+
+  ink_assert(server_entry->eos != true);
   ink_assert(server_entry->read_vio == (VIO *)data);
   ink_assert(t_state.current.server->state == HttpTransact::STATE_UNDEFINED);
   ink_assert(t_state.current.state == HttpTransact::STATE_UNDEFINED);
 
   int bytes_used = 0;
-  VIO *vio       = static_cast<VIO *>(data);
 
   switch (event) {
   case VC_EVENT_EOS:
@@ -2026,7 +2034,8 @@ HttpSM::state_read_server_response_header(int event, void *data)
     server_txn->set_inactivity_timeout(get_server_inactivity_timeout());
 
     // For requests that contain a body, we can cancel the ua inactivity timeout.
-    if (ua_txn && t_state.hdr_info.request_content_length > 0) {
+    if (ua_txn && ua_txn->has_request_body(t_state.hdr_info.request_content_length,
+                                           t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING)) {
       ua_txn->cancel_inactivity_timeout();
     }
   }
@@ -2042,7 +2051,7 @@ HttpSM::state_read_server_response_header(int event, void *data)
   // And don't allow empty headers from closed connections
   if ((state == PARSE_RESULT_DONE && t_state.hdr_info.server_response.version_get() == HTTP_0_9 &&
        server_txn->get_transaction_id() > 1) ||
-      (server_entry->eos && vio->ndone == 0)) {
+      (server_entry->eos && state == PARSE_RESULT_CONT)) { // No more data will be coming
     state = PARSE_RESULT_ERROR;
   }
   // Check to see if we are over the hdr size limit
@@ -2055,6 +2064,15 @@ HttpSM::state_read_server_response_header(int event, void *data)
     server_entry->read_vio->nbytes = server_entry->read_vio->ndone;
     http_parser_clear(&http_parser);
     milestones[TS_MILESTONE_SERVER_READ_HEADER_DONE] = Thread::get_hrtime();
+
+    // If there is a post body in transit, give up on it
+    if (tunnel.is_tunnel_alive()) {
+      tunnel.abort_tunnel();
+      // Make sure client connection is closed when we are done in case there is cruft left over
+      t_state.client_info.keep_alive = HTTP_NO_KEEPALIVE;
+      // Similarly the server connection should also be closed
+      t_state.current.server->keep_alive = HTTP_NO_KEEPALIVE;
+    }
   }
 
   switch (state) {
@@ -2119,7 +2137,14 @@ HttpSM::state_read_server_response_header(int event, void *data)
       this->disable_redirect();
     }
 
-    do_api_callout();
+    // Go ahead and process the hooks assuming any body tunnel has already completed
+    if (!tunnel.is_tunnel_alive()) {
+      SMDebug("http_seq", "Continue processing response");
+      do_api_callout();
+    } else {
+      SMDebug("http_seq", "Defer processing response until post body is processed");
+      server_entry->read_vio->disable(); // Disable the read until we finish the tunnel
+    }
     break;
   case PARSE_RESULT_CONT:
     ink_assert(server_entry->eos == false);
@@ -2136,9 +2161,13 @@ HttpSM::state_read_server_response_header(int event, void *data)
 int
 HttpSM::state_send_server_request_header(int event, void *data)
 {
-  STATE_ENTER(&HttpSM::state_send_server_request_header, event);
   ink_assert(server_entry != nullptr);
-  ink_assert(server_entry->write_vio == (VIO *)data || server_entry->read_vio == (VIO *)data);
+  if (server_entry->read_vio == data) {
+    return this->state_read_server_response_header(event, data);
+  }
+  ink_assert(server_entry->eos == false);
+  ink_assert(server_entry->write_vio == (VIO *)data);
+  STATE_ENTER(&HttpSM::state_send_server_request_header, event);
 
   int method;
 
@@ -2162,31 +2191,9 @@ HttpSM::state_send_server_request_header(int event, void *data)
         // Go ahead and set up the post tunnel if we are not waiting for a 100 response
         if (!t_state.hdr_info.client_request.m_100_continue_required) {
           do_setup_post_tunnel(HTTP_SERVER_VC);
-        } else {
-          setup_server_read_response_header();
         }
       }
-    } else {
-      // It's time to start reading the response
-      setup_server_read_response_header();
     }
-
-    break;
-
-  case VC_EVENT_READ_READY:
-    // We already did the read for the response header and
-    //  we got some data.  Wait for the request header
-    //  send before dealing with it.  However, we need to
-    //  disable further IO here since the whole response
-    //  may be in the buffer and we can not switch buffers
-    //  on the io core later
-    ink_assert(server_entry->read_vio == (VIO *)data);
-    // setting nbytes to ndone would disable reads and remove it from the read queue.
-    // We can't do this in the epoll paradigm because we may be missing epoll errors that would
-    // prevent us from leaving this state.
-    // setup_server_read_response_header will trigger READ_READY to itself if there is data in the buffer.
-
-    // server_entry->read_vio->nbytes = server_entry->read_vio->ndone;
 
     break;
 
@@ -2652,7 +2659,6 @@ int
 HttpSM::state_cache_open_read(int event, void *data)
 {
   STATE_ENTER(&HttpSM::state_cache_open_read, event);
-  milestones[TS_MILESTONE_CACHE_OPEN_READ_END] = Thread::get_hrtime();
 
   pending_action.clear_if_action_is(reinterpret_cast<Action *>(data));
 
@@ -2707,6 +2713,8 @@ HttpSM::state_cache_open_read(int event, void *data)
     ink_release_assert(!"Unknown event");
     break;
   }
+
+  milestones[TS_MILESTONE_CACHE_OPEN_READ_END] = Thread::get_hrtime();
 
   return 0;
 }
@@ -2898,7 +2906,15 @@ HttpSM::tunnel_handler_post(int event, void *data)
       call_transact_and_set_next_state(HttpTransact::HandleRequestBufferDone);
       break;
     }
-    setup_server_read_response_header();
+    // Is the response header ready and waiting?
+    // If so, go ahead and do the hook processing
+    if (milestones[TS_MILESTONE_SERVER_READ_HEADER_DONE] != 0) {
+      Warning("Process waiting response id=[%" PRId64, sm_id);
+      t_state.current.state         = HttpTransact::CONNECTION_ALIVE;
+      t_state.transact_return_point = HttpTransact::HandleResponse;
+      t_state.api_next_action       = HttpTransact::SM_ACTION_API_READ_RESPONSE_HDR;
+      do_api_callout();
+    }
     break;
   default:
     ink_release_assert(0);
@@ -3668,9 +3684,8 @@ HttpSM::tunnel_handler_post_ua(int event, HttpTunnelProducer *p)
     // Now that we have communicated the post body, turn off the inactivity timeout
     // until the server starts sending data back
     if (ua_txn) {
-      if (t_state.hdr_info.request_content_length > 0) {
-        ua_txn->cancel_inactivity_timeout();
-      }
+      ua_txn->cancel_inactivity_timeout();
+
       // Initiate another read to catch aborts
       ua_entry->vc_handler = &HttpSM::state_watch_for_client_abort;
       ua_entry->read_vio   = p->vc->do_io_read(this, INT64_MAX, ua_txn->get_remote_reader()->mbuf);
@@ -3713,7 +3728,14 @@ HttpSM::tunnel_handler_post_server(int event, HttpTunnelConsumer *c)
 {
   STATE_ENTER(&HttpSM::tunnel_handler_post_server, event);
 
-  server_request_body_bytes = c->bytes_written;
+  // If is_using_post_buffer has been used, then this handler gets called
+  // twice, once with the buffered request body bytes and a second time with
+  // the (now) zero length user agent buffer. See wait_for_full_body where
+  // these bytes are read. Don't clobber the server_request_body_bytes with
+  // zero on that second read.
+  if (server_request_body_bytes == 0) {
+    server_request_body_bytes = c->bytes_written;
+  }
 
   switch (event) {
   case VC_EVENT_EOS:
@@ -4753,7 +4775,7 @@ HttpSM::do_cache_lookup_and_read()
 void
 HttpSM::do_cache_delete_all_alts(Continuation *cont)
 {
-  // Do not delete a non-existant object.
+  // Do not delete a non-existent object.
   ink_assert(t_state.cache_info.object_read);
 
   SMDebug("http_seq", "[HttpSM::do_cache_delete_all_alts] Issuing cache delete for %s",
@@ -4978,6 +5000,14 @@ HttpSM::do_http_server_open(bool raw)
   SMDebug("http", "[%" PRId64 "] open connection to %s: %s", sm_id, t_state.current.server->name,
           ats_ip_nptop(&t_state.current.server->dst_addr.sa, addrbuf, sizeof(addrbuf)));
 
+  SMDebug("http_seq", "[HttpSM::do_http_server_open] Sending request to server");
+
+  // set the server first connect milestone here in case we return in the plugin_tunnel case that follows
+  milestones[TS_MILESTONE_SERVER_CONNECT] = Thread::get_hrtime();
+  if (milestones[TS_MILESTONE_SERVER_FIRST_CONNECT] == 0) {
+    milestones[TS_MILESTONE_SERVER_FIRST_CONNECT] = milestones[TS_MILESTONE_SERVER_CONNECT];
+  }
+
   if (plugin_tunnel) {
     PluginVCCore *t           = plugin_tunnel;
     plugin_tunnel             = nullptr;
@@ -4986,13 +5016,6 @@ HttpSM::do_http_server_open(bool raw)
     // This connect call is always reentrant
     ink_release_assert(pvc_action_handle == ACTION_RESULT_DONE);
     return;
-  }
-
-  SMDebug("http_seq", "[HttpSM::do_http_server_open] Sending request to server");
-
-  milestones[TS_MILESTONE_SERVER_CONNECT] = Thread::get_hrtime();
-  if (milestones[TS_MILESTONE_SERVER_FIRST_CONNECT] == 0) {
-    milestones[TS_MILESTONE_SERVER_FIRST_CONNECT] = milestones[TS_MILESTONE_SERVER_CONNECT];
   }
 
   // Check for remap rule. If so, only apply ip_allow filter if it is activated (ip_allow_check_enabled_p set).
@@ -5280,7 +5303,7 @@ HttpSM::do_http_server_open(bool raw)
     }
   }
 
-  // draft-stenberg-httpbis-tcp recommends only enabling TFO on indempotent methods or
+  // draft-stenberg-httpbis-tcp recommends only enabling TFO on idempotent methods or
   // those with intervening protocol layers (eg. TLS).
 
   if (tls_upstream || HttpTransactHeaders::is_method_idempotent(t_state.method)) {
@@ -5611,21 +5634,15 @@ HttpSM::handle_post_failure()
   t_state.client_info.keep_alive     = HTTP_NO_KEEPALIVE;
   t_state.current.server->keep_alive = HTTP_NO_KEEPALIVE;
 
-  if (server_txn->get_remote_reader()->read_avail() > 0) {
-    tunnel.deallocate_buffers();
-    tunnel.reset();
-    // There's data from the server so try to read the header
-    setup_server_read_response_header();
-  } else {
-    tunnel.deallocate_buffers();
-    tunnel.reset();
-    // Server died
-    if (t_state.current.state == HttpTransact::STATE_UNDEFINED || t_state.current.state == HttpTransact::CONNECTION_ALIVE) {
-      t_state.set_connect_fail(server_txn->get_netvc()->lerrno);
-      t_state.current.state = HttpTransact::CONNECTION_CLOSED;
-    }
-    call_transact_and_set_next_state(HttpTransact::HandleResponse);
+  ink_assert(server_txn->get_remote_reader()->read_avail() == 0);
+  tunnel.deallocate_buffers();
+  tunnel.reset();
+  // Server died
+  if (t_state.current.state == HttpTransact::STATE_UNDEFINED || t_state.current.state == HttpTransact::CONNECTION_ALIVE) {
+    t_state.set_connect_fail(server_txn->get_netvc()->lerrno);
+    t_state.current.state = HttpTransact::CONNECTION_CLOSED;
   }
+  call_transact_and_set_next_state(HttpTransact::HandleResponse);
 }
 
 // void HttpSM::handle_http_server_open()
@@ -5664,7 +5681,7 @@ HttpSM::handle_http_server_open()
   if (method != HTTP_WKSIDX_TRACE &&
       (t_state.hdr_info.request_content_length > 0 || t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING) &&
       do_post_transform_open()) {
-    do_setup_post_tunnel(HTTP_TRANSFORM_VC);
+    do_setup_post_tunnel(HTTP_TRANSFORM_VC); // Seems like we should be sending the request along this way too
   } else if (server_txn != nullptr) {
     setup_server_send_request_api();
   }
@@ -5863,7 +5880,7 @@ HttpSM::do_drain_request_body(HTTPHdr &response)
 
 close_connection:
   t_state.client_info.keep_alive = HTTP_NO_KEEPALIVE;
-  response.value_set(MIME_FIELD_CONNECTION, MIME_LEN_CONNECTION, "close", 5);
+  ua_txn->set_close_connection(response);
 }
 
 void
@@ -5915,10 +5932,17 @@ HttpSM::do_setup_post_tunnel(HttpVC_t to_vc_type)
 
     // Next order of business if copy the remaining data from the
     //  header buffer into new buffer
-    client_request_body_bytes =
+    int64_t num_body_bytes =
       post_buffer->write(ua_txn->get_remote_reader(), chunked ? ua_txn->get_remote_reader()->read_avail() : post_bytes);
 
-    ua_txn->get_remote_reader()->consume(client_request_body_bytes);
+    // If is_using_post_buffer has been used, then client_request_body_bytes
+    // will have already been set in wait_for_full_body and there will be
+    // zero bytes in this user agent buffer. We don't want to clobber
+    // client_request_body_bytes with a zero value here in those cases.
+    if (client_request_body_bytes == 0) {
+      client_request_body_bytes = num_body_bytes;
+    }
+    ua_txn->get_remote_reader()->consume(num_body_bytes);
     p = tunnel.add_producer(ua_entry->vc, post_bytes - transfered_bytes, buf_start, &HttpSM::tunnel_handler_post_ua, HT_HTTP_CLIENT,
                             "user agent post");
   }
@@ -6269,6 +6293,9 @@ HttpSM::setup_server_send_request()
 
   // Make sure the VC is using correct timeouts.  We may be reusing a previously used server session
   server_txn->set_inactivity_timeout(get_server_inactivity_timeout());
+
+  // Go on and set up the read response header too
+  setup_server_read_response_header();
 }
 
 void
@@ -6281,6 +6308,8 @@ HttpSM::setup_server_read_response_header()
              t_state.req_flavor == HttpTransact::REQ_FLAVOR_REVPROXY);
 
   ink_assert(server_txn != nullptr && server_txn->get_remote_reader() != nullptr);
+
+  SMDebug("http", "[setup_server_read_response_header] Setting up the header read");
 
   // Now that we've got the ability to read from the
   //  server, setup to read the response header
@@ -6440,6 +6469,9 @@ HttpSM::setup_100_continue_transfer()
   ua_txn->set_half_close_flag(false);
   ua_entry->in_tunnel = true;
   tunnel.tunnel_run(p);
+
+  // Set up the header response read again.  Already processed the 100 response
+  setup_server_read_response_header();
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -6700,7 +6732,7 @@ HttpSM::setup_transfer_from_transform()
   transform_info.entry->in_tunnel = true;
   ua_entry->in_tunnel             = true;
 
-  this->setup_plugin_agents(p);
+  this->setup_plugin_agents(p, client_response_hdr_bytes);
 
   if (t_state.client_info.receive_chunked_response) {
     tunnel.set_producer_chunking_action(p, client_response_hdr_bytes, TCA_CHUNK_CONTENT);
@@ -6830,7 +6862,7 @@ HttpSM::setup_server_transfer()
   ua_entry->in_tunnel     = true;
   server_entry->in_tunnel = true;
 
-  this->setup_plugin_agents(p);
+  this->setup_plugin_agents(p, client_response_hdr_bytes);
 
   // If the incoming server response is chunked and the client does not
   // expect a chunked response, then dechunk it.  Otherwise, if the
@@ -6966,13 +6998,13 @@ HttpSM::setup_blind_tunnel(bool send_response_hdr, IOBufferReader *initial)
 }
 
 void
-HttpSM::setup_plugin_agents(HttpTunnelProducer *p)
+HttpSM::setup_plugin_agents(HttpTunnelProducer *p, int num_header_bytes)
 {
   APIHook *agent           = txn_hook_get(TS_HTTP_RESPONSE_CLIENT_HOOK);
   has_active_plugin_agents = agent != nullptr;
   while (agent) {
     INKVConnInternal *contp = static_cast<INKVConnInternal *>(agent->m_cont);
-    tunnel.add_consumer(contp, p->vc, &HttpSM::tunnel_handler_plugin_agent, HT_HTTP_CLIENT, "plugin agent");
+    tunnel.add_consumer(contp, p->vc, &HttpSM::tunnel_handler_plugin_agent, HT_HTTP_CLIENT, "plugin agent", num_header_bytes);
     // We don't put these in the SM VC table because the tunnel
     // will clean them up in do_io_close().
     agent = agent->next();
@@ -7270,11 +7302,14 @@ HttpSM::update_stats()
           "fd: %d "
           "client state: %d "
           "server state: %d "
+          "tls_handshake: %.3f "
           "ua_begin: %.3f "
           "ua_first_read: %.3f "
           "ua_read_header_done: %.3f "
           "cache_open_read_begin: %.3f "
           "cache_open_read_end: %.3f "
+          "cache_open_write_begin: %.3f "
+          "cache_open_write_end: %.3f "
           "dns_lookup_begin: %.3f "
           "dns_lookup_end: %.3f "
           "server_connect: %.3f "
@@ -7289,11 +7324,14 @@ HttpSM::update_stats()
           "plugin_total: %.3f",
           sm_id, client_ip, t_state.client_info.src_addr.host_order_port(), ua_txn ? ua_txn->get_protocol_string() : "-1",
           url_string, status, unique_id_string, redirection_tries, client_response_body_bytes, fd, t_state.client_info.state,
-          t_state.server_info.state, milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_BEGIN),
+          t_state.server_info.state, milestones.difference_sec(TS_MILESTONE_TLS_HANDSHAKE_START, TS_MILESTONE_TLS_HANDSHAKE_END),
+          milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_BEGIN),
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_FIRST_READ),
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_READ_HEADER_DONE),
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_READ_BEGIN),
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_READ_END),
+          milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_WRITE_BEGIN),
+          milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_WRITE_END),
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_DNS_LOOKUP_BEGIN),
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_DNS_LOOKUP_END),
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_CONNECT),
@@ -7534,14 +7572,14 @@ HttpSM::set_next_state()
       // Now that we have gotten the user agent request, we can cancel
       // the inactivity timeout associated with it.  Note, however, that
       // we must not cancel the inactivity timeout if the message
-      // contains a body (as indicated by the non-zero request_content_length
-      // field).  This indicates that a POST operation is taking place and
+      // contains a body. This indicates that a POST operation is taking place and
       // that the client is still sending data to the origin server.  The
       // origin server cannot reply until the entire request is received.  In
       // light of this dependency, TS must ensure that the client finishes
       // sending its request and for this reason, the inactivity timeout
       // cannot be cancelled.
-      if (ua_txn && t_state.hdr_info.request_content_length <= 0) {
+      if (ua_txn && !ua_txn->has_request_body(t_state.hdr_info.request_content_length,
+                                              t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING)) {
         ua_txn->cancel_inactivity_timeout();
       } else if (!ua_txn) {
         terminate_sm = true;
@@ -7578,14 +7616,14 @@ HttpSM::set_next_state()
       // Now that we have gotten the user agent request, we can cancel
       // the inactivity timeout associated with it.  Note, however, that
       // we must not cancel the inactivity timeout if the message
-      // contains a body (as indicated by the non-zero request_content_length
-      // field).  This indicates that a POST operation is taking place and
+      // contains a body. This indicates that a POST operation is taking place and
       // that the client is still sending data to the origin server.  The
       // origin server cannot reply until the entire request is received.  In
       // light of this dependency, TS must ensure that the client finishes
       // sending its request and for this reason, the inactivity timeout
       // cannot be cancelled.
-      if (ua_txn && t_state.hdr_info.request_content_length <= 0) {
+      if (ua_txn && !ua_txn->has_request_body(t_state.hdr_info.request_content_length,
+                                              t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING)) {
         ua_txn->cancel_inactivity_timeout();
       } else if (!ua_txn) {
         terminate_sm = true;
@@ -7597,6 +7635,8 @@ HttpSM::set_next_state()
     break;
   }
 
+  // This is called in some case if the 100 continue header is from a HTTP/1.0 server
+  // Likely an obsolete case now and should probably return an error
   case HttpTransact::SM_ACTION_SERVER_PARSE_NEXT_HDR: {
     setup_server_read_response_header();
     break;

@@ -414,13 +414,14 @@ PLNextHopConsistentHash::next(TSHttpTxn txnp, void *strategyTxn, const char *exc
     pRec ? (TSHostStatusGet(pRec->hostname.c_str(), pRec->hostname.size(), &hostStatus, &hostReasons) == TS_SUCCESS) : false;
   host_stat = hostExists ? hostStatus : TSHostStatus::TS_HOST_STATUS_UP;
   // if the config ignore_self_detect is set to true and the host is down due to SELF_DETECT reason
-  // ignore the down status and mark it as avaialble
+  // ignore the down status and mark it as available
   if ((pRec && ignore_self_detect) && (hostExists && hostStatus == TS_HOST_STATUS_DOWN)) {
     if (hostReasons & TS_HOST_STATUS_SELF_DETECT) {
       host_stat = TS_HOST_STATUS_UP;
     }
   }
-  bool pRecExclude = exclude_hostname != nullptr && strncmp(pRec->hostname.c_str(), exclude_hostname, pRec->hostname.size()) == 0 &&
+  bool pRecExclude = exclude_hostname != nullptr && pRec &&
+                     strncmp(pRec->hostname.c_str(), exclude_hostname, pRec->hostname.size()) == 0 &&
                      pRec->getPort(scheme) == exclude_port;
   if (!pRec || (pRec && (!pRec->available || pRecExclude)) || host_stat == TS_HOST_STATUS_DOWN) {
     do {
@@ -460,7 +461,7 @@ PLNextHopConsistentHash::next(TSHttpTxn txnp, void *strategyTxn, const char *exc
       lookups++;
       if (hostRec) {
         pRec        = host_groups[hostRec->group_index][hostRec->host_index];
-        pRecExclude = exclude_hostname != nullptr &&
+        pRecExclude = exclude_hostname != nullptr && pRec &&
                       strncmp(pRec->hostname.c_str(), exclude_hostname, pRec->hostname.size()) == 0 &&
                       pRec->getPort(scheme) == exclude_port;
 
@@ -471,18 +472,22 @@ PLNextHopConsistentHash::next(TSHttpTxn txnp, void *strategyTxn, const char *exc
         host_stat = hostExists ? hostStatus : TSHostStatus::TS_HOST_STATUS_UP;
 
         // if the config ignore_self_detect is set to true and the host is down due to SELF_DETECT reason
-        // ignore the down status and mark it as avaialble
+        // ignore the down status and mark it as available
         if ((pRec && ignore_self_detect) && (hostExists && hostStatus == TS_HOST_STATUS_DOWN)) {
           if (hostReasons & TS_HOST_STATUS_SELF_DETECT) {
             host_stat = TS_HOST_STATUS_UP;
           }
         }
-        PL_NH_Debug(PL_NH_DEBUG_TAG,
-                    "nextParent [%" PRIu64 "] Selected a new parent: %.*s, available: %s, wrapped: %s, lookups: %d, exclude: %s.",
-                    sm_id, int(pRec->hostname.size()), pRec->hostname.c_str(), (pRec->available) ? "true" : "false",
-                    (wrapped) ? "true" : "false", lookups, pRecExclude ? "true" : "false");
+        if (pRec) {
+          PL_NH_Debug(PL_NH_DEBUG_TAG,
+                      "nextParent [%" PRIu64 "] Selected a new parent: %.*s, available: %s, wrapped: %s, lookups: %d, exclude: %s.",
+                      sm_id, int(pRec->hostname.size()), pRec->hostname.c_str(), (pRec->available) ? "true" : "false",
+                      (wrapped) ? "true" : "false", lookups, pRecExclude ? "true" : "false");
+        } else {
+          PL_NH_Debug(PL_NH_DEBUG_TAG, "nextParent [%" PRIu64 "] Selected a new parent: null", sm_id);
+        }
         // use available host.
-        if (pRec->available && !pRecExclude && host_stat == TS_HOST_STATUS_UP) {
+        if (pRec && pRec->available && !pRecExclude && host_stat == TS_HOST_STATUS_UP) {
           break;
         }
       } else {

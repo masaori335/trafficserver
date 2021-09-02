@@ -1085,13 +1085,13 @@ CacheProcessor::lookup(Continuation *cont, const CacheKey *key, CacheFragType fr
   return caches[frag_type]->lookup(cont, key, frag_type, hostname, host_len);
 }
 
-inkcoreapi Action *
+Action *
 CacheProcessor::open_read(Continuation *cont, const CacheKey *key, CacheFragType frag_type, const char *hostname, int hostlen)
 {
   return caches[frag_type]->open_read(cont, key, frag_type, hostname, hostlen);
 }
 
-inkcoreapi Action *
+Action *
 CacheProcessor::open_write(Continuation *cont, CacheKey *key, CacheFragType frag_type, int expected_size ATS_UNUSED, int options,
                            time_t pin_in_cache, char *hostname, int host_len)
 {
@@ -2587,7 +2587,7 @@ cplist_update()
 
     if (!config_vol) {
       // did not find a matching volume in the config file.
-      // Delete hte volume from the cache vol list
+      // Delete the volume from the cache vol list
       int d_no;
       for (d_no = 0; d_no < gndisks; d_no++) {
         if (cp->disk_vols[d_no]) {
@@ -2831,7 +2831,7 @@ cplist_reconfigure()
       }
 
       if (!config_vol->cachep) {
-        // we did not find a corresponding entry in cache vol...creat one
+        // we did not find a corresponding entry in cache vol...create one
 
         CacheVol *new_cp  = new CacheVol();
         new_cp->disk_vols = static_cast<DiskVol **>(ats_malloc(gndisks * sizeof(DiskVol *)));

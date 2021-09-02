@@ -62,7 +62,7 @@ struct matcher_line;
 class CacheControlResult
 {
 public:
-  inkcoreapi CacheControlResult();
+  CacheControlResult();
   void Print() const;
 
   // Data for external use
@@ -83,7 +83,7 @@ public:
   //   Keeps track of the last line number
   //    on which a parameter was set
   //   Used to tell if a parameter needs to
-  //    be overriden by something that appeared
+  //    be overridden by something that appeared
   //    earlier in the the config file
   //
   int reval_line         = -1;
@@ -108,7 +108,7 @@ public:
   int time_arg                   = 0;
   int cache_responses_to_cookies = -1;
   Result Init(matcher_line *line_info);
-  inkcoreapi void UpdateMatch(CacheControlResult *result, RequestData *rdata);
+  void UpdateMatch(CacheControlResult *result, RequestData *rdata);
   void Print() const;
 };
 
@@ -121,10 +121,10 @@ class URL;
 struct HttpConfigParams;
 struct OverridableHttpConfigParams;
 
-inkcoreapi void getCacheControl(CacheControlResult *result, HttpRequestData *rdata, const OverridableHttpConfigParams *h_txn_conf,
-                                char *tag = nullptr);
-inkcoreapi bool host_rule_in_CacheControlTable();
-inkcoreapi bool ip_rule_in_CacheControlTable();
+void getCacheControl(CacheControlResult *result, HttpRequestData *rdata, const OverridableHttpConfigParams *h_txn_conf,
+                     char *tag = nullptr);
+bool host_rule_in_CacheControlTable();
+bool ip_rule_in_CacheControlTable();
 
 void initCacheControl();
 void reloadCacheControl();

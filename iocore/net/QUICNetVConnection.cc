@@ -242,6 +242,7 @@ void
 QUICNetVConnection::init(QUICVersion version, QUICConnectionId peer_cid, QUICConnectionId original_cid, UDPConnection *udp_con,
                          QUICPacketHandler *packet_handler, QUICResetTokenTable *rtable)
 {
+  SET_HANDLER((NetVConnHandler)&QUICNetVConnection::startEvent);
   this->_initial_version             = version;
   this->_udp_con                     = udp_con;
   this->_packet_handler              = packet_handler;
@@ -388,6 +389,25 @@ QUICNetVConnection::acceptEvent(int event, Event *e)
   return EVENT_DONE;
 }
 
+int
+QUICNetVConnection::startEvent(int event, Event *e)
+{
+  ink_assert(event == EVENT_IMMEDIATE);
+  MUTEX_TRY_LOCK(lock, get_NetHandler(e->ethread)->mutex, e->ethread);
+  if (!lock.is_locked()) {
+    e->schedule_in(HRTIME_MSECONDS(net_retry_delay));
+    return EVENT_CONT;
+  }
+
+  if (!action_.cancelled) {
+    this->connectUp(e->ethread, NO_FD);
+  } else {
+    this->free(e->ethread);
+  }
+
+  return EVENT_DONE;
+}
+
 // XXX This might be called on ET_UDP thread
 void
 QUICNetVConnection::start()
@@ -461,7 +481,7 @@ QUICNetVConnection::start()
   this->_frame_dispatcher->add_handler(this->_path_validator);
   this->_frame_dispatcher->add_handler(this->_handshake_handler);
 
-  // regist qlog
+  // register qlog
   if (this->_context->config()->qlog_dir() != nullptr) {
     this->_qlog = std::make_unique<QLog::QLogListener>(*this->_context, this->_original_quic_connection_id.hex());
     this->_qlog->last_trace().set_vantage_point(
@@ -1043,7 +1063,10 @@ QUICNetVConnection::populate_protocol(std::string_view *results, int n) const
   if (n > retval) {
     results[retval++] = IP_PROTO_TAG_QUIC;
     if (n > retval) {
-      retval += super::populate_protocol(results + retval, n - retval);
+      results[retval++] = IP_PROTO_TAG_TLS_1_3;
+      if (n > retval) {
+        retval += super::populate_protocol(results + retval, n - retval);
+      }
     }
   }
   return retval;
@@ -1052,10 +1075,12 @@ QUICNetVConnection::populate_protocol(std::string_view *results, int n) const
 const char *
 QUICNetVConnection::protocol_contains(std::string_view prefix) const
 {
-  const char *retval   = nullptr;
-  std::string_view tag = IP_PROTO_TAG_QUIC;
-  if (prefix.size() <= tag.size() && strncmp(tag.data(), prefix.data(), prefix.size()) == 0) {
-    retval = tag.data();
+  const char *retval = nullptr;
+  if (prefix.size() <= IP_PROTO_TAG_QUIC.size() && strncmp(IP_PROTO_TAG_QUIC.data(), prefix.data(), prefix.size()) == 0) {
+    retval = IP_PROTO_TAG_QUIC.data();
+  } else if (prefix.size() <= IP_PROTO_TAG_TLS_1_3.size() &&
+             strncmp(IP_PROTO_TAG_TLS_1_3.data(), prefix.data(), prefix.size()) == 0) {
+    retval = IP_PROTO_TAG_TLS_1_3.data();
   } else {
     retval = super::protocol_contains(prefix);
   }

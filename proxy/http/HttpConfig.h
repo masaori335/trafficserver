@@ -674,8 +674,7 @@ struct OverridableHttpConfigParams {
   MgmtInt parent_fail_threshold       = 10;
   MgmtInt per_parent_connect_attempts = 2;
 
-  MgmtInt down_server_timeout    = 300;
-  MgmtInt client_abort_threshold = 1000;
+  MgmtInt down_server_timeout = 300;
 
   // open read failure retries.
   MgmtInt max_cache_open_read_retries = -1;
@@ -696,6 +695,9 @@ struct OverridableHttpConfigParams {
   MgmtInt slow_log_threshold        = 0;
 
   OutboundConnTrack::TxnConfig outbound_conntrack;
+
+  MgmtInt plugin_vc_default_buffer_index      = BUFFER_SIZE_INDEX_32K;
+  MgmtInt plugin_vc_default_buffer_water_mark = DEFAULT_PLUGIN_VC_BUFFER_WATER_MARK;
 
   ///////////////////////////////////////////////////////////////////
   // Server header                                                 //
@@ -727,7 +729,7 @@ struct OverridableHttpConfigParams {
 //
 // struct HttpConfigParams
 //
-// configuration parameters as they apear in the global
+// configuration parameters as they appear in the global
 // configuration file.
 /////////////////////////////////////////////////////////////
 struct HttpConfigParams : public ConfigInfo {
@@ -860,8 +862,8 @@ public:
 
   static void reconfigure();
 
-  inkcoreapi static HttpConfigParams *acquire();
-  inkcoreapi static void release(HttpConfigParams *params);
+  static HttpConfigParams *acquire();
+  static void release(HttpConfigParams *params);
 
   static bool load_server_session_sharing_match(const char *key, MgmtByte &mask);
 

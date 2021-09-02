@@ -292,7 +292,7 @@ NextHopConsistentHash::findNextHop(TSHttpTxn txnp, void *ih, time_t now)
         result->first_choice_status = (hst) ? hst->status : TSHostStatus::TS_HOST_STATUS_UP;
         // if peering and the selected host is myself, change rings and search for an upstream
         // parent.
-        if (ring_mode == NH_PEERING_RING && machine->is_self(pRec->hostname.c_str())) {
+        if (ring_mode == NH_PEERING_RING && machine->is_self(pRec->hostname)) {
           // switch to the upstream ring.
           cur_ring = 1;
           continue;
@@ -313,7 +313,7 @@ NextHopConsistentHash::findNextHop(TSHttpTxn txnp, void *ih, time_t now)
   hst       = (pRec) ? pStatus.getHostStatus(pRec->hostname.c_str()) : nullptr;
   host_stat = (hst) ? hst->status : TSHostStatus::TS_HOST_STATUS_UP;
   // if the config ignore_self_detect is set to true and the host is down due to SELF_DETECT reason
-  // ignore the down status and mark it as avaialble
+  // ignore the down status and mark it as available
   if ((pRec && ignore_self_detect) && (hst && hst->status == TS_HOST_STATUS_DOWN)) {
     if (hst->reasons == Reason::SELF_DETECT) {
       host_stat = TS_HOST_STATUS_UP;
@@ -326,7 +326,8 @@ NextHopConsistentHash::findNextHop(TSHttpTxn txnp, void *ih, time_t now)
         // check if the host is retryable.  It's retryable if the retry window has elapsed
         _now == 0 ? _now = time(nullptr) : _now = now;
         if ((pRec->failedAt.load() + retry_time) < static_cast<unsigned>(_now)) {
-          if (pRec->retriers.fetch_add(1, std::memory_order_relaxed) < max_retriers) {
+          NH_Debug(NH_DEBUG_TAG, "[%" PRIu64 "] next hop %s, retriers: %d", sm_id, pRec->hostname.c_str(), pRec->retriers());
+          if (pRec->retriers.inc(max_retriers)) {
             nextHopRetry        = true;
             result->last_parent = pRec->host_index;
             result->last_lookup = pRec->group_index;
@@ -334,10 +335,8 @@ NextHopConsistentHash::findNextHop(TSHttpTxn txnp, void *ih, time_t now)
             result->result      = PARENT_SPECIFIED;
             NH_Debug(NH_DEBUG_TAG,
                      "[%" PRIu64 "] next hop %s is now retryable, marked it available, retriers: %d, max_retriers: %d.", sm_id,
-                     pRec->hostname.c_str(), pRec->retriers.load(), max_retriers);
+                     pRec->hostname.c_str(), pRec->retriers(), max_retriers);
             break;
-          } else {
-            pRec->retriers--;
           }
         }
       }
@@ -366,7 +365,7 @@ NextHopConsistentHash::findNextHop(TSHttpTxn txnp, void *ih, time_t now)
         hst       = (pRec) ? pStatus.getHostStatus(pRec->hostname.c_str()) : nullptr;
         host_stat = (hst) ? hst->status : TSHostStatus::TS_HOST_STATUS_UP;
         // if the config ignore_self_detect is set to true and the host is down due to SELF_DETECT reason
-        // ignore the down status and mark it as avaialble
+        // ignore the down status and mark it as available
         if ((pRec && ignore_self_detect) && (hst && hst->status == TS_HOST_STATUS_DOWN)) {
           if (hst->reasons == Reason::SELF_DETECT) {
             host_stat = TS_HOST_STATUS_UP;

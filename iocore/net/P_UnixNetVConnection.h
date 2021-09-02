@@ -86,23 +86,6 @@ NetVCOptions::set_sock_param(int _recv_bufsize, int _send_bufsize, unsigned long
   packet_tos          = _packet_tos;
 }
 
-struct OOB_callback : public Continuation {
-  char *data;
-  int length;
-  Event *trigger;
-  UnixNetVConnection *server_vc;
-  Continuation *server_cont;
-  int retry_OOB_send(int, Event *);
-
-  OOB_callback(Ptr<ProxyMutex> &m, NetVConnection *vc, Continuation *cont, char *buf, int len)
-    : Continuation(m), data(buf), length(len), trigger(nullptr)
-  {
-    server_vc   = (UnixNetVConnection *)vc;
-    server_cont = cont;
-    SET_HANDLER(&OOB_callback::retry_OOB_send);
-  }
-};
-
 enum tcp_congestion_control_t { CLIENT_SIDE, SERVER_SIDE };
 
 class UnixNetVConnection : public NetVConnection, public NetEvent
@@ -111,13 +94,7 @@ public:
   VIO *do_io_read(Continuation *c, int64_t nbytes, MIOBuffer *buf) override;
   VIO *do_io_write(Continuation *c, int64_t nbytes, IOBufferReader *buf, bool owner = false) override;
 
-  Continuation *read_vio_cont() override;
-  Continuation *write_vio_cont() override;
-
   bool get_data(int id, void *data) override;
-
-  Action *send_OOB(Continuation *cont, char *buf, int len) override;
-  void cancel_OOB() override;
 
   const char *
   get_server_name() const override
@@ -265,10 +242,10 @@ public:
 
   Connection con;
   int recursion            = 0;
-  OOB_callback *oob_ptr    = nullptr;
   bool from_accept_thread  = false;
   NetAccept *accept_object = nullptr;
 
+  int startEvent(int event, Event *e);
   int acceptEvent(int event, Event *e);
   int mainEvent(int event, Event *e);
   virtual int connectUp(EThread *t, int fd);
@@ -306,6 +283,7 @@ UnixNetVConnection::set_remote_addr()
 {
   ats_ip_copy(&remote_addr, &con.addr);
   this->control_flags.set_flag(ContFlags::DEBUG_OVERRIDE, diags->test_override_ip(remote_addr));
+  set_cont_flags(get_control_flags());
 }
 
 inline void
@@ -313,6 +291,7 @@ UnixNetVConnection::set_remote_addr(const sockaddr *new_sa)
 {
   ats_ip_copy(&remote_addr, new_sa);
   this->control_flags.set_flag(ContFlags::DEBUG_OVERRIDE, diags->test_override_ip(remote_addr));
+  set_cont_flags(get_control_flags());
 }
 
 inline void

@@ -138,9 +138,6 @@ public:
     return i;
   }
 
-  int write(int fd) const;
-  int read(int fd);
-
   /// Duplicate this span and all chained spans.
   Span *dup();
   int64_t
@@ -170,7 +167,7 @@ public:
   Span(Span const &that)
   {
     /* I looked at simplifying this by changing the @c ats_scoped_str instances to @c std::string
-     * but that actually makes it worse. The copy constructor @b must be overriden to get the
+     * but that actually makes it worse. The copy constructor @b must be overridden to get the
      * internal link (@a link.next) correct. Given that, changing to @c std::string means doing
      * explicit assignment for every member, which has its own problems.
      */
@@ -249,8 +246,6 @@ struct Store {
   // 0 on success -1 on failure
   // these operations are NOT thread-safe
   //
-  int write(int fd, const char *name) const;
-  int read(int fd, char *name);
   int clear(char *filename, bool clear_dirs = true);
   void normalize();
   void delete_all();

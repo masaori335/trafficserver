@@ -45,12 +45,22 @@ NextHopStrategyFactory::NextHopStrategyFactory(const char *file) : fn(file)
   constexpr std::string_view rr_ip           = "rr_ip";
   constexpr std::string_view latched         = "latched";
 
+  bool error_loading   = false;
   strategies_loaded    = true;
   const char *basename = std::string_view(fn).substr(fn.find_last_of('/') + 1).data();
 
+  NH_Note("%s loading ...", basename);
+
+  struct stat sbuf;
+  if (stat(fn.c_str(), &sbuf) == -1 && errno == ENOENT) {
+    // missing config file is an acceptable runtime state
+    strategies_loaded = false;
+    NH_Note("%s doesn't exist", fn.c_str());
+    goto done;
+  }
+
   // load the strategies yaml config file.
   try {
-    NH_Note("%s loading ...", basename);
     loadConfigFile(fn.c_str(), doc, include_once);
 
     config = YAML::Load(doc);
@@ -62,6 +72,7 @@ NextHopStrategyFactory::NextHopStrategyFactory(const char *file) : fn(file)
       if (strategies.Type() != YAML::NodeType::Sequence) {
         NH_Error("malformed %s file, expected a 'strategies' sequence", basename);
         strategies_loaded = false;
+        error_loading     = true;
       }
     }
     // loop through the strategies document.
@@ -96,11 +107,16 @@ NextHopStrategyFactory::NextHopStrategyFactory(const char *file) : fn(file)
       }
     }
   } catch (std::exception &ex) {
-    NH_Note("%s", ex.what());
+    NH_Error("%s", ex.what());
     strategies_loaded = false;
+    error_loading     = true;
   }
-  if (strategies_loaded) {
+
+done:
+  if (!error_loading) {
     NH_Note("%s finished loading", basename);
+  } else {
+    Error("%s failed to load", basename);
   }
 }
 
@@ -154,7 +170,7 @@ NextHopStrategyFactory::strategyInstance(const char *name)
   std::shared_ptr<NextHopSelectionStrategy> ps_strategy;
 
   if (!strategies_loaded) {
-    NH_Error("no strategy configurations were defined, see defintions in '%s' file", fn.c_str());
+    NH_Error("no strategy configurations were defined, see definitions in '%s' file", fn.c_str());
     return nullptr;
   } else {
     auto it = _strategies.find(name);
@@ -174,7 +190,7 @@ NextHopStrategyFactory::strategyInstance(const char *name)
  * loads the contents of a file into a std::stringstream document.  If the file has a '#include file'
  * directive, that 'file' is read into the document beginning at the the point where the
  * '#include' was found. This allows the 'strategy' and 'hosts' yaml files to be separate.  The
- * 'strategy' yaml file would then normally have the '#include hosts.yml' in it's begining.
+ * 'strategy' yaml file would then normally have the '#include hosts.yml' in it's beginning.
  */
 void
 NextHopStrategyFactory::loadConfigFile(const std::string &fileName, std::stringstream &doc,

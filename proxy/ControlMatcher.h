@@ -68,7 +68,7 @@
  *
  *   ip table - supports ip ranges.  A single ip address is treated as
  *       a range with the same beginning and end address.  The table is
- *       is devided up into a fixed number of  levels, indexed 8 bit
+ *       is divided up into a fixed number of  levels, indexed 8 bit
  *       boundaries, starting at the the high bit of the address.  Subsequent
  *       levels are allocated only when needed.
  *
@@ -132,10 +132,10 @@ public:
 class HttpRequestData : public RequestData
 {
 public:
-  inkcoreapi char *get_string() override;
-  inkcoreapi const char *get_host() override;
-  inkcoreapi sockaddr const *get_ip() override;
-  inkcoreapi sockaddr const *get_client_ip() override;
+  char *get_string() override;
+  const char *get_host() override;
+  sockaddr const *get_ip() override;
+  sockaddr const *get_client_ip() override;
 
   HttpRequestData()
 

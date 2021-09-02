@@ -75,7 +75,7 @@ int memcmp(const std::string_view &lhs, const std::string_view &rhs);
  * @code
  *   memcpy(dst, src.data(), size.size());
  * @endcode
- * Therefore @a dst must point at a buffer large enought to hold @a src. If this is not already
+ * Therefore @a dst must point at a buffer large enough to hold @a src. If this is not already
  * determined, then presuming @c DST_SIZE is the size of the buffer at @a dst
  * @code
  *   memcpy(dst, src.prefix(DST_SIZE));
@@ -1264,6 +1264,58 @@ namespace literals
    */
   constexpr ts::TextView operator"" _tv(const char *s, size_t n) { return {s, n}; }
 } // namespace literals
+
+/** Functor for STL containers that need caseless comparisons of standard string types.
+ *
+ * For example a @c std::set of strings with caseless comparison would be
+ *
+ * @code
+ * std::set<std::string, ts::caseless_compare> strings;
+ * @endcode
+ */
+struct caseless_less_than {
+  bool
+  operator()(std::string_view const &lhs, std::string_view const &rhs) const
+  {
+    return strcasecmp(lhs, rhs) < 0;
+  }
+  bool
+  operator()(TextView const &lhs, TextView const &rhs) const
+  {
+    return strcasecmp(lhs, rhs) < 0;
+  }
+  bool
+  operator()(std::string const &lhs, std::string const &rhs) const
+  {
+    return strcasecmp(lhs, rhs) < 0;
+  }
+};
+
+/** Functor for STL containers that need caseless equality of standard string types.
+ *
+ * For example a @c std::set of strings with caseless comparison would be
+ *
+ * @code
+ * std::set<std::string, ts::caseless_compare> strings;
+ * @endcode
+ */
+struct caseless_equal {
+  bool
+  operator()(std::string_view const &lhs, std::string_view const &rhs) const
+  {
+    return strcasecmp(lhs, rhs) == 0;
+  }
+  bool
+  operator()(TextView const &lhs, TextView const &rhs) const
+  {
+    return strcasecmp(lhs, rhs) == 0;
+  }
+  bool
+  operator()(std::string const &lhs, std::string const &rhs) const
+  {
+    return strcasecmp(lhs, rhs) == 0;
+  }
+};
 
 } // namespace ts
 

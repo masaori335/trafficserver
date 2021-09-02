@@ -16,6 +16,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+set -x
+
 # These shenanigans are here to allow it to run both manually, and via Jenkins
 test -z "${ATS_MAKE}" && ATS_MAKE="make"
 test ! -z "${WORKSPACE}" && cd "${WORKSPACE}/src"
@@ -24,7 +26,7 @@ test ! -z "${WORKSPACE}" && cd "${WORKSPACE}/src"
 INCLUDE_FILES=$(for i in $(git grep literalinclude doc/ | awk '{print $3}'); do basename $i; done | sort -u | paste -sd\|)
 echo $INCLUDE_FILES
 if [ ! -z "$ghprbActualCommit" ]; then
-    git diff ${ghprbActualCommit}^...${ghprbActualCommit} --name-only | egrep -E "(^doc/|$INCLUDE_FILES)" > /dev/null
+    git diff HEAD~1 --name-only | egrep -E "(^doc/|$INCLUDE_FILES)" > /dev/null
     if [ $? = 1 ]; then
         echo "No relevant files changed, skipping run"
         exit 0
@@ -36,9 +38,19 @@ autoreconf -fi && ./configure --enable-docs || exit 1
 
 cd doc
 
-echo "Building English version with warnings treated as errors"
+W_OPTION=""
+if grep ALLSPHINXOPTS Makefile.am | grep -q -- -W
+then
+  # We use the presence of -W in ALLSPHINXOPTS as a marker that we can treat
+  # warnings as errors.
+  echo "Building English version with warnings treated as errors"
+  W_OPTION="-W"
+else
+  echo "Building English version"
+fi
+make clean || true
 rm -rf docbuild/html
-${ATS_MAKE} -e SPHINXOPTS="-W -D language='en'" html
+${ATS_MAKE} -e SPHINXOPTS="${W_OPTION} -D language='en'" html
 [ $? != 0 ] && exit 1
 
 # Only continue with the rsync and JA build if we're on the official docs updates

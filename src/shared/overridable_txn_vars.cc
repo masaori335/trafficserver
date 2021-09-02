@@ -89,8 +89,6 @@ const std::unordered_map<std::string_view, std::tuple<const TSOverridableConfigK
      {OutboundConnTrack::CONFIG_VAR_MIN, {TS_CONFIG_HTTP_SERVER_MIN_KEEP_ALIVE_CONNS, TS_RECORDDATATYPE_INT}},
      {"proxy.config.http.anonymize_remove_client_ip", {TS_CONFIG_HTTP_ANONYMIZE_REMOVE_CLIENT_IP, TS_RECORDDATATYPE_INT}},
      {"proxy.config.http.cache.open_read_retry_time", {TS_CONFIG_HTTP_CACHE_OPEN_READ_RETRY_TIME, TS_RECORDDATATYPE_INT}},
-     // Remove for 10.  Leaving for now to keep enums consistent
-     {"proxy.config.http.down_server.abort_threshold", {TS_CONFIG_HTTP_DOWN_SERVER_ABORT_THRESHOLD, TS_RECORDDATATYPE_INT}},
      {OutboundConnTrack::CONFIG_VAR_MATCH, {TS_CONFIG_HTTP_PER_SERVER_CONNECTION_MATCH, TS_RECORDDATATYPE_INT}},
      {"proxy.config.http.parent_proxy.fail_threshold", {TS_CONFIG_HTTP_PARENT_PROXY_FAIL_THRESHOLD, TS_RECORDDATATYPE_INT}},
      {"proxy.config.http.cache.ignore_authentication", {TS_CONFIG_HTTP_CACHE_IGNORE_AUTHENTICATION, TS_RECORDDATATYPE_INT}},
@@ -160,4 +158,6 @@ const std::unordered_map<std::string_view, std::tuple<const TSOverridableConfigK
      {"proxy.config.ssl.client.cert.path", {TS_CONFIG_SSL_CERT_FILEPATH, TS_RECORDDATATYPE_STRING}},
      {"proxy.config.ssl.client.private_key.filename", {TS_CONFIG_SSL_CLIENT_PRIVATE_KEY_FILENAME, TS_RECORDDATATYPE_STRING}},
      {"proxy.config.ssl.client.CA.cert.filename", {TS_CONFIG_SSL_CLIENT_CA_CERT_FILENAME, TS_RECORDDATATYPE_STRING}},
-     {"proxy.config.hostdb.ip_resolve", {TS_CONFIG_HTTP_HOST_RESOLUTION_PREFERENCE, TS_RECORDDATATYPE_STRING}}});
+     {"proxy.config.hostdb.ip_resolve", {TS_CONFIG_HTTP_HOST_RESOLUTION_PREFERENCE, TS_RECORDDATATYPE_STRING}},
+     {"proxy.config.plugin.vc.default_buffer_index", {TS_CONFIG_PLUGIN_VC_DEFAULT_BUFFER_INDEX, TS_RECORDDATATYPE_INT}},
+     {"proxy.config.plugin.vc.default_buffer_water_mark", {TS_CONFIG_PLUGIN_VC_DEFAULT_BUFFER_WATER_MARK, TS_RECORDDATATYPE_INT}}});

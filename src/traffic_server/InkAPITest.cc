@@ -6636,8 +6636,9 @@ enum ORIG_TSHttpHookID {
   ORIG_TS_HTTP_CACHE_LOOKUP_COMPLETE_HOOK,
   ORIG_TS_HTTP_PRE_REMAP_HOOK,
   ORIG_TS_HTTP_POST_REMAP_HOOK,
+  ORIG_TS_HTTP_REQUEST_BUFFER_READ_COMPLETE_HOOK,
   ORIG_TS_HTTP_RESPONSE_CLIENT_HOOK,
-  ORIG_TS_SSL_FIRST_HOOK,
+  ORIG_TS_SSL_FIRST_HOOK   = 201,
   ORIG_TS_VCONN_START_HOOK = ORIG_TS_SSL_FIRST_HOOK,
   ORIG_TS_VCONN_CLOSE_HOOK,
   ORIG_TS_SSL_CLIENT_HELLO_HOOK,
@@ -6649,7 +6650,6 @@ enum ORIG_TSHttpHookID {
   ORIG_TS_VCONN_OUTBOUND_START_HOOK,
   ORIG_TS_VCONN_OUTBOUND_CLOSE_HOOK,
   ORIG_TS_SSL_LAST_HOOK = ORIG_TS_VCONN_OUTBOUND_CLOSE_HOOK,
-  ORIG_TS_HTTP_REQUEST_BUFFER_READ_COMPLETE_HOOK,
   ORIG_TS_HTTP_LAST_HOOK
 };
 
@@ -8625,7 +8625,6 @@ std::array<std::string_view, TS_CONFIG_LAST_ENTRY> SDK_Overridable_Configs = {
    "proxy.config.http.connect_attempts_rr_retries",
    "proxy.config.http.connect_attempts_timeout",
    "proxy.config.http.down_server.cache_time",
-   "proxy.config.http.down_server.abort_threshold",
    "proxy.config.http.doc_in_cache_skip_dns",
    "proxy.config.http.background_fill_active_timeout",
    "proxy.config.http.response_server_str",
@@ -8694,13 +8693,17 @@ std::array<std::string_view, TS_CONFIG_LAST_ENTRY> SDK_Overridable_Configs = {
    "proxy.config.ssl.client.private_key.filename",
    "proxy.config.ssl.client.CA.cert.filename",
    "proxy.config.hostdb.ip_resolve",
-   "proxy.config.http.connect.dead.policy"}};
+   "proxy.config.http.connect.dead.policy",
+   "proxy.config.plugin.vc.default_buffer_index",
+   "proxy.config.plugin.vc.default_buffer_water_mark"}};
+
+extern ClassAllocator<HttpSM> httpSMAllocator;
 
 REGRESSION_TEST(SDK_API_OVERRIDABLE_CONFIGS)(RegressionTest *test, int /* atype ATS_UNUSED */, int *pstatus)
 {
   TSOverridableConfigKey key;
   TSRecordDataType type;
-  HttpSM *s      = HttpSM::allocate();
+  HttpSM *s      = THREAD_ALLOC(httpSMAllocator, this_thread());
   bool success   = true;
   TSHttpTxn txnp = reinterpret_cast<TSHttpTxn>(s);
   InkRand generator(17);
@@ -8804,7 +8807,7 @@ REGRESSION_TEST(SDK_API_OVERRIDABLE_CONFIGS)(RegressionTest *test, int /* atype 
 
 REGRESSION_TEST(SDK_API_TXN_HTTP_INFO_GET)(RegressionTest *test, int /* atype ATS_UNUSED */, int *pstatus)
 {
-  HttpSM *s      = HttpSM::allocate();
+  HttpSM *s      = THREAD_ALLOC(httpSMAllocator, this_thread());
   bool success   = true;
   TSHttpTxn txnp = reinterpret_cast<TSHttpTxn>(s);
   TSMgmtInt ival_read;

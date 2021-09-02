@@ -214,7 +214,7 @@ NextHopSelectionStrategy::Init(ts::Yaml::Map &n)
               std::shared_ptr<HostRecord> host_rec = std::make_shared<HostRecord>(hosts_list[hst].as<HostRecord>());
               host_rec->group_index                = grp;
               host_rec->host_index                 = hst;
-              if (mach->is_self(host_rec->hostname.c_str())) {
+              if (mach->is_self(host_rec->hostname)) {
                 h_stat.setHostStatus(host_rec->hostname.c_str(), TSHostStatus::TS_HOST_STATUS_DOWN, 0, Reason::SELF_DETECT);
               }
               hosts_inner.push_back(std::move(host_rec));
@@ -291,6 +291,12 @@ NextHopSelectionStrategy::responseIsRetryable(int64_t sm_id, HttpTransact::Curre
   }
   NH_Debug(NH_DEBUG_TAG, "[%" PRIu64 "] response code %d is not retryable, returning PARENT_RETRY_NONE", sm_id, response_code);
   return PARENT_RETRY_NONE;
+}
+
+void
+NextHopSelectionStrategy::retryComplete(TSHttpTxn txnp, const char *hostname, const int port)
+{
+  return passive_health.retryComplete(txnp, hostname, port);
 }
 
 namespace YAML

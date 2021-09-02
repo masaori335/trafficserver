@@ -194,10 +194,10 @@ init_gzip(stats_state *my_state, int mode)
   my_state->zstrm.data_type = Z_ASCII;
   int err = deflateInit2(&my_state->zstrm, ZLIB_COMPRESSION_LEVEL, Z_DEFLATED, mode, ZLIB_MEMLEVEL, Z_DEFAULT_STRATEGY);
   if (err != Z_OK) {
-    TSDebug(PLUGIN_NAME, "gzip intialization failed");
+    TSDebug(PLUGIN_NAME, "gzip initialization failed");
     return NONE;
   } else {
-    TSDebug(PLUGIN_NAME, "gzip initialized succesfully");
+    TSDebug(PLUGIN_NAME, "gzip initialized successfully");
     if (mode == GZIP_MODE) {
       return GZIP;
     } else if (mode == DEFLATE_MODE) {
@@ -1005,7 +1005,7 @@ load_config_file(config_holder_t *config_holder)
     fh = TSfopen(config_holder->config_path, "r");
   }
 
-  if (!fh) {
+  if (!fh && config_holder->config_path != NULL) {
     TSError("[%s] Unable to open config: %s. Will use the param as the path, or %s if null\n", PLUGIN_NAME,
             config_holder->config_path, DEFAULT_URL_PATH);
     if (config_holder->config) {

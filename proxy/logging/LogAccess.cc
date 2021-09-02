@@ -51,32 +51,7 @@ char INVALID_STR[] = "!INVALID_STR!";
   machine pointer.
   -------------------------------------------------------------------------*/
 
-LogAccess::LogAccess(HttpSM *sm)
-  : m_http_sm(sm),
-    m_arena(),
-    m_client_request(nullptr),
-    m_proxy_response(nullptr),
-    m_proxy_request(nullptr),
-    m_server_response(nullptr),
-    m_cache_response(nullptr),
-    m_client_req_url_str(nullptr),
-    m_client_req_url_len(0),
-    m_client_req_url_canon_str(nullptr),
-    m_client_req_url_canon_len(0),
-    m_client_req_unmapped_url_canon_str(nullptr),
-    m_client_req_unmapped_url_canon_len(0),
-    m_client_req_unmapped_url_path_str(nullptr),
-    m_client_req_unmapped_url_path_len(0),
-    m_client_req_unmapped_url_host_str(nullptr),
-    m_client_req_unmapped_url_host_len(0),
-    m_client_req_url_path_str(nullptr),
-    m_client_req_url_path_len(0),
-    m_proxy_resp_content_type_str(nullptr),
-    m_proxy_resp_content_type_len(0),
-    m_proxy_resp_reason_phrase_str(nullptr),
-    m_proxy_resp_reason_phrase_len(0),
-    m_cache_lookup_url_canon_str(nullptr),
-    m_cache_lookup_url_canon_len(0)
+LogAccess::LogAccess(HttpSM *sm) : m_http_sm(sm)
 {
   ink_assert(m_http_sm != nullptr);
 }
@@ -135,16 +110,15 @@ LogAccess::init()
 int
 LogAccess::marshal_proxy_host_name(char *buf)
 {
-  char *str        = nullptr;
-  int len          = 0;
-  Machine *machine = Machine::instance();
+  int len         = 0;
+  char const *str = nullptr;
 
-  if (machine) {
-    str = machine->hostname;
+  if (Machine *machine = Machine::instance(); machine) {
+    str = machine->host_name.c_str();
+    len = machine->host_name.length();
   }
 
-  len = LogAccess::strlen(str);
-
+  len = INK_ALIGN_DEFAULT(len + 1);
   if (buf) {
     marshal_str(buf, str, len);
   }
@@ -1189,10 +1163,7 @@ void
 LogAccess::set_client_req_url_path(char *buf, int len)
 {
   //?? use m_client_req_unmapped_url_path_str for now..may need to enhance later..
-  if (buf && m_client_req_unmapped_url_path_str) {
-    m_client_req_url_path_len = std::min(len, m_client_req_url_path_len);
-    ink_strlcpy(m_client_req_unmapped_url_path_str, buf, m_client_req_url_path_len + 1);
-  }
+  this->set_client_req_unmapped_url_path(buf, len);
 }
 
 /*-------------------------------------------------------------------------
@@ -1353,6 +1324,19 @@ LogAccess::marshal_version_build_number(char *buf)
   -------------------------------------------------------------------------*/
 
 int
+LogAccess::marshal_version_string(char *buf)
+{
+  int len = LogAccess::strlen(appVersionInfo.VersionStr);
+  if (buf) {
+    marshal_str(buf, appVersionInfo.VersionStr, len);
+  }
+  return len;
+}
+
+/*-------------------------------------------------------------------------
+  -------------------------------------------------------------------------*/
+
+int
 LogAccess::marshal_proxy_protocol_version(char *buf)
 {
   const char *version_str = nullptr;
@@ -1476,7 +1460,7 @@ LogAccess::validate_unmapped_url_path()
     // Use unmapped canonical URL as default
     m_client_req_unmapped_url_path_str = m_client_req_unmapped_url_canon_str;
     m_client_req_unmapped_url_path_len = m_client_req_unmapped_url_canon_len;
-    // Incase the code below fails, we prevent it from being used.
+    // In case the code below fails, we prevent it from being used.
     m_client_req_unmapped_url_host_str = INVALID_STR;
 
     if (m_client_req_unmapped_url_path_len >= 6) { // xxx:// - minimum schema size

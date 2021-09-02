@@ -176,7 +176,7 @@ int ats_ip_check_characters(std::string_view text);
   @param s IP address in the Internet standard dot notation.
 
 */
-inkcoreapi uint32_t ats_inet_addr(const char *s);
+uint32_t ats_inet_addr(const char *s);
 
 const char *ats_ip_ntop(const struct sockaddr *addr, char *dst, size_t size);
 
@@ -1148,7 +1148,7 @@ uint32_t ats_ip_hash(sockaddr const *addr);
 
 uint64_t ats_ip_port_hash(sockaddr const *addr);
 
-/** Convert address to string as a hexidecimal value.
+/** Convert address to string as a hexadecimal value.
     The string is always nul terminated, the output string is clipped
     if @a dst is insufficient.
     @return The length of the resulting string (not including nul).
@@ -1183,6 +1183,7 @@ struct IpAddr {
 
   /// Construct from @c sockaddr.
   explicit IpAddr(sockaddr const *addr) { this->assign(addr); }
+  explicit IpAddr(sockaddr const &addr) { this->assign(&addr); }
   /// Construct from @c sockaddr_in6.
   explicit IpAddr(sockaddr_in6 const &addr) { this->assign(ats_ip_sa_cast(&addr)); }
   /// Construct from @c sockaddr_in6.

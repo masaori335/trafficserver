@@ -83,7 +83,7 @@
  * Any plugin using the IO Core must enter
  *   with a held mutex.  SDK 1.0, 1.1 & 2.0 did not
  *   have this restriction so we need to add a mutex
- *   to Plugin's Continuation if it trys to use the IOCore
+ *   to Plugin's Continuation if it tries to use the IOCore
  * Not only does the plugin have to have a mutex
  *   before entering the IO Core.  The mutex needs to be held.
  *   We now take out the mutex on each call to ensure it is
@@ -773,7 +773,7 @@ isWriteable(TSMBuffer bufp)
 static MIMEFieldSDKHandle *
 sdk_alloc_field_handle(TSMBuffer /* bufp ATS_UNUSED */, MIMEHdrImpl *mh)
 {
-  MIMEFieldSDKHandle *handle = mHandleAllocator.alloc();
+  MIMEFieldSDKHandle *handle = THREAD_ALLOC(mHandleAllocator, this_thread());
 
   // TODO: Should remove this when memory allocation can't fail.
   sdk_assert(sdk_sanity_check_null_ptr((void *)handle) == TS_SUCCESS);
@@ -788,7 +788,7 @@ static void
 sdk_free_field_handle(TSMBuffer bufp, MIMEFieldSDKHandle *field_handle)
 {
   if (sdk_sanity_check_mbuffer(bufp) == TS_SUCCESS) {
-    mHandleAllocator.free(field_handle);
+    THREAD_FREE(field_handle, mHandleAllocator, this_thread());
   }
 }
 
@@ -1075,7 +1075,7 @@ INKContInternal::free()
   clear();
   this->mutex.clear();
   m_free_magic = INKCONT_INTERN_MAGIC_DEAD;
-  INKContAllocator.free(this);
+  THREAD_FREE(this, INKContAllocator, this_thread());
 }
 
 void
@@ -1181,7 +1181,7 @@ INKVConnInternal::free()
   clear();
   this->mutex.clear();
   m_free_magic = INKCONT_INTERN_MAGIC_DEAD;
-  INKVConnAllocator.free(this);
+  THREAD_FREE(this, INKVConnAllocator, this_thread());
 }
 
 void
@@ -1386,7 +1386,7 @@ APIHooks::append(INKContInternal *cont)
 {
   APIHook *api_hook;
 
-  api_hook         = apiHookAllocator.alloc();
+  api_hook         = THREAD_ALLOC(apiHookAllocator, this_thread());
   api_hook->m_cont = cont;
 
   m_hooks.enqueue(api_hook);
@@ -1397,7 +1397,7 @@ APIHooks::clear()
 {
   APIHook *hook;
   while (nullptr != (hook = m_hooks.pop())) {
-    apiHookAllocator.free(hook);
+    THREAD_FREE(hook, apiHookAllocator, this_thread());
   }
 }
 
@@ -4599,7 +4599,7 @@ TSContCreate(TSEventFunc funcp, TSMutex mutexp)
     pluginThreadContext->acquire();
   }
 
-  INKContInternal *i = INKContAllocator.alloc();
+  INKContInternal *i = THREAD_ALLOC(INKContAllocator, this_thread());
 
   i->init(funcp, mutexp, pluginThreadContext);
   return (TSCont)i;
@@ -5679,6 +5679,7 @@ TSReturnCode
 TSHttpTxnAborted(TSHttpTxn txnp, bool *client_abort)
 {
   sdk_assert(sdk_sanity_check_txn(txnp) == TS_SUCCESS);
+  sdk_assert(client_abort != nullptr);
 
   *client_abort = false;
   HttpSM *sm    = (HttpSM *)txnp;
@@ -6878,20 +6879,55 @@ TSHttpTxnPluginTagGet(TSHttpTxn txnp)
   return sm->plugin_tag;
 }
 
+TSHttpConnectOptions
+TSHttpConnectOptionsGet(TSConnectType connect_type)
+{
+  sdk_assert(connect_type > TS_CONNECT_UNDEFINED);
+  sdk_assert(connect_type < TS_CONNECT_LAST_ENTRY);
+
+  return TSHttpConnectOptions{.connect_type      = connect_type,
+                              .addr              = nullptr,
+                              .tag               = nullptr,
+                              .id                = 0,
+                              .buffer_index      = TS_IOBUFFER_SIZE_INDEX_32K,
+                              .buffer_water_mark = TS_IOBUFFER_WATER_MARK_PLUGIN_VC_DEFAULT};
+}
+
 TSVConn
 TSHttpConnectWithPluginId(sockaddr const *addr, const char *tag, int64_t id)
 {
-  sdk_assert(addr);
+  TSHttpConnectOptions options = TSHttpConnectOptionsGet(TS_CONNECT_PLUGIN);
+  options.addr                 = addr;
+  options.tag                  = tag;
+  options.id                   = id;
 
-  sdk_assert(ats_is_ip(addr));
-  sdk_assert(ats_ip_port_cast(addr));
+  return TSHttpConnectPlugin(&options);
+}
+
+TSVConn
+TSHttpConnectPlugin(TSHttpConnectOptions *options)
+{
+  sdk_assert(options != nullptr);
+  sdk_assert(options->connect_type == TS_CONNECT_PLUGIN);
+  sdk_assert(options->addr);
+
+  sdk_assert(ats_is_ip(options->addr));
+  sdk_assert(ats_ip_port_cast(options->addr));
+
+  if (options->buffer_index < TS_IOBUFFER_SIZE_INDEX_128 || options->buffer_index > MAX_BUFFER_SIZE_INDEX) {
+    options->buffer_index = TS_IOBUFFER_SIZE_INDEX_32K; // out of range, set to the default for safety
+  }
+
+  if (options->buffer_water_mark < TS_IOBUFFER_WATER_MARK_PLUGIN_VC_DEFAULT) {
+    options->buffer_water_mark = TS_IOBUFFER_WATER_MARK_PLUGIN_VC_DEFAULT;
+  }
 
   if (plugin_http_accept) {
-    PluginVCCore *new_pvc = PluginVCCore::alloc(plugin_http_accept);
+    PluginVCCore *new_pvc = PluginVCCore::alloc(plugin_http_accept, options->buffer_index, options->buffer_water_mark);
 
-    new_pvc->set_active_addr(addr);
-    new_pvc->set_plugin_id(id);
-    new_pvc->set_plugin_tag(tag);
+    new_pvc->set_active_addr(options->addr);
+    new_pvc->set_plugin_id(options->id);
+    new_pvc->set_plugin_tag(options->tag);
 
     PluginVC *return_vc = new_pvc->connect();
 
@@ -7001,7 +7037,7 @@ TSVConnCreate(TSEventFunc event_funcp, TSMutex mutexp)
     pluginThreadContext->acquire();
   }
 
-  INKVConnInternal *i = INKVConnAllocator.alloc();
+  INKVConnInternal *i = THREAD_ALLOC(INKVConnAllocator, this_thread());
 
   sdk_assert(sdk_sanity_check_null_ptr((void *)i) == TS_SUCCESS);
 
@@ -7215,8 +7251,11 @@ TSHttpTxnServerIntercept(TSCont contp, TSHttpTxn txnp)
   sdk_assert(sdk_sanity_check_txn(txnp) == TS_SUCCESS);
   sdk_assert(sdk_sanity_check_continuation(contp) == TS_SUCCESS);
 
+  TSIOBufferSizeIndex buffer_index      = TSPluginVCIOBufferIndexGet(txnp);
+  TSIOBufferWaterMark buffer_water_mark = TSPluginVCIOBufferWaterMarkGet(txnp);
+
   http_sm->plugin_tunnel_type = HTTP_PLUGIN_AS_SERVER;
-  http_sm->plugin_tunnel      = PluginVCCore::alloc((INKContInternal *)contp);
+  http_sm->plugin_tunnel      = PluginVCCore::alloc((INKContInternal *)contp, buffer_index, buffer_water_mark);
 }
 
 void
@@ -7227,8 +7266,37 @@ TSHttpTxnIntercept(TSCont contp, TSHttpTxn txnp)
   sdk_assert(sdk_sanity_check_txn(txnp) == TS_SUCCESS);
   sdk_assert(sdk_sanity_check_continuation(contp) == TS_SUCCESS);
 
+  TSIOBufferSizeIndex buffer_index      = TSPluginVCIOBufferIndexGet(txnp);
+  TSIOBufferWaterMark buffer_water_mark = TSPluginVCIOBufferWaterMarkGet(txnp);
+
   http_sm->plugin_tunnel_type = HTTP_PLUGIN_AS_INTERCEPT;
-  http_sm->plugin_tunnel      = PluginVCCore::alloc((INKContInternal *)contp);
+  http_sm->plugin_tunnel      = PluginVCCore::alloc((INKContInternal *)contp, buffer_index, buffer_water_mark);
+}
+
+TSIOBufferSizeIndex
+TSPluginVCIOBufferIndexGet(TSHttpTxn txnp)
+{
+  TSMgmtInt index;
+
+  if (TSHttpTxnConfigIntGet(txnp, TS_CONFIG_PLUGIN_VC_DEFAULT_BUFFER_INDEX, &index) == TS_SUCCESS &&
+      index >= TS_IOBUFFER_SIZE_INDEX_128 && index <= MAX_BUFFER_SIZE_INDEX) {
+    return static_cast<TSIOBufferSizeIndex>(index);
+  }
+
+  return TS_IOBUFFER_SIZE_INDEX_32K;
+}
+
+TSIOBufferWaterMark
+TSPluginVCIOBufferWaterMarkGet(TSHttpTxn txnp)
+{
+  TSMgmtInt water_mark;
+
+  if (TSHttpTxnConfigIntGet(txnp, TS_CONFIG_PLUGIN_VC_DEFAULT_BUFFER_WATER_MARK, &water_mark) == TS_SUCCESS &&
+      water_mark > TS_IOBUFFER_WATER_MARK_UNDEFINED) {
+    return static_cast<TSIOBufferWaterMark>(water_mark);
+  }
+
+  return TS_IOBUFFER_WATER_MARK_PLUGIN_VC_DEFAULT;
 }
 
 // The API below require timer values as TSHRTime parameters
@@ -8611,9 +8679,6 @@ _conf_to_memberp(TSOverridableConfigKey conf, OverridableHttpConfigParams *overr
   case TS_CONFIG_HTTP_DOWN_SERVER_CACHE_TIME:
     ret = _memberp_to_generic(&overridableHttpConfig->down_server_timeout, conv);
     break;
-  case TS_CONFIG_HTTP_DOWN_SERVER_ABORT_THRESHOLD:
-    ret = _memberp_to_generic(&overridableHttpConfig->client_abort_threshold, conv);
-    break;
   case TS_CONFIG_HTTP_DOC_IN_CACHE_SKIP_DNS:
     ret = _memberp_to_generic(&overridableHttpConfig->doc_in_cache_skip_dns, conv);
     break;
@@ -8803,6 +8868,12 @@ _conf_to_memberp(TSOverridableConfigKey conf, OverridableHttpConfigParams *overr
   case TS_CONFIG_HTTP_HOST_RESOLUTION_PREFERENCE:
     ret  = &overridableHttpConfig->host_res_data;
     conv = &HttpTransact::HOST_RES_CONV;
+    break;
+  case TS_CONFIG_PLUGIN_VC_DEFAULT_BUFFER_INDEX:
+    ret = _memberp_to_generic(&overridableHttpConfig->plugin_vc_default_buffer_index, conv);
+    break;
+  case TS_CONFIG_PLUGIN_VC_DEFAULT_BUFFER_WATER_MARK:
+    ret = _memberp_to_generic(&overridableHttpConfig->plugin_vc_default_buffer_water_mark, conv);
     break;
   // This helps avoiding compiler warnings, yet detect unhandled enum members.
   case TS_CONFIG_NULL:
@@ -10089,7 +10160,7 @@ TSRemapToUrlGet(TSHttpTxn txnp, TSMLoc *urlLocp)
 TSReturnCode
 TSHostnameIsSelf(const char *hostname, size_t hostname_len)
 {
-  return Machine::instance()->is_self(hostname, hostname_len) ? TS_SUCCESS : TS_ERROR;
+  return Machine::instance()->is_self(std::string_view{hostname, hostname_len}) ? TS_SUCCESS : TS_ERROR;
 }
 
 TSReturnCode

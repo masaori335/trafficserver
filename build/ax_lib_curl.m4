@@ -8,7 +8,7 @@
 #
 # DESCRIPTION
 #
-#   Checks for minimum curl library version VERSION. If successfull executes
+#   Checks for minimum curl library version VERSION. If successful executes
 #   ACTION-IF-SUCCESS otherwise ACTION-IF-FAILURE.
 #
 #   Defines CURL_LIBS and CURL_CFLAGS.
@@ -32,7 +32,7 @@
 
 #serial 7
 
-AU_ALIAS([AC_CHECK_CURL], [AX_LIB_CURL])
+AU_ALIAS([AX_LIB_CURL], [AX_LIB_CURL])
 AC_DEFUN([AX_LIB_CURL], [
   AX_PATH_GENERIC([curl],[$1],['s/^libcurl\ \+//'],[$2],[$3])
 ])

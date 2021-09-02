@@ -139,7 +139,7 @@ ParentRoundRobin::selectParent(bool first_call, ParentResult *result, RequestDat
     HostStatRec *hst = pStatus.getHostStatus(parents[cur_index].hostname);
     host_stat        = (hst) ? hst->status : TSHostStatus::TS_HOST_STATUS_UP;
     // if the config ignore_self_detect is set to true and the host is down due to SELF_DETECT reason
-    // ignore the down status and mark it as avaialble
+    // ignore the down status and mark it as available
     if (result->rec->ignore_self_detect && (hst && hst->status == TS_HOST_STATUS_DOWN)) {
       if (hst->reasons == Reason::SELF_DETECT) {
         host_stat = TS_HOST_STATUS_UP;
@@ -157,18 +157,15 @@ ParentRoundRobin::selectParent(bool first_call, ParentResult *result, RequestDat
     } else {
       if ((result->wrap_around) ||
           (((parents[cur_index].failedAt + retry_time) < request_info->xact_start) && host_stat == TS_HOST_STATUS_UP)) {
-        if (parents[cur_index].retriers.fetch_add(1, std::memory_order_relaxed) < max_retriers) {
+        if (parents[cur_index].retriers.inc(max_retriers)) {
           Debug("parent_select",
                 "Parent[%d].failedAt = %u, retry = %u, retriers = %d, max_retriers = %u, xact_start = %" PRId64 " but wrap = %d",
-                cur_index, static_cast<unsigned>(parents[cur_index].failedAt.load()), retry_time,
-                parents[cur_index].retriers.load(), max_retriers, static_cast<int64_t>(request_info->xact_start),
-                result->wrap_around);
+                cur_index, static_cast<unsigned>(parents[cur_index].failedAt.load()), retry_time, parents[cur_index].retriers(),
+                max_retriers, static_cast<int64_t>(request_info->xact_start), result->wrap_around);
           // Reuse the parent
           parentUp    = true;
           parentRetry = true;
           Debug("parent_select", "Parent marked for retry %s:%d", parents[cur_index].hostname, parents[cur_index].port);
-        } else {
-          parents[cur_index].retriers--;
         }
       } else {
         parentUp = false;

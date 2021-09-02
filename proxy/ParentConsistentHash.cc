@@ -119,7 +119,7 @@ chash_lookup(ATSConsistentHash *fhash, uint64_t path_hash, ATSConsistentHashIter
   } else {
     prtmp = (pRecord *)fhash->lookup(nullptr, chashIter, wrap_around, hash);
   }
-  // Do not set wrap_around to true until we try all the parents atleast once.
+  // Do not set wrap_around to true until we try all the parents at least once.
   bool wrapped = *wrap_around;
   *wrap_around = (*mapWrapped && *wrap_around) ? true : false;
   if (!*mapWrapped && wrapped) {
@@ -221,7 +221,7 @@ ParentConsistentHash::selectParent(bool first_call, ParentResult *result, Reques
   }
 
   // if the config ignore_self_detect is set to true and the host is down due to SELF_DETECT reason
-  // ignore the down status and mark it as avaialble
+  // ignore the down status and mark it as available
   if ((pRec && result->rec->ignore_self_detect) && (hst && hst->status == TS_HOST_STATUS_DOWN)) {
     if (hst->reasons == Reason::SELF_DETECT) {
       host_stat = TS_HOST_STATUS_UP;
@@ -235,7 +235,7 @@ ParentConsistentHash::selectParent(bool first_call, ParentResult *result, Reques
         Debug("parent_select", "Parent.failedAt = %u, retry = %u, xact_start = %u", static_cast<unsigned>(pRec->failedAt.load()),
               static_cast<unsigned>(retry_time), static_cast<unsigned>(request_info->xact_start));
         if ((pRec->failedAt.load() + retry_time) < request_info->xact_start) {
-          if (pRec->retriers.fetch_add(1, std::memory_order_relaxed) < max_retriers) {
+          if (pRec->retriers.inc(max_retriers)) {
             parentRetry = true;
             // make sure that the proper state is recorded in the result structure
             result->last_parent = pRec->idx;
@@ -243,10 +243,8 @@ ParentConsistentHash::selectParent(bool first_call, ParentResult *result, Reques
             result->retry       = parentRetry;
             result->result      = PARENT_SPECIFIED;
             Debug("parent_select", "Down parent %s is now retryable, retriers = %d, max_retriers = %d", pRec->hostname,
-                  pRec->retriers.load(), max_retriers);
+                  pRec->retriers(), max_retriers);
             break;
-          } else {
-            pRec->retriers--;
           }
         }
       }
@@ -306,7 +304,7 @@ ParentConsistentHash::selectParent(bool first_call, ParentResult *result, Reques
       hst       = (pRec) ? pStatus.getHostStatus(pRec->hostname) : nullptr;
       host_stat = (hst) ? hst->status : TSHostStatus::TS_HOST_STATUS_UP;
       // if the config ignore_self_detect is set to true and the host is down due to SELF_DETECT reason
-      // ignore the down status and mark it as avaialble
+      // ignore the down status and mark it as available
       if ((pRec && result->rec->ignore_self_detect) && (hst && hst->status == TS_HOST_STATUS_DOWN)) {
         if (hst->reasons == Reason::SELF_DETECT) {
           host_stat = TS_HOST_STATUS_UP;
@@ -322,7 +320,7 @@ ParentConsistentHash::selectParent(bool first_call, ParentResult *result, Reques
   // ----------------------------------------------------------------------------------------------------
 
   // if the config ignore_self_detect is set to true and the host is down due to SELF_DETECT reason
-  // ignore the down status and mark it as avaialble
+  // ignore the down status and mark it as available
   if ((pRec && result->rec->ignore_self_detect) && (hst && hst->status == TS_HOST_STATUS_DOWN)) {
     if (hst->reasons == Reason::SELF_DETECT) {
       host_stat = TS_HOST_STATUS_UP;
@@ -395,7 +393,7 @@ ParentConsistentHash::markParentUp(ParentResult *result)
 
   pRec->failedAt = static_cast<time_t>(0);
   int old_count  = pRec->failCount.exchange(0, std::memory_order_relaxed);
-  pRec->retriers = 0;
+  pRec->retriers.clear();
 
   if (old_count > 0) {
     Note("http parent proxy %s:%d restored", pRec->hostname, pRec->port);

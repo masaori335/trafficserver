@@ -1359,6 +1359,11 @@ HttpConfig::startup()
   HttpEstablishStaticConfigLongLong(c.oride.default_buffer_size_index, "proxy.config.http.default_buffer_size");
   HttpEstablishStaticConfigLongLong(c.oride.default_buffer_water_mark, "proxy.config.http.default_buffer_water_mark");
 
+  // Plugin VC buffer size and watermark
+  HttpEstablishStaticConfigLongLong(c.oride.plugin_vc_default_buffer_index, "proxy.config.plugin.vc.default_buffer_index");
+  HttpEstablishStaticConfigLongLong(c.oride.plugin_vc_default_buffer_water_mark,
+                                    "proxy.config.plugin.vc.default_buffer_water_mark");
+
   // Stat Page Info
   HttpEstablishStaticConfigByte(c.enable_http_info, "proxy.config.http.enable_http_info");
 
@@ -1637,7 +1642,7 @@ HttpConfig::reconfigure()
   params->referer_filter_enabled  = INT_TO_BOOL(m_master.referer_filter_enabled);
   params->referer_format_redirect = INT_TO_BOOL(m_master.referer_format_redirect);
 
-  params->strict_uri_parsing = INT_TO_BOOL(m_master.strict_uri_parsing);
+  params->strict_uri_parsing = m_master.strict_uri_parsing;
 
   params->oride.down_server_timeout = m_master.oride.down_server_timeout;
 
@@ -1660,6 +1665,9 @@ HttpConfig::reconfigure()
 
   params->oride.host_res_data            = m_master.oride.host_res_data;
   params->oride.host_res_data.conf_value = ats_strdup(m_master.oride.host_res_data.conf_value);
+
+  params->oride.plugin_vc_default_buffer_index      = m_master.oride.plugin_vc_default_buffer_index;
+  params->oride.plugin_vc_default_buffer_water_mark = m_master.oride.plugin_vc_default_buffer_water_mark;
 
   m_id = configProcessor.set(m_id, params);
 }

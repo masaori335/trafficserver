@@ -251,6 +251,24 @@ We should write this TAG in records.config(If TAG is missing, default TAG will b
 
 :ref:`TOP <admin-plugins-ts-lua>`
 
+ts.is_debug_tag_set
+-------------------
+**syntax:** *ts.is_debug_tag_set(TAG?)*
+
+**context:** global
+
+**description**: Returns '1' if debug TAG is enabled(the default TAG is **ts_lua**).
+
+Here is an example:
+
+::
+
+       if ts.is_debug_tag_set() then
+           ts.debug("hello world")
+       end
+
+:ref:`TOP <admin-plugins-ts-lua>`
+
 ts.error
 --------
 **syntax:** *ts.error(MESSAGE)*
@@ -887,6 +905,16 @@ Then ``GET /st HTTP/1.1\r\nHost: b.tb.cn\r\nUser-Agent: Mozilla/5.0\r\n...`` wil
 
 :ref:`TOP <admin-plugins-ts-lua>`
 
+ts.client_request.header_table
+------------------------------
+**syntax:** *VALUE = ts.client_request.header_table[HEADER]*
+
+**context:** do_remap/do_os_response or do_global_* or later
+
+**description:** get the current client request's HEADER as a table.
+
+:ref:`TOP <admin-plugins-ts-lua>`
+
 ts.client_request.get_headers
 -----------------------------
 **syntax:** *ts.client_request.get_headers()*
@@ -1498,6 +1526,16 @@ Here is an example:
 
 :ref:`TOP <admin-plugins-ts-lua>`
 
+ts.cached_response.header_table
+-------------------------------
+**syntax:** *VALUE = ts.cached_response.header_table[HEADER]*
+
+**context:** function @ TS_LUA_HOOK_CACHE_LOOKUP_COMPLETE hook point or later
+
+**description:** get the current cached response's HEADER as a table.
+
+:ref:`TOP <admin-plugins-ts-lua>`
+
 ts.cached_response.get_headers
 ------------------------------
 **syntax:** *ts.cached_response.get_headers()*
@@ -1703,6 +1741,16 @@ Then ``GET /st HTTP/1.1\r\nHost: b.tb.cn\r\nUser-Agent: Mozilla/5.0\r\n...`` wil
 
 ``Mozilla/5.0``
 
+
+:ref:`TOP <admin-plugins-ts-lua>`
+
+ts.server_request.header_table
+------------------------------
+**syntax:** *VALUE = ts.server_request.header_table[HEADER]*
+
+**context:** function @ TS_LUA_HOOK_SEND_REQUEST_HDR hook point or later
+
+**description:** get the current server request's HEADER as a table.
 
 :ref:`TOP <admin-plugins-ts-lua>`
 
@@ -2381,6 +2429,16 @@ We will get the output:
 
 :ref:`TOP <admin-plugins-ts-lua>`'
 
+ts.server_response.header_table
+-------------------------------
+**syntax:** *VALUE = ts.server_response.header_table[HEADER]*
+
+**context:** function @ TS_LUA_HOOK_READ_RESPONSE_HDR hook point or later.
+
+**description:** get the current server response's HEADER as a table.
+
+:ref:`TOP <admin-plugins-ts-lua>`
+
 ts.server_response.get_headers
 ------------------------------
 **syntax:** *ts.server_response.get_headers()*
@@ -2528,6 +2586,35 @@ Here is an example:
 We will get the output:
 
 ``text/html``
+
+
+:ref:`TOP <admin-plugins-ts-lua>`
+
+ts.client_response.header_table
+-------------------------------
+**syntax:** *VALUE = ts.client_response.header_table[HEADER]*
+
+**context:** function @ TS_LUA_HOOK_SEND_RESPONSE_HDR hook point.
+
+**description:** get the current client response's HEADER as a table.
+
+Here is an example:
+
+::
+
+    function send_response()
+        local hdrs = ts.client_response.header_table['Set-Cookie'] or {}
+        for k, v in pairs(hdrs) do
+            ts.debug(k..': '..v)
+        end
+    end
+
+    function do_remap()
+        ts.hook(TS_LUA_HOOK_SEND_RESPONSE_HDR, send_response)
+        return 0
+    end
+
+If there are multiple 'Set-Cookie' response header, they will be printed as debug message.
 
 
 :ref:`TOP <admin-plugins-ts-lua>`
@@ -3850,10 +3937,10 @@ Http config constants
     TS_LUA_CONFIG_HTTP_PER_SERVER_CONNECTION_MATCH
     TS_LUA_CONFIG_HTTP_CONNECT_ATTEMPTS_MAX_RETRIES
     TS_LUA_CONFIG_HTTP_CONNECT_ATTEMPTS_MAX_RETRIES_DEAD_SERVER
+    TS_LUA_CONFIG_HTTP_CONNECT_DEAD_POLICY
     TS_LUA_CONFIG_HTTP_CONNECT_ATTEMPTS_RR_RETRIES
     TS_LUA_CONFIG_HTTP_CONNECT_ATTEMPTS_TIMEOUT
     TS_LUA_CONFIG_HTTP_DOWN_SERVER_CACHE_TIME
-    TS_LUA_CONFIG_HTTP_DOWN_SERVER_ABORT_THRESHOLD
     TS_LUA_CONFIG_HTTP_DOC_IN_CACHE_SKIP_DNS
     TS_LUA_CONFIG_HTTP_BACKGROUND_FILL_ACTIVE_TIMEOUT
     TS_LUA_CONFIG_HTTP_RESPONSE_SERVER_STR
@@ -3890,6 +3977,7 @@ Http config constants
     TS_LUA_CONFIG_HTTP_CACHE_MAX_OPEN_WRITE_RETRIES
     TS_LUA_CONFIG_HTTP_REDIRECT_USE_ORIG_CACHE_KEY
     TS_LUA_CONFIG_HTTP_ATTACH_SERVER_SESSION_TO_CLIENT
+    TS_LUA_CONFIG_HTTP_MAX_PROXY_CYCLES
     TS_LUA_CONFIG_WEBSOCKET_NO_ACTIVITY_TIMEOUT
     TS_LUA_CONFIG_WEBSOCKET_ACTIVE_TIMEOUT
     TS_LUA_CONFIG_HTTP_UNCACHEABLE_REQUESTS_BYPASS_PARENT
@@ -3916,6 +4004,8 @@ Http config constants
     TS_LUA_CONFIG_SSL_CLIENT_PRIVATE_KEY_FILENAME
     TS_LUA_CONFIG_SSL_CLIENT_CA_CERT_FILENAME
     TS_LUA_CONFIG_HTTP_HOST_RESOLUTION_PREFERENCE
+    TS_LUA_CONFIG_PLUGIN_VC_DEFAULT_BUFFER_INDEX
+    TS_LUA_CONFIG_PLUGIN_VC_DEFAULT_BUFFER_WATER_MARK
     TS_LUA_CONFIG_LAST_ENTRY
 
 :ref:`TOP <admin-plugins-ts-lua>`

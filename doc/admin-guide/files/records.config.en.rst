@@ -191,6 +191,16 @@ System Variables
 
    The name of the executable that runs the :program:`traffic_server` process.
 
+   If you want to set Environment Variables for :program:`traffic_server` process, use a wrapper script like below. ::
+
+     CONFIG proxy.config.proxy_binary STRING start_traffic_server.sh
+
+   ::
+
+     #!/bin/sh
+     export ASAN_OPTIONS=detect_leaks=1
+     /opt/ats/bin/traffic_server "$@"
+
 .. ts:cv:: CONFIG proxy.config.proxy_binary_opts STRING -M
 
    The :ref:`command-line options <traffic_server>` for starting |TS|.
@@ -1174,6 +1184,8 @@ mptcp
    proxy.process.http.disallowed_post_100_continue will be incremented.
 
 .. ts:cv:: CONFIG proxy.config.http.default_buffer_size INT 8
+   :reloadable:
+   :overridable:
 
    Configures the default buffer size, in bytes, to allocate for incoming
    request bodies which lack a ``Content-length`` header.
@@ -1233,8 +1245,10 @@ mptcp
 
 .. ts:cv:: CONFIG proxy.config.http.strict_uri_parsing INT 0
 
-   Enables (``1``) or disables (``0``) |TS| to return a 400 Bad Request
-   if client's request URI includes character which is not RFC 3986 compliant
+   Takes a value between 0 and 2.  ``0`` disables strict_uri_parsing.  Any character can appears
+   in the URI.  ``1`` causes |TS| to return 400 Bad Request
+   if client's request URI includes character which is not RFC 3986 compliant. ``2`` directs |TS|
+   to reject the clients request if it contains whitespace or non-printable characters.
 
 .. ts:cv:: CONFIG proxy.config.http.errors.log_error_pages INT 1
    :reloadable:
@@ -1890,6 +1904,8 @@ Proxy User Variables
          *blank* (for any header that does not include ``gzip``)
    ``2`` ``Accept-Encoding: br`` if the header has ``br`` (with any ``q``) **ELSE**
          normalize as for value ``1``
+   ``3`` ``Accept-Encoding: br, gzip`` (if the header has ``br`` and ``gzip`` (with any ``q`` for either) then ``br, gzip``) **ELSE**
+         normalize as for value ``2``
    ===== ======================================================================
 
    This is useful for minimizing cached alternates of documents (e.g. ``gzip, deflate`` vs. ``deflate, gzip``).
@@ -3845,8 +3861,8 @@ Client-Related Configuration
 
 .. ts:cv:: CONFIG proxy.config.ssl.async.handshake.enabled INT 0
 
-   Enables the use of openssl async job during the TLS handshake.  Traffic
-   Server must be build against openssl 1.1 or greater or this to take affect.
+   Enables the use of OpenSSL async job during the TLS handshake.  Traffic
+   Server must be build against OpenSSL 1.1 or greater or this to take affect.
    Can be useful if using a crypto engine that communicates off chip.  The
    thread will be rescheduled for other work until the crypto engine operation
    completes. A test crypto engine that inserts a 5 second delay on private key
@@ -3854,7 +3870,7 @@ Client-Related Configuration
 
 .. ts:cv:: CONFIG proxy.config.ssl.engine.conf_file STRING NULL
 
-   Specify the location of the openssl config file used to load dynamic crypto
+   Specify the location of the OpenSSL config file used to load dynamic crypto
    engines. This setting assumes an absolute path.  An example config file is at
    :ts:git:`contrib/openssl/load_engine.cnf`.
 
@@ -4346,6 +4362,21 @@ Plug-in Configuration
    Enables (``1``) or disables (``0``) the dynamic reload feature for remap
    plugins (`remap.config`). Global plugins (`plugin.config`) do not have dynamic reload feature yet.
 
+.. ts:cv:: CONFIG proxy.config.plugin.vc.default_buffer_index INT 8
+   :reloadable:
+   :overridable:
+
+   Specifies the buffer index and thus size to use when constructing IO buffers within the PluginVC.
+   Tuning this can impact performance of intercept plugins. Default is 8, which aligns with the
+   default value of ts:cv:`CONFIG proxy.config.http.default_buffer_size`.
+
+.. ts:cv:: CONFIG proxy.config.plugin.vc.default_buffer_water_mark INT 0
+   :reloadable:
+   :overridable:
+
+   Specifies the buffer water mark size in bytes used to control the flow of data through IO buffers
+   within the PluginVC. Default is zero to preserve existing PluginVC water marking behavior.
+
 SOCKS Processor
 ===============
 
@@ -4430,6 +4461,7 @@ Sockets
 
    This directive enables operating system specific optimizations for a listening socket. ``defer_accept`` holds a call to ``accept(2)``
    back until data has arrived. In Linux' special case this is up to a maximum of 45 seconds.
+   On FreeBSD, ``accf_data`` module needs to be loaded.
 
 .. ts:cv:: CONFIG proxy.config.net.listen_backlog INT -1
    :reloadable:
@@ -4592,7 +4624,7 @@ Sockets
 .. ts:cv:: CONFIG proxy.config.allocator.thread_freelist_size INT 512
 
    Sets the maximum number of elements that can be contained in a ProxyAllocator (per-thread)
-   before returning the objects to the global pool
+   before returning the objects to the global pool. If set to ``0``, there is no limit enforced.
 
 .. ts:cv:: CONFIG proxy.config.allocator.thread_freelist_low_watermark INT 32
 

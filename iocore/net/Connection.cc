@@ -32,6 +32,11 @@
 
 #include "P_Net.h"
 
+#ifdef SO_ACCEPTFILTER
+#include <sys/param.h>
+#include <sys/linker.h>
+#endif
+
 // set in the OS
 // #define RECV_BUF_SIZE            (1024*64)
 // #define SEND_BUF_SIZE            (1024*64)
@@ -265,6 +270,17 @@ Server::setup_fd_for_listen(bool non_blocking, const NetProcessor::AcceptOptions
   }
 #endif
 
+  if (opt.f_mptcp) {
+#if MPTCP_ENABLED
+    if (safe_setsockopt(fd, IPPROTO_TCP, MPTCP_ENABLED, SOCKOPT_ON, sizeof(int)) < 0) {
+      Error("[Server::listen] Unable to enable MPTCP socket-option [%d] %s\n", errno, strerror(errno));
+      goto Lerror;
+    }
+#else
+    Error("[Server::listen] Multipath TCP requested but not configured on this host\n");
+#endif
+  }
+
 #ifdef TCP_DEFER_ACCEPT
   // set tcp defer accept timeout if it is configured, this will not trigger an accept until there is
   // data on the socket ready to be read
@@ -295,6 +311,36 @@ Lerror:
 }
 
 int
+Server::setup_fd_after_listen(const NetProcessor::AcceptOptions &opt)
+{
+#ifdef SO_ACCEPTFILTER
+  // SO_ACCEPTFILTER needs to be set **after** listen
+  if (opt.defer_accept > 0) {
+    int file_id = kldfind("accf_data");
+
+    struct kld_file_stat stat;
+    stat.version = sizeof(stat);
+
+    if (kldstat(file_id, &stat) < 0) {
+      Error("[Server::listen] Ignored defer_accept config. Because accf_data module is not loaded errno=%d", errno);
+    } else {
+      struct accept_filter_arg afa;
+
+      bzero(&afa, sizeof(afa));
+      strcpy(afa.af_name, "dataready");
+
+      if (setsockopt(this->fd, SOL_SOCKET, SO_ACCEPTFILTER, &afa, sizeof(afa)) < 0) {
+        Error("[Server::listen] Defer accept is configured but set failed: %d", errno);
+        return -errno;
+      }
+    }
+  }
+#endif
+
+  return 0;
+}
+
+int
 Server::listen(bool non_blocking, const NetProcessor::AcceptOptions &opt)
 {
   ink_assert(fd == NO_FD);
@@ -322,6 +368,11 @@ Server::listen(bool non_blocking, const NetProcessor::AcceptOptions &opt)
   }
 
   if ((res = safe_listen(fd, get_listen_backlog())) < 0) {
+    goto Lerror;
+  }
+
+  res = setup_fd_after_listen(opt);
+  if (res < 0) {
     goto Lerror;
   }
 

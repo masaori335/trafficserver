@@ -389,12 +389,6 @@ public:
   */
   VIO *do_io_read(Continuation *c, int64_t nbytes, MIOBuffer *buf) override = 0;
 
-  virtual Continuation *
-  read_vio_cont()
-  {
-    return nullptr;
-  }
-
   /**
     Initiates write. Thread-safe, may be called when not handling
     an event from the NetVConnection, or the NetVConnection creation
@@ -431,11 +425,6 @@ public:
   */
   VIO *do_io_write(Continuation *c, int64_t nbytes, IOBufferReader *buf, bool owner = false) override = 0;
 
-  virtual Continuation *
-  write_vio_cont()
-  {
-    return nullptr;
-  }
   /**
     Closes the vconnection. A state machine MUST call do_io_close()
     when it has finished with a VConnection. do_io_close() indicates
@@ -473,21 +462,6 @@ public:
   void do_io_shutdown(ShutdownHowTo_t howto) override = 0;
 
   /**
-    Sends out of band messages over the connection. This function
-    is used to send out of band messages (is this still useful?).
-    cont is called back with VC_EVENT_OOB_COMPLETE - on successful
-    send or VC_EVENT_EOS - if the other side has shutdown the
-    connection. These callbacks could be re-entrant. Only one
-    send_OOB can be in progress at any time for a VC.
-
-    @param cont to be called back with events.
-    @param buf message buffer.
-    @param len length of the message.
-
-  */
-  virtual Action *send_OOB(Continuation *cont, char *buf, int len);
-
-  /**
     Return the server name that is appropriate for the network VC type
   */
   virtual const char *
@@ -495,15 +469,6 @@ public:
   {
     return nullptr;
   }
-
-  /**
-    Cancels a scheduled send_OOB. Part of the message could have
-    been sent already. Not callbacks to the cont are made after
-    this call. The Action returned by send_OOB should not be accessed
-    after cancel_OOB.
-
-  */
-  virtual void cancel_OOB();
 
   ////////////////////////////////////////////////////////////
   // Set the timeouts associated with this connection.      //
@@ -629,23 +594,12 @@ public:
   sockaddr const *get_local_addr();
   IpEndpoint const &get_local_endpoint();
 
-  /** Returns local ip.
-      @deprecated get_local_addr() should be used instead for AF_INET6 compatibility.
-  */
-
-  in_addr_t get_local_ip();
-
   /** Returns local port. */
   uint16_t get_local_port();
 
   /** Returns remote sockaddr storage. */
   sockaddr const *get_remote_addr();
   IpEndpoint const &get_remote_endpoint();
-
-  /** Returns remote ip.
-      @deprecated get_remote_addr() should be used instead for AF_INET6 compatibility.
-  */
-  in_addr_t get_remote_ip();
 
   /** Returns remote port. */
   uint16_t get_remote_port();

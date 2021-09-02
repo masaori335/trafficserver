@@ -164,11 +164,11 @@ int remote_management_flag      = DEFAULT_REMOTE_MANAGEMENT_FLAG;
 static char bind_stdout[512]    = "";
 static char bind_stderr[512]    = "";
 
-static char error_tags[1024]               = "";
-static char action_tags[1024]              = "";
-static int show_statistics                 = 0;
-static inkcoreapi DiagsConfig *diagsConfig = nullptr;
-HttpBodyFactory *body_factory              = nullptr;
+static char error_tags[1024]    = "";
+static char action_tags[1024]   = "";
+static int show_statistics      = 0;
+static DiagsConfig *diagsConfig = nullptr;
+HttpBodyFactory *body_factory   = nullptr;
 
 static int accept_mss           = 0;
 static int poll_timeout         = -1; // No value set.
@@ -1522,11 +1522,6 @@ syslog_log_configure()
 }
 
 static void
-check_system_constants()
-{
-}
-
-static void
 init_http_header()
 {
   url_init();
@@ -1743,9 +1738,6 @@ main(int /* argc ATS_UNUSED */, const char **argv)
 
   pcre_malloc = ats_malloc;
   pcre_free   = ats_free;
-
-  // Verify system dependent 'constants'
-  check_system_constants();
 
   // Define the version info
   appVersionInfo.setup(PACKAGE_NAME, "traffic_server", PACKAGE_VERSION, __DATE__, __TIME__, BUILD_MACHINE, BUILD_PERSON, "");

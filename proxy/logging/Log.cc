@@ -56,7 +56,7 @@
 #define PERIODIC_TASKS_INTERVAL_FALLBACK 5
 
 // Log global objects
-inkcoreapi LogObject *Log::error_log = nullptr;
+LogObject *Log::error_log = nullptr;
 LogFieldList Log::global_field_list;
 Log::LoggingMode Log::logging_mode = LOG_MODE_NONE;
 
@@ -954,6 +954,11 @@ Log::init_fields()
   global_field_list.add(field, false);
   field_symbol_hash.emplace("vbn", field);
 
+  field = new LogField("version_string", "vs", LogField::STRING, &LogAccess::marshal_version_string,
+                       reinterpret_cast<LogField::UnmarshalFunc>(&LogAccess::unmarshal_str));
+  global_field_list.add(field, false);
+  field_symbol_hash.emplace("vs", field);
+
   init_status |= FIELDS_INITIALIZED;
 }
 
@@ -1167,7 +1172,7 @@ Log::access(LogAccess *lad)
     ret = Log::SKIP;
     goto done;
   }
-  // initialize this LogAccess object and proccess
+  // initialize this LogAccess object and process
   //
   lad->init();
   ret = config->log_object_manager.log(lad);

@@ -38,5 +38,6 @@ tag is set by the plugin that created the transaction.
 
 See also
 ========
+:manpage:`TSHttpConnectPlugin(3ts)`,
 :manpage:`TSHttpConnectWithPluginId(3ts)`,
 :manpage:`TSAPI(3ts)`

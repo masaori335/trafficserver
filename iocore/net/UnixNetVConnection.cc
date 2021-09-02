@@ -633,18 +633,6 @@ UnixNetVConnection::do_io_write(Continuation *c, int64_t nbytes, IOBufferReader 
   return &write.vio;
 }
 
-Continuation *
-UnixNetVConnection::read_vio_cont()
-{
-  return read.vio.cont;
-}
-
-Continuation *
-UnixNetVConnection::write_vio_cont()
-{
-  return write.vio.cont;
-}
-
 void
 UnixNetVConnection::do_io_close(int alerrno /* = -1 */)
 {
@@ -729,63 +717,6 @@ UnixNetVConnection::do_io_shutdown(ShutdownHowTo_t howto)
     break;
   default:
     ink_assert(!"not reached");
-  }
-}
-
-int
-OOB_callback::retry_OOB_send(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
-{
-  ink_assert(mutex->thread_holding == this_ethread());
-  // the NetVC and the OOB_callback share a mutex
-  server_vc->oob_ptr = nullptr;
-  server_vc->send_OOB(server_cont, data, length);
-  delete this;
-  return EVENT_DONE;
-}
-
-void
-UnixNetVConnection::cancel_OOB()
-{
-  UnixNetVConnection *u = this;
-  if (u->oob_ptr) {
-    if (u->oob_ptr->trigger) {
-      u->oob_ptr->trigger->cancel_action();
-      u->oob_ptr->trigger = nullptr;
-    }
-    delete u->oob_ptr;
-    u->oob_ptr = nullptr;
-  }
-}
-
-Action *
-UnixNetVConnection::send_OOB(Continuation *cont, char *buf, int len)
-{
-  UnixNetVConnection *u = this;
-  ink_assert(len > 0);
-  ink_assert(buf);
-  ink_assert(!u->oob_ptr);
-  int written;
-  ink_assert(cont->mutex->thread_holding == this_ethread());
-  written = socketManager.send(u->con.fd, buf, len, MSG_OOB);
-  if (written == len) {
-    cont->handleEvent(VC_EVENT_OOB_COMPLETE, nullptr);
-    return ACTION_RESULT_DONE;
-  } else if (!written) {
-    cont->handleEvent(VC_EVENT_EOS, nullptr);
-    return ACTION_RESULT_DONE;
-  }
-  if (written > 0 && written < len) {
-    u->oob_ptr          = new OOB_callback(mutex, this, cont, buf + written, len - written);
-    u->oob_ptr->trigger = mutex->thread_holding->schedule_in_local(u->oob_ptr, HRTIME_MSECONDS(10));
-    return u->oob_ptr->trigger;
-  } else {
-    // should be a rare case : taking a new continuation should not be
-    // expensive for this
-    written = -errno;
-    ink_assert(written == -EAGAIN || written == -ENOTCONN);
-    u->oob_ptr          = new OOB_callback(mutex, this, cont, buf, len);
-    u->oob_ptr->trigger = mutex->thread_holding->schedule_in_local(u->oob_ptr, HRTIME_MSECONDS(10));
-    return u->oob_ptr->trigger;
   }
 }
 
@@ -897,7 +828,10 @@ UnixNetVConnection::reenable_re(VIO *vio)
   }
 }
 
-UnixNetVConnection::UnixNetVConnection() {}
+UnixNetVConnection::UnixNetVConnection()
+{
+  SET_HANDLER((NetVConnHandler)&UnixNetVConnection::startEvent);
+}
 
 // Private methods
 
@@ -1057,6 +991,22 @@ void
 UnixNetVConnection::netActivity(EThread *lthread)
 {
   net_activity(this, lthread);
+}
+
+int
+UnixNetVConnection::startEvent(int /* event ATS_UNUSED */, Event *e)
+{
+  MUTEX_TRY_LOCK(lock, get_NetHandler(e->ethread)->mutex, e->ethread);
+  if (!lock.is_locked()) {
+    e->schedule_in(HRTIME_MSECONDS(net_retry_delay));
+    return EVENT_CONT;
+  }
+  if (!action_.cancelled) {
+    connectUp(e->ethread, NO_FD);
+  } else {
+    get_NetHandler(e->ethread)->free_netevent(this);
+  }
+  return EVENT_DONE;
 }
 
 int
@@ -1263,7 +1213,6 @@ UnixNetVConnection::connectUp(EThread *t, int fd)
     res = con.connect(nullptr, options);
     if (res != 0) {
       // fast stopIO
-      nh = nullptr;
       goto fail;
     }
   }
@@ -1289,7 +1238,7 @@ fail:
   if (fd != NO_FD) {
     con.fd = NO_FD;
   }
-  free(t);
+  nh->free_netevent(this);
   return CONNECT_FAILURE;
 }
 
@@ -1339,8 +1288,6 @@ UnixNetVConnection::free(EThread *t)
 {
   ink_release_assert(t == this_ethread());
 
-  // cancel OOB
-  cancel_OOB();
   // close socket fd
   if (con.fd != NO_FD) {
     NET_SUM_GLOBAL_DYN_STAT(net_connections_currently_open_stat, -1);
@@ -1348,6 +1295,7 @@ UnixNetVConnection::free(EThread *t)
   con.close();
 
   clear();
+  SET_CONTINUATION_HANDLER(this, (NetVConnHandler)&UnixNetVConnection::startEvent);
   ink_assert(con.fd == NO_FD);
   ink_assert(t == this_ethread());
 

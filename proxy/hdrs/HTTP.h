@@ -415,20 +415,20 @@ void http_hdr_adjust(HTTPHdrImpl *hdrp, int32_t offset, int32_t length, int32_t 
 /* Public */
 void http_init();
 
-inkcoreapi HTTPHdrImpl *http_hdr_create(HdrHeap *heap, HTTPType polarity);
+HTTPHdrImpl *http_hdr_create(HdrHeap *heap, HTTPType polarity);
 void http_hdr_init(HdrHeap *heap, HTTPHdrImpl *hh, HTTPType polarity);
 HTTPHdrImpl *http_hdr_clone(HTTPHdrImpl *s_hh, HdrHeap *s_heap, HdrHeap *d_heap);
 void http_hdr_copy_onto(HTTPHdrImpl *s_hh, HdrHeap *s_heap, HTTPHdrImpl *d_hh, HdrHeap *d_heap, bool inherit_strs);
 
-inkcoreapi int http_hdr_print(HdrHeap *heap, HTTPHdrImpl *hh, char *buf, int bufsize, int *bufindex, int *dumpoffset);
+int http_hdr_print(HdrHeap *heap, HTTPHdrImpl *hh, char *buf, int bufsize, int *bufindex, int *dumpoffset);
 
 void http_hdr_describe(HdrHeapObjImpl *obj, bool recurse = true);
 
-inkcoreapi bool http_hdr_version_set(HTTPHdrImpl *hh, const HTTPVersion &ver);
+bool http_hdr_version_set(HTTPHdrImpl *hh, const HTTPVersion &ver);
 
 const char *http_hdr_method_get(HTTPHdrImpl *hh, int *length);
-inkcoreapi void http_hdr_method_set(HdrHeap *heap, HTTPHdrImpl *hh, const char *method, int16_t method_wks_idx, int method_length,
-                                    bool must_copy);
+void http_hdr_method_set(HdrHeap *heap, HTTPHdrImpl *hh, const char *method, int16_t method_wks_idx, int method_length,
+                         bool must_copy);
 
 void http_hdr_url_set(HdrHeap *heap, HTTPHdrImpl *hh, URLImpl *url);
 
@@ -441,7 +441,7 @@ const char *http_hdr_reason_lookup(unsigned status);
 void http_parser_init(HTTPParser *parser);
 void http_parser_clear(HTTPParser *parser);
 ParseResult http_parser_parse_req(HTTPParser *parser, HdrHeap *heap, HTTPHdrImpl *hh, const char **start, const char *end,
-                                  bool must_copy_strings, bool eof, bool strict_uri_parsing, size_t max_request_line_size,
+                                  bool must_copy_strings, bool eof, int strict_uri_parsing, size_t max_request_line_size,
                                   size_t max_hdr_field_size);
 ParseResult validate_hdr_host(HTTPHdrImpl *hh);
 ParseResult validate_hdr_content_length(HdrHeap *heap, HTTPHdrImpl *hh);
@@ -462,7 +462,7 @@ HTTPValRange*          http_parse_range (const char *buf, Arena *arena);
 */
 HTTPValTE *http_parse_te(const char *buf, int len, Arena *arena);
 
-inkcoreapi bool is_http_hdr_version_supported(const HTTPVersion &http_version);
+bool is_http1_hdr_version_supported(const HTTPVersion &http_version);
 
 class IOBufferReader;
 
@@ -575,7 +575,7 @@ public:
       This is a reference, not allocated.
       @return A pointer to the fragment or @c NULL if there is no valid URL.
   */
-  const char *fragment_get(int *length ///< Storage for fragement length.
+  const char *fragment_get(int *length ///< Storage for fragment length.
   );
 
   /** Get the target host name.
@@ -600,7 +600,6 @@ public:
   const char *scheme_get(int *length ///< Storage for path length.
   );
   void url_set(URL *url);
-  void url_set_as_server_url(URL *url);
   void url_set(const char *str, int length);
 
   /// Check location of target host.
@@ -632,11 +631,11 @@ public:
   void mark_early_data(bool flag = true) const;
   bool is_early_data() const;
 
-  ParseResult parse_req(HTTPParser *parser, const char **start, const char *end, bool eof, bool strict_uri_parsing = false,
+  ParseResult parse_req(HTTPParser *parser, const char **start, const char *end, bool eof, int strict_uri_parsing = 0,
                         size_t max_request_line_size = UINT16_MAX, size_t max_hdr_field_size = 131070);
   ParseResult parse_resp(HTTPParser *parser, const char **start, const char *end, bool eof);
 
-  ParseResult parse_req(HTTPParser *parser, IOBufferReader *r, int *bytes_used, bool eof, bool strict_uri_parsing = false,
+  ParseResult parse_req(HTTPParser *parser, IOBufferReader *r, int *bytes_used, bool eof, int strict_uri_parsing = 0,
                         size_t max_request_line_size = UINT16_MAX, size_t max_hdr_field_size = UINT16_MAX);
   ParseResult parse_resp(HTTPParser *parser, IOBufferReader *r, int *bytes_used, bool eof);
 
@@ -1045,19 +1044,6 @@ HTTPHdr::url_set(URL *url)
   -------------------------------------------------------------------------*/
 
 inline void
-HTTPHdr::url_set_as_server_url(URL *url)
-{
-  ink_assert(valid());
-  ink_assert(m_http->m_polarity == HTTP_TYPE_REQUEST);
-
-  URLImpl *url_impl = m_http->u.req.m_url_impl;
-  ::url_copy_onto_as_server_url(url->m_url_impl, url->m_heap, url_impl, m_heap, true);
-}
-
-/*-------------------------------------------------------------------------
-  -------------------------------------------------------------------------*/
-
-inline void
 HTTPHdr::url_set(const char *str, int length)
 {
   URLImpl *url_impl;
@@ -1156,7 +1142,7 @@ HTTPHdr::is_early_data() const
   -------------------------------------------------------------------------*/
 
 inline ParseResult
-HTTPHdr::parse_req(HTTPParser *parser, const char **start, const char *end, bool eof, bool strict_uri_parsing,
+HTTPHdr::parse_req(HTTPParser *parser, const char **start, const char *end, bool eof, int strict_uri_parsing,
                    size_t max_request_line_size, size_t max_hdr_field_size)
 {
   ink_assert(valid());
@@ -1344,8 +1330,8 @@ public:
   void copy_frag_offsets_from(HTTPInfo *src);
   HTTPInfo &operator=(const HTTPInfo &m);
 
-  inkcoreapi int marshal_length();
-  inkcoreapi int marshal(char *buf, int len);
+  int marshal_length();
+  int marshal(char *buf, int len);
   static int unmarshal(char *buf, int len, RefCountObj *block_ref);
   static int unmarshal_v24_1(char *buf, int len, RefCountObj *block_ref);
   void set_buffer_reference(RefCountObj *block_ref);

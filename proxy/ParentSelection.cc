@@ -394,7 +394,7 @@ ParentRecord::PreProcessParents(const char *val, const int line_num, char *buf, 
       ink_assert(length < sizeof(fqdn));
       memset(fqdn, 0, sizeof(fqdn));
       strncpy(fqdn, token, length);
-      if (self_detect && machine->is_self(fqdn)) {
+      if (self_detect && machine->is_self(std::string_view(fqdn))) {
         if (self_detect == 1) {
           Debug("parent_select", "token: %s, matches this machine.  Removing self from parent list at line %d", fqdn, line_num);
           token = strtok_r(nullptr, PARENT_DELIMITERS, &savePtr);
@@ -405,7 +405,7 @@ ParentRecord::PreProcessParents(const char *val, const int line_num, char *buf, 
         }
       }
     } else {
-      if (self_detect && machine->is_self(token)) {
+      if (self_detect && machine->is_self(std::string_view(token))) {
         if (self_detect == 1) {
           Debug("parent_select", "token: %s, matches this machine.  Removing self from parent list at line %d", token, line_num);
           token = strtok_r(nullptr, PARENT_DELIMITERS, &savePtr);
@@ -539,7 +539,7 @@ ParentRecord::ProcessParents(char *val, bool isPrimary)
       this->parents[i].name                    = this->parents[i].hostname;
       this->parents[i].available               = true;
       this->parents[i].weight                  = weight;
-      this->parents[i].retriers                = 0;
+      this->parents[i].retriers.clear();
       if (tmp3) {
         memcpy(this->parents[i].hash_string, tmp3 + 1, strlen(tmp3));
         this->parents[i].name = this->parents[i].hash_string;
@@ -555,7 +555,7 @@ ParentRecord::ProcessParents(char *val, bool isPrimary)
       this->secondary_parents[i].name                    = this->secondary_parents[i].hostname;
       this->secondary_parents[i].available               = true;
       this->secondary_parents[i].weight                  = weight;
-      this->secondary_parents[i].retriers                = 0;
+      this->secondary_parents[i].retriers.clear();
       if (tmp3) {
         memcpy(this->secondary_parents[i].hash_string, tmp3 + 1, strlen(tmp3));
         this->secondary_parents[i].name = this->secondary_parents[i].hash_string;

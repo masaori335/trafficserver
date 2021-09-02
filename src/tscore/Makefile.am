@@ -18,7 +18,7 @@
 
 include $(top_srcdir)/build/tidy.mk
 
-noinst_PROGRAMS = mkdfa CompileParseRules
+noinst_PROGRAMS = mkdfa CompileParseRules freelist_benchmark
 check_PROGRAMS = test_geometry test_X509HostnameValidator test_tscore
 
 if EXPENSIVE_TESTS
@@ -63,7 +63,6 @@ libtscore_la_SOURCES = \
 	Errata.cc \
 	EventNotify.cc \
 	Extendible.cc \
-	fastlz.c \
 	Hash.cc \
 	HashFNV.cc \
 	HashMD5.cc \
@@ -198,6 +197,10 @@ if HAS_HKDF
 test_tscore_SOURCES += \
 	unit_tests/test_HKDF.cc
 endif
+
+freelist_benchmark_CXXFLAGS = -Wno-array-bounds $(AM_CXXFLAGS) -I$(abs_top_srcdir)/tests/include
+freelist_benchmark_LDADD = libtscore.la @HWLOC_LIBS@
+freelist_benchmark_SOURCES = unit_tests/freelist_benchmark.cc
 
 CompileParseRules_SOURCES = CompileParseRules.cc
 

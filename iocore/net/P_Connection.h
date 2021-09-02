@@ -120,12 +120,6 @@ struct Connection {
     ats_ip_copy(&addr, remote_addr);
   }
 
-  int setup_mc_send(sockaddr const *mc_addr, sockaddr const *my_addr, bool non_blocking = NON_BLOCKING, unsigned char mc_ttl = 1,
-                    bool mc_loopback = DISABLE_MC_LOOPBACK, Continuation *c = nullptr);
-
-  int setup_mc_receive(sockaddr const *from, sockaddr const *my_addr, bool non_blocking = NON_BLOCKING,
-                       Connection *sendchan = nullptr, Continuation *c = nullptr);
-
   int close(); // 0 on success, -errno on failure
 
   void apply_options(NetVCOptions const &opt);
@@ -149,7 +143,7 @@ protected:
    * @return @a this
    *
    * This is protected because it is not safe in the general case, but is valid for
-   * certain subclasses. Those provide a public assignemnt that depends on this method.
+   * certain subclasses. Those provide a public assignment that depends on this method.
    */
   Connection &operator=(Connection const &that) = default;
   void _cleanup();
@@ -177,6 +171,7 @@ struct Server : public Connection {
 
   int listen(bool non_blocking, const NetProcessor::AcceptOptions &opt);
   int setup_fd_for_listen(bool non_blocking, const NetProcessor::AcceptOptions &opt);
+  int setup_fd_after_listen(const NetProcessor::AcceptOptions &opt);
 
   Server() : Connection() { ink_zero(accept_addr); }
 };
