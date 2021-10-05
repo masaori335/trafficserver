@@ -62,6 +62,7 @@ enum {
   http_current_client_connections_stat,
   http_current_active_client_connections_stat,
   http_websocket_current_active_client_connections_stat,
+  tunnel_current_active_connections_stat,
   http_current_client_transactions_stat,
   http_total_incoming_connections_stat,
   http_current_server_transactions_stat,
@@ -507,6 +508,7 @@ struct OverridableHttpConfigParams {
   MgmtByte uncacheable_requests_bypass_parent = 1;
   MgmtByte attach_server_session_to_client    = 0;
   MgmtInt max_proxy_cycles                    = 0;
+  MgmtInt tunnel_activity_check_period        = 0;
 
   MgmtByte forward_connect_method = 0;
 
@@ -628,6 +630,7 @@ struct OverridableHttpConfigParams {
   MgmtInt sock_option_flag_out      = 0;
   MgmtInt sock_packet_mark_out      = 0;
   MgmtInt sock_packet_tos_out       = 0;
+  MgmtInt sock_packet_notsent_lowat = 0;
 
   ///////////////
   // Hdr Limit //
@@ -663,6 +666,7 @@ struct OverridableHttpConfigParams {
   MgmtInt connect_attempts_max_retries_dead_server = 3;
   MgmtInt connect_attempts_rr_retries              = 3;
   MgmtInt connect_attempts_timeout                 = 30;
+  MgmtInt post_connect_attempts_timeout            = 1800;
 
   MgmtInt connect_dead_policy = 2;
 
@@ -673,8 +677,10 @@ struct OverridableHttpConfigParams {
   MgmtInt parent_retry_time           = 300;
   MgmtInt parent_fail_threshold       = 10;
   MgmtInt per_parent_connect_attempts = 2;
+  MgmtInt parent_connect_timeout      = 30;
 
-  MgmtInt down_server_timeout = 300;
+  MgmtInt down_server_timeout    = 300;
+  MgmtInt client_abort_threshold = 1000;
 
   // open read failure retries.
   MgmtInt max_cache_open_read_retries = -1;
@@ -823,10 +829,11 @@ public:
 
   MgmtByte send_100_continue_response = 0;
   MgmtByte disallow_post_100_continue = 0;
+  MgmtByte keepalive_internal_vc      = 0;
 
   MgmtByte server_session_sharing_pool = TS_SERVER_SESSION_SHARING_POOL_THREAD;
 
-  OutboundConnTrack::GlobalConfig outbound_conntrack;
+  OutboundConnTrack::GlobalConfig global_outbound_conntrack;
 
   // bitset to hold the status codes that will BE cached with negative caching enabled
   HttpStatusBitset negative_caching_list;
@@ -858,6 +865,8 @@ public:
 class HttpConfig
 {
 public:
+  using scoped_config = ConfigProcessor::scoped_config<HttpConfig, HttpConfigParams>;
+
   static void startup();
 
   static void reconfigure();
