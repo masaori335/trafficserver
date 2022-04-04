@@ -531,6 +531,36 @@ TEST_CASE("HdrTest", "[proxy][hdrtest]")
   mime_init();
   http_init();
 
+  SECTION("Control Char Check")
+  {
+    static struct {
+      std::string_view line;
+      ParseResult expected;
+    } test_cases[] = {
+      {"Content-Length: 10\r\n", PARSE_RESULT_CONT},
+      {"Content-Length\x0b: 10\r\n", PARSE_RESULT_ERROR},
+      {"Content-Length:\x0b 10\r\n", PARSE_RESULT_ERROR},
+      {"Content-Length: 10\x0b\r\n", PARSE_RESULT_ERROR},
+    };
+
+    MIMEHdr hdr;
+    MIMEParser parser;
+    mime_parser_init(&parser);
+
+    for (const auto &t : test_cases) {
+      mime_parser_clear(&parser);
+
+      const char *start = t.line.data();
+      const char *end   = start + t.line.size();
+
+      int r = hdr.parse(&parser, &start, end, false, false, false);
+      if (r != t.expected) {
+        std::printf("Expected %s is %s, but not", t.line.data(), t.expected == PARSE_RESULT_ERROR ? "invalid" : "valid");
+        CHECK(false);
+      }
+    }
+  }
+
   SECTION("Test parse date")
   {
     static struct {
