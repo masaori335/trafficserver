@@ -212,6 +212,9 @@ SSLNetVConnection::_make_ssl_connection(SSL_CTX *ctx)
       }
 #endif
     }
+
+    new (&_sni) TLSSNISupport(this);
+
     this->_bindSSLObject();
   }
 }
@@ -223,7 +226,7 @@ SSLNetVConnection::_bindSSLObject()
   TLSBasicSupport::bind(this->ssl, this);
   ALPNSupport::bind(this->ssl, this);
   TLSSessionResumptionSupport::bind(this->ssl, this);
-  TLSSNISupport::bind(this->ssl, this);
+  TLSSNISupport::bind(this->ssl, &_sni);
   TLSEarlyDataSupport::bind(this->ssl, this);
   TLSTunnelSupport::bind(this->ssl, this);
 }
@@ -975,8 +978,9 @@ SSLNetVConnection::clear()
   ALPNSupport::clear();
   TLSBasicSupport::clear();
   TLSSessionResumptionSupport::clear();
-  TLSSNISupport::_clear();
   TLSTunnelSupport::_clear();
+
+  _sni.clear();
 
   sslHandshakeStatus          = SSL_HANDSHAKE_ONGOING;
   sslLastWriteTime            = 0;
@@ -1870,6 +1874,9 @@ SSLNetVConnection::populate(Connection &con, Continuation *c, void *arg)
   // Maybe bring over the stats?
 
   sslHandshakeStatus = SSL_HANDSHAKE_DONE;
+
+  new (&_sni) TLSSNISupport(this);
+
   this->_bindSSLObject();
   return EVENT_DONE;
 }
@@ -1959,12 +1966,6 @@ SSLNetVConnection::protocol_contains(std::string_view prefix) const
     retval = super::protocol_contains(prefix);
   }
   return retval;
-}
-
-void
-SSLNetVConnection::_fire_ssl_servername_event()
-{
-  this->callHooks(TS_EVENT_SSL_SERVERNAME);
 }
 
 void

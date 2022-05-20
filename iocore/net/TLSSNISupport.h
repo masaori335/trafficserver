@@ -28,10 +28,16 @@
 #include <openssl/ssl.h>
 #include "tscore/ink_config.h"
 
+class SSLNetVConnection;
+class QUICNetVConnection;
+
 class TLSSNISupport
 {
 public:
-  virtual ~TLSSNISupport() = default;
+  using SNIVConnection = std::variant<SSLNetVConnection *, QUICNetVConnection *>;
+
+  TLSSNISupport(){};
+  TLSSNISupport(SNIVConnection vc) : _vc(vc) {}
 
   static void initialize();
   static TLSSNISupport *getInstance(SSL *ssl);
@@ -39,6 +45,9 @@ public:
   static void unbind(SSL *ssl);
 
   int perform_sni_action();
+  const char *get_sni_server_name() const;
+  void clear();
+
   // Callback functions for OpenSSL libraries
 #if TS_USE_HELLO_CB || defined(OPENSSL_IS_BORINGSSL)
 #ifdef OPENSSL_IS_BORINGSSL
@@ -49,17 +58,12 @@ public:
 #endif
   void on_servername(SSL *ssl, int *al, void *arg);
 
-protected:
-  virtual void _fire_ssl_servername_event() = 0;
-
-  void _clear();
-  const char *_get_sni_server_name() const;
-
 private:
   static int _ex_data_index;
 
   // Null-terminated string, or nullptr if there is no SNI server name.
   std::unique_ptr<char[]> _sni_server_name;
+  SNIVConnection _vc;
 
   void _set_sni_server_name(std::string_view name);
 };

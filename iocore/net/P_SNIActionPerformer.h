@@ -55,7 +55,8 @@ public:
     std::optional<CapturedGroupViewVec> _fqdn_wildcard_captured_groups;
   };
 
-  virtual int SNIAction(TLSSNISupport *snis, const Context &ctx) const = 0;
+  virtual int SNIAction(SSLNetVConnection *ssl_vc, const Context &ctx) const   = 0;
+  virtual int SNIAction(QUICNetVConnection *quic_vc, const Context &ctx) const = 0;
 
   /**
     This method tests whether this action would have been triggered by a
@@ -78,19 +79,25 @@ public:
   ~ControlH2() override {}
 
   int
-  SNIAction(TLSSNISupport *snis, const Context &ctx) const override
+  SNIAction(SSLNetVConnection *ssl_vc, const Context &ctx) const override
   {
-    auto ssl_vc            = dynamic_cast<SSLNetVConnection *>(snis);
     const char *servername = ssl_vc->get_server_name();
-    if (ssl_vc) {
-      if (!enable_h2) {
-        ssl_vc->disableProtocol(TS_ALPN_PROTOCOL_INDEX_HTTP_2_0);
-        Debug("ssl_sni", "H2 disabled, fqdn [%s]", servername);
-      } else {
-        ssl_vc->enableProtocol(TS_ALPN_PROTOCOL_INDEX_HTTP_2_0);
-        Debug("ssl_sni", "H2 enabled, fqdn [%s]", servername);
-      }
+
+    if (!enable_h2) {
+      ssl_vc->disableProtocol(TS_ALPN_PROTOCOL_INDEX_HTTP_2_0);
+      Debug("ssl_sni", "H2 disabled, fqdn [%s]", servername);
+    } else {
+      ssl_vc->enableProtocol(TS_ALPN_PROTOCOL_INDEX_HTTP_2_0);
+      Debug("ssl_sni", "H2 enabled, fqdn [%s]", servername);
     }
+
+    return SSL_TLSEXT_ERR_OK;
+  }
+
+  int
+  SNIAction(QUICNetVConnection *quic_vc, const Context &ctx) const override
+  {
+    // nothing to do
     return SSL_TLSEXT_ERR_OK;
   }
 
@@ -110,32 +117,37 @@ public:
   ~TunnelDestination() override {}
 
   int
-  SNIAction(TLSSNISupport *snis, const Context &ctx) const override
+  SNIAction(SSLNetVConnection *ssl_vc, const Context &ctx) const override
   {
     // Set the netvc option?
-    SSLNetVConnection *ssl_netvc = dynamic_cast<SSLNetVConnection *>(snis);
-    const char *servername       = ssl_netvc->get_server_name();
-    if (ssl_netvc) {
-      // If needed, we will try to amend the tunnel destination.
-      if (ctx._fqdn_wildcard_captured_groups && need_fix) {
-        const auto &fixed_dst = replace_match_groups(destination, *ctx._fqdn_wildcard_captured_groups);
-        ssl_netvc->set_tunnel_destination(fixed_dst, type, tunnel_prewarm);
-        Debug("ssl_sni", "Destination now is [%s], configured [%s], fqdn [%s]", fixed_dst.c_str(), destination.c_str(), servername);
-      } else {
-        ssl_netvc->set_tunnel_destination(destination, type, tunnel_prewarm);
-        Debug("ssl_sni", "Destination now is [%s], fqdn [%s]", destination.c_str(), servername);
-      }
+    const char *servername = ssl_vc->get_server_name();
 
-      if (type == SNIRoutingType::BLIND) {
-        ssl_netvc->attributes = HttpProxyPort::TRANSPORT_BLIND_TUNNEL;
-      }
-
-      // ALPN
-      for (int id : alpn_ids) {
-        ssl_netvc->enableProtocol(id);
-      }
+    // If needed, we will try to amend the tunnel destination.
+    if (ctx._fqdn_wildcard_captured_groups && need_fix) {
+      const auto &fixed_dst = replace_match_groups(destination, *ctx._fqdn_wildcard_captured_groups);
+      ssl_vc->set_tunnel_destination(fixed_dst, type, tunnel_prewarm);
+      Debug("ssl_sni", "Destination now is [%s], configured [%s], fqdn [%s]", fixed_dst.c_str(), destination.c_str(), servername);
+    } else {
+      ssl_vc->set_tunnel_destination(destination, type, tunnel_prewarm);
+      Debug("ssl_sni", "Destination now is [%s], fqdn [%s]", destination.c_str(), servername);
     }
 
+    if (type == SNIRoutingType::BLIND) {
+      ssl_vc->attributes = HttpProxyPort::TRANSPORT_BLIND_TUNNEL;
+    }
+
+    // ALPN
+    for (int id : alpn_ids) {
+      ssl_vc->enableProtocol(id);
+    }
+
+    return SSL_TLSEXT_ERR_OK;
+  }
+
+  int
+  SNIAction(QUICNetVConnection *quic_vc, const Context &ctx) const override
+  {
+    ink_assert("Not implemented yet");
     return SSL_TLSEXT_ERR_OK;
   }
 
@@ -224,15 +236,22 @@ public:
   ~VerifyClient() override;
 
   int
-  SNIAction(TLSSNISupport *snis, const Context &ctx) const override
+  SNIAction(SSLNetVConnection *ssl_vc, const Context &ctx) const override
   {
-    auto ssl_vc            = dynamic_cast<SSLNetVConnection *>(snis);
     const char *servername = ssl_vc->get_server_name();
     Debug("ssl_sni", "action verify param %d, fqdn [%s]", this->mode, servername);
+
     setClientCertLevel(ssl_vc->ssl, this->mode);
     ssl_vc->set_ca_cert_file(ca_file, ca_dir);
     setClientCertCACerts(ssl_vc->ssl, ssl_vc->get_ca_cert_file(), ssl_vc->get_ca_cert_dir());
 
+    return SSL_TLSEXT_ERR_OK;
+  }
+
+  int
+  SNIAction(QUICNetVConnection *quic_vc, const Context &ctx) const override
+  {
+    ink_assert("Not implemented yet");
     return SSL_TLSEXT_ERR_OK;
   }
 
@@ -258,7 +277,14 @@ public:
   ~HostSniPolicy() override {}
 
   int
-  SNIAction(TLSSNISupport *snis, const Context &ctx) const override
+  SNIAction(SSLNetVConnection *ssl_vc, const Context &ctx) const override
+  {
+    // On action this doesn't do anything
+    return SSL_TLSEXT_ERR_OK;
+  }
+
+  int
+  SNIAction(QUICNetVConnection *quic_vc, const Context &ctx) const override
   {
     // On action this doesn't do anything
     return SSL_TLSEXT_ERR_OK;
@@ -289,10 +315,16 @@ public:
   TLSValidProtocols(unsigned long protocols) : unset(false), protocol_mask(protocols) {}
 
   int
-  SNIAction(TLSSNISupport *snis, const Context & /* ctx */) const override
+  SNIAction(QUICNetVConnection *vc, const Context &ctx) const override
+  {
+    ink_assert("Not implemented yet");
+    return SSL_TLSEXT_ERR_OK;
+  }
+
+  int
+  SNIAction(SSLNetVConnection *ssl_vc, const Context &ctx) const override
   {
     if (!unset) {
-      auto ssl_vc            = dynamic_cast<SSLNetVConnection *>(snis);
       const char *servername = ssl_vc->get_server_name();
       Debug("ssl_sni", "TLSValidProtocol param 0%x, fqdn [%s]", static_cast<unsigned int>(this->protocol_mask), servername);
       ssl_vc->set_valid_tls_protocols(protocol_mask, TLSValidProtocols::max_mask);
@@ -330,15 +362,14 @@ public:
   } // end function SNI_IpAllow
 
   int
-  SNIAction(TLSSNISupport *snis, const Context &ctx) const override
+  SNIAction(SSLNetVConnection *ssl_vc, const Context &ctx) const override
   {
     // i.e, ip filtering is not required
     if (ip_map.count() == 0) {
       return SSL_TLSEXT_ERR_OK;
     }
 
-    auto ssl_vc = dynamic_cast<SSLNetVConnection *>(snis);
-    auto ip     = ssl_vc->get_remote_endpoint();
+    auto ip = ssl_vc->get_remote_endpoint();
 
     // check the allowed ips
     if (ip_map.contains(ip)) {
@@ -349,6 +380,15 @@ public:
       Debug("ssl_sni", "%s is not allowed. Denying connection", buff);
       return SSL_TLSEXT_ERR_ALERT_FATAL;
     }
+
+    return SSL_TLSEXT_ERR_OK;
+  }
+
+  int
+  SNIAction(QUICNetVConnection *quic_vc, const Context &ctx) const override
+  {
+    ink_assert("Not implemented yet");
+    return SSL_TLSEXT_ERR_OK;
   }
 
   bool
@@ -373,13 +413,18 @@ public:
   ~OutboundSNIPolicy() override {}
 
   int
-  SNIAction(TLSSNISupport *snis, const Context &ctx) const override
+  SNIAction(SSLNetVConnection *ssl_vc, const Context &ctx) const override
   {
-    // TODO: change design to avoid this dynamic_cast
-    auto ssl_vc = dynamic_cast<SSLNetVConnection *>(snis);
-    if (ssl_vc && !policy.empty()) {
+    if (!policy.empty()) {
       ssl_vc->options.outbound_sni_policy = policy;
     }
+    return SSL_TLSEXT_ERR_OK;
+  }
+
+  int
+  SNIAction(QUICNetVConnection *quic_vc, const Context &ctx) const override
+  {
+    ink_assert("Not implemented yet");
     return SSL_TLSEXT_ERR_OK;
   }
 

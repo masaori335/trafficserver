@@ -100,7 +100,6 @@ enum SSLHandshakeStatus { SSL_HANDSHAKE_ONGOING, SSL_HANDSHAKE_DONE, SSL_HANDSHA
 class SSLNetVConnection : public UnixNetVConnection,
                           public ALPNSupport,
                           public TLSSessionResumptionSupport,
-                          public TLSSNISupport,
                           public TLSEarlyDataSupport,
                           public TLSTunnelSupport,
                           public TLSBasicSupport
@@ -302,7 +301,7 @@ public:
   const char *
   get_server_name() const override
   {
-    return _get_sni_server_name() ? _get_sni_server_name() : "";
+    return _sni.get_sni_server_name() ? _sni.get_sni_server_name() : "";
   }
 
   bool
@@ -404,8 +403,6 @@ protected:
     return local_addr;
   }
 
-  void _fire_ssl_servername_event() override;
-
 private:
   std::string_view map_tls_protocol_to_tag(const char *proto_string) const;
   bool update_rbio(bool move_to_socket);
@@ -461,6 +458,8 @@ private:
   MIOBuffer *_early_data_buf         = nullptr;
   IOBufferReader *_early_data_reader = nullptr;
 #endif
+
+  TLSSNISupport _sni;
 
 private:
   void _make_ssl_connection(SSL_CTX *ctx);

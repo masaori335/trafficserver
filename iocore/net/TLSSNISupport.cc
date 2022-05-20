@@ -25,6 +25,8 @@
 #include "tscore/Diags.h"
 #include "P_SSLSNI.h"
 
+#include "swoc/include/swoc/swoc_meta.h"
+
 int TLSSNISupport::_ex_data_index = -1;
 
 void
@@ -57,7 +59,7 @@ TLSSNISupport::unbind(SSL *ssl)
 int
 TLSSNISupport::perform_sni_action()
 {
-  const char *servername = this->_get_sni_server_name();
+  const char *servername = this->get_sni_server_name();
   if (!servername) {
     Debug("ssl_sni", "No servername provided");
     return SSL_TLSEXT_ERR_OK;
@@ -68,7 +70,11 @@ TLSSNISupport::perform_sni_action()
     Debug("ssl_sni", "%s not available in the map", servername);
   } else {
     for (auto &&item : *actions.first) {
-      auto ret = item->SNIAction(this, actions.second);
+      auto ret = std::visit(swoc::meta::vary{
+                              [&](SSLNetVConnection *v) { return item->SNIAction(v, actions.second); },
+                              [&](auto *v) { return item->SNIAction(v, actions.second); },
+                            },
+                            _vc);
       if (ret != SSL_TLSEXT_ERR_OK) {
         return ret;
       }
@@ -127,7 +133,11 @@ TLSSNISupport::on_client_hello(SSL *ssl, int *al, void *arg)
 void
 TLSSNISupport::on_servername(SSL *ssl, int *al, void *arg)
 {
-  this->_fire_ssl_servername_event();
+  std::visit(swoc::meta::vary{
+               [&](SSLNetVConnection *v) { v->callHooks(TS_EVENT_SSL_SERVERNAME); },
+               [&](auto *v) { ink_assert("not implemented yet"); },
+             },
+             _vc);
 
   const char *name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
   if (name) {
@@ -136,13 +146,13 @@ TLSSNISupport::on_servername(SSL *ssl, int *al, void *arg)
 }
 
 void
-TLSSNISupport::_clear()
+TLSSNISupport::clear()
 {
   _sni_server_name.reset();
 }
 
 const char *
-TLSSNISupport::_get_sni_server_name() const
+TLSSNISupport::get_sni_server_name() const
 {
   return _sni_server_name.get() ? _sni_server_name.get() : "";
 }
