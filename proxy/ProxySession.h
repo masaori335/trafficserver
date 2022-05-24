@@ -34,6 +34,8 @@
 #include "IPAllow.h"
 #include "private/SSLProxySession.h"
 
+#include <variant>
+
 // Emit a debug message conditional on whether this particular client session
 // has debugging enabled. This should only be called from within a client session
 // member function.
@@ -73,6 +75,8 @@ struct ProxyError {
   uint32_t code       = 0;
 };
 
+using NetVCVariant = std::variant<UnixNetVConnection *, SSLNetVConnection *>;
+
 /// Abstract class for HttpSM to interface with any session
 class ProxySession : public VConnection, public PluginUserArgs<TS_USER_ARGS_SSN>
 {
@@ -88,8 +92,13 @@ public:
   static int64_t next_connection_id();
 
   // Virtual Methods
+  virtual void new_connection(UnixNetVConnection *new_vc, MIOBuffer *iobuf, IOBufferReader *reader);
+  virtual void new_connection(SSLNetVConnection *new_vc, MIOBuffer *iobuf, IOBufferReader *reader);
+  // virtual void new_connection(QUICNetVConnection *new_vc, MIOBuffer *iobuf, IOBufferReader *reader) = 0;
+
   virtual void new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOBufferReader *reader) = 0;
-  virtual void start()                                                                          = 0;
+
+  virtual void start() = 0;
   virtual bool attach_server_session(PoolableSession *ssession, bool transaction_done = true);
 
   virtual void release(ProxyTransaction *trans) = 0;
@@ -127,6 +136,8 @@ public:
 
   // Non-Virtual Methods
   NetVConnection *get_netvc() const;
+  NetVCVariant get_netvc_variant() const;
+
   int do_api_callout(TSHttpHookID id);
 
   void set_debug(bool flag);
@@ -188,6 +199,7 @@ protected:
   void _handle_if_ssl(NetVConnection *new_vc);
 
   NetVConnection *_vc = nullptr; // The netvc associated with the concrete session class
+  NetVCVariant _netvc;
 
 private:
   void handle_api_return(int event);
@@ -286,4 +298,26 @@ inline NetVConnection *
 ProxySession::get_netvc() const
 {
   return _vc;
+}
+
+inline NetVCVariant
+ProxySession::get_netvc_variant() const
+{
+  return _netvc;
+}
+
+inline void
+ProxySession::new_connection(UnixNetVConnection *new_vc, MIOBuffer *iobuf, IOBufferReader *reader)
+{
+  _netvc = new_vc;
+
+  this->new_connection(static_cast<NetVConnection *>(new_vc), iobuf, reader);
+}
+
+inline void
+ProxySession::new_connection(SSLNetVConnection *new_vc, MIOBuffer *iobuf, IOBufferReader *reader)
+{
+  _netvc = new_vc;
+
+  this->new_connection(reinterpret_cast<NetVConnection *>(new_vc), iobuf, reader);
 }

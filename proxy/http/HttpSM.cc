@@ -98,6 +98,11 @@ using lbw = ts::LocalBufferWriter<256>;
 
 namespace
 {
+template <class... Ts> struct overloaded : Ts... {
+  using Ts::operator()...;
+};
+template <class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
+
 // Unique state machine identifier
 std::atomic<int64_t> next_sm_id(0);
 
@@ -530,7 +535,19 @@ HttpSM::attach_client_session(ProxyTransaction *client_vc)
   mptcp_state       = netvc->get_mptcp_state();
   client_tcp_reused = !(ua_txn->is_first_transaction());
 
-  if (auto tbs = dynamic_cast<TLSBasicSupport *>(netvc)) {
+  TLSBasicSupport *tbs              = nullptr;
+  ALPNSupport *as                   = nullptr;
+  TLSSessionResumptionSupport *tsrs = nullptr;
+
+  std::visit(overloaded{[](UnixNetVConnection *) {},
+                        [&](SSLNetVConnection *ssl_vc) {
+                          tbs  = static_cast<TLSBasicSupport *>(ssl_vc);
+                          as   = static_cast<ALPNSupport *>(ssl_vc);
+                          tsrs = static_cast<TLSSessionResumptionSupport *>(ssl_vc);
+                        }},
+             ua_txn->get_proxy_ssn()->get_netvc_variant());
+
+  if (tbs) {
     client_connection_is_ssl = true;
     const char *protocol     = tbs->get_tls_protocol_name();
     client_sec_protocol      = protocol ? protocol : "-";
@@ -546,11 +563,11 @@ HttpSM::attach_client_session(ProxyTransaction *client_vc)
     }
   }
 
-  if (auto as = dynamic_cast<ALPNSupport *>(netvc)) {
+  if (as) {
     client_alpn_id = as->get_negotiated_protocol_id();
   }
 
-  if (auto tsrs = dynamic_cast<TLSSessionResumptionSupport *>(netvc)) {
+  if (tsrs) {
     client_ssl_reused = tsrs->getSSLSessionCacheHit();
   }
 
@@ -593,7 +610,12 @@ HttpSM::attach_client_session(ProxyTransaction *client_vc)
   t_state.hdr_info.client_request.create(HTTP_TYPE_REQUEST);
 
   // Prepare raw reader which will live until we are sure this is HTTP indeed
-  auto *tts = dynamic_cast<TLSTunnelSupport *>(netvc);
+  TLSTunnelSupport *tts = nullptr;
+
+  std::visit(
+    overloaded{[](UnixNetVConnection *) {}, [&](SSLNetVConnection *ssl_vc) { tts = static_cast<TLSTunnelSupport *>(ssl_vc); }},
+    ua_txn->get_proxy_ssn()->get_netvc_variant());
+
   if (is_transparent_passthrough_allowed() || (tts && tts->is_decryption_needed())) {
     ua_raw_buffer_reader = ua_txn->get_remote_reader()->clone();
   }
@@ -644,9 +666,17 @@ HttpSM::setup_blind_tunnel_port()
   NetVConnection *netvc = ua_txn->get_netvc();
   ink_release_assert(netvc);
   int host_len;
-  if (auto *tts = dynamic_cast<TLSTunnelSupport *>(netvc)) {
+
+  TLSTunnelSupport *tts = nullptr;
+
+  std::visit(
+    overloaded{[](UnixNetVConnection *) {}, [&](SSLNetVConnection *ssl_vc) { tts = static_cast<TLSTunnelSupport *>(ssl_vc); }},
+    ua_txn->get_proxy_ssn()->get_netvc_variant());
+
+  if (tts) {
     if (!t_state.hdr_info.client_request.url_get()->host_get(&host_len)) {
-      // the URL object has not been created in the start of the transaction. Hence, we need to create the URL here
+      // the URL object has not been created in the start of the transaction. Hence, we need to create the URL
+      // here
       URL u;
 
       t_state.hdr_info.client_request.create(HTTP_TYPE_REQUEST);
@@ -675,6 +705,7 @@ HttpSM::setup_blind_tunnel_port()
     t_state.hdr_info.client_request.url_get()->host_set(new_host, strlen(new_host));
     t_state.hdr_info.client_request.url_get()->port_set(netvc->get_local_port());
   }
+
   call_transact_and_set_next_state(HttpTransact::HandleBlindTunnel);
 }
 
@@ -1497,7 +1528,11 @@ plugins required to work with sni_routing.
       t_state.hdr_info.client_request.url_set(&u);
 
       NetVConnection *netvc = ua_txn->get_netvc();
-      auto *tts             = dynamic_cast<TLSTunnelSupport *>(netvc);
+      TLSTunnelSupport *tts = nullptr;
+
+      std::visit(
+        overloaded{[](UnixNetVConnection *) {}, [&](SSLNetVConnection *ssl_vc) { tts = static_cast<TLSTunnelSupport *>(ssl_vc); }},
+        ua_txn->get_proxy_ssn()->get_netvc_variant());
 
       if (tts && tts->has_tunnel_destination()) {
         const char *tunnel_host = tts->get_tunnel_host();
@@ -1657,9 +1692,13 @@ HttpSM::handle_api_return()
 {
   switch (t_state.api_next_action) {
   case HttpTransact::SM_ACTION_API_SM_START: {
-    NetVConnection *netvc = ua_txn->get_netvc();
-    auto *tts             = dynamic_cast<TLSTunnelSupport *>(netvc);
-    bool forward_dest     = tts != nullptr && tts->is_decryption_needed();
+    TLSTunnelSupport *tts = nullptr;
+
+    std::visit(
+      overloaded{[](UnixNetVConnection *) {}, [&](SSLNetVConnection *ssl_vc) { tts = static_cast<TLSTunnelSupport *>(ssl_vc); }},
+      ua_txn->get_proxy_ssn()->get_netvc_variant());
+
+    bool forward_dest = tts != nullptr && tts->is_decryption_needed();
     if (t_state.client_info.port_attribute == HttpProxyPort::TRANSPORT_BLIND_TUNNEL || forward_dest) {
       setup_blind_tunnel_port();
     } else {
@@ -5308,7 +5347,16 @@ HttpSM::do_http_server_open(bool raw)
   int scheme_to_use = t_state.scheme; // get initial scheme
   bool tls_upstream = scheme_to_use == URL_WKSIDX_HTTPS;
   if (ua_txn) {
-    auto *tts = dynamic_cast<TLSTunnelSupport *>(ua_txn->get_netvc());
+    TLSTunnelSupport *tts = nullptr;
+    ALPNSupport *alpns    = nullptr;
+
+    std::visit(overloaded{[](UnixNetVConnection *) {},
+                          [&](SSLNetVConnection *ssl_vc) {
+                            tts   = static_cast<TLSTunnelSupport *>(ssl_vc);
+                            alpns = static_cast<ALPNSupport *>(ssl_vc);
+                          }},
+               ua_txn->get_proxy_ssn()->get_netvc_variant());
+
     if (tts && raw) {
       tls_upstream = tts->is_upstream_tls();
       _tunnel_type = tts->get_tunnel_type();
@@ -5316,7 +5364,6 @@ HttpSM::do_http_server_open(bool raw)
       // ALPN on TLS Partial Blind Tunnel - set negotiated ALPN id
       int pid = SessionProtocolNameRegistry::INVALID;
       if (tts->get_tunnel_type() == SNIRoutingType::PARTIAL_BLIND) {
-        auto *alpns = dynamic_cast<ALPNSupport *>(ua_txn->get_netvc());
         ink_assert(alpns);
         pid = alpns->get_negotiated_protocol_id();
         if (pid != SessionProtocolNameRegistry::INVALID) {

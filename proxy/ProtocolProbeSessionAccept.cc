@@ -66,12 +66,12 @@ struct ProtocolProbeTrampoline : public Continuation, public ProtocolProbeSessio
   ioCompletionEvent(int event, void *edata)
   {
     VIO *vio;
-    NetVConnection *netvc;
+    UnixNetVConnection *netvc;
     SessionAccept *acceptor = nullptr;
     ProtoGroupKey key       = N_PROTO_GROUPS; // use this as an invalid value.
 
     vio   = static_cast<VIO *>(edata);
-    netvc = static_cast<NetVConnection *>(vio->vc_server);
+    netvc = static_cast<UnixNetVConnection *>(vio->vc_server);
 
     switch (event) {
     case VC_EVENT_EOS:
