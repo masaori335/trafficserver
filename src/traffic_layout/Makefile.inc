@@ -47,4 +47,5 @@ traffic_layout_traffic_layout_LDADD = \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/src/tscore/libtscore.la \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
+	@LIBPCRE2@ \
 	@HWLOC_LIBS@ @YAMLCPP_LIBS@ @LIBLZMA@

@@ -30,11 +30,9 @@
 
 #include "tscore/ink_config.h"
 
-#ifdef HAVE_PCRE_PCRE_H
-#include <pcre/pcre.h>
-#else
-#include <pcre.h>
-#endif
+#define PCRE2_CODE_UNIT_WIDTH 8
+
+#include <pcre2.h>
 
 /// Match flags for regular expression evaluation.
 enum REFlags {
@@ -43,7 +41,7 @@ enum REFlags {
   RE_ANCHORED         = 0x0004, ///< Anchored (Regex defaults to unanchored).
 };
 
-/** Wrapper for PCRE evaluation.
+/** Wrapper for PCRE2 evaluation.
  *
  */
 class Regex
@@ -94,8 +92,7 @@ public:
   int get_capture_count();
 
 private:
-  pcre *regex             = nullptr;
-  pcre_extra *regex_extra = nullptr;
+  pcre2_code *regex = nullptr;
 };
 
 /** Deterministic Finite state Automata container.

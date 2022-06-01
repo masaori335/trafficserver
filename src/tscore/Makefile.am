@@ -46,6 +46,7 @@ libtscore_la_LIBADD = \
 	@HWLOC_LIBS@ \
 	@LIBOBJS@ \
 	@LIBPCRE@ \
+	@LIBPCRE2@ \
 	@OPENSSL_LIBS@ \
 	@LIBRESOLV@ \
 	@LIBCAP@ \

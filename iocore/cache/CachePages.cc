@@ -27,6 +27,8 @@
 #include "I_Tasks.h"
 #include "CacheControl.h"
 
+#include <pcre.h>
+
 struct ShowCache : public ShowCont {
   enum scan_type {
     scan_type_lookup,

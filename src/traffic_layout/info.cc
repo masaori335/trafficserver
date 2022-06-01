@@ -46,6 +46,14 @@
 #include <brotli/encode.h>
 #endif
 
+#if HAVE_LIBPCRE
+#include <pcre.h>
+#endif
+
+#if HAVE_LIBPCRE2
+#include <pcre2.h>
+#endif
+
 // Produce output about compile time features, useful for checking how things were built
 static void
 print_feature(std::string_view name, int value, bool json, bool last = false)
@@ -189,7 +197,12 @@ produce_versions(bool json)
 
   print_var("openssl", LBW().print("{:#x}", OPENSSL_VERSION_NUMBER).view(), json);
   print_var("openssl_str", LBW().print(OPENSSL_VERSION_TEXT).view(), json);
+#if HAVE_LIBPCRE
   print_var("pcre", LBW().print("{}.{}", PCRE_MAJOR, PCRE_MINOR).view(), json);
+#endif
+#if HAVE_LIBPCRE
+  print_var("pcre2", LBW().print("{}.{}", PCRE2_MAJOR, PCRE2_MINOR).view(), json);
+#endif
   // These are optional, for now at least.
 #if TS_USE_HWLOC
   print_var("hwloc", LBW().print("{:#x}", HWLOC_API_VERSION).view(), json);

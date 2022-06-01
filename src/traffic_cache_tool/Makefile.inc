@@ -54,4 +54,5 @@ traffic_cache_tool_traffic_cache_tool_LDADD = \
     $(top_builddir)/src/tscore/.libs/ink_args.o \
     $(top_builddir)/src/tscore/.libs/ParseRules.o \
     $(top_builddir)/src/tscore/.libs/SourceLocation.o \
-    @OPENSSL_LIBS@ @LIBPCRE@
+	@LIBPCRE2@ \
+	@OPENSSL_LIBS@ @LIBPCRE@

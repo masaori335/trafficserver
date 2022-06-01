@@ -35,6 +35,8 @@
 #include "tscore/Regex.h"
 #include "tscore/List.h"
 
+#include <pcre.h>
+
 class NextHopSelectionStrategy;
 
 /**

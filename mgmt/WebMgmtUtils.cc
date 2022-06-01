@@ -26,7 +26,8 @@
 #include "tscore/ink_file.h"
 #include "MgmtUtils.h"
 #include "WebMgmtUtils.h"
-#include "tscore/Regex.h"
+
+#include <pcre.h>
 
 // bool varSetFromStr(const char*, const char* )
 //

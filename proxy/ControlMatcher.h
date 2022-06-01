@@ -93,8 +93,9 @@
 #include "tscore/ink_apidefs.h"
 #include "tscore/ink_defs.h"
 #include "HTTP.h"
-#include "tscore/Regex.h"
 #include "URL.h"
+
+#include <pcre.h>
 
 #include <unordered_map>
 

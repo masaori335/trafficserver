@@ -46,43 +46,40 @@ get_jit_stack(void *data ATS_UNUSED)
 }
 #endif
 
-Regex::Regex(Regex &&that) noexcept : regex(that.regex), regex_extra(that.regex_extra)
+////
+// Regex
+//
+Regex::Regex(Regex &&that) noexcept : regex(that.regex)
 {
-  that.regex       = nullptr;
-  that.regex_extra = nullptr;
+  that.regex = nullptr;
 }
 
 bool
 Regex::compile(const char *pattern, const unsigned flags)
 {
-  const char *error;
-  int erroffset;
-  int options    = 0;
-  int study_opts = 0;
+  int error;
+  PCRE2_SIZE error_offset;
+  int options = 0;
 
   if (regex) {
     return false;
   }
 
   if (flags & RE_CASE_INSENSITIVE) {
-    options |= PCRE_CASELESS;
+    options |= PCRE2_CASELESS;
   }
 
   if (flags & RE_ANCHORED) {
-    options |= PCRE_ANCHORED;
+    options |= PCRE2_ANCHORED;
   }
 
-  regex = pcre_compile(pattern, options, &error, &erroffset, nullptr);
-  if (error) {
-    regex = nullptr;
+  regex = pcre2_compile(reinterpret_cast<PCRE2_SPTR>(pattern), PCRE2_ZERO_TERMINATED, options, &error, &error_offset, nullptr);
+
+  if (regex == nullptr) {
+    //
+    //
     return false;
   }
-
-#ifdef PCRE_CONFIG_JIT
-  study_opts |= PCRE_STUDY_JIT_COMPILE;
-#endif
-
-  regex_extra = pcre_study(regex, study_opts, &error);
 
 #ifdef PCRE_CONFIG_JIT
   if (regex_extra) {
@@ -97,7 +94,8 @@ int
 Regex::get_capture_count()
 {
   int captures = -1;
-  if (pcre_fullinfo(regex, regex_extra, PCRE_INFO_CAPTURECOUNT, &captures) != 0) {
+
+  if (pcre2_pattern_info(regex, PCRE2_INFO_CAPTURECOUNT, &captures) != 0) {
     return -1;
   }
 
@@ -116,24 +114,27 @@ Regex::exec(std::string_view const &str, int *ovector, int ovecsize) const
 {
   int rv;
 
-  rv = pcre_exec(regex, regex_extra, str.data(), int(str.size()), 0, 0, ovector, ovecsize);
+  pcre2_match_data *match_data = pcre2_match_data_create(ovecsize, nullptr);
+
+  rv = pcre2_match(regex, reinterpret_cast<PCRE2_SPTR>(str.data()), int(str.size()), 0, 0, match_data, nullptr);
+
+  ovecsize = pcre2_get_ovector_count(match_data);
+
+  pcre2_match_data_free(match_data);
+
   return rv > 0;
 }
 
 Regex::~Regex()
 {
-  if (regex_extra) {
-#ifdef PCRE_CONFIG_JIT
-    pcre_free_study(regex_extra);
-#else
-    pcre_free(regex_extra);
-#endif
-  }
   if (regex) {
-    pcre_free(regex);
+    pcre2_code_free(regex);
   }
 }
 
+////
+// DFA
+//
 DFA::~DFA() {}
 
 bool

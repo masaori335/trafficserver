@@ -35,6 +35,8 @@
 #include <strings.h>
 #include <memory>
 
+#include <pcre.h>
+
 #include "ProxyConfig.h"
 #include "P_SNIActionPerformer.h"
 #include "tscore/MatcherUtils.h"

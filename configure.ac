@@ -1430,6 +1430,14 @@ if test "x${enable_pcre}" != "xyes"; then
   AC_MSG_ERROR([Cannot find pcre library. Configure --with-pcre=DIR])
 fi
 
+#
+# Check for pcre2 library
+#
+TS_CHECK_PCRE2
+if test "x${enable_pcre2}" != "xyes"; then
+  AC_MSG_ERROR([Cannot find pcre2 library. Configure --with-pcre2=DIR])
+fi
+
 # Check for optional brotli library
 TS_CHECK_BROTLI
 
