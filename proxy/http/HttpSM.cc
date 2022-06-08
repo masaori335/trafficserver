@@ -136,6 +136,9 @@ milestone_update_api_time(TransactionMilestones &milestones, ink_hrtime &api_tim
 // Unique state machine identifier
 std::atomic<int64_t> next_sm_id(0);
 
+/// Buffer for some error logs.
+thread_local std::string error_bw_buffer;
+
 /**
    Outbound PROXY Protocol
 
@@ -1365,7 +1368,7 @@ HttpSM::state_common_wait_for_transform_read(HttpTransformInfo *t_info, HttpSMHa
 
   switch (event) {
   case HTTP_TUNNEL_EVENT_DONE:
-    // There are three reasons why the the tunnel could signal completed
+    // There are three reasons why the tunnel could signal completed
     //   1) there was error from the transform write
     //   2) there was an error from the data source
     //   3) the transform write completed before it sent
@@ -4203,27 +4206,18 @@ HttpSM::check_sni_host()
             Warning("No SNI for TLS request with hostname %.*s action=%s", host_len, host_name, action_value);
             SMDebug("ssl_sni", "No SNI for TLS request with hostname %.*s action=%s", host_len, host_name, action_value);
             if (host_sni_policy == 2) {
-              Log::error("%s", lbw()
-                                 .clip(1)
-                                 .print("No SNI for TLS request: connecting to {} for host='{}', returning a 403",
-                                        t_state.client_info.dst_addr, std::string_view{host_name, static_cast<size_t>(host_len)})
-                                 .extend(1)
-                                 .write('\0')
-                                 .data());
+              ts::bwprint(error_bw_buffer, "No SNI for TLS request: connecting to {} for host='{}', returning a 403",
+                          t_state.client_info.dst_addr, std::string_view{host_name, static_cast<size_t>(host_len)});
+              Log::error("%s", error_bw_buffer.c_str());
               this->t_state.client_connection_enabled = false;
             }
           } else if (strncasecmp(host_name, sni_value, host_len) != 0) { // Name mismatch
             Warning("SNI/hostname mismatch sni=%s host=%.*s action=%s", sni_value, host_len, host_name, action_value);
             SMDebug("ssl_sni", "SNI/hostname mismatch sni=%s host=%.*s action=%s", sni_value, host_len, host_name, action_value);
             if (host_sni_policy == 2) {
-              Log::error("%s", lbw()
-                                 .clip(1)
-                                 .print("SNI/hostname mismatch: connecting to {} for host='{}' sni='{}', returning a 403",
-                                        t_state.client_info.dst_addr, std::string_view{host_name, static_cast<size_t>(host_len)},
-                                        sni_value)
-                                 .extend(1)
-                                 .write('\0')
-                                 .data());
+              ts::bwprint(error_bw_buffer, "SNI/hostname mismatch: connecting to {} for host='{}' sni='{}', returning a 403",
+                          t_state.client_info.dst_addr, std::string_view{host_name, static_cast<size_t>(host_len)}, sni_value);
+              Log::error("%s", error_bw_buffer.c_str());
               this->t_state.client_connection_enabled = false;
             }
           } else {
@@ -5589,14 +5583,10 @@ HttpSM::mark_host_failure(HostDBInfo *info, time_t time_down)
         int host_len;
         const char *host_name_ptr = t_state.unmapped_url.host_get(&host_len);
         std::string_view host_name{host_name_ptr, size_t(host_len)};
-        Log::error("%s", lbw()
-                           .clip(1)
-                           .print("CONNECT: {::s} connecting to {} for host='{}' url='{}' marking down",
-                                  ts::bwf::Errno(t_state.current.server->connect_result), t_state.current.server->dst_addr,
-                                  host_name, ts::bwf::FirstOf(url_str, "<none>"))
-                           .extend(1)
-                           .write('\0')
-                           .data());
+        ts::bwprint(error_bw_buffer, "CONNECT: {::s} connecting to {} for host='{}' url='{}' marking down",
+                    ts::bwf::Errno(t_state.current.server->connect_result), t_state.current.server->dst_addr, host_name,
+                    ts::bwf::FirstOf(url_str, "<none>"));
+        Log::error("%s", error_bw_buffer.c_str());
 
         if (url_str) {
           t_state.arena.str_free(url_str);
@@ -8113,7 +8103,7 @@ HttpSM::redirect_request(const char *arg_redirect_url, const int arg_redirect_le
       // RFC7230 § 5.5
       // The redirect URL lacked a scheme and so it is a relative URL.
       // The redirect URL did not begin with a slash, so we parsed some or all
-      // of the the relative URI path as the host.
+      // of the relative URI path as the host.
       // Prepend a slash and parse again.
       char redirect_url_leading_slash[arg_redirect_len + 1];
       redirect_url_leading_slash[0] = '/';

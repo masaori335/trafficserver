@@ -571,6 +571,7 @@ probe(const Ptr<ProxyMutex> &mutex, HostDBHash const &hash, bool ignore_timeout)
 
   // If the record is stale, but we want to revalidate-- lets start that up
   if ((!ignore_timeout && r->is_ip_stale() && !r->reverse_dns) || (r->is_ip_timeout() && r->serve_stale_but_revalidate())) {
+    HOSTDB_INCREMENT_DYN_STAT(hostdb_total_serve_stale_stat);
     if (hostDB.is_pending_dns_for_hash(hash.hash)) {
       Debug("hostdb", "stale %u %u %u, using it and pending to refresh it", r->ip_interval(), r->ip_timestamp,
             r->ip_timeout_interval);
@@ -1109,11 +1110,20 @@ HostDBContinuation::dnsEvent(int event, HostEnt *e)
   }
   EThread *thread = mutex->thread_holding;
   if (event != DNS_EVENT_LOOKUP) {
-    // This was an event_interval or an event_immediate
-    // Either we timed out, or remove_trigger_pending gave up on us
+    // Event should be immediate or interval.
     if (!action.continuation) {
-      // give up on insert, it has been too long
-      hostDB.pending_dns_for_hash(hash.hash).remove(this);
+      // Nothing to do, give up.
+      if (event == EVENT_INTERVAL) {
+        // Timeout - clear all queries queued up for this FQDN because none of the other ones have sent an
+        // actual DNS query. If the request rate is high enough this can cause a persistent queue where the
+        // DNS query is never sent and all requests timeout, even if it was a transient error.
+        // See issue #8417.
+        remove_trigger_pending_dns();
+      } else {
+        // "local" signal to give up, usually due this being one of those "other" queries.
+        // That generally means @a this has already been removed from the queue, but just in case...
+        hostDB.pending_dns_for_hash(hash.hash).remove(this);
+      }
       hostdb_cont_free(this);
       return EVENT_DONE;
     }
@@ -2081,6 +2091,9 @@ ink_hostdb_init(ts::ModuleVersion v)
 
   RecRegisterRawStat(hostdb_rsb, RECT_PROCESS, "proxy.process.hostdb.total_hits", RECD_INT, RECP_PERSISTENT,
                      (int)hostdb_total_hits_stat, RecRawStatSyncSum);
+
+  RecRegisterRawStat(hostdb_rsb, RECT_PROCESS, "proxy.process.hostdb.total_serve_stale", RECD_INT, RECP_PERSISTENT,
+                     (int)hostdb_total_serve_stale_stat, RecRawStatSyncSum);
 
   RecRegisterRawStat(hostdb_rsb, RECT_PROCESS, "proxy.process.hostdb.ttl", RECD_FLOAT, RECP_PERSISTENT, (int)hostdb_ttl_stat,
                      RecRawStatSyncAvg);

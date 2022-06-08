@@ -118,6 +118,8 @@ X-Crr-Ims header support
 
 .. option:: --consider-ims
 .. option:: -c
+.. option:: --ims-header=[header name] (default: X-Crr-Ims)
+.. option:: -i
 
 To support slice plugin self healing an option to force revalidation
 after cache lookup complete was added.  This option is triggered by a
@@ -136,6 +138,11 @@ request along with this X-Crr-Ims header is passed up to the parent.
 In order for this to properly work in a CDN each cache in the
 chain *SHOULD* also contain a remap rule with the
 :program:`cache_range_requests` plugin with this option set.
+
+When used with the :program:`slice` plugin its `--crr-ims-header`
+option must have the same value (or not be defined) in order to work.
+
+Presence of the `--ims-header` automatically sets the `--consider-ims` option.
 
 Don't modify the Cache Key
 --------------------------
@@ -178,6 +185,44 @@ status code is reset back to 206, which leads to the object not being cached.
 
 This option is useful when used with other plugins, such as Cache Promote.
 
+Cache Complete Responses
+------------------------
+
+.. option:: --cache-complete-responses
+.. option:: -r
+
+This option causes the plugin to cache complete responses (200 OK). By default,
+only 206 Partial Content responses are cached by this plugin; without this flag,
+any 200 OK observed will be marked as not cacheable.
+
+This option is intended to cover the case when an origin responds with a 200 OK
+when the requested range exceeds the size of the object. For example, if an object
+is 500 bytes, and the requested range is for bytes 0-5000, some origins will
+respond with a 206 and a `Content-Range` header, while others may respond with a
+200 OK and no `Content-Range` header. The same origin that responds with a 200 OK
+when the requested range exceeds the object size will serve 206s when the range is
+smaller than or within the bytes of the object.
+
+**NOTE:** This option *should be used carefully* with full knowledge of how
+cache keys are set for a given remap rule that relies on this behavior and origin
+response mechanics. For example, when this option is the sole argument to
+`cache_range_requests.so` and no other plugins are in use, the behavior could be
+abused, especially if the origin always responds with 200 OKs. This is because
+the plugin will automatically include the requested `Range` in the cache key.
+This means that arbitrary ranges can be used to pollute the cache with different
+combinations of ranges, which will lead to many copies of the same complete object
+stored under different cache keys.
+
+For this reason, if the plugin is instructed to cache complete responses, `Range`
+request headers coming into the remap should ideally be normalized. Normalization
+can be accomplished by using the slice plugin *without* the `--ref-relative` argument
+which is disabled by default. The cache key plugin can also be used to tightly control
+the construction of the cache key itself.
+
+The preferred means of using this plugin option is with the following plugins:
+- slice to normalize the requested ranges, *without* the `--ref-relative` option
+- cachekey to control the cache key, including the `Range` header normalized by slice
+- cache range requests with `--no-modify-cachekey` and `--cache-complete-responses`
 
 Configuration examples
 ======================
