@@ -2613,7 +2613,6 @@ mime_parser_parse(MIMEParser *parser, HdrHeap *heap, MIMEHdrImpl *mh, const char
 
     int field_name_wks_idx = hdrtoken_tokenize(field_name.data(), field_name.size());
 
-    // Control char (except SP) check - RFC 7230 3.2. Header Fields
     if (field_name_wks_idx < 0) {
       for (auto i : field_name) {
         if (ParseRules::is_control(i)) {
@@ -2622,7 +2621,8 @@ mime_parser_parse(MIMEParser *parser, HdrHeap *heap, MIMEHdrImpl *mh, const char
       }
     }
 
-    for (auto i : field_value) {
+    // RFC 9110 Section 5.5. Field Values
+    for (char i : field_value) {
       if (ParseRules::is_control(i)) {
         return PARSE_RESULT_ERROR;
       }

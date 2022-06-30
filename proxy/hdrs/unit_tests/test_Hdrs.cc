@@ -530,16 +530,35 @@ TEST_CASE("HdrTest", "[proxy][hdrtest]")
   mime_init();
   http_init();
 
-  SECTION("Control Char Check")
+  SECTION("Field Char Check")
   {
     static struct {
       std::string_view line;
       ParseResult expected;
     } test_cases[] = {
+      ////
+      // Field Name
       {"Content-Length: 10\r\n", PARSE_RESULT_CONT},
       {"Content-Length\x0b: 10\r\n", PARSE_RESULT_ERROR},
-      {"Content-Length:\x0b 10\r\n", PARSE_RESULT_ERROR},
+      ////
+      // Field Value
+      // SP
+      {"Content-Length: 10\r\n", PARSE_RESULT_CONT},
+      {"Foo: ab cd\r\n", PARSE_RESULT_CONT},
+      // HTAB
+      {"Foo: ab\td/cd\r\n", PARSE_RESULT_CONT},
+      // VCHAR
+      {"Foo: ab\x21/cd\r\n", PARSE_RESULT_CONT},
+      {"Foo: ab\x7e/cd\r\n", PARSE_RESULT_CONT},
+      // DEL
+      {"Foo: ab\x7f/cd\r\n", PARSE_RESULT_ERROR},
+      // obs-text
+      {"Foo: ab\x80/cd\r\n", PARSE_RESULT_CONT},
+      {"Foo: ab\xff/cd\r\n", PARSE_RESULT_CONT},
+      // control char
       {"Content-Length: 10\x0b\r\n", PARSE_RESULT_ERROR},
+      {"Content-Length:\x0b 10\r\n", PARSE_RESULT_ERROR},
+      {"Foo: ab\x1d/cd\r\n", PARSE_RESULT_ERROR},
     };
 
     MIMEHdr hdr;
