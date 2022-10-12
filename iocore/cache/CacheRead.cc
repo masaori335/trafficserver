@@ -107,8 +107,8 @@ Cache::open_read(Continuation *cont, const CacheKey *key, CacheHTTPHdr *request,
   CacheVC *c        = nullptr;
 
   {
-    CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
-    if (!lock.is_locked() || (od = vol->open_read(key)) || dir_probe(key, vol, &result, &last_collision)) {
+    // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+    if ((od = vol->open_read(key)) || dir_probe(key, vol, &result, &last_collision)) {
       c            = new_CacheVC(cont);
       c->first_key = c->key = c->earliest_key = *key;
       c->vol                                  = vol;
@@ -120,11 +120,11 @@ Cache::open_read(Continuation *cont, const CacheKey *key, CacheHTTPHdr *request,
       c->params    = params;
       c->od        = od;
     }
-    if (!lock.is_locked()) {
-      SET_CONTINUATION_HANDLER(c, &CacheVC::openReadStartHead);
-      CONT_SCHED_LOCK_RETRY(c);
-      return &c->_action;
-    }
+    // if (!lock.is_locked()) {
+    //   SET_CONTINUATION_HANDLER(c, &CacheVC::openReadStartHead);
+    //   CONT_SCHED_LOCK_RETRY(c);
+    //   return &c->_action;
+    // }
     if (!c) {
       goto Lmiss;
     }
@@ -531,10 +531,10 @@ CacheVC::openReadClose(int event, Event * /* e ATS_UNUSED */)
     }
     set_io_not_in_progress();
   }
-  CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
-  if (!lock.is_locked()) {
-    VC_SCHED_LOCK_RETRY();
-  }
+  // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+  // if (!lock.is_locked()) {
+  //   VC_SCHED_LOCK_RETRY();
+  // }
   if (f.hit_evacuate && dir_valid(vol, &first_dir) && closed > 0) {
     if (f.single_fragment) {
       vol->force_evacuate_head(&first_dir, dir_pinned(&first_dir));
@@ -863,10 +863,10 @@ CacheVC::openReadStartEarliest(int /* event ATS_UNUSED */, Event * /* e ATS_UNUS
     return free_CacheVC(this);
   }
   {
-    CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
-    if (!lock.is_locked()) {
-      VC_SCHED_LOCK_RETRY();
-    }
+    // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+    // if (!lock.is_locked()) {
+    //   VC_SCHED_LOCK_RETRY();
+    // }
     if (!buf) {
       goto Lread;
     }
@@ -1066,10 +1066,10 @@ CacheVC::openReadStartHead(int event, Event *e)
     return free_CacheVC(this);
   }
   {
-    CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
-    if (!lock.is_locked()) {
-      VC_SCHED_LOCK_RETRY();
-    }
+    // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+    // if (!lock.is_locked()) {
+    //   VC_SCHED_LOCK_RETRY();
+    // }
     if (!buf) {
       goto Lread;
     }
@@ -1233,7 +1233,7 @@ CacheVC::openReadStartHead(int event, Event *e)
         goto Ldone;
       }
       od = cod;
-      MUTEX_RELEASE(lock);
+      // MUTEX_RELEASE(lock);
       SET_HANDLER(&CacheVC::openReadFromWriter);
       return handleEvent(EVENT_IMMEDIATE, nullptr);
     }

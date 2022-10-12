@@ -536,7 +536,7 @@ dir_free_entry(Dir *e, int s, Vol *d)
 int
 dir_probe(const CacheKey *key, Vol *d, Dir *result, Dir **last_collision)
 {
-  ink_assert(d->mutex->thread_holding == this_ethread());
+  // ink_assert(d->mutex->thread_holding == this_ethread());
   int s    = key->slice32(0) % d->segments;
   int b    = key->slice32(1) % d->buckets;
   Dir *seg = d->dir_segment(s);

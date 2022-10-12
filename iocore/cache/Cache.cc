@@ -492,7 +492,7 @@ int
 Vol::begin_read(CacheVC *cont)
 {
   ink_assert(cont->mutex->thread_holding == this_ethread());
-  ink_assert(mutex->thread_holding == this_ethread());
+  // ink_assert(mutex->thread_holding == this_ethread());
 #ifdef CACHE_STAT_PAGES
   ink_assert(!cont->stat_link.next && !cont->stat_link.prev);
   stat_cache_vcs.enqueue(cont, cont->stat_link);
@@ -526,9 +526,9 @@ Vol::begin_read(CacheVC *cont)
 int
 Vol::close_read(CacheVC *cont)
 {
-  EThread *t = cont->mutex->thread_holding;
-  ink_assert(t == this_ethread());
-  ink_assert(t == mutex->thread_holding);
+  EThread *t = this_ethread(); // cont->mutex->thread_holding;
+  // ink_assert(t == this_ethread());
+  // ink_assert(t == mutex->thread_holding);
   if (dir_is_empty(&cont->earliest_dir)) {
     return 1;
   }
@@ -943,9 +943,10 @@ CacheProcessor::cacheInitialized()
           vol = gvol[i];
 
           if (gvol[i]->cache_vol->ramcache_enabled) {
-            if (!lockless_ram_cache) {
-              gvol[i]->ram_cache->init(vol->dirlen() * DEFAULT_RAM_CACHE_MULTIPLIER, vol);
-            }
+            // loclless ram cache doesn't work with auto-size-ram-cache?
+            // if (!lockless_ram_cache) {
+            gvol[i]->ram_cache->init(vol->dirlen() * DEFAULT_RAM_CACHE_MULTIPLIER, vol);
+            // }
             ram_cache_bytes += gvol[i]->dirlen();
             Debug("cache_init", "CacheProcessor::cacheInitialized - ram_cache_bytes = %" PRId64 " = %" PRId64 "Mb", ram_cache_bytes,
                   ram_cache_bytes / (1024 * 1024));
@@ -2293,7 +2294,7 @@ CacheVC::handleRead(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
   f.doc_from_ram_cache = false;
 
   // check ram cache
-  ink_assert(vol->mutex->thread_holding == this_ethread());
+  // ink_assert(vol->mutex->thread_holding == this_ethread());
   int64_t o           = dir_offset(&dir);
   int ram_hit_state   = vol->ram_cache->get(read_key, &buf, static_cast<uint64_t>(o));
   f.compressed_in_ram = (ram_hit_state > RAM_HIT_COMPRESS_NONE) ? 1 : 0;
