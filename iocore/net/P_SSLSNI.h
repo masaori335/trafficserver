@@ -86,7 +86,7 @@ struct SNIConfigParams : public ConfigInfo {
 
   const NextHopProperty *get_property_config(const std::string &servername) const;
   int initialize();
-  int load_sni_config();
+  void load_sni_config();
   std::pair<const ActionVector *, ActionItem::Context> get(std::string_view servername) const;
 
   SNIList sni_action_list;
@@ -100,7 +100,7 @@ public:
   using scoped_config = ConfigProcessor::scoped_config<SNIConfig, SNIConfigParams>;
 
   static void startup();
-  static int reconfigure();
+  static void reconfigure();
   static SNIConfigParams *acquire();
   static void release(SNIConfigParams *params);
 
