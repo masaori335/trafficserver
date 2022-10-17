@@ -490,6 +490,8 @@ NetAccept::acceptFastEvent(int event, void *ep)
       goto Lerror;
     }
 
+    ink_release_assert(e->ethread == this_ethread());
+
     vc = (UnixNetVConnection *)this->getNetProcessor()->allocate_vc(e->ethread);
     ink_release_assert(vc);
 
@@ -520,10 +522,12 @@ NetAccept::acceptFastEvent(int event, void *ep)
 #endif
     SET_CONTINUATION_HANDLER(vc, &UnixNetVConnection::acceptEvent);
 
-    EThread *t    = e->ethread;
-    NetHandler *h = get_NetHandler(t);
+    // EThread *t    = e->ethread;
+    // NetHandler *h = get_NetHandler(t);
     // Assign NetHandler->mutex to NetVC
-    vc->mutex = h->mutex;
+    //  vc->mutex = h->mutex;
+    vc->mutex = new_ProxyMutex();
+
     // We must be holding the lock already to do later do_io_read's
     SCOPED_MUTEX_LOCK(lock, vc->mutex, e->ethread);
     vc->handleEvent(EVENT_NONE, nullptr);

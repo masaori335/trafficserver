@@ -1022,9 +1022,9 @@ UnixNetVConnection::acceptEvent(int event, Event *e)
     return EVENT_DONE;
   }
 
-  // Switch vc->mutex from NetHandler->mutex to new mutex
-  mutex = new_ProxyMutex();
-  SCOPED_MUTEX_LOCK(lock2, mutex, t);
+  // // Switch vc->mutex from NetHandler->mutex to new mutex
+  // mutex = new_ProxyMutex();
+  // SCOPED_MUTEX_LOCK(lock2, mutex, t);
 
   // Setup a timeout callback handler.
   SET_HANDLER(&UnixNetVConnection::mainEvent);
