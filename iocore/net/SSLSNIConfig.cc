@@ -218,7 +218,11 @@ SNIConfigParams::initialize()
   if (stat(sni_filename.c_str(), &sbuf) == -1 && errno == ENOENT) {
     Note("%s failed to load", sni_filename.c_str());
     Warning("Loading SNI configuration - filename: %s doesn't exist", sni_filename.c_str());
-    return 0;
+    if (TSSystemState::is_initializing()) {
+      return 0;
+    } else {
+      return 1;
+    }
   }
 
   YamlSNIConfig yaml_sni_tmp;
