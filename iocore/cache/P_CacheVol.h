@@ -23,6 +23,8 @@
 
 #pragma once
 
+#include <tscpp/util/TsSharedMutex.h>
+
 #include <atomic>
 
 #define CACHE_BLOCK_SHIFT 9
@@ -120,6 +122,8 @@ struct EvacuationBlock {
 };
 
 struct Vol : public Continuation {
+  ts::shared_mutex shared_mutex;
+
   char *path = nullptr;
   ats_scoped_str hash_text;
   CryptoHash hash_id;

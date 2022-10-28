@@ -25,6 +25,8 @@
 
 #include "HttpCacheSM.h" //Added to get the scope of HttpCacheSM object.
 
+#include <shared_mutex>
+
 Action *
 Cache::open_read(Continuation *cont, const CacheKey *key, CacheFragType type, const char *hostname, int host_len)
 {
@@ -40,8 +42,10 @@ Cache::open_read(Continuation *cont, const CacheKey *key, CacheFragType type, co
   OpenDirEntry *od  = nullptr;
   CacheVC *c        = nullptr;
   {
-    CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
-    if (!lock.is_locked() || (od = vol->open_read(key)) || dir_probe(key, vol, &result, &last_collision)) {
+    std::shared_lock shared_lock(vol->shared_mutex);
+    // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+    // if (!lock.is_locked() || (od = vol->open_read(key)) || dir_probe(key, vol, &result, &last_collision)) {
+    if ((od = vol->open_read(key)) || dir_probe(key, vol, &result, &last_collision)) {
       c = new_CacheVC(cont);
       SET_CONTINUATION_HANDLER(c, &CacheVC::openReadStartHead);
       c->vio.op    = VIO::READ;
@@ -55,10 +59,10 @@ Cache::open_read(Continuation *cont, const CacheKey *key, CacheFragType type, co
     if (!c) {
       goto Lmiss;
     }
-    if (!lock.is_locked()) {
-      CONT_SCHED_LOCK_RETRY(c);
-      return &c->_action;
-    }
+    // if (!lock.is_locked()) {
+    //   CONT_SCHED_LOCK_RETRY(c);
+    //   return &c->_action;
+    // }
     if (c->od) {
       goto Lwriter;
     }
@@ -107,6 +111,7 @@ Cache::open_read(Continuation *cont, const CacheKey *key, CacheHTTPHdr *request,
   CacheVC *c        = nullptr;
 
   {
+    std::shared_lock shared_lock(vol->shared_mutex);
     // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
     if ((od = vol->open_read(key)) || dir_probe(key, vol, &result, &last_collision)) {
       c            = new_CacheVC(cont);
@@ -321,6 +326,7 @@ CacheVC::openReadFromWriter(int event, Event *e)
   if (!lock.is_locked()) {
     VC_SCHED_LOCK_RETRY();
   }
+
   od = vol->open_read(&first_key); // recheck in case the lock failed
   if (!od) {
     MUTEX_RELEASE(lock);
@@ -388,6 +394,7 @@ CacheVC::openReadFromWriter(int event, Event *e)
     DDebug("cache_read_agg", "%p: key: %X lock miss", this, first_key.slice32(1));
     VC_SCHED_LOCK_RETRY();
   }
+
   MUTEX_RELEASE(lock);
 
   if (!write_vc->io.ok()) {
@@ -531,6 +538,8 @@ CacheVC::openReadClose(int event, Event * /* e ATS_UNUSED */)
     }
     set_io_not_in_progress();
   }
+
+  std::unique_lock shared_lock(vol->shared_mutex);
   // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
   // if (!lock.is_locked()) {
   //   VC_SCHED_LOCK_RETRY();
@@ -758,6 +767,7 @@ CacheVC::openReadMain(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
       }
 
       dir_delete(&earliest_key, vol, &earliest_dir);
+
       goto Lerror;
     }
   }
@@ -863,6 +873,7 @@ CacheVC::openReadStartEarliest(int /* event ATS_UNUSED */, Event * /* e ATS_UNUS
     return free_CacheVC(this);
   }
   {
+    std::shared_lock shared_lock(vol->shared_mutex);
     // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
     // if (!lock.is_locked()) {
     //   VC_SCHED_LOCK_RETRY();
@@ -1066,6 +1077,7 @@ CacheVC::openReadStartHead(int event, Event *e)
     return free_CacheVC(this);
   }
   {
+    std::shared_lock shared_lock(vol->shared_mutex);
     // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
     // if (!lock.is_locked()) {
     //   VC_SCHED_LOCK_RETRY();

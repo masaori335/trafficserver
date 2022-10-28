@@ -576,7 +576,10 @@ Lagain:
           *last_collision = e;
           ink_assert(dir_offset(e) * CACHE_BLOCK_SIZE < d->len);
           return 1;
-        } else { // delete the invalid entry
+        } else {
+          // delete the invalid entry
+          std::unique_lock lock(d->shared_mutex);
+
           CACHE_DEC_DIR_USED(d->mutex);
           e = dir_delete_entry(e, p, s, d);
           continue;
