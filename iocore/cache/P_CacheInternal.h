@@ -904,6 +904,15 @@ rand_CacheKey(CacheKey *next_key, Ptr<ProxyMutex> &mutex)
   next_key->b[1] = mutex->thread_holding->generator.random();
 }
 
+void TS_INLINE
+rand_CacheKey(CacheKey *next_key)
+{
+  EThread *ethread = this_ethread();
+
+  next_key->b[0] = ethread->generator.random();
+  next_key->b[1] = ethread->generator.random();
+}
+
 extern uint8_t CacheKey_next_table[];
 void TS_INLINE
 next_CacheKey(CacheKey *next_key, CacheKey *key)
