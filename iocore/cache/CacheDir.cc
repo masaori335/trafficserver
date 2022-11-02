@@ -89,7 +89,7 @@ OpenDir::open_write(CacheVC *cont, int allow_if_writers, int max_writers)
     }
     return 0;
   }
-  OpenDirEntry *od = THREAD_ALLOC(openDirEntryAllocator, cont->mutex->thread_holding);
+  OpenDirEntry *od = THREAD_ALLOC(openDirEntryAllocator, cont->mutex->thread_holding.load());
   od->readers.head = nullptr;
   od->writers.push(cont);
   od->num_writers           = 1;
@@ -170,7 +170,7 @@ OpenDirEntry::wait(CacheVC *cont, int msec)
   ink_assert(cont->vol->mutex->thread_holding == this_ethread());
   cont->f.open_read_timeout = 1;
   ink_assert(!cont->trigger);
-  cont->trigger = cont->vol->mutex->thread_holding->schedule_in_local(cont, HRTIME_MSECONDS(msec));
+  cont->trigger = cont->vol->mutex->thread_holding.load()->schedule_in_local(cont, HRTIME_MSECONDS(msec));
   readers.push(cont);
   return EVENT_CONT;
 }

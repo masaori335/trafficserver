@@ -321,7 +321,7 @@ PreWarmSM::state_dns_lookup(int event, void *data)
       hostname = std::string_view(srv_hostname);
 
       HostDBInfo *info =
-        record->select_best_srv(srv_hostname, &mutex->thread_holding->generator, ts_clock::now(), DOWN_SERVER_TIMEOUT);
+        record->select_best_srv(srv_hostname, &mutex->thread_holding.load()->generator, ts_clock::now(), DOWN_SERVER_TIMEOUT);
       if (info == nullptr) {
         // lookup SRV record failed, fallback to default lookup
         hostname = _dst->host;

@@ -1225,9 +1225,9 @@ write_dns_event(DNSHandler *h, DNSEntry *e, bool over_tcp)
   }
 
   if (h->txn_lookup_timeout) {
-    e->timeout = h->mutex->thread_holding->schedule_in(e, HRTIME_MSECONDS(h->txn_lookup_timeout)); // this is in msec
+    e->timeout = h->mutex->thread_holding.load()->schedule_in(e, HRTIME_MSECONDS(h->txn_lookup_timeout)); // this is in msec
   } else {
-    e->timeout = h->mutex->thread_holding->schedule_in(e, HRTIME_SECONDS(dns_timeout));
+    e->timeout = h->mutex->thread_holding.load()->schedule_in(e, HRTIME_SECONDS(dns_timeout));
   }
 
   Debug("dns", "sent qname = %s, id = %u, nameserver = %d", e->qname, e->id[dns_retries - e->retries], h->name_server);
@@ -1465,7 +1465,7 @@ DNSEntry::postAllEvent(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
       if (timeout) {
         timeout->cancel();
       }
-      timeout = dnsH->mutex->thread_holding->schedule_in(this, MUTEX_RETRY_DELAY);
+      timeout = dnsH->mutex->thread_holding.load()->schedule_in(this, MUTEX_RETRY_DELAY);
       return EVENT_DONE;
     }
   }

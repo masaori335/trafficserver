@@ -58,7 +58,7 @@ Http2ClientSession::free()
     _vc->do_io_close();
     _vc = nullptr;
   }
-  auto mutex_thread = this->mutex->thread_holding;
+  auto mutex_thread = this->mutex->thread_holding.load();
   if (Http2CommonSession::common_free(this)) {
     HTTP2_DECREMENT_THREAD_DYN_STAT(HTTP2_STAT_CURRENT_CLIENT_SESSION_COUNT, mutex_thread);
     THREAD_FREE(this, http2ClientSessionAllocator, this_ethread());

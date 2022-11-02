@@ -65,25 +65,26 @@ struct EvacuationBlock;
   CACHE_MUTEX_RELEASE(_l)
 #endif
 
-#define VC_LOCK_RETRY_EVENT()                                                                                         \
+#define VC_LOCK_RETRY_EVENT()                                                                                                \
+  do {                                                                                                                       \
+    trigger = mutex->thread_holding.load()->schedule_in_local(this, HRTIME_MSECONDS(cache_config_mutex_retry_delay), event); \
+    return EVENT_CONT;                                                                                                       \
+  } while (0)
+
+#define VC_SCHED_LOCK_RETRY()                                                                                         \
   do {                                                                                                                \
-    trigger = mutex->thread_holding->schedule_in_local(this, HRTIME_MSECONDS(cache_config_mutex_retry_delay), event); \
+    trigger = mutex->thread_holding.load()->schedule_in_local(this, HRTIME_MSECONDS(cache_config_mutex_retry_delay)); \
     return EVENT_CONT;                                                                                                \
   } while (0)
 
-#define VC_SCHED_LOCK_RETRY()                                                                                  \
-  do {                                                                                                         \
-    trigger = mutex->thread_holding->schedule_in_local(this, HRTIME_MSECONDS(cache_config_mutex_retry_delay)); \
-    return EVENT_CONT;                                                                                         \
+#define CONT_SCHED_LOCK_RETRY_RET(_c)                                                                         \
+  do {                                                                                                        \
+    _c->mutex->thread_holding.load()->schedule_in_local(_c, HRTIME_MSECONDS(cache_config_mutex_retry_delay)); \
+    return EVENT_CONT;                                                                                        \
   } while (0)
 
-#define CONT_SCHED_LOCK_RETRY_RET(_c)                                                                  \
-  do {                                                                                                 \
-    _c->mutex->thread_holding->schedule_in_local(_c, HRTIME_MSECONDS(cache_config_mutex_retry_delay)); \
-    return EVENT_CONT;                                                                                 \
-  } while (0)
-
-#define CONT_SCHED_LOCK_RETRY(_c) _c->mutex->thread_holding->schedule_in_local(_c, HRTIME_MSECONDS(cache_config_mutex_retry_delay))
+#define CONT_SCHED_LOCK_RETRY(_c) \
+  _c->mutex->thread_holding.load()->schedule_in_local(_c, HRTIME_MSECONDS(cache_config_mutex_retry_delay))
 
 #define VC_SCHED_WRITER_RETRY()                                           \
   do {                                                                    \
@@ -92,7 +93,7 @@ struct EvacuationBlock;
     ink_hrtime _t = HRTIME_MSECONDS(cache_read_while_writer_retry_delay); \
     if (writer_lock_retry > 2)                                            \
       _t = HRTIME_MSECONDS(cache_read_while_writer_retry_delay) * 2;      \
-    trigger = mutex->thread_holding->schedule_in_local(this, _t);         \
+    trigger = mutex->thread_holding.load()->schedule_in_local(this, _t);  \
     return EVENT_CONT;                                                    \
   } while (0)
 
@@ -719,7 +720,7 @@ CacheVC::handleWriteLock(int /* event ATS_UNUSED */, Event *e)
     CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
     if (!lock.is_locked()) {
       set_agg_write_in_progress();
-      trigger = mutex->thread_holding->schedule_in_local(this, HRTIME_MSECONDS(cache_config_mutex_retry_delay));
+      trigger = mutex->thread_holding.load()->schedule_in_local(this, HRTIME_MSECONDS(cache_config_mutex_retry_delay));
       return EVENT_CONT;
     }
     ret = handleWrite(EVENT_CALL, e);
@@ -785,7 +786,8 @@ Vol::open_write(CacheVC *cont, int allow_if_writers, int max_writers)
   if (!cont->f.remove) {
     agg_error = (!cont->f.update && agg_todo_size > cache_config_agg_write_backlog);
 #ifdef CACHE_AGG_FAIL_RATE
-    agg_error = agg_error || ((uint32_t)mutex->thread_holding->generator.random() < (uint32_t)(UINT_MAX * CACHE_AGG_FAIL_RATE));
+    agg_error =
+      agg_error || ((uint32_t)mutex->thread_holding.load()->generator.random() < (uint32_t)(UINT_MAX * CACHE_AGG_FAIL_RATE));
 #endif
   }
   if (agg_error) {
@@ -900,8 +902,8 @@ dir_overwrite_lock(CacheKey *key, Vol *d, Dir *to_part, ProxyMutex *m, Dir *over
 void TS_INLINE
 rand_CacheKey(CacheKey *next_key, Ptr<ProxyMutex> &mutex)
 {
-  next_key->b[0] = mutex->thread_holding->generator.random();
-  next_key->b[1] = mutex->thread_holding->generator.random();
+  next_key->b[0] = mutex->thread_holding.load()->generator.random();
+  next_key->b[1] = mutex->thread_holding.load()->generator.random();
 }
 
 extern uint8_t CacheKey_next_table[];

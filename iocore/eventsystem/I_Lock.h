@@ -27,6 +27,8 @@
 #include "tscore/Diags.h"
 #include "I_Thread.h"
 
+#include <atomic>
+
 #define MAX_LOCK_TIME HRTIME_MSECONDS(200)
 #define THREAD_MUTEX_THREAD_HOLDING (-1024 * 1024)
 
@@ -177,7 +179,7 @@ public:
     lock.  You must not modify or set this value directly.
 
   */
-  EThreadPtr thread_holding;
+  std::atomic<EThreadPtr> thread_holding;
 
   int nthread_holding;
 

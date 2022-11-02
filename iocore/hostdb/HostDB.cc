@@ -1221,7 +1221,7 @@ HostDBContinuation::iterateEvent(int event, Event *e)
   MUTEX_TRY_LOCK(lock, action.mutex, t);
   if (!lock.is_locked()) {
     Debug("hostdb", "iterateEvent event=%d eventp=%p: reschedule due to not getting action mutex", event, e);
-    mutex->thread_holding->schedule_in(this, HOST_DB_RETRY_PERIOD);
+    mutex->thread_holding.load()->schedule_in(this, HOST_DB_RETRY_PERIOD);
     return EVENT_CONT;
   }
 
@@ -1238,7 +1238,7 @@ HostDBContinuation::iterateEvent(int event, Event *e)
     if (!lock_bucket.is_locked()) {
       // we couldn't get the bucket lock, let's just reschedule and try later.
       Debug("hostdb", "iterateEvent event=%d eventp=%p: reschedule due to not getting bucket mutex", event, e);
-      mutex->thread_holding->schedule_in(this, HOST_DB_RETRY_PERIOD);
+      mutex->thread_holding.load()->schedule_in(this, HOST_DB_RETRY_PERIOD);
       return EVENT_CONT;
     }
 
@@ -1256,7 +1256,7 @@ HostDBContinuation::iterateEvent(int event, Event *e)
     // And reschedule ourselves to pickup the next bucket after HOST_DB_RETRY_PERIOD.
     Debug("hostdb", "iterateEvent event=%d eventp=%p: completed current iteration %ld of %ld", event, e, current_iterate_pos,
           hostDB.refcountcache->partition_count());
-    mutex->thread_holding->schedule_in(this, HOST_DB_ITERATE_PERIOD);
+    mutex->thread_holding.load()->schedule_in(this, HOST_DB_ITERATE_PERIOD);
     return EVENT_CONT;
   } else {
     Debug("hostdb", "iterateEvent event=%d eventp=%p: completed FINAL iteration %ld", event, e, current_iterate_pos);
@@ -1287,7 +1287,7 @@ HostDBContinuation::probeEvent(int /* event ATS_UNUSED */, Event *e)
   // Separating lock checks here to make sure things don't break
   // when we check if the action is cancelled.
   if (!lock.is_locked()) {
-    timeout = mutex->thread_holding->schedule_in(this, HOST_DB_RETRY_PERIOD);
+    timeout = mutex->thread_holding.load()->schedule_in(this, HOST_DB_RETRY_PERIOD);
     return EVENT_CONT;
   }
 
@@ -1426,7 +1426,7 @@ HostDBContinuation::do_dns()
   }
 
   if (hostdb_lookup_timeout) {
-    timeout = mutex->thread_holding->schedule_in(this, HRTIME_SECONDS(hostdb_lookup_timeout));
+    timeout = mutex->thread_holding.load()->schedule_in(this, HRTIME_SECONDS(hostdb_lookup_timeout));
   } else {
     timeout = nullptr;
   }

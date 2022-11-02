@@ -308,7 +308,7 @@ CacheVC::do_io_read(Continuation *c, int64_t nbytes, MIOBuffer *abuf)
   ink_assert(!c || c->mutex->thread_holding);
 #endif
   if (c && !trigger && !recursive) {
-    trigger = c->mutex->thread_holding->schedule_imm_local(this);
+    trigger = c->mutex->thread_holding.load()->schedule_imm_local(this);
   }
   return &vio;
 }
@@ -327,7 +327,7 @@ CacheVC::do_io_pread(Continuation *c, int64_t nbytes, MIOBuffer *abuf, int64_t o
   ink_assert(c->mutex->thread_holding);
 #endif
   if (!trigger && !recursive) {
-    trigger = c->mutex->thread_holding->schedule_imm_local(this);
+    trigger = c->mutex->thread_holding.load()->schedule_imm_local(this);
   }
   return &vio;
 }
@@ -346,7 +346,7 @@ CacheVC::do_io_write(Continuation *c, int64_t nbytes, IOBufferReader *abuf, bool
   ink_assert(!c || c->mutex->thread_holding);
 #endif
   if (c && !trigger && !recursive) {
-    trigger = c->mutex->thread_holding->schedule_imm_local(this);
+    trigger = c->mutex->thread_holding.load()->schedule_imm_local(this);
   }
   return &vio;
 }
@@ -379,7 +379,7 @@ CacheVC::reenable(VIO *avio)
     } else if (!vio.buffer.reader()->read_avail())
       ink_assert(!"useless reenable of cache write");
 #endif
-    trigger = avio->mutex->thread_holding->schedule_imm_local(this);
+    trigger = avio->mutex->thread_holding.load()->schedule_imm_local(this);
   }
 }
 
@@ -395,7 +395,7 @@ CacheVC::reenable_re(VIO *avio)
     if (!is_io_in_progress() && !recursive) {
       handleEvent(EVENT_NONE, (void *)nullptr);
     } else {
-      trigger = avio->mutex->thread_holding->schedule_imm_local(this);
+      trigger = avio->mutex->thread_holding.load()->schedule_imm_local(this);
     }
   }
 }
@@ -2314,7 +2314,7 @@ CacheVC::handleRead(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
   buf              = new_IOBufferData(iobuffer_size_to_index(io.aiocb.aio_nbytes, MAX_BUFFER_SIZE_INDEX), MEMALIGNED);
   io.aiocb.aio_buf = buf->data();
   io.action        = this;
-  io.thread        = mutex->thread_holding->tt == DEDICATED ? AIO_CALLBACK_THREAD_ANY : mutex->thread_holding;
+  io.thread        = mutex->thread_holding.load()->tt == DEDICATED ? AIO_CALLBACK_THREAD_ANY : mutex->thread_holding.load();
   SET_HANDLER(&CacheVC::handleReadDone);
   ink_assert(ink_aio_read(&io) >= 0);
   CACHE_DEBUG_INCREMENT_DYN_STAT(cache_pread_count_stat);

@@ -276,7 +276,7 @@ HttpCacheSM::do_schedule_in()
 {
   ink_assert(pending_action == nullptr);
   Action *action_handle =
-    mutex->thread_holding->schedule_in(this, HRTIME_MSECONDS(master_sm->t_state.txn_conf->cache_open_read_retry_time));
+    mutex->thread_holding.load()->schedule_in(this, HRTIME_MSECONDS(master_sm->t_state.txn_conf->cache_open_read_retry_time));
 
   if (action_handle != ACTION_RESULT_DONE) {
     pending_action = action_handle;

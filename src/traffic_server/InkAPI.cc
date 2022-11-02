@@ -1305,7 +1305,7 @@ INKVConnInternal::retry(unsigned int delay)
   if (ink_atomic_increment((int *)&m_event_count, 1) < 0) {
     ink_assert(!"not reached");
   }
-  mutex->thread_holding->schedule_in(this, HRTIME_MSECONDS(delay));
+  mutex->thread_holding.load()->schedule_in(this, HRTIME_MSECONDS(delay));
 }
 
 bool

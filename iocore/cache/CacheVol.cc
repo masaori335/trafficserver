@@ -183,7 +183,7 @@ CacheVC::scanObject(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
   CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
   if (!lock.is_locked()) {
     Debug("cache_scan_truss", "delay %p:scanObject", this);
-    mutex->thread_holding->schedule_in_local(this, HRTIME_MSECONDS(cache_config_mutex_retry_delay));
+    mutex->thread_holding.load()->schedule_in_local(this, HRTIME_MSECONDS(cache_config_mutex_retry_delay));
     return EVENT_CONT;
   }
 
@@ -429,7 +429,7 @@ CacheVC::scanOpenWrite(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
     if (vol->open_write(this, false, 1)) {
       writer_lock_retry++;
       SET_HANDLER(&CacheVC::scanOpenWrite);
-      mutex->thread_holding->schedule_in_local(this, scan_msec_delay);
+      mutex->thread_holding.load()->schedule_in_local(this, scan_msec_delay);
       return EVENT_CONT;
     }
 
@@ -507,7 +507,7 @@ CacheVC::scanUpdateDone(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
     SET_HANDLER(&CacheVC::scanObject);
     return handleEvent(EVENT_IMMEDIATE, nullptr);
   } else {
-    mutex->thread_holding->schedule_in_local(this, HRTIME_MSECONDS(cache_config_mutex_retry_delay));
+    mutex->thread_holding.load()->schedule_in_local(this, HRTIME_MSECONDS(cache_config_mutex_retry_delay));
     return EVENT_CONT;
   }
 }

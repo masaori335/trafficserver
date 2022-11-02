@@ -482,7 +482,7 @@ HttpSM::state_remove_from_list(int event, void * /* data ATS_UNUSED */)
     MUTEX_TRY_LOCK(lock, HttpSMList[bucket].mutex, mutex->thread_holding);
     if (!lock.is_locked()) {
       HTTP_SM_SET_DEFAULT_HANDLER(&HttpSM::state_remove_from_list);
-      mutex->thread_holding->schedule_in(this, HTTP_LIST_RETRY);
+      mutex->thread_holding.load()->schedule_in(this, HTTP_LIST_RETRY);
       return EVENT_DONE;
     }
 
@@ -1556,7 +1556,7 @@ plugins required to work with sni_routing.
         api_timer = -Thread::get_hrtime_updated();
         HTTP_SM_SET_DEFAULT_HANDLER(&HttpSM::state_api_callout);
         ink_release_assert(pending_action.empty());
-        pending_action = mutex->thread_holding->schedule_in(this, HRTIME_MSECONDS(10));
+        pending_action = mutex->thread_holding.load()->schedule_in(this, HRTIME_MSECONDS(10));
         return -1;
       }
 
@@ -2265,8 +2265,8 @@ HttpSM::process_srv_info(HostDBRecord *record)
     t_state.my_txn_conf().srv_enabled = false;
     SMDebug("dns_srv", "No SRV records were available, continuing to lookup %s", t_state.dns_info.lookup_name);
   } else {
-    HostDBInfo *srv = record->select_best_srv(t_state.dns_info.srv_hostname, &mutex->thread_holding->generator, ts_clock::now(),
-                                              t_state.txn_conf->down_server_timeout);
+    HostDBInfo *srv = record->select_best_srv(t_state.dns_info.srv_hostname, &mutex->thread_holding.load()->generator,
+                                              ts_clock::now(), t_state.txn_conf->down_server_timeout);
     if (!srv) {
       //      t_state.dns_info.srv_lookup_success = false;
       t_state.dns_info.srv_hostname[0]  = '\0';
@@ -8192,7 +8192,7 @@ HttpSM::get_http_schedule(int event, void * /* data ATS_UNUSED */)
     if (!plugin_lock) {
       HTTP_SM_SET_DEFAULT_HANDLER(&HttpSM::get_http_schedule);
       ink_assert(pending_action.empty());
-      pending_action = mutex->thread_holding->schedule_in(this, HRTIME_MSECONDS(10));
+      pending_action = mutex->thread_holding.load()->schedule_in(this, HRTIME_MSECONDS(10));
       return 0;
     } else {
       pending_action = nullptr; // if there was a pending action, it'll get freed after this returns so clear it.
