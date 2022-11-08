@@ -18,7 +18,7 @@
 
 include $(top_srcdir)/build/tidy.mk
 
-noinst_PROGRAMS = CompileParseRules freelist_benchmark
+noinst_PROGRAMS = CompileParseRules freelist_benchmark benchmark_hrtime
 check_PROGRAMS = test_geometry test_X509HostnameValidator test_tscore
 
 if EXPENSIVE_TESTS
@@ -208,6 +208,10 @@ endif
 freelist_benchmark_CXXFLAGS = -Wno-array-bounds $(AM_CXXFLAGS) -I$(abs_top_srcdir)/tests/include
 freelist_benchmark_LDADD = libtscore.la @HWLOC_LIBS@
 freelist_benchmark_SOURCES = unit_tests/freelist_benchmark.cc
+
+benchmark_hrtime_CXXFLAGS = -Wno-array-bounds $(AM_CXXFLAGS) -I$(abs_top_srcdir)/tests/include
+benchmark_hrtime_LDADD = libtscore.la @HWLOC_LIBS@
+benchmark_hrtime_SOURCES = unit_tests/benchmark_hrtime.cc
 
 CompileParseRules_SOURCES = CompileParseRules.cc
 
