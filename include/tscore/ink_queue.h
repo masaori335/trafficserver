@@ -223,12 +223,7 @@ struct InkAtomicList {
   uint32_t offset  = 0;
 };
 
-#if !defined(INK_QUEUE_NT)
-#define INK_ATOMICLIST_EMPTY(_x) (!(TO_PTR(FREELIST_POINTER((_x.head)))))
-#else
-/* ink_queue_nt.c doesn't do the FROM/TO pointer swizzling */
 #define INK_ATOMICLIST_EMPTY(_x) (!((FREELIST_POINTER((_x.head)))))
-#endif
 
 // WARNING: the "name" string is not copied, it has to be a statically-stored constant string.
 //
