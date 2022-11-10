@@ -183,6 +183,7 @@ help:
 	@echo 'all              default target for building the package'
 	@echo 'asf-dist         recreate source package'
 	@echo 'asf-dist-sign    recreate source package, with checksums and signature'
+	@echo 'benchmark        run micro benchmark programs'
 	@echo 'check            run the test suite, if any'
 	@echo 'clang-format     run clang-format over most C and C++ files (not git subtrees)'
 	@echo 'clang-tidy       run clang-tidy in fix-it mode'

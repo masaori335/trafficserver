@@ -209,6 +209,9 @@ freelist_benchmark_CXXFLAGS = -Wno-array-bounds $(AM_CXXFLAGS) -I$(abs_top_srcdi
 freelist_benchmark_LDADD = libtscore.la @HWLOC_LIBS@
 freelist_benchmark_SOURCES = unit_tests/freelist_benchmark.cc
 
+benchamrk-local: $(benchmark_progs)
+	@./freelist_benchmark
+
 CompileParseRules_SOURCES = CompileParseRules.cc
 
 CompileParseRules$(BUILD_EXEEXT): $(CompileParseRules_OBJECTS)

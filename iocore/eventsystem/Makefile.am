@@ -70,10 +70,12 @@ libinkevent_a_SOURCES = \
 	UnixEvent.cc \
 	UnixEventProcessor.cc
 
+benchmark_progs = benchmark_ProxyAllocator
+
 check_PROGRAMS = test_IOBuffer \
 	test_EventSystem \
 	test_MIOBufferWriter \
-	benchmark_ProxyAllocator
+	$(benchmark_progs)
 
 test_LD_FLAGS = \
 	@AM_LDFLAGS@ \
@@ -119,6 +121,9 @@ benchmark_ProxyAllocator_SOURCES = unit_tests/benchmark_ProxyAllocator.cc
 benchmark_ProxyAllocator_CPPFLAGS = $(test_CPP_FLAGS)
 benchmark_ProxyAllocator_LDFLAGS = $(test_LD_FLAGS)
 benchmark_ProxyAllocator_LDADD = $(test_LD_ADD)
+
+benchmark-local: $(benchmark_progs)
+	@./benchmark_ProxyAllocator
 
 include $(top_srcdir)/build/tidy.mk
 

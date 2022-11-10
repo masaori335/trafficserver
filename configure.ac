@@ -51,6 +51,9 @@ AM_MAINTAINER_MODE([enable])
 # Enable a recursive "tidy" rule for clang-tidy.
 m4_ifdef([AM_EXTRA_RECURSIVE_TARGETS], [AM_EXTRA_RECURSIVE_TARGETS([clang-tidy])])
 
+# Enable a recursive "benchmark" rule
+m4_ifdef([AM_EXTRA_RECURSIVE_TARGETS], [AM_EXTRA_RECURSIVE_TARGETS([benchmark])])
+
 AC_CONFIG_HEADERS([include/ink_autoconf.h])
 
 # Configure with --disable-silent-rules to get verbose output. For more info, see

@@ -111,6 +111,7 @@ iocore/aio/test_AIO
 iocore/eventsystem/test_IOBuffer
 iocore/eventsystem/test_EventSystem
 iocore/eventsystem/test_MIOBufferWriter
+iocore/eventsystem/benchmark_ProxyAllocator
 iocore/hostdb/test_RefCountCache
 
 proxy/hdrs/test_mime
