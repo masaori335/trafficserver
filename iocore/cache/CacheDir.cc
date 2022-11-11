@@ -1443,7 +1443,7 @@ EXCLUSIVE_REGRESSION_TEST(Cache_dir)(RegressionTest *t, int /* atype ATS_UNUSED 
   d->header->agg_pos = d->header->write_pos += 1024;
 
   CacheKey key;
-  rand_CacheKey(&key, thread->mutex);
+  rand_CacheKey(&key, thread);
 
   int s    = key.slice32(0) % d->segments, i, j;
   Dir *seg = d->dir_segment(s);
@@ -1522,7 +1522,7 @@ EXCLUSIVE_REGRESSION_TEST(Cache_dir)(RegressionTest *t, int /* atype ATS_UNUSED 
   for (int ntimes = 0; ntimes < 10; ntimes++) {
 #ifdef LOOP_CHECK_MODE
     // dir_probe in bucket with loop
-    rand_CacheKey(&key, thread->mutex);
+    rand_CacheKey(&key, thread);
     s1 = key.slice32(0) % d->segments;
     b1 = key.slice32(1) % d->buckets;
     dir_corrupt_bucket(dir_bucket(b1, d->dir_segment(s1)), s1, d);
@@ -1530,7 +1530,7 @@ EXCLUSIVE_REGRESSION_TEST(Cache_dir)(RegressionTest *t, int /* atype ATS_UNUSED 
     Dir *last_collision = 0;
     dir_probe(&key, d, &dir, &last_collision);
 
-    rand_CacheKey(&key, thread->mutex);
+    rand_CacheKey(&key, thread);
     s1 = key.slice32(0) % d->segments;
     b1 = key.slice32(1) % d->buckets;
     dir_corrupt_bucket(dir_bucket(b1, d->dir_segment(s1)), s1, d);
@@ -1539,7 +1539,7 @@ EXCLUSIVE_REGRESSION_TEST(Cache_dir)(RegressionTest *t, int /* atype ATS_UNUSED 
     dir_probe(&key, d, &dir, &last_collision);
 
     // dir_overwrite in bucket with loop
-    rand_CacheKey(&key, thread->mutex);
+    rand_CacheKey(&key, thread);
     s1 = key.slice32(0) % d->segments;
     b1 = key.slice32(1) % d->buckets;
     CacheKey key1;
@@ -1553,7 +1553,7 @@ EXCLUSIVE_REGRESSION_TEST(Cache_dir)(RegressionTest *t, int /* atype ATS_UNUSED 
     dir_corrupt_bucket(dir_bucket(b1, d->dir_segment(s1)), s1, d);
     dir_overwrite(&key, d, &dir, &dir, 1);
 
-    rand_CacheKey(&key, thread->mutex);
+    rand_CacheKey(&key, thread);
     s1       = key.slice32(0) % d->segments;
     b1       = key.slice32(1) % d->buckets;
     key.b[1] = 23;
@@ -1561,14 +1561,14 @@ EXCLUSIVE_REGRESSION_TEST(Cache_dir)(RegressionTest *t, int /* atype ATS_UNUSED 
     dir_corrupt_bucket(dir_bucket(b1, d->dir_segment(s1)), s1, d);
     dir_overwrite(&key, d, &dir, &dir, 0);
 
-    rand_CacheKey(&key, thread->mutex);
+    rand_CacheKey(&key, thread);
     s1        = key.slice32(0) % d->segments;
     Dir *seg1 = d->dir_segment(s1);
     // dir_freelist_length in freelist with loop
     dir_corrupt_bucket(dir_from_offset(d->header->freelist[s], seg1), s1, d);
     dir_freelist_length(d, s1);
 
-    rand_CacheKey(&key, thread->mutex);
+    rand_CacheKey(&key, thread);
     s1 = key.slice32(0) % d->segments;
     b1 = key.slice32(1) % d->buckets;
     // dir_bucket_length in bucket with loop
@@ -1578,7 +1578,7 @@ EXCLUSIVE_REGRESSION_TEST(Cache_dir)(RegressionTest *t, int /* atype ATS_UNUSED 
       ret = REGRESSION_TEST_FAILED;
 #else
     // test corruption detection
-    rand_CacheKey(&key, thread->mutex);
+    rand_CacheKey(&key, thread);
     s1 = key.slice32(0) % d->segments;
     b1 = key.slice32(1) % d->buckets;
 
