@@ -33,6 +33,8 @@
 #endif
 #include "tscore/ink_stack_trace.h"
 
+#include <shared_mutex>
+
 #define CACHE_INC_DIR_USED(_m)                            \
   do {                                                    \
     ProxyMutex *mutex = _m.get();                         \
@@ -578,7 +580,7 @@ Lagain:
           return 1;
         } else {
           // delete the invalid entry
-          std::unique_lock lock(d->shared_mutex);
+          std::unique_lock shared_lock(d->shared_mutex);
 
           CACHE_DEC_DIR_USED(d->mutex);
           e = dir_delete_entry(e, p, s, d);

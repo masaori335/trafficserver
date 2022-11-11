@@ -539,7 +539,7 @@ CacheVC::openReadClose(int event, Event * /* e ATS_UNUSED */)
     set_io_not_in_progress();
   }
 
-  std::unique_lock shared_lock(vol->shared_mutex);
+  std::shared_lock shared_lock(vol->shared_mutex);
   // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
   // if (!lock.is_locked()) {
   //   VC_SCHED_LOCK_RETRY();
