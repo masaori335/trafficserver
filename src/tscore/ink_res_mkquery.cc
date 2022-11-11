@@ -82,8 +82,6 @@
 #include "tscore/ink_error.h"
 #include "tscore/ink_resolver.h"
 
-#define SPRINTF(x) (sprintf x)
-
 /*%
  * Form all types of queries.
  * Returns the size of the result or -1.
@@ -238,15 +236,14 @@ decode_bitstring(const unsigned char **cpp, char *dn, const char *eom)
   if (dn + plen >= eom) {
     return (-1);
   }
-
   cp++;
-  i = SPRINTF((dn, "\\[x"));
+  i = std::snprintf(dn, eom - dn, "\\[x");
   if (i < 0) {
     return (-1);
   }
   dn += i;
   for (b = blen; b > 7; b -= 8, cp++) {
-    i = SPRINTF((dn, "%02x", *cp & 0xff));
+    i = std::snprintf(dn, eom - dn, "%02x", *cp & 0xff);
     if (i < 0) {
       return (-1);
     }
@@ -254,20 +251,20 @@ decode_bitstring(const unsigned char **cpp, char *dn, const char *eom)
   }
   if (b > 4) {
     tc = *cp++;
-    i  = SPRINTF((dn, "%02x", tc & (0xff << (8 - b))));
+    i  = std::snprintf(dn, eom - dn, "%02x", tc & (0xff << (8 - b)));
     if (i < 0) {
       return (-1);
     }
     dn += i;
   } else if (b > 0) {
     tc = *cp++;
-    i  = SPRINTF((dn, "%1x", ((tc >> 4) & 0x0f) & (0x0f << (4 - b))));
+    i  = std::snprintf(dn, eom - dn, "%1x", ((tc >> 4) & 0x0f) & (0x0f << (4 - b)));
     if (i < 0) {
       return (-1);
     }
     dn += i;
   }
-  i = SPRINTF((dn, "/%d]", blen));
+  i = std::snprintf(dn, eom - dn, "/%d]", blen);
   if (i < 0) {
     return (-1);
   }
