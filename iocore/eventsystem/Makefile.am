@@ -73,6 +73,7 @@ libinkevent_a_SOURCES = \
 check_PROGRAMS = test_IOBuffer \
 	test_EventSystem \
 	test_MIOBufferWriter \
+	test_SharedLock \
 	benchmark_ProxyAllocator
 
 test_LD_FLAGS = \
@@ -114,6 +115,11 @@ test_IOBuffer_LDADD = $(test_LD_ADD)
 test_MIOBufferWriter_SOURCES = unit_tests/test_MIOBufferWriter.cc
 test_MIOBufferWriter_CPPFLAGS = $(test_CPP_FLAGS)
 test_MIOBufferWriter_LDFLAGS = $(test_LD_FLAGS)
+
+test_SharedLock_SOURCES = unit_tests/test_SharedLock.cc
+test_SharedLock_CPPFLAGS = $(test_CPP_FLAGS)
+test_SharedLock_LDFLAGS = $(test_LD_FLAGS)
+test_SharedLock_LDADD = $(test_LD_ADD)
 
 benchmark_ProxyAllocator_SOURCES = unit_tests/benchmark_ProxyAllocator.cc
 benchmark_ProxyAllocator_CPPFLAGS = $(test_CPP_FLAGS)
