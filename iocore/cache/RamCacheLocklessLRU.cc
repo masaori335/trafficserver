@@ -272,7 +272,7 @@ find_lru_victim(RamCacheLocklessLRUTags *t, RamCacheLocklessLRUEntry *b)
     }
     uint64_t c = lru >> (8 * j);
     c &= 0xFF;
-    int p = std::__popcount(c);
+    int p = __builtin_popcount(c);
     if (p > max_p) {
       i     = j;
       max_p = p;
@@ -291,7 +291,7 @@ find_lru(RamCacheLocklessLRUTags *t)
   for (int j = 0; j < 8; j++) {
     uint64_t c = lru >> (8 * j);
     c &= 0xFF;
-    int p = std::__popcount(c);
+    int p = __builtin_popcount(c);
     if (p > max_p) {
       i     = j;
       max_p = p;

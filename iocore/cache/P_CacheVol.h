@@ -23,7 +23,7 @@
 
 #pragma once
 
-#include <tscpp/util/TsSharedMutex.h>
+#include "SharedLock.h"
 
 #include <atomic>
 
@@ -121,8 +121,10 @@ struct EvacuationBlock {
   LINK(EvacuationBlock, link);
 };
 
+class EThread;
+
 struct Vol : public Continuation {
-  ts::shared_mutex shared_mutex;
+  ts::SharedMutex shared_mutex;
 
   char *path = nullptr;
   ats_scoped_str hash_text;

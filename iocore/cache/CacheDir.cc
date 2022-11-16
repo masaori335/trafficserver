@@ -580,7 +580,7 @@ Lagain:
           return 1;
         } else {
           // delete the invalid entry
-          std::unique_lock shared_lock(d->shared_mutex);
+          ts::ScopedUniqueLock lock(d->shared_mutex, this_ethread());
 
           CACHE_DEC_DIR_USED(d->mutex);
           e = dir_delete_entry(e, p, s, d);

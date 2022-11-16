@@ -69,7 +69,8 @@ public:
 
       _locked = true;
     } else {
-      ink_release_assert(_mutex.is_exclusive == false);
+      // we need to make sure we're holding exclusive lock instead of shared lock
+      ink_release_assert(_mutex.is_exclusive == true);
     }
   }
 

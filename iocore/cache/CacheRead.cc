@@ -42,7 +42,7 @@ Cache::open_read(Continuation *cont, const CacheKey *key, CacheFragType type, co
   OpenDirEntry *od  = nullptr;
   CacheVC *c        = nullptr;
   {
-    std::shared_lock shared_lock(vol->shared_mutex);
+    ts::ScopedUniqueLock lock(vol->shared_mutex, this_ethread());
     // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
     // if (!lock.is_locked() || (od = vol->open_read(key)) || dir_probe(key, vol, &result, &last_collision)) {
     if ((od = vol->open_read(key)) || dir_probe(key, vol, &result, &last_collision)) {
@@ -111,7 +111,8 @@ Cache::open_read(Continuation *cont, const CacheKey *key, CacheHTTPHdr *request,
   CacheVC *c        = nullptr;
 
   {
-    std::shared_lock shared_lock(vol->shared_mutex);
+    ts::ScopedUniqueLock lock(vol->shared_mutex, this_ethread());
+
     // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
     if ((od = vol->open_read(key)) || dir_probe(key, vol, &result, &last_collision)) {
       c            = new_CacheVC(cont);
@@ -202,7 +203,8 @@ CacheVC::openReadChooseWriter(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSE
   intptr_t err = ECACHE_DOC_BUSY;
   CacheVC *w   = nullptr;
 
-  ink_assert(vol->mutex->thread_holding == mutex->thread_holding && write_vc == nullptr);
+  // ink_assert(vol->mutex->thread_holding == mutex->thread_holding);
+  ink_assert(write_vc == nullptr);
 
   if (!od) {
     return EVENT_RETURN;
@@ -322,14 +324,16 @@ CacheVC::openReadFromWriter(int event, Event *e)
     od = nullptr; // only open for read so no need to close
     return free_CacheVC(this);
   }
-  CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
-  if (!lock.is_locked()) {
-    VC_SCHED_LOCK_RETRY();
-  }
+  ts::ScopedUniqueLock lock(vol->shared_mutex, this_ethread());
+
+  // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+  // if (!lock.is_locked()) {
+  //   VC_SCHED_LOCK_RETRY();
+  // }
 
   od = vol->open_read(&first_key); // recheck in case the lock failed
   if (!od) {
-    MUTEX_RELEASE(lock);
+    // MUTEX_RELEASE(lock);
     write_vc = nullptr;
     SET_HANDLER(&CacheVC::openReadStartHead);
     return openReadStartHead(event, e);
@@ -339,11 +343,11 @@ CacheVC::openReadFromWriter(int event, Event *e)
   if (!write_vc) {
     int ret = openReadChooseWriter(event, e);
     if (ret < 0) {
-      MUTEX_RELEASE(lock);
+      // MUTEX_RELEASE(lock);
       SET_HANDLER(&CacheVC::openReadFromWriterFailure);
       return openReadFromWriterFailure(CACHE_EVENT_OPEN_READ_FAILED, reinterpret_cast<Event *>(ret));
     } else if (ret == EVENT_RETURN) {
-      MUTEX_RELEASE(lock);
+      // MUTEX_RELEASE(lock);
       SET_HANDLER(&CacheVC::openReadStartHead);
       return openReadStartHead(event, e);
     } else if (ret == EVENT_CONT) {
@@ -358,7 +362,7 @@ CacheVC::openReadFromWriter(int event, Event *e)
     }
   } else {
     if (writer_done()) {
-      MUTEX_RELEASE(lock);
+      // MUTEX_RELEASE(lock);
       DDebug("cache_read_agg", "%p: key: %X writer %p has left, continuing as normal read", this, first_key.slice32(1), write_vc);
       od       = nullptr;
       write_vc = nullptr;
@@ -370,7 +374,7 @@ CacheVC::openReadFromWriter(int event, Event *e)
   od                = nullptr;
   // someone is currently writing the document
   if (write_vc->closed < 0) {
-    MUTEX_RELEASE(lock);
+    // MUTEX_RELEASE(lock);
     write_vc = nullptr;
     // writer aborted, continue as if there is no writer
     SET_HANDLER(&CacheVC::openReadStartHead);
@@ -381,7 +385,7 @@ CacheVC::openReadFromWriter(int event, Event *e)
   if (!write_vc->closed && !write_vc->fragment) {
     if (!cache_config_read_while_writer || frag_type != CACHE_FRAG_TYPE_HTTP ||
         writer_lock_retry >= cache_config_read_while_writer_max_retries) {
-      MUTEX_RELEASE(lock);
+      // MUTEX_RELEASE(lock);
       return openReadFromWriterFailure(CACHE_EVENT_OPEN_READ_FAILED, (Event *)-err);
     }
     DDebug("cache_read_agg", "%p: key: %X writer: closed:%d, fragment:%d, retry: %d", this, first_key.slice32(1), write_vc->closed,
@@ -395,7 +399,7 @@ CacheVC::openReadFromWriter(int event, Event *e)
     VC_SCHED_LOCK_RETRY();
   }
 
-  MUTEX_RELEASE(lock);
+  // MUTEX_RELEASE(lock);
 
   if (!write_vc->io.ok()) {
     return openReadFromWriterFailure(CACHE_EVENT_OPEN_READ_FAILED, (Event *)-err);
@@ -539,7 +543,7 @@ CacheVC::openReadClose(int event, Event * /* e ATS_UNUSED */)
     set_io_not_in_progress();
   }
 
-  std::shared_lock shared_lock(vol->shared_mutex);
+  ts::ScopedUniqueLock lock(vol->shared_mutex, this_ethread());
   // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
   // if (!lock.is_locked()) {
   //   VC_SCHED_LOCK_RETRY();
@@ -567,10 +571,11 @@ CacheVC::openReadReadDone(int event, Event *e)
   }
   set_io_not_in_progress();
   {
-    CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
-    if (!lock.is_locked()) {
-      VC_SCHED_LOCK_RETRY();
-    }
+    ts::ScopedUniqueLock lock(vol->shared_mutex, this_ethread());
+    // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+    // if (!lock.is_locked()) {
+    //   VC_SCHED_LOCK_RETRY();
+    // }
     if (event == AIO_EVENT_DONE && !io.ok()) {
       goto Lerror;
     }
@@ -760,11 +765,13 @@ CacheVC::openReadMain(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
 
       CACHE_INCREMENT_DYN_STAT(cache_read_seek_fail_stat);
 
-      CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
-      if (!lock.is_locked()) {
-        SET_HANDLER(&CacheVC::openReadDirDelete);
-        VC_SCHED_LOCK_RETRY();
-      }
+      ts::ScopedUniqueLock lock(vol->shared_mutex, this_ethread());
+
+      // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+      // if (!lock.is_locked()) {
+      //   SET_HANDLER(&CacheVC::openReadDirDelete);
+      //   VC_SCHED_LOCK_RETRY();
+      // }
 
       dir_delete(&earliest_key, vol, &earliest_dir);
 
@@ -813,11 +820,14 @@ Lread : {
   // EVENT_IMMEDIATE events. So, we have to cancel that trigger and set
   // a new EVENT_INTERVAL event.
   cancel_trigger();
-  CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
-  if (!lock.is_locked()) {
-    SET_HANDLER(&CacheVC::openReadMain);
-    VC_SCHED_LOCK_RETRY();
-  }
+  ts::ScopedUniqueLock lock(vol->shared_mutex, this_ethread());
+
+  // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+  // if (!lock.is_locked()) {
+  //   SET_HANDLER(&CacheVC::openReadMain);
+  //   VC_SCHED_LOCK_RETRY();
+  // }
+
   if (dir_probe(&key, vol, &dir, &last_collision)) {
     SET_HANDLER(&CacheVC::openReadReadDone);
     int ret = do_read_call(&key);
@@ -873,7 +883,7 @@ CacheVC::openReadStartEarliest(int /* event ATS_UNUSED */, Event * /* e ATS_UNUS
     return free_CacheVC(this);
   }
   {
-    std::shared_lock shared_lock(vol->shared_mutex);
+    ts::ScopedUniqueLock lock(vol->shared_mutex, this_ethread());
     // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
     // if (!lock.is_locked()) {
     //   VC_SCHED_LOCK_RETRY();
@@ -1022,10 +1032,12 @@ CacheVC::openReadVecWrite(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */
     return openWriteCloseDir(EVENT_IMMEDIATE, nullptr);
   }
   {
-    CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
-    if (!lock.is_locked()) {
-      VC_SCHED_LOCK_RETRY();
-    }
+    ts::ScopedUniqueLock lock(vol->shared_mutex, this_ethread());
+
+    // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+    // if (!lock.is_locked()) {
+    //   VC_SCHED_LOCK_RETRY();
+    // }
     if (io.ok()) {
       ink_assert(f.evac_vector);
       ink_assert(frag_type == CACHE_FRAG_TYPE_HTTP);
@@ -1077,7 +1089,7 @@ CacheVC::openReadStartHead(int event, Event *e)
     return free_CacheVC(this);
   }
   {
-    std::shared_lock shared_lock(vol->shared_mutex);
+    ts::ScopedUniqueLock lock(vol->shared_mutex, this_ethread());
     // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
     // if (!lock.is_locked()) {
     //   VC_SCHED_LOCK_RETRY();
@@ -1291,10 +1303,12 @@ Learliest:
 int
 CacheVC::openReadDirDelete(int event, Event *e)
 {
-  MUTEX_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
-  if (!lock.is_locked()) {
-    VC_SCHED_LOCK_RETRY();
-  }
+  ts::ScopedUniqueLock lock(vol->shared_mutex, this_ethread());
+
+  // MUTEX_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+  // if (!lock.is_locked()) {
+  //   VC_SCHED_LOCK_RETRY();
+  // }
 
   dir_delete(&earliest_key, vol, &earliest_dir);
   return calluser(VC_EVENT_ERROR);

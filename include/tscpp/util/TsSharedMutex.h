@@ -185,6 +185,7 @@ private:
   static void
   _call_fatal(char const *func_name, void *ptr, int errnum)
   {
+    ink_abort("%s(%p) failed: %s (%d)", func_name, ptr, Strerror(errnum).c_str(), errnum);
     L_Fatal("%s(%p) failed: %s (%d)", func_name, ptr, Strerror(errnum).c_str(), errnum);
   }
 
