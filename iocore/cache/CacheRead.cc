@@ -42,7 +42,8 @@ Cache::open_read(Continuation *cont, const CacheKey *key, CacheFragType type, co
   OpenDirEntry *od  = nullptr;
   CacheVC *c        = nullptr;
   {
-    ts::ScopedUniqueLock lock(vol->shared_mutex, this_ethread());
+    ts::ScopedSharedLock lock(vol->shared_mutex, this_ethread());
+
     // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
     // if (!lock.is_locked() || (od = vol->open_read(key)) || dir_probe(key, vol, &result, &last_collision)) {
     if ((od = vol->open_read(key)) || dir_probe(key, vol, &result, &last_collision)) {
@@ -111,7 +112,7 @@ Cache::open_read(Continuation *cont, const CacheKey *key, CacheHTTPHdr *request,
   CacheVC *c        = nullptr;
 
   {
-    ts::ScopedUniqueLock lock(vol->shared_mutex, this_ethread());
+    ts::ScopedSharedLock lock(vol->shared_mutex, this_ethread());
 
     // CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
     if ((od = vol->open_read(key)) || dir_probe(key, vol, &result, &last_collision)) {
