@@ -91,6 +91,7 @@ src/tscore/ParseRulesCType
 src/tscore/ParseRulesCTypeToLower
 src/tscore/ParseRulesCTypeToUpper
 src/tscore/freelist_benchmark
+src/tscore/benchmark_TsSharedMutex
 src/tscore/mkdfa
 src/tscore/test_atomic
 src/tscore/test_freelist
