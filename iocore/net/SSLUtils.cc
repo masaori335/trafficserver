@@ -2317,7 +2317,7 @@ SSLMultiCertConfigLoader::load_certs_and_cross_reference_names(
         name = sk_GENERAL_NAME_value(names, i);
         if (name->type == GEN_DNS) {
           ats_scoped_str dns(asn1_strdup(name->d.dNSName));
-          Debug("ssl_load", "inserting dns '%s' in certificate: %s", dns.get(), data.cert_names_list[i].c_str());
+          Debug("ssl_load", "inserting dns '%s' in certificate", dns.get());
           name_set.insert(dns.get());
         }
       }
@@ -2426,6 +2426,8 @@ SSLMultiCertConfigLoader::load_certs(SSL_CTX *ctx, const std::vector<std::string
     // Load up any additional chain certificates
     if (!SSL_CTX_add_extra_chain_cert_bio(ctx, bio.get())) {
       Debug("ssl_load", "couldn't add chain to %p", ctx);
+      SSLError("failed to load intermediate certificate chain from %s", cert_names_list[i].c_str());
+      return false;
     }
 
     if (secret_key_data.empty()) {
