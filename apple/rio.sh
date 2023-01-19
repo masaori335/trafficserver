@@ -25,7 +25,7 @@ PRB=${#PRB}
 TAGBUILD=${#TAGBUILD}
 TEST=${#TEST}
 BRANCH=${BRANCH[-1]}
-PR_ID=${PR_ID[-1]}
+PR_ID=${PR_ID[-1]:=${GIT_PR_ID}}
 TEST_FILTER=${TEST_FILTER[-1]}
 
 inVARIATION=${inVARIATION[-1]}
@@ -46,8 +46,8 @@ cd trafficserver
 git checkout $BRANCH
 
 if [[ ! -z $PR_ID && $PR_ID -gt 0 ]]; then
-  git fetch origin pull/${BUILD_PARAM_pr_id}/head
-  git merge FETCH_HEAD -m 'Auto Merge: PR ${BUILD_PARAM_pr_id}'
+  git fetch origin pull/${PR_ID}/head
+  git merge FETCH_HEAD -m 'Auto Merge: PR ${PR_ID}'
 fi
 
 cd ..
