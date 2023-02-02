@@ -30,9 +30,9 @@
 #include "ts/apidefs.h"
 #include <openssl/ssl.h>
 #include <mutex>
-#include <shared_mutex>
+#include <tscpp/util/TsSharedMutex.h>
 
-#define SSL_MAX_SESSION_SIZE 256
+#define SSL_MAX_SESSION_SIZE      256
 #define SSL_MAX_ORIG_SESSION_SIZE 4096
 
 struct ssl_session_cache_exdata {
@@ -102,7 +102,7 @@ struct SSLSessionID : public TSSslSessionID {
       if (buflen > 2) { // we have enough space for 3 bytes, 2 hex and 1 null terminator
         snprintf(cur_pos, 3 /* including a null terminator */, "%02hhX", static_cast<unsigned char>(bytes[i]));
         cur_pos += 2;
-        buflen -= 2;
+        buflen  -= 2;
       } else { // not enough space for any more hex bytes, just null terminate
         *cur_pos = '\0';
         break;
@@ -159,9 +159,9 @@ public:
 private:
   /* these method must be used while hold the lock */
   void print(const char *) const;
-  void removeOldestSession(const std::unique_lock<std::shared_mutex> &lock);
+  void removeOldestSession(const std::unique_lock<ts::shared_mutex> &lock);
 
-  mutable std::shared_mutex mutex;
+  mutable ts::shared_mutex mutex;
   CountQueue<SSLSession> bucket_que;
   std::map<SSLSessionID, SSLSession *> bucket_map;
 };
@@ -176,7 +176,7 @@ public:
   SSLSessionCache();
   ~SSLSessionCache();
 
-  SSLSessionCache(const SSLSessionCache &) = delete;
+  SSLSessionCache(const SSLSessionCache &)            = delete;
   SSLSessionCache &operator=(const SSLSessionCache &) = delete;
 
 private:
@@ -188,12 +188,11 @@ class SSLOriginSession
 {
 public:
   std::string key;
-  Ptr<IOBufferData> asn1_data; /* this is the ASN1 representation of the SSL_CTX */
-  size_t len_asn1_data;
   ssl_curve_id curve_id;
+  std::shared_ptr<SSL_SESSION> shared_sess = nullptr;
 
-  SSLOriginSession(const std::string &lookup_key, const Ptr<IOBufferData> &asn1, size_t len_asn1, ssl_curve_id curve)
-    : key(lookup_key), asn1_data(asn1), len_asn1_data(len_asn1), curve_id(curve)
+  SSLOriginSession(const std::string &lookup_key, ssl_curve_id curve, std::shared_ptr<SSL_SESSION> session)
+    : key(lookup_key), curve_id(curve), shared_sess(session)
   {
   }
 
@@ -207,13 +206,13 @@ public:
   ~SSLOriginSessionCache();
 
   void insert_session(const std::string &lookup_key, SSL_SESSION *sess, SSL *ssl);
-  bool get_session(const std::string &lookup_key, SSL_SESSION **sess, ssl_curve_id *curve);
+  std::shared_ptr<SSL_SESSION> get_session(const std::string &lookup_key, ssl_curve_id *curve);
   void remove_session(const std::string &lookup_key);
 
 private:
-  void remove_oldest_session(const std::unique_lock<std::shared_mutex> &lock);
+  void remove_oldest_session(const std::unique_lock<ts::shared_mutex> &lock);
 
-  mutable std::shared_mutex mutex;
+  mutable ts::shared_mutex mutex;
   CountQueue<SSLOriginSession> orig_sess_que;
   std::map<std::string, SSLOriginSession *> orig_sess_map;
 };

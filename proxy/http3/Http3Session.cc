@@ -51,6 +51,14 @@ HQSession::add_transaction(HQTransaction *trans)
   return;
 }
 
+void
+HQSession::remove_transaction(HQTransaction *trans)
+{
+  this->_transaction_list.remove(trans);
+
+  return;
+}
+
 const char *
 HQSession::get_protocol_string() const
 {
@@ -121,6 +129,7 @@ void
 HQSession::new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOBufferReader *reade)
 {
   this->con_id = static_cast<QUICConnection *>(reinterpret_cast<QUICNetVConnection *>(new_vc))->connection_id();
+  this->_handle_if_ssl(new_vc);
 
   return;
 }
@@ -163,7 +172,7 @@ HQSession::get_transact_count() const
 Http3Session::Http3Session(NetVConnection *vc) : HQSession(vc)
 {
   this->_local_qpack  = new QPACK(static_cast<QUICNetVConnection *>(vc), HTTP3_DEFAULT_MAX_HEADER_LIST_SIZE,
-                                 HTTP3_DEFAULT_HEADER_TABLE_SIZE, HTTP3_DEFAULT_QPACK_BLOCKED_STREAMS);
+                                  HTTP3_DEFAULT_HEADER_TABLE_SIZE, HTTP3_DEFAULT_QPACK_BLOCKED_STREAMS);
   this->_remote_qpack = new QPACK(static_cast<QUICNetVConnection *>(vc), HTTP3_DEFAULT_MAX_HEADER_LIST_SIZE,
                                   HTTP3_DEFAULT_HEADER_TABLE_SIZE, HTTP3_DEFAULT_QPACK_BLOCKED_STREAMS);
 }

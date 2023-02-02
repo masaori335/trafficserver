@@ -33,6 +33,7 @@
 #include "fetch.h"
 #include "fetch_policy.h"
 #include "headers.h"
+#include "evaluate.h"
 
 static const char *
 getEventName(TSEvent event)
@@ -179,53 +180,6 @@ public:
   TSHttpStatus _status; /* status to return to the UA */
   String _body;         /* body to return to the UA */
 };
-
-/**
- * @brief Evaluate a math addition or subtraction expression.
- *
- * @param v string containing an expression, i.e. "3 + 4"
- * @return string containing the result, i.e. "7"
- */
-static String
-evaluate(const String &v)
-{
-  if (v.empty()) {
-    return String("");
-  }
-
-  /* Find out if width is specified (hence leading zeros are required if the width is bigger then the result width) */
-  String stmt;
-  size_t len = 0;
-  size_t pos = v.find_first_of(':');
-  if (String::npos != pos) {
-    stmt.assign(v.substr(0, pos));
-    len = getValue(v.substr(pos + 1));
-  } else {
-    stmt.assign(v);
-  }
-  PrefetchDebug("statement: '%s', formatting length: %zu", stmt.c_str(), len);
-
-  int result = 0;
-  pos        = stmt.find_first_of("+-");
-
-  if (String::npos == pos) {
-    result = getValue(stmt);
-  } else {
-    unsigned a = getValue(stmt.substr(0, pos));
-    unsigned b = getValue(stmt.substr(pos + 1));
-
-    if ('+' == stmt[pos]) {
-      result = a + b;
-    } else {
-      result = a - b;
-    }
-  }
-
-  std::ostringstream convert;
-  convert << std::setw(len) << std::setfill('0') << result;
-  PrefetchDebug("evaluation of '%s' resulted in '%s'", v.c_str(), convert.str().c_str());
-  return convert.str();
-}
 
 /**
  * @brief Expand+evaluate (in place) an expression surrounded with "{" and "}" and uses evaluate() to evaluate the math expression.
@@ -630,8 +584,9 @@ contHandleFetch(const TSCont contp, TSEvent event, void *edata)
         TSHttpHdrReasonSet(bufp, hdrLoc, reason, reasonLen);
         PrefetchDebug("set response: %d %.*s '%s'", data->_status, reasonLen, reason, data->_body.c_str());
 
-        char *buf = static_cast<char *>(TSmalloc(data->_body.length() + 1));
-        sprintf(buf, "%s", data->_body.c_str());
+        size_t bufsize = data->_body.length() + 1;
+        char *buf      = static_cast<char *>(TSmalloc(bufsize));
+        memcpy(buf, data->_body.c_str(), bufsize);
         TSHttpTxnErrorBodySet(txnp, buf, strlen(buf), nullptr);
 
         setHeader(bufp, hdrLoc, TS_MIME_FIELD_CACHE_CONTROL, TS_MIME_LEN_CACHE_CONTROL, TS_HTTP_VALUE_NO_STORE,

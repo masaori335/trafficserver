@@ -24,7 +24,9 @@
 #include "HttpConfig.h"
 #include "HttpDebugNames.h"
 #include "ProxySession.h"
-#include "P_SSLNetVConnection.h"
+#include "TLSBasicSupport.h"
+
+std::map<int, std::function<PoolableSession *()>> ProtocolSessionCreateMap;
 
 ProxySession::ProxySession() : VConnection(nullptr) {}
 
@@ -77,7 +79,8 @@ static const TSEvent eventmap[TS_HTTP_LAST_HOOK + 1] = {
   TS_EVENT_HTTP_CACHE_LOOKUP_COMPLETE, // TS_HTTP_CACHE_LOOKUP_COMPLETE_HOOK
   TS_EVENT_HTTP_PRE_REMAP,             // TS_HTTP_PRE_REMAP_HOOK
   TS_EVENT_HTTP_POST_REMAP,            // TS_HTTP_POST_REMAP_HOOK
-  TS_EVENT_NONE,                       // TS_HTTP_RESPONSE_CLIENT_HOOK
+  TS_EVENT_HTTP_RESPONSE_CLIENT,       // TS_HTTP_RESPONSE_CLIENT_HOOK
+  TS_EVENT_HTTP_REQUEST_CLIENT,        // TS_HTTP_REQUEST_CLIENT_HOOK
   TS_EVENT_NONE,                       // TS_HTTP_LAST_HOOK
 };
 
@@ -228,6 +231,14 @@ ProxySession::set_inactivity_timeout(ink_hrtime timeout_in)
 }
 
 void
+ProxySession::set_default_inactivity_timeout(ink_hrtime timeout_in)
+{
+  if (_vc) {
+    _vc->set_default_inactivity_timeout(timeout_in);
+  }
+}
+
+void
 ProxySession::cancel_inactivity_timeout()
 {
   if (_vc) {
@@ -276,10 +287,10 @@ ProxySession::get_local_addr()
 void
 ProxySession::_handle_if_ssl(NetVConnection *new_vc)
 {
-  auto ssl_vc = dynamic_cast<SSLNetVConnection *>(new_vc);
-  if (ssl_vc) {
+  auto tbs = dynamic_cast<TLSBasicSupport *>(new_vc);
+  if (tbs) {
     _ssl = std::make_unique<SSLProxySession>();
-    _ssl.get()->init(*ssl_vc);
+    _ssl.get()->init(*new_vc);
   }
 }
 
@@ -311,4 +322,12 @@ bool
 ProxySession::support_sni() const
 {
   return _vc ? _vc->support_sni() : false;
+}
+
+PoolableSession *
+ProxySession::create_outbound_session(int protocol_index)
+{
+  auto iter = ProtocolSessionCreateMap.find(protocol_index);
+  ink_release_assert(iter != ProtocolSessionCreateMap.end());
+  return iter->second();
 }

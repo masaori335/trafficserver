@@ -43,7 +43,6 @@ NetProcessor::AcceptOptions::reset()
   etype                 = ET_NET;
   localhost_only        = false;
   frequent_accept       = true;
-  backdoor              = false;
   recv_bufsize          = 0;
   send_bufsize          = 0;
   sockopt_flags         = 0;
@@ -120,7 +119,7 @@ UnixNetProcessor::accept_internal(Continuation *cont, int fd, AcceptOptions cons
     accept_ip.setToAnyAddr(opt.ip_family);
   }
   ink_assert(0 < opt.local_port && opt.local_port < 65536);
-  accept_ip.port() = htons(opt.local_port);
+  accept_ip.network_order_port() = htons(opt.local_port);
 
   na->accept_fn = net_accept; // All callers used this.
   na->server.fd = fd;

@@ -22,6 +22,7 @@
  */
 
 #include <sstream>
+#include <iomanip>
 
 #include "transaction_data.h"
 #include "global_variables.h"
@@ -106,16 +107,13 @@ TransactionData::response_buffer_handler(TSCont contp, TSEvent event, void *edat
 void
 TransactionData::initialize_default_sensitive_field()
 {
-  // 128 KB is the maximum size supported for all headers, so this size should
-  // be plenty large for our needs.
+  std::ostringstream ss;
+  // 128 KB is the maximum size supported for all headers, so this size should be plenty large for our needs.
   constexpr size_t default_field_size = 128 * 1024;
-  default_sensitive_field_value.resize(default_field_size);
-
-  char *field_buffer = default_sensitive_field_value.data();
-  for (auto i = 0u; i < default_field_size; i += 8) {
-    sprintf(field_buffer, "%07x ", i / 8);
-    field_buffer += 8;
+  for (uint32_t i = 0; i < default_field_size; i += 8) {
+    ss << std::hex << std::setw(7) << std::setfill('0') << i / 8 << " ";
   }
+  default_sensitive_field_value = ss.str();
 }
 
 /// The set of fields, default and user-specified, that are sensitive and whose
@@ -131,7 +129,7 @@ TransactionData::get_sensitive_field_description()
     if (!is_first) {
       sensitive_fields_string += ", ";
     }
-    is_first = false;
+    is_first                = false;
     sensitive_fields_string += field;
   }
   return sensitive_fields_string;
@@ -203,7 +201,7 @@ TransactionData::write_message_node_no_content(TSMBuffer &buffer, TSMLoc &hdr_lo
   result += R"("version":")";
   if (http_version.empty()) {
     int version = TSHttpHdrVersionGet(buffer, hdr_loc);
-    result += std::to_string(TS_HTTP_MAJOR(version)) + "." + std::to_string(TS_HTTP_MINOR(version));
+    result      += std::to_string(TS_HTTP_MAJOR(version)) + "." + std::to_string(TS_HTTP_MINOR(version));
   } else {
     result += http_version;
   }
@@ -246,12 +244,12 @@ TransactionData::write_message_node_no_content(TSMBuffer &buffer, TSMLoc &hdr_lo
     // 2. "status":(string)
     result += R"("status":)" + std::to_string(TSHttpHdrStatusGet(buffer, hdr_loc));
     // 3. "reason":(string)
-    cp = TSHttpHdrReasonGet(buffer, hdr_loc, &len);
+    cp     = TSHttpHdrReasonGet(buffer, hdr_loc, &len);
     result += ',' + traffic_dump::json_entry("reason", cp, len);
   }
 
   // "headers": [[name(string), value(string)]]
-  result += R"(,"headers":{"encoding":"esc_json", "fields": [)";
+  result           += R"(,"headers":{"encoding":"esc_json", "fields": [)";
   TSMLoc field_loc = TSMimeHdrFieldGet(buffer, hdr_loc, 0);
   while (field_loc) {
     TSMLoc next_field_loc;
@@ -264,7 +262,7 @@ TransactionData::write_message_node_no_content(TSMBuffer &buffer, TSMLoc &hdr_lo
       value = TSMimeHdrFieldValueStringGet(buffer, hdr_loc, field_loc, -1, &value_len);
       std::string_view value_view{value, static_cast<size_t>(value_len)};
       std::string_view new_value = replace_sensitive_fields(name_view, value_view);
-      result += traffic_dump::json_entry_array(name_view, new_value);
+      result                     += traffic_dump::json_entry_array(name_view, new_value);
     }
 
     next_field_loc = TSMimeHdrFieldNext(buffer, hdr_loc, field_loc);
@@ -280,7 +278,7 @@ std::string
 TransactionData::write_message_node(TSMBuffer &buffer, TSMLoc &hdr_loc, int64_t num_body_bytes, std::string_view http_version)
 {
   std::string result = write_message_node_no_content(buffer, hdr_loc, http_version);
-  result += write_content_node(num_body_bytes);
+  result             += write_content_node(num_body_bytes);
   return result + "}";
 }
 
@@ -288,7 +286,7 @@ std::string
 TransactionData::write_message_node(TSMBuffer &buffer, TSMLoc &hdr_loc, std::string_view body, std::string_view http_version)
 {
   std::string result = write_message_node_no_content(buffer, hdr_loc, http_version);
-  result += write_content_node(body);
+  result             += write_content_node(body);
   return result + "}";
 }
 
@@ -367,7 +365,14 @@ TransactionData::write_proxy_request_node(TSMBuffer &buffer, TSMLoc &hdr_loc)
 {
   std::ostringstream proxy_request_node;
   proxy_request_node << R"(,"proxy-request":{)";
-  proxy_request_node << _server_protocol_description + ",";
+  // For CONNECT requests, the _server_protocol_description will be empty
+  // because it gets populated on receipt of an HTTP response. For tunnels, we
+  // establish a connection to the origin for the tunnel but don't send an HTTP
+  // request nor does the server send a response. Therefore the protocol is
+  // never populated and will be empty here.
+  if (!_server_protocol_description.empty()) {
+    proxy_request_node << _server_protocol_description + ",";
+  }
   proxy_request_node << write_message_node(buffer, hdr_loc, TSHttpTxnServerReqBodyBytesGet(_txnp));
   _txn_json += proxy_request_node.str();
 }
@@ -432,8 +437,8 @@ TransactionData::global_transaction_handler(TSCont contp, TSEvent event, void *e
     // The uuid is a header field for each message in the transaction. Use the
     // "all" node to apply to each message.
     std::string_view name = "uuid";
-    txnData->_txn_json += R"(,"all":{"headers":{"fields":[)" + json_entry_array(name, uuid_view);
-    txnData->_txn_json += "]}}";
+    txnData->_txn_json    += R"(,"all":{"headers":{"fields":[)" + json_entry_array(name, uuid_view);
+    txnData->_txn_json    += "]}}";
     break;
   }
 
@@ -479,7 +484,7 @@ TransactionData::global_transaction_handler(TSCont contp, TSEvent event, void *e
   }
 
   case TS_EVENT_HTTP_TXN_CLOSE: {
-    TransactionData *txnData = static_cast<TransactionData *>(TSUserArgGet(txnp, SessionData::get_session_arg_index()));
+    TransactionData *txnData = static_cast<TransactionData *>(TSUserArgGet(txnp, transaction_arg_index));
     if (!txnData) {
       TSError("[%s] No transaction data found for the close hook we registered for.", traffic_dump::debug_tag);
       break;

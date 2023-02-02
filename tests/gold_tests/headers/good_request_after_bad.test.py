@@ -23,14 +23,14 @@ Test.Summary = '''
 Verify that request following a ill-formed request is not processed
 '''
 Test.ContinueOnFail = True
-ts = Test.MakeATSProcess("ts", enable_cache=True)
+ts = Test.MakeATSProcess("ts")
 Test.ContinueOnFail = True
 ts.Disk.records_config.update({'proxy.config.diags.debug.tags': 'http',
                                'proxy.config.diags.debug.enabled': 0,
                                'proxy.config.http.strict_uri_parsing': 1
                                })
 
-ts2 = Test.MakeATSProcess("ts2", enable_cache=True)
+ts2 = Test.MakeATSProcess("ts2")
 
 ts2.Disk.records_config.update({'proxy.config.diags.debug.tags': 'http',
                                 'proxy.config.diags.debug.enabled': 0,
@@ -96,7 +96,7 @@ tr = Test.AddTestRun("Another unsupported Transfer Encoding value")
 tr.Processes.Default.Command = 'printf "GET / HTTP/1.1\r\nhost: bob\r\ntransfer-encoding: \x08chunked\r\n\r\nGET / HTTP/1.1\r\nHost: boa\r\n\r\n" | nc  127.0.0.1 {}'.format(
     ts.Variables.port)
 tr.Processes.Default.ReturnCode = 0
-tr.Processes.Default.Streams.stdout = 'gold/bad_te_value.gold'
+tr.Processes.Default.Streams.stdout = 'gold/invalid_character_in_te_value.gold'
 
 tr = Test.AddTestRun("Extra characters in content-length")
 tr.Processes.Default.Command = 'printf "GET / HTTP/1.1\r\nhost: bob\r\ncontent-length:+3\r\n\r\nGET / HTTP/1.1\r\nHost: boa\r\n\r\n" | nc  127.0.0.1 {}'.format(

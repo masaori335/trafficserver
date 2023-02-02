@@ -36,7 +36,7 @@
 #include <unistd.h>
 #include <iterator>
 #include <maxminddb.h>
-#include "tscore/IpMap.h"
+#include "tscpp/util/ts_ip.h"
 
 #ifdef HAVE_PCRE_PCRE_H
 #include <pcre/pcre.h>
@@ -44,7 +44,7 @@
 #include <pcre.h>
 #endif
 
-#define PLUGIN_NAME "maxmind_acl"
+#define PLUGIN_NAME  "maxmind_acl"
 #define CONFIG_TMOUT 60000
 
 typedef struct {
@@ -91,8 +91,18 @@ protected:
   std::unordered_map<std::string, std::vector<plugin_regex>> allow_regex;
   std::unordered_map<std::string, std::vector<plugin_regex>> deny_regex;
 
-  IpMap allow_ip_map;
-  IpMap deny_ip_map;
+  ts::IPAddrSet allow_ip_map;
+  ts::IPAddrSet deny_ip_map;
+
+  // Anonymous blocking default to off
+  bool _anonymous_ip      = false;
+  bool _anonymous_vpn     = false;
+  bool _hosting_provider  = false;
+  bool _public_proxy      = false;
+  bool _tor_exit_node     = false;
+  bool _residential_proxy = false;
+
+  bool _anonymous_blocking = false;
 
   // Do we want to allow by default or not? Useful
   // for deny only rules
@@ -103,7 +113,9 @@ protected:
   bool loadallow(const YAML::Node &allowNode);
   bool loaddeny(const YAML::Node &denyNode);
   void loadhtml(const YAML::Node &htmlNode);
-  bool eval_country(MMDB_entry_data_s *entry_data, const char *path, int path_len);
+  bool loadanonymous(const YAML::Node &anonNode);
+  bool eval_country(MMDB_entry_data_s *entry_data, const std::string &url);
+  bool eval_anonymous(MMDB_entry_s *entry_data);
   void parseregex(const YAML::Node &regex, bool allow);
   ipstate eval_ip(const sockaddr *sock) const;
 };

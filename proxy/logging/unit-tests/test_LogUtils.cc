@@ -83,7 +83,7 @@ test(const MIMEField *pairs, int numPairs, const char *asciiResult, int extraUnm
 
 TEST_CASE("LogUtilsHttp", "[LUHP]")
 {
-#define X "12345678"
+#define X  "12345678"
 #define X2 X X
 #define X3 X2 X2
 #define X4 X3 X3
@@ -92,7 +92,11 @@ TEST_CASE("LogUtilsHttp", "[LUHP]")
 #define X7 X6 X6
 #define X8 X7 X7
 
-  const MIMEField pairs[] = {{"Argh", "Ugh"}, {"Argh2", "UghUgh"}, {"alltogethernow", X8}};
+  const MIMEField pairs[] = {
+    {"Argh",           "Ugh"   },
+    {"Argh2",          "UghUgh"},
+    {"alltogethernow", X8      }
+  };
 
   test(pairs, 1, "{{{Argh}:{Ugh}}}");
   test(pairs, 2, "{{{Argh}:{Ugh}}{{Argh2}:{UghUgh}}}");
@@ -123,12 +127,6 @@ _ink_assert(const char *a, const char *f, int line)
   std::cout << a << '\n' << f << '\n' << line << '\n';
 
   std::exit(1);
-}
-
-void
-RecSignalManager(int, char const *, std::size_t)
-{
-  ink_release_assert(false);
 }
 
 TEST_CASE("get_unrolled_filename parses possible log files as expected", "[get_unrolled_filename]")

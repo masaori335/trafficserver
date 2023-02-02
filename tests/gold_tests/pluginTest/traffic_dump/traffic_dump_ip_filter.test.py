@@ -18,6 +18,7 @@ Verify traffic_dump IP filter functionality.
 #  limitations under the License.
 
 import os
+import sys
 
 Test.Summary = '''
 Verify traffic_dump IP filter functionality.
@@ -64,7 +65,7 @@ def get_common_ats_process(name, plugin_command, replay_exists):
 # Common verification variables.
 verify_replay = "verify_replay.py"
 schema = os.path.join(Test.Variables.AtsTestToolsDir, 'lib', 'replay_schema.json')
-verify_command_prefix = f'python3 {verify_replay} {schema}'
+verify_command_prefix = f'{sys.executable} {verify_replay} {schema}'
 
 #
 # Test 1: Verify -4 works for a specified address.
@@ -74,7 +75,7 @@ ts1, ts1_replay_file = get_common_ats_process(
     "ts1",
     'traffic_dump.so --logdir {0} --sample 1 --limit 1000000000 -4 127.0.0.1',
     replay_exists=True)
-ts1.Streams.stderr += Testers.ContainsExpression(
+ts1.Disk.traffic_out.Content += Testers.ContainsExpression(
     "Filtering to only dump connections with ip: 127.0.0.1",
     "Verify the IP filter status message.")
 tr.AddVerifierClientProcess(
@@ -102,7 +103,7 @@ ts2, ts2_replay_file = get_common_ats_process(
     "ts2",
     'traffic_dump.so --logdir {0} --sample 1 --limit 1000000000 -4 1.2.3.4',
     replay_exists=False)
-ts2.Streams.stderr += Testers.ContainsExpression(
+ts2.Disk.traffic_out.Content += Testers.ContainsExpression(
     "Filtering to only dump connections with ip: 1.2.3.4",
     "Verify the IP filter status message.")
 tr.AddVerifierClientProcess(

@@ -18,12 +18,12 @@
 
 SUBDIRS = body_factory
 EXTRA_DIST = \
-	records.config.default.in \
+	records.yaml.default.in \
 	storage.config.default.in
 
 sysconfdir = $(pkgsysconfdir)
 nodist_sysconf_DATA = \
-	records.config.default \
+	records.yaml.default \
 	storage.config.default
 
 dist_sysconf_DATA =	\
@@ -39,7 +39,8 @@ dist_sysconf_DATA =	\
 	splitdns.config.default \
 	ssl_multicert.config.default \
 	strategies.yaml.default \
-	volume.config.default
+	volume.config.default \
+	jsonrpc.yaml.default
 
 install-exec-hook:
 	for dfltcfgfile in $(dist_sysconf_DATA) $(nodist_sysconf_DATA) ; \

@@ -24,16 +24,17 @@
 #include <pthread.h>
 
 #include "ts_lua_util.h"
+#include "luajit.h"
 
 #define TS_LUA_MAX_STATE_COUNT 256
 
-#define TS_LUA_STATS_TIMEOUT 5000   // 5s -- convert to configurable
-#define TS_LUA_STATS_BUFFER_SIZE 10 // stats buffer
+#define TS_LUA_STATS_TIMEOUT     5000 // 5s -- convert to configurable
+#define TS_LUA_STATS_BUFFER_SIZE 10   // stats buffer
 
-#define TS_LUA_IND_STATE 0
+#define TS_LUA_IND_STATE    0
 #define TS_LUA_IND_GC_BYTES 1
-#define TS_LUA_IND_THREADS 2
-#define TS_LUA_IND_SIZE 3
+#define TS_LUA_IND_THREADS  2
+#define TS_LUA_IND_SIZE     3
 
 static uint64_t ts_lua_http_next_id   = 0;
 static uint64_t ts_lua_g_http_next_id = 0;
@@ -72,8 +73,8 @@ static char const *const ts_lua_g_stat_strs[] = {
 typedef struct {
   ts_lua_main_ctx *main_ctx_array;
 
-  int gc_kb;   // last collected gc in kb
-  int threads; // last collected number active threads
+  TSMgmtInt gc_kb;   // last collected gc in kb
+  TSMgmtInt threads; // last collected number active threads
 
   int stat_inds[TS_LUA_IND_SIZE]; // stats indices
 
@@ -183,8 +184,8 @@ collectStats(ts_lua_plugin_stats *const plugin_stats)
       ts_lua_ctx_stats *const stats = main_ctx->stats;
 
       TSMutexLock(stats->mutexp);
-      gc_kb_total += (TSMgmtInt)stats->gc_kb;
-      threads_total += (TSMgmtInt)stats->threads;
+      gc_kb_total   += stats->gc_kb;
+      threads_total += stats->threads;
       TSMutexUnlock(stats->mutexp);
     }
   }
@@ -342,10 +343,12 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char *errbuf, int errbuf_s
   char *inline_script                  = "";
   int fn                               = 0;
   int states                           = ts_lua_max_state_count;
+  int ljgc                             = 0;
   static const struct option longopt[] = {
     {"states", required_argument, 0, 's'},
     {"inline", required_argument, 0, 'i'},
-    {0, 0, 0, 0},
+    {"ljgc",   required_argument, 0, 'g'},
+    {0,        0,                 0, 0  },
   };
 
   argc--;
@@ -363,6 +366,10 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char *errbuf, int errbuf_s
       break;
     case 'i':
       inline_script = optarg;
+      break;
+    case 'g':
+      ljgc = atoi(optarg);
+      break;
     }
 
     if (opt == -1) {
@@ -423,6 +430,10 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char *errbuf, int errbuf_s
     conf->states    = states;
     conf->remap     = 1;
     conf->init_func = 0;
+    conf->ref_count = 1;
+    conf->ljgc      = ljgc;
+
+    TSDebug(TS_LUA_DEBUG_TAG, "Reference Count = %d , creating new instance...", conf->ref_count);
 
     if (fn) {
       snprintf(conf->script, TS_LUA_MAX_SCRIPT_FNAME_LENGTH, "%s", script);
@@ -445,6 +456,9 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char *errbuf, int errbuf_s
       ts_lua_script_register(ts_lua_main_ctx_array[0].lua, conf->script, conf);
       TSMutexUnlock(ts_lua_main_ctx_array[0].mutexp);
     }
+  } else {
+    conf->ref_count++;
+    TSDebug(TS_LUA_DEBUG_TAG, "Reference Count = %d , reference existing instance...", conf->ref_count);
   }
 
   *ih = conf;
@@ -458,9 +472,13 @@ TSRemapDeleteInstance(void *ih)
   int states = ((ts_lua_instance_conf *)ih)->states;
   ts_lua_del_module((ts_lua_instance_conf *)ih, ts_lua_main_ctx_array, states);
   ts_lua_del_instance(ih);
-  // because we now reuse ts_lua_instance_conf / ih for remap rules sharing the same lua script
-  // we cannot safely free it in this function during the configuration reloads
-  // we therefore are leaking memory on configuration reloads
+  ((ts_lua_instance_conf *)ih)->ref_count--;
+  if (((ts_lua_instance_conf *)ih)->ref_count == 0) {
+    TSDebug(TS_LUA_DEBUG_TAG, "Reference Count = %d , freeing...", ((ts_lua_instance_conf *)ih)->ref_count);
+    TSfree(ih);
+  } else {
+    TSDebug(TS_LUA_DEBUG_TAG, "Reference Count = %d , not freeing...", ((ts_lua_instance_conf *)ih)->ref_count);
+  }
   return;
 }
 
@@ -644,14 +662,6 @@ globalHookHandler(TSCont contp, TSEvent event ATS_UNUSED, void *edata)
     break;
 
   case TS_EVENT_HTTP_SEND_RESPONSE_HDR:
-    // client response can be changed within a transaction
-    // (e.g. due to the follow redirect feature). So, clearing the pointers
-    // to allow API(s) to fetch the pointers again when it re-enters the hook
-    if (http_ctx->client_response_hdrp != NULL) {
-      TSHandleMLocRelease(http_ctx->client_response_bufp, TS_NULL_MLOC, http_ctx->client_response_hdrp);
-      http_ctx->client_response_bufp = NULL;
-      http_ctx->client_response_hdrp = NULL;
-    }
     lua_getglobal(l, TS_LUA_FUNCTION_G_SEND_RESPONSE);
     break;
 
@@ -708,14 +718,7 @@ globalHookHandler(TSCont contp, TSEvent event ATS_UNUSED, void *edata)
   ret = lua_tointeger(l, -1);
   lua_pop(l, 1);
 
-  // client response can be changed within a transaction
-  // (e.g. due to the follow redirect feature). So, clearing the pointers
-  // to allow API(s) to fetch the pointers again when it re-enters the hook
-  if (http_ctx->client_response_hdrp != NULL) {
-    TSHandleMLocRelease(http_ctx->client_response_bufp, TS_NULL_MLOC, http_ctx->client_response_hdrp);
-    http_ctx->client_response_bufp = NULL;
-    http_ctx->client_response_hdrp = NULL;
-  }
+  ts_lua_clear_http_ctx(http_ctx);
 
   if (http_ctx->has_hook) {
     // add a hook to release resources for context
@@ -773,11 +776,13 @@ TSPluginInit(int argc, const char *argv[])
 
   int states = ts_lua_max_state_count;
 
+  int jit                              = 1;
   int reload                           = 0;
   static const struct option longopt[] = {
-    {"states", required_argument, 0, 's'},
-    {"enable-reload", no_argument, 0, 'r'},
-    {0, 0, 0, 0},
+    {"states",        required_argument, 0, 's'},
+    {"jit",           required_argument, 0, 'j'},
+    {"enable-reload", no_argument,       0, 'r'},
+    {0,               0,                 0, 0  },
   };
 
   for (;;) {
@@ -788,6 +793,19 @@ TSPluginInit(int argc, const char *argv[])
     case 's':
       states = atoi(optarg);
       // set state
+      break;
+    case 'j':
+      jit = atoi(optarg);
+      if (jit == 0) {
+        TSDebug(TS_LUA_DEBUG_TAG, "[%s] disable JIT mode", __FUNCTION__);
+        for (int index = 0; index < ts_lua_max_state_count; ++index) {
+          ts_lua_main_ctx *const main_ctx = (ts_lua_g_main_ctx_array + index);
+          lua_State *const lstate         = main_ctx->lua;
+          if (luaJIT_setmode(lstate, 0, LUAJIT_MODE_ENGINE | LUAJIT_MODE_OFF) == 0) {
+            TSError("[ts_lua][%s] Failed to disable JIT mode", __FUNCTION__);
+          }
+        }
+      }
       break;
     case 'r':
       reload = 1;
@@ -838,8 +856,8 @@ TSPluginInit(int argc, const char *argv[])
     ts_lua_add_module(conf, ts_lua_g_main_ctx_array, conf->states, argc - optind, (char **)&argv[optind], errbuf, errbuf_len);
 
   if (ret != 0) {
-    TSError(errbuf, NULL);
-    TSError("[ts_lua][%s] ts_lua_add_module failed", __FUNCTION__);
+    TSError("[ts_lua]%.*s", (int)errbuf_len, errbuf);
+    TSEmergency("[ts_lua][%s] ts_lua_add_module failed", __FUNCTION__);
     return;
   }
 

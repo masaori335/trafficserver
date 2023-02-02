@@ -32,6 +32,7 @@ include_directories(
         include
         tests/include
         lib
+        lib/swoc/include
         lib/yamlcpp/include
         proxy
         proxy/hdrs
@@ -72,7 +73,6 @@ CC_EXEC(traffic_ctl src/traffic_ctl)
 CC_EXEC(traffic_layout src/traffic_layout)
 CC_EXEC(traffic_logcat src/traffic_logcat)
 CC_EXEC(traffic_logstats src/traffic_logstats)
-CC_EXEC(traffic_manager src/traffic_manager)
 CC_EXEC(traffic_server src/traffic_server)
 target_sources(traffic_server PRIVATE src/shared/overridable_txn_vars.cc)
 CC_EXEC(traffic_top src/traffic_top)
@@ -85,7 +85,7 @@ CPP_LIB(tscppapi src/tscpp/api include/tscpp/api)
 
 CC_EXEC(test_tscore src/tscore/unit_tests)
 CC_EXEC(test_tsutil src/tscpp/util/unit_tests)
-CC_EXEC(test_librecords lib/records/unit_tests)
+CC_EXEC(test_librecords src/records/unit_tests)
 
 CPP_LIB(proxy proxy proxy)
 CPP_ADD_SOURCES(proxy proxy/http)
@@ -109,7 +109,7 @@ CPP_LIB(mgmt mgmt mgmt)
 CPP_ADD_SOURCES(mgmt mgmt/api)
 CPP_ADD_SOURCES(mgmt mgmt/utils)
 
-CPP_LIB(records lib/records lib/records)
+CPP_LIB(records src/records src/records)
 CPP_LIB(logging proxy/logging proxy/logging)
 
 CPP_LIB(wccp src/wccp include/wccp)

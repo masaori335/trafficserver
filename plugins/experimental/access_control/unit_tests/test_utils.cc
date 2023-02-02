@@ -21,6 +21,7 @@
  * @brief Unit tests for functions used in utils.cc
  */
 
+#include <openssl/opensslv.h>
 #include <catch.hpp> /* catch unit-test framework */
 #include "../utils.h"
 #include "../common.h"
@@ -36,7 +37,7 @@ TEST_CASE("Base64: estimate buffer size needed to encode a message", "[Base64][a
 
   /* Test with a zero decoded message length */
   encodedLen = cryptoBase64EncodedSize(0);
-  CHECK(4 == encodedLen);
+  CHECK(1 == encodedLen);
 
   /* Test with a random non-zero decoded message length */
   encodedLen = cryptoBase64EncodedSize(64);
@@ -44,11 +45,11 @@ TEST_CASE("Base64: estimate buffer size needed to encode a message", "[Base64][a
 
   /* Test the space for padding. Size of encoding that would result in 2 x "=" padding */
   encodedLen = cryptoBase64EncodedSize(strlen("176a1620e31b14782ba2b66de3edc5b3cb19630475b2ce2ee292d5fd0fe41c3abc"));
-  CHECK(92 == encodedLen);
+  CHECK(89 == encodedLen);
 
   /* Test the space for padding. Size of encoding that would result in 1 x "=" padding */
   encodedLen = cryptoBase64EncodedSize(strlen("176a1620e31b14782ba2b66de3edc5b3cb19630475b2ce2ee292d5fd0fe41c3ab"));
-  CHECK(90 == encodedLen);
+  CHECK(89 == encodedLen);
 
   /* Test the space for padding. Size of encoding that would result in no padding */
   encodedLen = cryptoBase64EncodedSize(strlen("176a1620e31b14782ba2b66de3edc5b3cb19630475b2ce2ee292d5fd0fe41c3a"));
@@ -63,27 +64,27 @@ TEST_CASE("Base64: estimate buffer size needed to decode a message", "[Base64][a
   /* Padding with 2 x '=' */
   encoded    = "MTc2YTE2MjBlMzFiMTQ3ODJiYTJiNjZkZTNlZGM1YjNjYjE5NjMwNDc1YjJjZTJlZTI5MmQ1ZmQwZmU0MWMzYQ==";
   encodedLen = cryptoBase64DecodeSize(encoded, strlen(encoded));
-  CHECK(66 == encodedLen);
+  CHECK(67 == encodedLen);
 
   /* Padding with 1 x '=' */
   encoded    = "MTc2YTE2MjBlMzFiMTQ3ODJiYTJiNjZkZTNlZGM1YjNjYjE5NjMwNDc1YjJjZTJlZTI5MmQ1ZmQwZmU0MWMzYWI=";
   encodedLen = cryptoBase64DecodeSize(encoded, strlen(encoded));
-  CHECK(66 == encodedLen);
+  CHECK(67 == encodedLen);
 
   /* Padding with 0 x "=" */
   encoded    = "MTc2YTE2MjBlMzFiMTQ3ODJiYTJiNjZkZTNlZGM1YjNjYjE5NjMwNDc1YjJjZTJlZTI5MmQ1ZmQwZmU0MWMzYWJj";
   encodedLen = cryptoBase64DecodeSize(encoded, strlen(encoded));
-  CHECK(66 == encodedLen);
+  CHECK(67 == encodedLen);
 
   /* Test empty encoded message calculation */
   encoded    = "";
   encodedLen = cryptoBase64DecodeSize(encoded, strlen(encoded));
-  CHECK(0 == encodedLen);
+  CHECK(1 == encodedLen);
 
   /* Test empty encoded message calculation */
   encoded    = nullptr;
   encodedLen = cryptoBase64DecodeSize(encoded, 0);
-  CHECK(0 == encodedLen);
+  CHECK(1 == encodedLen);
 }
 
 TEST_CASE("Base64: quick encode / decode", "[Base64][access_control][utility]")
@@ -103,7 +104,7 @@ TEST_CASE("Base64: quick encode / decode", "[Base64][access_control][utility]")
                      encodedMessageLen));
 
   size_t decodedMessageEstimatedLen = cryptoBase64DecodeSize(encodedMessage, encodedMessageLen);
-  CHECK(66 == decodedMessageEstimatedLen);
+  CHECK(67 == decodedMessageEstimatedLen);
   char decodedMessage[encodedMessageEstimatedLen];
   size_t decodedMessageLen = cryptoBase64Decode(encodedMessage, encodedMessageLen, decodedMessage, encodedMessageLen);
 
@@ -251,6 +252,13 @@ TEST_CASE("HMAC Digest: test various supported/unsupported types", "[MAC][access
 #ifndef OPENSSL_IS_BORINGSSL // RIPEMD160 is not available on BoringSSL?
   types.push_back("RIPEMD160");
   digests.push_back("ccf3230972bcf229fb3b16741495c74a72bbdd14");
+#endif
+
+#ifdef OPENSSL_IS_OPENSSL3 // MD4, RIPEMD160 are deprecated in OpenSSL 3
+  types.pop_front();
+  digests.pop_front();
+  types.pop_back();
+  digests.pop_back();
 #endif
 
   StringList::iterator digestIter = digests.begin();

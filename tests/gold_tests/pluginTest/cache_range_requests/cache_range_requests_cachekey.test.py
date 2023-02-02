@@ -34,7 +34,7 @@ Test.ContinueOnFail = False
 Test.testName = "cache_range_requests_cachekey"
 
 # Define and configure ATS, enable traffic_ctl config reload
-ts = Test.MakeATSProcess("ts", command="traffic_server")
+ts = Test.MakeATSProcess("ts")
 
 # Define and configure origin server
 server = Test.MakeOriginServer("server", lookup_key="{%uuid}")
@@ -153,7 +153,7 @@ ts.Disk.remap_config.AddLine(
 )
 
 # cache debug
-ts.Disk.plugin_config.AddLine('xdebug.so')
+ts.Disk.plugin_config.AddLine('xdebug.so --enable=x-cache')
 
 # minimal configuration
 ts.Disk.records_config.update({
@@ -189,6 +189,6 @@ ps.ReturnCode = 0
 tr.StillRunningAfter = ts
 
 ts.Disk.diags_log.Content = Testers.ContainsExpression("ERROR", "error condition hit")
-ts.Disk.diags_log.Content = Testers.ContainsExpression("failed to change the cache url", "ensure failure for misconfiguration")
 ts.Disk.diags_log.Content = Testers.ContainsExpression(
-    "Disabling cache for this transaction to avoid cache poisoning", "ensure transaction caching disabled")
+    "Failed to change the cache url, disabling cache for this transaction to avoid cache poisoning.",
+    "ensure failure for misconfiguration")

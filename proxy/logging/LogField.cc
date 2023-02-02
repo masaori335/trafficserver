@@ -28,6 +28,7 @@
  representation of a logging field.
  ***************************************************************************/
 #include "tscore/ink_platform.h"
+#include "swoc/swoc_meta.h"
 
 #include "MIME.h"
 #include "LogUtils.h"
@@ -180,30 +181,30 @@ struct milestone {
 };
 
 static const milestone milestones[] = {
-  {"TS_MILESTONE_UA_BEGIN", TS_MILESTONE_UA_BEGIN},
-  {"TS_MILESTONE_UA_FIRST_READ", TS_MILESTONE_UA_FIRST_READ},
-  {"TS_MILESTONE_UA_READ_HEADER_DONE", TS_MILESTONE_UA_READ_HEADER_DONE},
-  {"TS_MILESTONE_UA_BEGIN_WRITE", TS_MILESTONE_UA_BEGIN_WRITE},
-  {"TS_MILESTONE_UA_CLOSE", TS_MILESTONE_UA_CLOSE},
-  {"TS_MILESTONE_SERVER_FIRST_CONNECT", TS_MILESTONE_SERVER_FIRST_CONNECT},
-  {"TS_MILESTONE_SERVER_CONNECT", TS_MILESTONE_SERVER_CONNECT},
-  {"TS_MILESTONE_SERVER_CONNECT_END", TS_MILESTONE_SERVER_CONNECT_END},
-  {"TS_MILESTONE_SERVER_BEGIN_WRITE", TS_MILESTONE_SERVER_BEGIN_WRITE},
-  {"TS_MILESTONE_SERVER_FIRST_READ", TS_MILESTONE_SERVER_FIRST_READ},
+  {"TS_MILESTONE_UA_BEGIN",                TS_MILESTONE_UA_BEGIN               },
+  {"TS_MILESTONE_UA_FIRST_READ",           TS_MILESTONE_UA_FIRST_READ          },
+  {"TS_MILESTONE_UA_READ_HEADER_DONE",     TS_MILESTONE_UA_READ_HEADER_DONE    },
+  {"TS_MILESTONE_UA_BEGIN_WRITE",          TS_MILESTONE_UA_BEGIN_WRITE         },
+  {"TS_MILESTONE_UA_CLOSE",                TS_MILESTONE_UA_CLOSE               },
+  {"TS_MILESTONE_SERVER_FIRST_CONNECT",    TS_MILESTONE_SERVER_FIRST_CONNECT   },
+  {"TS_MILESTONE_SERVER_CONNECT",          TS_MILESTONE_SERVER_CONNECT         },
+  {"TS_MILESTONE_SERVER_CONNECT_END",      TS_MILESTONE_SERVER_CONNECT_END     },
+  {"TS_MILESTONE_SERVER_BEGIN_WRITE",      TS_MILESTONE_SERVER_BEGIN_WRITE     },
+  {"TS_MILESTONE_SERVER_FIRST_READ",       TS_MILESTONE_SERVER_FIRST_READ      },
   {"TS_MILESTONE_SERVER_READ_HEADER_DONE", TS_MILESTONE_SERVER_READ_HEADER_DONE},
-  {"TS_MILESTONE_SERVER_CLOSE", TS_MILESTONE_SERVER_CLOSE},
-  {"TS_MILESTONE_CACHE_OPEN_READ_BEGIN", TS_MILESTONE_CACHE_OPEN_READ_BEGIN},
-  {"TS_MILESTONE_CACHE_OPEN_READ_END", TS_MILESTONE_CACHE_OPEN_READ_END},
-  {"TS_MILESTONE_CACHE_OPEN_WRITE_BEGIN", TS_MILESTONE_CACHE_OPEN_WRITE_BEGIN},
-  {"TS_MILESTONE_CACHE_OPEN_WRITE_END", TS_MILESTONE_CACHE_OPEN_WRITE_END},
-  {"TS_MILESTONE_DNS_LOOKUP_BEGIN", TS_MILESTONE_DNS_LOOKUP_BEGIN},
-  {"TS_MILESTONE_DNS_LOOKUP_END", TS_MILESTONE_DNS_LOOKUP_END},
-  {"TS_MILESTONE_SM_START", TS_MILESTONE_SM_START},
-  {"TS_MILESTONE_SM_FINISH", TS_MILESTONE_SM_FINISH},
-  {"TS_MILESTONE_PLUGIN_ACTIVE", TS_MILESTONE_PLUGIN_ACTIVE},
-  {"TS_MILESTONE_PLUGIN_TOTAL", TS_MILESTONE_PLUGIN_TOTAL},
-  {"TS_MILESTONE_TLS_HANDSHAKE_START", TS_MILESTONE_TLS_HANDSHAKE_START},
-  {"TS_MILESTONE_TLS_HANDSHAKE_END", TS_MILESTONE_TLS_HANDSHAKE_END},
+  {"TS_MILESTONE_SERVER_CLOSE",            TS_MILESTONE_SERVER_CLOSE           },
+  {"TS_MILESTONE_CACHE_OPEN_READ_BEGIN",   TS_MILESTONE_CACHE_OPEN_READ_BEGIN  },
+  {"TS_MILESTONE_CACHE_OPEN_READ_END",     TS_MILESTONE_CACHE_OPEN_READ_END    },
+  {"TS_MILESTONE_CACHE_OPEN_WRITE_BEGIN",  TS_MILESTONE_CACHE_OPEN_WRITE_BEGIN },
+  {"TS_MILESTONE_CACHE_OPEN_WRITE_END",    TS_MILESTONE_CACHE_OPEN_WRITE_END   },
+  {"TS_MILESTONE_DNS_LOOKUP_BEGIN",        TS_MILESTONE_DNS_LOOKUP_BEGIN       },
+  {"TS_MILESTONE_DNS_LOOKUP_END",          TS_MILESTONE_DNS_LOOKUP_END         },
+  {"TS_MILESTONE_SM_START",                TS_MILESTONE_SM_START               },
+  {"TS_MILESTONE_SM_FINISH",               TS_MILESTONE_SM_FINISH              },
+  {"TS_MILESTONE_PLUGIN_ACTIVE",           TS_MILESTONE_PLUGIN_ACTIVE          },
+  {"TS_MILESTONE_PLUGIN_TOTAL",            TS_MILESTONE_PLUGIN_TOTAL           },
+  {"TS_MILESTONE_TLS_HANDSHAKE_START",     TS_MILESTONE_TLS_HANDSHAKE_START    },
+  {"TS_MILESTONE_TLS_HANDSHAKE_END",       TS_MILESTONE_TLS_HANDSHAKE_END      },
 };
 
 void
@@ -218,14 +219,19 @@ LogField::init_milestone_container()
 }
 
 // Generic field ctor
-LogField::LogField(const char *name, const char *symbol, Type type, MarshalFunc marshal, UnmarshalFunc unmarshal, SetFunc _setfunc)
+LogField::LogField(const char *name, const char *symbol, Type type, MarshalFunc marshal, VarUnmarshalFuncSliceOnly unmarshal,
+                   SetFunc _setfunc)
   : m_name(ats_strdup(name)),
     m_symbol(ats_strdup(symbol)),
     m_type(type),
     m_container(NO_CONTAINER),
     m_marshal_func(marshal),
-    m_unmarshal_func(unmarshal),
-    m_unmarshal_func_map(nullptr),
+    m_unmarshal_func([](VarUnmarshalFuncSliceOnly const &f) -> VarUnmarshalFunc {
+      if (auto *ff = std::get_if<UnmarshalFunc>(&f); ff) {
+        return *ff;
+      }
+      return std::get<UnmarshalFuncWithSlice>(f);
+    }(unmarshal)),
     m_agg_op(NO_AGGREGATE),
     m_agg_cnt(0),
     m_agg_val(0),
@@ -251,8 +257,7 @@ LogField::LogField(const char *name, const char *symbol, Type type, MarshalFunc 
     m_type(type),
     m_container(NO_CONTAINER),
     m_marshal_func(marshal),
-    m_unmarshal_func(nullptr),
-    m_unmarshal_func_map(unmarshal),
+    m_unmarshal_func(unmarshal),
     m_agg_op(NO_AGGREGATE),
     m_agg_cnt(0),
     m_agg_val(0),
@@ -319,7 +324,6 @@ LogField::LogField(const char *field, Container container, SetFunc _setfunc)
     m_container(container),
     m_marshal_func(nullptr),
     m_unmarshal_func(nullptr),
-    m_unmarshal_func_map(nullptr),
     m_agg_op(NO_AGGREGATE),
     m_agg_cnt(0),
     m_agg_val(0),
@@ -348,7 +352,7 @@ LogField::LogField(const char *field, Container container, SetFunc _setfunc)
   case ESSH:
   case ECSSH:
   case SCFG:
-    m_unmarshal_func = reinterpret_cast<UnmarshalFunc>(&(LogAccess::unmarshal_str));
+    m_unmarshal_func = &(LogAccess::unmarshal_str);
     break;
 
   case ICFG:
@@ -389,7 +393,6 @@ LogField::LogField(const LogField &rhs)
     m_container(rhs.m_container),
     m_marshal_func(rhs.m_marshal_func),
     m_unmarshal_func(rhs.m_unmarshal_func),
-    m_unmarshal_func_map(rhs.m_unmarshal_func_map),
     m_agg_op(rhs.m_agg_op),
     m_agg_cnt(0),
     m_agg_val(0),
@@ -592,18 +595,17 @@ LogField::marshal_agg(char *buf)
   string that represents the ASCII value of the field.
   -------------------------------------------------------------------------*/
 unsigned
-LogField::unmarshal(char **buf, char *dest, int len)
+LogField::unmarshal(char **buf, char *dest, int len, LogEscapeType escape_type)
 {
-  if (!m_alias_map) {
-    if (m_unmarshal_func == reinterpret_cast<UnmarshalFunc>(LogAccess::unmarshal_str) ||
-        m_unmarshal_func == reinterpret_cast<UnmarshalFunc>(LogAccess::unmarshal_http_text)) {
-      UnmarshalFuncWithSlice func = reinterpret_cast<UnmarshalFuncWithSlice>(m_unmarshal_func);
-      return (*func)(buf, dest, len, &m_slice);
-    }
-    return (*m_unmarshal_func)(buf, dest, len);
-  } else {
-    return (*m_unmarshal_func_map)(buf, dest, len, m_alias_map);
-  }
+  return std::visit(
+    swoc::meta::vary{[&](UnmarshalFuncWithSlice f) -> unsigned { return (*f)(buf, dest, len, &m_slice, escape_type); },
+                     [&](UnmarshalFuncWithMap f) -> unsigned { return (*f)(buf, dest, len, m_alias_map); },
+                     [&](UnmarshalFunc f) -> unsigned { return (*f)(buf, dest, len); },
+                     [&](decltype(nullptr)) -> unsigned {
+                       ink_assert(false);
+                       return 0;
+                     }},
+    m_unmarshal_func);
 }
 
 /*-------------------------------------------------------------------------
@@ -820,7 +822,7 @@ LogFieldList::marshal(LogAccess *lad, char *buf)
   char *ptr;
   int bytes = 0;
   for (LogField *f = first(); f; f = next(f)) {
-    ptr = &buf[bytes];
+    ptr   = &buf[bytes];
     bytes += f->marshal(lad, ptr);
     ink_assert(bytes % INK_MIN_ALIGN == 0);
   }
@@ -833,7 +835,7 @@ LogFieldList::marshal_agg(char *buf)
   char *ptr;
   int bytes = 0;
   for (LogField *f = first(); f; f = next(f)) {
-    ptr = &buf[bytes];
+    ptr   = &buf[bytes];
     bytes += f->marshal_agg(ptr);
   }
   return bytes;

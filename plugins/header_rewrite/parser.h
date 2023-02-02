@@ -36,7 +36,7 @@ public:
   Parser(){};
 
   // noncopyable
-  Parser(const Parser &) = delete;
+  Parser(const Parser &)         = delete;
   void operator=(const Parser &) = delete;
 
   bool
@@ -65,6 +65,13 @@ public:
 
   const std::string &
   get_value() const
+  {
+    return _val;
+  }
+
+  // Return a copy of the string, this implies RVO as well
+  std::string
+  copy_value() const
   {
     return _val;
   }
@@ -106,7 +113,7 @@ public:
 
   // noncopyable
   HRWSimpleTokenizer(const HRWSimpleTokenizer &) = delete;
-  void operator=(const HRWSimpleTokenizer &) = delete;
+  void operator=(const HRWSimpleTokenizer &)     = delete;
 
   const std::vector<std::string> &
   get_tokens() const

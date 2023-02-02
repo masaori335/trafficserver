@@ -27,15 +27,16 @@
 
 #include "tscore/ink_platform.h"
 
-#define USE_EDGE_TRIGGER_EPOLL 1
+#define USE_EDGE_TRIGGER_EPOLL  1
 #define USE_EDGE_TRIGGER_KQUEUE 1
-#define USE_EDGE_TRIGGER_PORT 1
+#define USE_EDGE_TRIGGER_PORT   1
 
-#define EVENTIO_NETACCEPT 1
-#define EVENTIO_READWRITE_VC 2
+#define EVENTIO_NETACCEPT      1
+#define EVENTIO_READWRITE_VC   2
 #define EVENTIO_DNS_CONNECTION 3
 #define EVENTIO_UDP_CONNECTION 4
-#define EVENTIO_ASYNC_SIGNAL 5
+#define EVENTIO_ASYNC_SIGNAL   5
+#define EVENTIO_DISK           6
 
 #if TS_USE_EPOLL
 #ifndef EPOLLEXCLUSIVE
@@ -43,10 +44,10 @@
 #endif
 #ifdef USE_EDGE_TRIGGER_EPOLL
 #define USE_EDGE_TRIGGER 1
-#define EVENTIO_READ (EPOLLIN | EPOLLET)
-#define EVENTIO_WRITE (EPOLLOUT | EPOLLET)
+#define EVENTIO_READ     (EPOLLIN | EPOLLET)
+#define EVENTIO_WRITE    (EPOLLOUT | EPOLLET)
 #else
-#define EVENTIO_READ EPOLLIN
+#define EVENTIO_READ  EPOLLIN
 #define EVENTIO_WRITE EPOLLOUT
 #endif
 #define EVENTIO_ERROR (EPOLLERR | EPOLLPRI | EPOLLHUP)
@@ -54,12 +55,12 @@
 
 #if TS_USE_KQUEUE
 #ifdef USE_EDGE_TRIGGER_KQUEUE
-#define USE_EDGE_TRIGGER 1
+#define USE_EDGE_TRIGGER    1
 #define INK_EV_EDGE_TRIGGER EV_CLEAR
 #else
 #define INK_EV_EDGE_TRIGGER 0
 #endif
-#define EVENTIO_READ INK_EVP_IN
+#define EVENTIO_READ  INK_EVP_IN
 #define EVENTIO_WRITE INK_EVP_OUT
 #define EVENTIO_ERROR (0x010 | 0x002 | 0x020) // ERR PRI HUP
 #endif
@@ -67,7 +68,7 @@
 #ifdef USE_EDGE_TRIGGER_PORT
 #define USE_EDGE_TRIGGER 1
 #endif
-#define EVENTIO_READ POLLIN
+#define EVENTIO_READ  POLLIN
 #define EVENTIO_WRITE POLLOUT
 #define EVENTIO_ERROR (POLLERR | POLLPRI | POLLHUP)
 #endif
@@ -77,6 +78,7 @@ typedef PollDescriptor *EventLoop;
 
 class NetEvent;
 class UnixUDPConnection;
+class DiskHandler;
 struct DNSConnection;
 struct NetAccept;
 
@@ -90,11 +92,12 @@ struct EventIO {
   bool syscall         = true;    ///< if false, disable all functionality (for QUIC)
   int type             = 0;       ///< class identifier of union data.
   union {
-    Continuation *c;
+    void *untyped;
     NetEvent *ne;
     DNSConnection *dnscon;
     NetAccept *na;
     UnixUDPConnection *uc;
+    DiskHandler *dh;
   } data; ///< a kind of continuation
 
   /** The start methods all logically Setup a class to be called
@@ -111,6 +114,7 @@ struct EventIO {
   int start(EventLoop l, NetEvent *ne, int events);
   int start(EventLoop l, UnixUDPConnection *vc, int events);
   int start(EventLoop l, int fd, NetEvent *ne, int events);
+  int start(EventLoop l, DiskHandler *dh);
   int start_common(EventLoop l, int fd, int events);
 
   /** Alter the events that will trigger the continuation, for level triggered I/O.
@@ -131,7 +135,7 @@ struct EventIO {
   /// Remove the epoll event and close the connection. Returns 0 on success.
   int close();
 
-  EventIO() { data.c = nullptr; }
+  EventIO() { data.untyped = nullptr; }
 };
 
 #include "P_Net.h"
@@ -169,13 +173,13 @@ extern int http_accept_port_number;
 #define TRANSIENT_ACCEPT_ERROR_MESSAGE_EVERY HRTIME_HOURS(24)
 
 // also the 'throttle connect headroom'
-#define EMERGENCY_THROTTLE 16
-#define THROTTLE_AT_ONCE 5
+#define EMERGENCY_THROTTLE       16
+#define THROTTLE_AT_ONCE         5
 #define HYPER_EMERGENCY_THROTTLE 6
 
-#define NET_THROTTLE_ACCEPT_HEADROOM 1.1  // 10%
+#define NET_THROTTLE_ACCEPT_HEADROOM  1.1 // 10%
 #define NET_THROTTLE_CONNECT_HEADROOM 1.0 // 0%
-#define NET_THROTTLE_MESSAGE_EVERY HRTIME_MINUTES(10)
+#define NET_THROTTLE_MESSAGE_EVERY    HRTIME_MINUTES(10)
 
 #define PRINT_IP(x) ((uint8_t *)&(x))[0], ((uint8_t *)&(x))[1], ((uint8_t *)&(x))[2], ((uint8_t *)&(x))[3]
 
@@ -432,7 +436,7 @@ check_shedding_warning()
   ink_hrtime t = Thread::get_hrtime();
   if (t - last_shedding_warning > NET_THROTTLE_MESSAGE_EVERY) {
     last_shedding_warning = t;
-    RecSignalWarning(REC_SIGNAL_SYSTEM_ERROR, "number of connections reaching shedding limit");
+    Warning("number of connections reaching shedding limit");
   }
 }
 
@@ -454,9 +458,8 @@ check_throttle_warning(ThrottleType type)
   if (t - last_throttle_warning > NET_THROTTLE_MESSAGE_EVERY) {
     last_throttle_warning = t;
     int connections       = net_connections_to_throttle(type);
-    RecSignalWarning(REC_SIGNAL_SYSTEM_ERROR,
-                     "too many connections, throttling.  connection_type=%s, current_connections=%d, net_connections_throttle=%d",
-                     type == ACCEPT ? "ACCEPT" : "CONNECT", connections, net_connections_throttle);
+    Warning("too many connections, throttling.  connection_type=%s, current_connections=%d, net_connections_throttle=%d",
+            type == ACCEPT ? "ACCEPT" : "CONNECT", connections, net_connections_throttle);
   }
 }
 
@@ -480,6 +483,7 @@ change_net_connections_throttle(const char *token, RecDataT data_type, RecData v
   return 0;
 }
 
+// 2  - ignore
 // 1  - transient
 // 0  - report as warning
 // -1 - fatal
@@ -487,8 +491,9 @@ TS_INLINE int
 accept_error_seriousness(int res)
 {
   switch (res) {
-  case -EAGAIN:
   case -ECONNABORTED:
+    return 2;
+  case -EAGAIN:
   case -ECONNRESET: // for Linux
   case -EPIPE:      // also for Linux
     return 1;

@@ -24,12 +24,13 @@ traffic_layout_traffic_layout_CPPFLAGS = \
     -I$(abs_top_srcdir)/lib \
     -I$(abs_top_srcdir)/mgmt \
     -I$(abs_top_srcdir)/mgmt/utils \
+    @SWOC_INCLUDES@ \
     @YAMLCPP_INCLUDES@ \
     $(TS_INCLUDES)
 
 traffic_layout_traffic_layout_LDFLAGS =	\
     $(AM_LDFLAGS) \
-    @YAMLCPP_LDFLAGS@ $(BROTLIENC_LIB)
+    @SWOC_LDFLAGS@ @YAMLCPP_LDFLAGS@ $(BROTLIENC_LIB)
 
 traffic_layout_traffic_layout_SOURCES = \
 	traffic_layout/traffic_layout.cc \
@@ -41,10 +42,10 @@ traffic_layout_traffic_layout_SOURCES = \
 	traffic_layout/info.h
 
 traffic_layout_traffic_layout_LDADD = \
-	$(top_builddir)/lib/records/librecords_p.a \
+	$(top_builddir)/src/records/librecords_p.a \
 	$(top_builddir)/mgmt/libmgmt_p.la \
 	$(top_builddir)/proxy/shared/libUglyLogStubs.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/src/tscore/libtscore.la \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
-	@HWLOC_LIBS@ @YAMLCPP_LIBS@ @LIBLZMA@
+	@SWOC_LIBS@ @HWLOC_LIBS@ @YAMLCPP_LIBS@ @LIBLZMA@

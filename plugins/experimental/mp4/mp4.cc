@@ -122,7 +122,7 @@ TSRemapDoRemap(void * /* ih ATS_UNUSED */, TSHttpTxn rh, TSRemapRequestInfo *rri
     right--;
   }
 
-  buf_len = sprintf(buf, "%.*s%.*s", left, query, right, query + query_len - right);
+  buf_len = snprintf(buf, sizeof(buf), "%.*s%.*s", left, query, right, query + query_len - right);
   TSUrlHttpQuerySet(rri->requestBufp, rri->requestUrl, buf, buf_len);
 
   // remove Accept-Encoding
@@ -412,7 +412,7 @@ mp4_transform_handler(TSCont contp, Mp4Context *mc)
         TSIOBufferCopy(mtc->output.buffer, mtc->res_reader, avail, 0);
         TSIOBufferReaderConsume(mtc->res_reader, avail);
 
-        mtc->pos += avail;
+        mtc->pos   += avail;
         mtc->total += avail;
         write_down = true;
       }

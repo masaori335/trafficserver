@@ -34,8 +34,8 @@
 
 #include <memory>
 
-#define URL_REMAP_FILTER_NONE 0x00000000
-#define URL_REMAP_FILTER_REFERER 0x00000001      /* enable "referer" header validation */
+#define URL_REMAP_FILTER_NONE         0x00000000
+#define URL_REMAP_FILTER_REFERER      0x00000001 /* enable "referer" header validation */
 #define URL_REMAP_FILTER_REDIRECT_FMT 0x00010000 /* enable redirect URL formatting */
 
 struct BUILD_TABLE_INFO;
@@ -107,6 +107,14 @@ public:
   {
     return _valid;
   };
+
+  /// @return  Number of rules defined.
+  int
+  rule_count() const
+  {
+    return num_rules_forward + num_rules_reverse + num_rules_redirect_permanent + num_rules_redirect_temporary +
+           num_rules_forward_with_recv_port;
+  }
 
   static constexpr int MAX_REGEX_SUBS = 10;
 

@@ -24,8 +24,7 @@ Verify ip_allow filtering behavior.
 Test.ContinueOnFail = True
 
 # Define default ATS
-ts = Test.MakeATSProcess("ts", command="traffic_manager", select_ports=True,
-                         enable_tls=True, enable_cache=False)
+ts = Test.MakeATSProcess("ts", enable_tls=True, enable_cache=False)
 server = Test.MakeOriginServer("server", ssl=True)
 
 testName = ""
@@ -85,7 +84,7 @@ ts.Disk.ssl_multicert_config.AddLine(
 
 ts.Disk.records_config.update({
     'proxy.config.diags.debug.enabled': 1,
-    'proxy.config.diags.debug.tags': 'ip-allow',
+    'proxy.config.diags.debug.tags': 'ip_allow',
     'proxy.config.http.connect_ports': '{0}'.format(server.Variables.SSL_Port),
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
@@ -95,11 +94,11 @@ ts.Disk.records_config.update({
 })
 
 format_string = ('%<cqtd>-%<cqtt> %<stms> %<ttms> %<chi> %<crc>/%<pssc> %<psql> '
-                 '%<cqhm> %<cquc> %<phr>/%<pqsn> %<psct> %<{Y-RID}pqh> '
+                 '%<cqhm> %<pquc> %<phr>/%<pqsn> %<psct> %<{Y-RID}pqh> '
                  '%<{Y-YPCS}pqh> %<{Host}cqh> %<{CHAD}pqh>  '
                  'sftover=%<{x-safet-overlimit-rules}cqh> sftmat=%<{x-safet-matched-rules}cqh> '
                  'sftcls=%<{x-safet-classification}cqh> '
-                 'sftbadclf=%<{x-safet-bad-classifiers}cqh> yra=%<{Y-RA}cqh> scheme=%<cqus>')
+                 'sftbadclf=%<{x-safet-bad-classifiers}cqh> yra=%<{Y-RA}cqh> scheme=%<pqus>')
 
 ts.Disk.logging_yaml.AddLines(
     ''' logging:
@@ -131,10 +130,10 @@ ts.Disk.ip_allow_yaml.AddLines(
 '''.split("\n")
 )
 
-ts.Streams.stderr += Testers.ContainsExpression(
+ts.Disk.traffic_out.Content += Testers.ContainsExpression(
     "Line 1 denial for 'CONNECT' from 127.0.0.1",
     "The CONNECT request should be denied by ip_allow")
-ts.Streams.stderr += Testers.ContainsExpression(
+ts.Disk.traffic_out.Content += Testers.ContainsExpression(
     "Line 1 denial for 'PUSH' from 127.0.0.1",
     "The PUSH request should be denied by ip_allow")
 

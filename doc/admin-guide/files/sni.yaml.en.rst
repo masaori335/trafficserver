@@ -42,9 +42,15 @@ Each table is a set of key / value pairs that create a configuration item. This 
 wildcard entries. To apply an SNI based setting on all the server names with a common upper level domain name,
 the user needs to enter the fqdn in the configuration with a ``*.`` followed by the common domain name. (``*.yahoo.com`` for example).
 
+For some settings, there is no guarantee that they will be applied to a connection under certain conditions.
+An established TLS connection may be reused for another server name if it’s used for HTTP/2. This also means that settings
+for server name A may affects requests for server name B as well. See https://daniel.haxx.se/blog/2016/08/18/http2-connection-coalescing/
+for a more detailed description of HTTP/2 connection coalescing.
+
 .. _override-verify-server-policy:
 .. _override-verify-server-properties:
 .. _override-host-sni-policy:
+.. _override-h2-properties:
 
 ========================= ========= ========================================================================================
 Key                       Direction Meaning
@@ -90,7 +96,7 @@ host_sni_policy           Inbound   One of the values :code:`DISABLED`, :code:`P
                                     If not specified, the value of :ts:cv:`proxy.config.http.host_sni_policy` is used.
                                     This controls how policy impacting mismatches between host header and SNI values are
                                     dealt with.  For details about hos this configuration behaves, see the corresponding
-                                    :ts:cv:`proxy.config.http.host_sni_policy` :file:`records.config` documentation.
+                                    :ts:cv:`proxy.config.http.host_sni_policy` :file:`records.yaml` documentation.
 
                                     Note that this particular configuration will be inspected at the time the HTTP Host
                                     header field is processed. Further, this policy check will be keyed off of the Host header
@@ -130,8 +136,9 @@ client_sni_policy         Outbound  Policy of SNI on outbound connection.
 http2                     Inbound   Indicates whether the H2 protocol should be added to or removed from the
                                     protocol negotiation list.  The valid values are :code:`on` or :code:`off`.
 
-disable_h2                Inbound   Deprecated for the more general h2 setting.  Setting disable_h2
-                                    to :code:`true` is the same as setting http2 to :code:`on`.
+http2_buffer_water_mark   Inbound   Specifies the high water mark for all HTTP/2 frames on an outoging connection.
+                                    By default this is :ts:cv:`proxy.config.http2.default_buffer_water_mark`.
+                                    NOTE: Connection coalescing may prevent this taking effect.
 
 tunnel_route              Inbound   Destination as an FQDN and port, separated by a colon ``:``.
                                     Match group number can be specified by ``$N`` where N should refer to a specified group

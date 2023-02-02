@@ -41,7 +41,7 @@ x509_expand_certificate(X509 *x509, BIO *bio)
   // The PEM format has newlines in it. mod_ssl replaces those with spaces.
   remain = BIO_get_mem_data(bio, &ptr);
   for (char *nl; (nl = static_cast<char *>(memchr(ptr, '\n', remain))); ptr = nl) {
-    *nl = ' ';
+    *nl    = ' ';
     remain -= nl - ptr;
   }
 }
@@ -105,7 +105,7 @@ x509_expand_notafter(X509 *x509, BIO *bio)
   ASN1_TIME_print(bio, time);
 }
 
-static const std::array<x509_expansion, SSL_HEADERS_FIELD_MAX> expansions = {{
+static const std::array<x509_expansion, SSL_HEADERS_FIELD_MAX> expansions = {
   x509_expand_none,        // SSL_HEADERS_FIELD_NONE
   x509_expand_certificate, // SSL_HEADERS_FIELD_CERTIFICATE
   x509_expand_subject,     // SSL_HEADERS_FIELD_SUBJECT
@@ -114,7 +114,7 @@ static const std::array<x509_expansion, SSL_HEADERS_FIELD_MAX> expansions = {{
   x509_expand_signature,   // SSL_HEADERS_FIELD_SIGNATURE
   x509_expand_notbefore,   // SSL_HEADERS_FIELD_NOTBEFORE
   x509_expand_notafter,    // SSL_HEADERS_FIELD_NOTAFTER
-}};
+};
 
 bool
 SslHdrExpandX509Field(BIO *bio, X509 *x509, ExpansionField field)

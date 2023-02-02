@@ -267,8 +267,8 @@ load_buffer(int fd, hdr_type h_type)
         fprintf(stderr, "Corrupted data file\n");
         exit(1);
       }
-      cur_ptr  = (int *)(hdr_heap + bytes_read);
-      *cur_ptr = el;
+      cur_ptr    = (int *)(hdr_heap + bytes_read);
+      *cur_ptr   = el;
       bytes_read += 4;
     }
     cur_line++;
@@ -297,7 +297,7 @@ main(int argc, const char *argv[])
   hdr_type h_type = UNKNOWN_HDR;
 
   http_init();
-  diags = new Diags(NULL, NULL);
+  DiagsPtr::set(new Diags(nullptr, nullptr));
   if (argc != 3) {
     fprintf(stderr, "Usage: %s req|res <file>\n", argv[0]);
     exit(1);

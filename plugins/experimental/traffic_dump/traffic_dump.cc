@@ -50,6 +50,9 @@ global_message_handler(TSCont contp, TSEvent event, void *edata)
       } else if (tag == "reset") {
         TSDebug(debug_tag, "TS_EVENT_LIFECYCLE_MSG: Received Msg to reset disk usage counter");
         SessionData::reset_disk_usage();
+      } else if (tag == "unlimit") {
+        TSDebug(debug_tag, "TS_EVENT_LIFECYCLE_MSG: Received Msg to disable disk usage limit enforcement");
+        SessionData::disable_disk_limit_enforcement();
       } else if (tag == "limit" && msg->data_size) {
         const auto new_max_disk_usage = static_cast<int64_t>(strtol(static_cast<char const *>(msg->data), nullptr, 0));
         TSDebug(debug_tag, "TS_EVENT_LIFECYCLE_MSG: Received Msg to change max disk usage to %" PRId64 "bytes", new_max_disk_usage);
@@ -87,20 +90,23 @@ TSPluginInit(int argc, char const *argv[])
   ts::file::path log_dir{traffic_dump::SessionData::default_log_directory};
   int64_t sample_pool_size = traffic_dump::SessionData::default_sample_pool_size;
   int64_t max_disk_usage   = traffic_dump::SessionData::default_max_disk_usage;
+  bool enforce_disk_limit  = traffic_dump::SessionData::default_enforce_disk_limit;
   std::string sni_filter;
   std::string client_ip_filter;
 
   /// Commandline options
-  static const struct option longopts[] = {{"dump_body", no_argument, nullptr, 'b'},
-                                           {"logdir", required_argument, nullptr, 'l'},
-                                           {"sample", required_argument, nullptr, 's'},
-                                           {"limit", required_argument, nullptr, 'm'},
-                                           {"sensitive-fields", required_argument, nullptr, 'f'},
-                                           {"sni-filter", required_argument, nullptr, 'n'},
-                                           {"client_ipv4", required_argument, nullptr, '4'},
-                                           {"client_ipv6", required_argument, nullptr, '6'},
-                                           {nullptr, no_argument, nullptr, 0}};
-  int opt                               = 0;
+  static const struct option longopts[] = {
+    {"dump_body",        no_argument,       nullptr, 'b'},
+    {"logdir",           required_argument, nullptr, 'l'},
+    {"sample",           required_argument, nullptr, 's'},
+    {"limit",            required_argument, nullptr, 'm'},
+    {"sensitive-fields", required_argument, nullptr, 'f'},
+    {"sni-filter",       required_argument, nullptr, 'n'},
+    {"client_ipv4",      required_argument, nullptr, '4'},
+    {"client_ipv6",      required_argument, nullptr, '6'},
+    {nullptr,            no_argument,       nullptr, 0  }
+  };
+  int opt = 0;
   while (opt >= 0) {
     opt = getopt_long(argc, const_cast<char *const *>(argv), "bf:l:s:m:n:4:6", longopts, nullptr);
     switch (opt) {
@@ -143,7 +149,8 @@ TSPluginInit(int argc, char const *argv[])
       break;
     }
     case 'm': {
-      max_disk_usage = static_cast<int64_t>(std::strtol(optarg, nullptr, 0));
+      max_disk_usage     = static_cast<int64_t>(std::strtol(optarg, nullptr, 0));
+      enforce_disk_limit = true;
       break;
     }
     case '4':
@@ -165,12 +172,13 @@ TSPluginInit(int argc, char const *argv[])
     log_dir = ts::file::path(TSInstallDirGet()) / log_dir;
   }
   if (sni_filter.empty()) {
-    if (!traffic_dump::SessionData::init(log_dir.view(), max_disk_usage, sample_pool_size, client_ip_filter)) {
+    if (!traffic_dump::SessionData::init(log_dir.view(), enforce_disk_limit, max_disk_usage, sample_pool_size, client_ip_filter)) {
       TSError("[%s] Failed to initialize session state.", traffic_dump::debug_tag);
       return;
     }
   } else {
-    if (!traffic_dump::SessionData::init(log_dir.view(), max_disk_usage, sample_pool_size, client_ip_filter, sni_filter)) {
+    if (!traffic_dump::SessionData::init(log_dir.view(), enforce_disk_limit, max_disk_usage, sample_pool_size, client_ip_filter,
+                                         sni_filter)) {
       TSError("[%s] Failed to initialize session state with an SNI filter.", traffic_dump::debug_tag);
       return;
     }

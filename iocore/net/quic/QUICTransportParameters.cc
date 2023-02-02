@@ -99,7 +99,7 @@ QUICTransportParameters::_load(const uint8_t *buf, size_t len, QUICVersion versi
     // Read ID
     if (!QUICVariableInt::decode(param_id, l, p, len)) {
       len -= l;
-      p += l;
+      p   += l;
     } else {
       has_error = true;
       break;
@@ -115,7 +115,7 @@ QUICTransportParameters::_load(const uint8_t *buf, size_t len, QUICVersion versi
     // Read length of value
     if (!QUICVariableInt::decode(param_len, l, p, len)) {
       len -= l;
-      p += l;
+      p   += l;
     } else {
       has_error = true;
       break;
@@ -125,7 +125,7 @@ QUICTransportParameters::_load(const uint8_t *buf, size_t len, QUICVersion versi
     if (len >= param_len) {
       this->_parameters.insert(std::make_pair(param_id, new Value(p, param_len)));
       len -= param_len;
-      p += param_len;
+      p   += param_len;
     } else {
       has_error = true;
       break;
@@ -381,26 +381,24 @@ QUICTransportParametersInEncryptedExtensions::_validate_parameters(QUICVersion v
   decltype(this->_parameters)::const_iterator ite;
 
   // MUSTs
-  if (version == QUIC_SUPPORTED_VERSIONS[0]) { // draft-28
-    if ((ite = this->_parameters.find(QUICTransportParameterId::INITIAL_SOURCE_CONNECTION_ID)) != this->_parameters.end()) {
-      // We cannot check the length because it's not a fixed length.
-    } else {
-      return -(TP_ERROR_MUST_EXIST | QUICTransportParameterId::INITIAL_SOURCE_CONNECTION_ID);
-    }
+  if ((ite = this->_parameters.find(QUICTransportParameterId::INITIAL_SOURCE_CONNECTION_ID)) != this->_parameters.end()) {
+    // We cannot check the length because it's not a fixed length.
+  } else {
+    return -(TP_ERROR_MUST_EXIST | QUICTransportParameterId::INITIAL_SOURCE_CONNECTION_ID);
+  }
 
-    if ((ite = this->_parameters.find(QUICTransportParameterId::ORIGINAL_DESTINATION_CONNECTION_ID)) != this->_parameters.end()) {
-      // We cannot check the length because it's not a fixed length.
-    } else {
-      return -(TP_ERROR_MUST_EXIST | QUICTransportParameterId::ORIGINAL_DESTINATION_CONNECTION_ID);
-    }
+  if ((ite = this->_parameters.find(QUICTransportParameterId::ORIGINAL_DESTINATION_CONNECTION_ID)) != this->_parameters.end()) {
+    // We cannot check the length because it's not a fixed length.
+  } else {
+    return -(TP_ERROR_MUST_EXIST | QUICTransportParameterId::ORIGINAL_DESTINATION_CONNECTION_ID);
+  }
 
-    // MUSTs if the server sent a Retry packet, but MUST NOT if the server did not send a Retry packet
-    // TODO Check if the server sent Retry packet
-    if ((ite = this->_parameters.find(QUICTransportParameterId::RETRY_SOURCE_CONNECTION_ID)) != this->_parameters.end()) {
-      // return -(TP_ERROR_MUST_NOT_EXIST | QUICTransportParameterId::RETRY_SOURCE_CONNECTION_ID);
-    } else {
-      // return -(TP_ERROR_MUST_EXIST | QUICTransportParameterId::RETRY_SOURCE_CONNECTION_ID);
-    }
+  // MUSTs if the server sent a Retry packet, but MUST NOT if the server did not send a Retry packet
+  // TODO Check if the server sent Retry packet
+  if ((ite = this->_parameters.find(QUICTransportParameterId::RETRY_SOURCE_CONNECTION_ID)) != this->_parameters.end()) {
+    // return -(TP_ERROR_MUST_NOT_EXIST | QUICTransportParameterId::RETRY_SOURCE_CONNECTION_ID);
+  } else {
+    // return -(TP_ERROR_MUST_EXIST | QUICTransportParameterId::RETRY_SOURCE_CONNECTION_ID);
   }
 
   // MAYs

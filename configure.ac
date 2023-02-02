@@ -175,6 +175,13 @@ AC_ARG_ENABLE([all-asserts],
 )
 AC_MSG_RESULT([$enable_all_asserts])
 
+AC_MSG_CHECKING([whether to enable event tracker])
+AC_ARG_ENABLE([event-tracker],
+  [AS_HELP_STRING([--enable-event-tracker],[turn on event tracker])],
+  [],
+  [enable_event_tracker=no]
+)
+AC_MSG_RESULT([$enable_event_tracker])
 
 # Enable code coverage instrumentation only if requested by the user.
 AC_MSG_CHECKING([whether to code coverage])
@@ -540,13 +547,12 @@ AM_CONDITIONAL([BUILD_IMAGE_MAGICK_PLUGINS], [test "x${enable_image_magick_plugi
 
 AC_MSG_CHECKING([whether to install example plugins])
 AC_ARG_ENABLE([example-plugins],
-  [AS_HELP_STRING([--enable-example-plugins],[build and install example plugins])],
+  [AS_HELP_STRING([--enable-example-plugins],[Build and install example plugins])],
   [],
   [enable_example_plugins=no]
 )
 AC_MSG_RESULT([$enable_example_plugins])
 AM_CONDITIONAL([BUILD_EXAMPLE_PLUGINS], [ test "x${enable_example_plugins}" = "xyes" ])
-
 
 #
 # Test tools. The test tools are always built, but not always installed. Installing
@@ -639,6 +645,8 @@ AC_PROG_CXXCPP
 AM_PROG_AS
 
 AX_COMPILER_VENDOR
+
+AX_CC_FOR_BUILD
 
 CFLAGS="${_ts_saved_CFLAGS}"
 CXXFLAGS="${_ts_saved_CXXFLAGS}"
@@ -803,7 +811,7 @@ AM_CONDITIONAL([BUILD_TSCONFIG_GRAMMAR], [ test -n "$LEX" && test -n "$YACC" ])
 AC_PATH_PROG([DOXYGEN], [doxygen]) # needed for Doxygen
 AC_PATH_PROG([PERL], [perl],[not found])
 AS_IF([test "x$PERL" = "xnot found"],
-  [AC_MSG_ERROR([check for perl failed. Have you installed perl?])]
+  BUILD_PERL_LIB=false
 )
 AC_ARG_VAR([DOXYGEN], [full path of Doxygen executable])
 AC_ARG_VAR([PERL], [full path of Perl executable])
@@ -854,7 +862,7 @@ case $host_os_def in
       common_opt="-pipe -Wall -Wextra -Wno-ignored-qualifiers -Wno-unused-parameter -Wno-format-truncation -Wno-cast-function-type -Wno-stringop-overflow"
       debug_opt="-ggdb3 $common_opt"
       release_opt="-g $common_opt $optimizing_flags -feliminate-unused-debug-symbols -fno-strict-aliasing"
-      cxx_opt="-Wno-invalid-offsetof -Wno-noexcept-type"
+      cxx_opt="-Wno-invalid-offsetof -Wno-noexcept-type -Wsuggest-override"
       # Special options for flex generated .c files
       flex_cflags="-Wno-unused-parameter"
     ])
@@ -865,7 +873,7 @@ case $host_os_def in
 
   darwin)
     AS_IF([test "x$ax_cv_c_compiler_vendor" = "xclang"], [
-      common_opt="-pipe -Wall -Wno-deprecated-declarations -Qunused-arguments -Wextra -Wno-ignored-qualifiers -Wno-unused-parameter"
+      common_opt="-pipe -Wall -Qunused-arguments -Wextra -Wno-unused-parameter"
       debug_opt="-g $common_opt"
       release_opt="-g $common_opt $optimizing_flags -fno-strict-aliasing"
       cxx_opt="-Wno-invalid-offsetof"
@@ -895,7 +903,7 @@ case $host_os_def in
       common_opt="-pipe -Wall -Wextra -Wno-ignored-qualifiers -Wno-unused-parameter"
       debug_opt="-ggdb3 $common_opt"
       release_opt="-g $common_opt $optimizing_flags -feliminate-unused-debug-symbols -fno-strict-aliasing"
-      cxx_opt="-Wno-invalid-offsetof"
+      cxx_opt="-Wno-invalid-offsetof -Wsuggest-override"
     ])
 
     AS_IF([test -d /usr/local/lib], [
@@ -973,8 +981,13 @@ fi
 if test "x${enable_mime_sanity_check}" = "xyes"; then
   TS_ADDTO(AM_CPPFLAGS, [-DENABLE_MIME_SANITY_CHECK])
 fi
+
 if test "x${enable_all_asserts}" = "xyes"; then
   TS_ADDTO(AM_CPPFLAGS, [-DENABLE_ALL_ASSERTS])
+fi
+
+if test "x${enable_event_tracker}" = "xyes"; then
+  TS_ADDTO(AM_CPPFLAGS, [-DENABLE_EVENT_TRACKER])
 fi
 
 # Flags for ASAN
@@ -1237,6 +1250,10 @@ TS_CHECK_CRYPTO
 # Check for OpenSSL Version
 TS_CHECK_CRYPTO_VERSION
 
+# Check for OpenSSL Version 3 and add compatiblity define if needed
+TS_CHECK_OPENSSL3
+AM_CONDITIONAL([OPENSSL_IS_OPENSSL3], [test -n "$openssl_is_openssl3"])
+
 # Check for openssl ASYNC jobs
 TS_CHECK_CRYPTO_ASYNC
 
@@ -1286,6 +1303,9 @@ TS_CHECK_CRYPTO_OCSP
 # Check for SSL_CTX_set_ciphersuites call
 TS_CHECK_CRYPTO_SET_CIPHERSUITES
 
+# Check for TOLS keylogging support.
+TS_CHECK_CRYPTO_KEYLOGGING
+
 # Check for openssl early data support
 TS_CHECK_EARLY_DATA
 
@@ -1306,6 +1326,7 @@ AC_CHECK_FUNCS([ \
   X509_get0_signature \
   ERR_get_error_all \
   SHA1 \
+  SSL_SESSION_dup \
 ])
 
 AC_CHECK_FUNC([ASN1_STRING_get0_data], [],
@@ -1368,6 +1389,9 @@ AM_CONDITIONAL([BUILD_JA3_PLUGIN], [test "x${enable_ja3_plugin}" = "xyes"])
 #
 # Check for zlib presence and usability
 TS_CHECK_ZLIB
+if test "x${enable_zlib}" != "xyes"; then
+  AC_MSG_ERROR([Cannot find zlib library. Configure --with-zlib=DIR])
+fi
 
 #
 # Check for lzma presence and usability
@@ -1377,6 +1401,7 @@ AC_CHECK_FUNCS([clock_gettime kqueue epoll_ctl posix_fadvise posix_madvise posix
 AC_CHECK_FUNCS([port_create strlcpy strlcat sysconf sysctlbyname getpagesize])
 AC_CHECK_FUNCS([getreuid getresuid getresgid setreuid setresuid getpeereid getpeerucred])
 AC_CHECK_FUNCS([strsignal psignal psiginfo accept4])
+AC_CHECK_FUNCS([sendmmsg])
 
 # Check for eventfd() and sys/eventfd.h (both must exist ...)
 AC_CHECK_HEADERS([sys/eventfd.h], [
@@ -1412,6 +1437,19 @@ TS_CHECK_BROTLI
 # Check for optional luajit library
 TS_CHECK_LUAJIT
 
+# Check for optional quiche library
+TS_CHECK_QUICHE
+if test "${has_quiche}" = "1"; then
+enable_quic=yes
+## Doing these again for Quiche
+AM_CONDITIONAL([ENABLE_QUIC], [test "x$enable_quic" = "xyes"])
+TS_ARG_ENABLE_VAR([use], [quic])
+AC_SUBST(use_quic)
+fi
+
+# Check for optional WAVM library
+TS_CHECK_WAVM
+
 #
 # Enable experimental/uri_signing plugin
 # This is here, instead of above, because it needs to know if PCRE is available.
@@ -1437,13 +1475,22 @@ AM_CONDITIONAL([BUILD_YAML_CPP], [test x"$has_yaml_cpp" = x"no"])
 TS_CHECK_YAML_HEADERS_EXPORT
 AM_CONDITIONAL([EXPORT_YAML_HEADERS], [test x"$enable_yaml_headers" = x"yes"])
 
+TS_CHECK_LIBSWOC
+AM_CONDITIONAL([BUILD_SWOC], [test x"$has_libswoc" = x"no"])
+
+TS_CHECK_SWOC_HEADERS_EXPORT
+AM_CONDITIONAL([EXPORT_SWOC_HEADERS], [test x"$enable_swoc_headers" = x"yes"])
+
 # Check for optional boringocsp library
 TS_CHECK_BORINGOCSP
 
 # Check for optional hiredis library
 TS_CHECK_HIREDIS
-
 AM_CONDITIONAL([BUILD_SSL_SESSION_REUSE_PLUGIN], [test ! -z "${LIB_HIREDIS}" -a "x${has_hiredis}" = "x1" ])
+
+# Check for optional nuraft library
+TS_CHECK_NURAFT
+AM_CONDITIONAL([BUILD_STEK_SHARE_PLUGIN], [test x"$has_nuraft" = x"yes"])
 
 # Check for backtrace() support
 has_backtrace=0
@@ -1650,6 +1697,34 @@ AS_IF([test "x$enable_linux_native_aio" = "xyes"], [
 AC_MSG_RESULT([$enable_linux_native_aio])
 TS_ARG_ENABLE_VAR([use], [linux_native_aio])
 
+# Check for enabling io_uring on linux
+
+AC_MSG_CHECKING([whether to enable Linux io_uring])
+AC_ARG_ENABLE([experimental-linux-io-uring],
+  [AS_HELP_STRING([--enable-experimental-linux-io-uring], [WARNING this is experimental: enable Linux io_uring support @<:@default=no@:>@])],
+  [enable_linux_io_uring="${enableval}"],
+  [enable_linux_io_uring=no]
+)
+
+AS_IF([test "x$enable_linux_io_uring" = "xyes"], [
+  URING_LIBS="-luring"
+  if test $host_os_def  != "linux"; then
+    AC_MSG_ERROR([Linux io_uring can only be enabled on Linux systems])
+  fi
+
+  AC_CHECK_HEADERS([liburing.h], [],
+    [AC_MSG_ERROR([Linux io_uring requires liburing.h (install liburing)])]
+  )
+
+  AC_SEARCH_LIBS([io_uring_queue_init], [uring], [AC_SUBST([URING_LIBS])],
+    [AC_MSG_ERROR([Linux io_uring require uring])]
+  )
+])
+
+AC_MSG_RESULT([$enable_linux_io_uring])
+TS_ARG_ENABLE_VAR([use], [linux_io_uring])
+
+
 # Check for hwloc library.
 # If we don't find it, disable checking for header.
 use_hwloc=0
@@ -1756,28 +1831,71 @@ AS_IF([test "x$geo_provider" = "xauto"], [
 AC_SUBST(use_hrw_geoip)
 AC_SUBST(use_hrw_maxminddb)
 
+# Checking if opentelemetry OTLP is available
+AC_LANG_PUSH([C++])
+AC_CHECK_HEADERS([opentelemetry/trace/provider.h], [
+  AC_CHECK_LIB([curl], [curl_version], [
+    AC_CHECK_LIB([protobuf], [main], [
+      AC_CHECK_LIB([opentelemetry_exporter_otlp_http], [main], [
+        AC_SUBST([OTEL_LIBS], [" -lopentelemetry_exporter_otlp_http -lopentelemetry_exporter_otlp_http_client -lopentelemetry_otlp_recordable -lopentelemetry_proto -lopentelemetry_trace -lopentelemetry_resources -lopentelemetry_version -lopentelemetry_common -lopentelemetry_http_client_curl -lcurl -lprotobuf "])
+        AC_SUBST(has_otel, 1)
+      ], [
+        AC_SUBST([OTEL_LIBS], [""])
+        AC_SUBST(has_otel, 0)
+      ])
+    ], [
+      AC_SUBST([OTEL_LIBS], [""])
+      AC_SUBST(has_otel, 0)
+    ])
+  ], [
+    AC_SUBST([OTEL_LIBS], [""])
+    AC_SUBST(has_otel, 0)
+  ])
+])
+
+AM_CONDITIONAL([HAS_OTEL], [test "x${has_otel}" = "x1" ])
+AC_LANG_POP([C++])
+
+# Checking if wamr is available
+AC_LANG_PUSH([C++])
+AC_CHECK_HEADERS([wasm_c_api.h], [
+  AC_CHECK_LIB([iwasm], [main], [
+    AC_SUBST([WAMR_LIBS], [" -liwasm "])
+    AC_SUBST(has_wamr, 1)
+  ], [
+    AC_SUBST([WAMR_LIBS], [""])
+    AC_SUBST(has_wamr, 0)
+  ])
+])
+
+AM_CONDITIONAL([HAS_WAMR], [test "x${has_wamr}" = "x1" ])
+AC_LANG_POP([C++])
+
 # Right now, the healthcheck plugins requires inotify_init (and friends)
 AM_CONDITIONAL([BUILD_HEALTHCHECK_PLUGIN], [ test "$ac_cv_func_inotify_init" = "yes" ])
 
 #
-# Check for tcmalloc and jemalloc
-TS_CHECK_JEMALLOC
+# Check for tcmalloc, jemalloc and mimalloc
 TS_CHECK_TCMALLOC
+TS_CHECK_JEMALLOC
+TS_CHECK_MIMALLOC
 
 #
-# Check for libreadline/libedit
-AX_LIB_READLINE
+# Check whether to use malloc or freelist allocator
+AC_MSG_CHECKING([Use malloc allocator])
+AC_ARG_ENABLE([malloc-allocator],
+  [AS_HELP_STRING([--enable-malloc-allocator],[Allocator uses malloc])],
+  [enable_malloc_allocator=1],
+  [enable_malloc_allocator=0]
+)
+AC_MSG_RESULT([$enable_malloc_allocator])
+AC_SUBST(enable_malloc_allocator)
 
 # We should be able to build http_load if epoll(2) is available.
 AM_CONDITIONAL([BUILD_HTTP_LOAD], [test x"$ac_cv_func_epoll_ctl" = x"yes"])
 
 # We should only build traffic_top if we have curses
 AM_CONDITIONAL([BUILD_TRAFFIC_TOP], [test "x$ax_cv_curses" = "xyes"])
-
-AC_CHECK_HEADERS([mysql/mysql.h], [has_mysql=1],[has_mysql=0])
-AC_CHECK_LIB([mysqlclient],[mysql_info],[AC_SUBST([LIB_MYSQLCLIENT],["-lmysqlclient"])],[has_mysql=0])
-AC_SUBST(has_mysql)
-AM_CONDITIONAL([HAS_MYSQL], [ test "x${has_mysql}" = "x1" ])
 
 AC_CHECK_HEADERS([kclangc.h], [
   AC_CHECK_LIB([kyotocabinet], [kcdbopen], [
@@ -1836,14 +1954,12 @@ AC_CHECK_HEADERS([sys/types.h \
                   sysexits.h \
                   net/ppp_defs.h \
                   ifaddrs.h\
-                  readline/readline.h \
-                  editline/readline.h \
                   ucred.h ])
 
 # On OpenBSD, pthread.h must be included before pthread_np.h
 AC_CHECK_HEADERS([pthread_np.h], [], [], [#include <pthread.h>])
-AC_CHECK_HEADERS([sys/statfs.h sys/statvfs.h sys/disk.h sys/disklabel.h])
-AC_CHECK_HEADERS([linux/hdreg.h linux/fs.h linux/major.h])
+AC_CHECK_HEADERS([sys/statfs.h sys/statvfs.h sys/disk.h sys/disklabel.h sys/mount.h])
+AC_CHECK_HEADERS([linux/hdreg.h linux/major.h])
 
 AC_CHECK_HEADERS([sys/sysctl.h], [], [],
                  [[#ifdef HAVE_SYS_PARAM_H
@@ -2230,7 +2346,7 @@ AC_CONFIG_FILES([
   configs/Makefile
   configs/body_factory/Makefile
   configs/body_factory/default/Makefile
-  configs/records.config.default
+  configs/records.yaml.default
   configs/storage.config.default
   doc/Makefile
   doc/ext/local-config.py
@@ -2243,6 +2359,8 @@ AC_CONFIG_FILES([
   include/ts/Makefile
   include/tscpp/api/Makefile
   include/tscpp/util/Makefile
+  include/ts/apidefs.h
+  include/tscore/ink_config.h
   iocore/Makefile
   iocore/aio/Makefile
   iocore/cache/Makefile
@@ -2256,16 +2374,16 @@ AC_CONFIG_FILES([
   src/tscpp/api/Makefile
   lib/perl/Makefile
   lib/perl/lib/Apache/TS.pm
-  lib/records/Makefile
-  include/ts/apidefs.h
-  include/tscore/ink_config.h
   src/wccp/Makefile
   lib/fastlz/Makefile
+  lib/swoc/Makefile
   lib/yamlcpp/Makefile
   mgmt/Makefile
   mgmt/api/Makefile
   mgmt/api/include/Makefile
   mgmt/utils/Makefile
+  mgmt/rpc/Makefile
+  mgmt/config/Makefile
   plugins/Makefile
   proxy/Makefile
   proxy/hdrs/Makefile
@@ -2282,10 +2400,10 @@ AC_CONFIG_FILES([
   rc/trafficserver.xml
   src/tscpp/util/Makefile
   src/tscore/Makefile
+  src/records/Makefile
   tools/Makefile
   tools/trafficserver.pc
   tools/tsxs
-  tests/unit_tests/Makefile
   tests/Makefile
 ])
 
@@ -2302,13 +2420,17 @@ AC_MSG_NOTICE([Build option summary:
     CXXFLAGS:           $CXXFLAGS
     CPPFLAGS:           $CPPFLAGS
     LDFLAGS:            $LDFLAGS
-    AM@&t@_CFLAGS:          $AM_CFLAGS
-    AM@&t@_CXXFLAGS:        $AM_CXXFLAGS
-    AM@&t@_CPPFLAGS:        $AM_CPPFLAGS
-    AM@&t@_LDFLAGS:         $AM_LDFLAGS
+    AM@&t@_CFLAGS:      $AM_CFLAGS
+    AM@&t@_CXXFLAGS:    $AM_CXXFLAGS
+    AM@&t@_CPPFLAGS:    $AM_CPPFLAGS
+    AM@&t@_LDFLAGS:     $AM_LDFLAGS
     TS_INCLUDES:        $TS_INCLUDES
     OPENSSL_LDFLAGS:    $OPENSSL_LDFLAGS
     OPENSSL_INCLUDES:   $OPENSSL_INCLUDES
     YAMLCPP_LDFLAGS:    $YAMLCPP_LDFLAGS
     YAMLCPP_INCLUDES:   $YAMLCPP_INCLUDES
+    SWOC_LDFLAGS:       $SWOC_LDFLAGS
+    SWOC_INCLUDES:      $SWOC_INCLUDES
+    NURAFT_LDFLAGS:     $NURAFT_LDFLAGS
+    NURAFT_INCLUDES:    $NURAFT_INCLUDES
 ])

@@ -54,11 +54,6 @@ obj_describe(HdrHeapObjImpl *obj, bool recurse)
   Debug("http", "%s %p: [T: %d, L: %4d, OBJFLAGS: %X]  ", obj_names[obj->m_type], obj, obj->m_type, obj->m_length,
         obj->m_obj_flags);
 
-  extern void url_describe(HdrHeapObjImpl * obj, bool recurse);
-  extern void http_hdr_describe(HdrHeapObjImpl * obj, bool recurse);
-  extern void mime_hdr_describe(HdrHeapObjImpl * obj, bool recurse);
-  extern void mime_field_block_describe(HdrHeapObjImpl * obj, bool recurse);
-
   switch (obj->m_type) {
   case HDR_HEAP_OBJ_EMPTY:
     break;
@@ -142,7 +137,7 @@ new_HdrStrHeap(int requested_size)
     alloc_size = HdrStrHeap::DEFAULT_SIZE;
     sh         = static_cast<HdrStrHeap *>(THREAD_ALLOC(strHeapAllocator, this_ethread()));
   } else {
-    alloc_size = ts::round_up<HdrStrHeap::DEFAULT_SIZE * 2>(alloc_size);
+    alloc_size = swoc::round_up<HdrStrHeap::DEFAULT_SIZE * 2>(alloc_size);
     sh         = static_cast<HdrStrHeap *>(ats_malloc(alloc_size));
   }
 
@@ -189,7 +184,7 @@ HdrHeap::allocate_obj(int nbytes, int type)
 
   ink_assert(m_writeable);
 
-  nbytes = HdrHeapMarshalBlocks{ts::round_up(nbytes)};
+  nbytes = HdrHeapMarshalBlocks{swoc::round_up(nbytes)};
 
   if (nbytes > static_cast<int>(HDR_MAX_ALLOC_SIZE)) {
     ink_assert(!"alloc too big");
@@ -200,9 +195,9 @@ HdrHeap::allocate_obj(int nbytes, int type)
 
   while (true) {
     if (static_cast<unsigned>(nbytes) <= (h->m_free_size)) {
-      new_space = h->m_free_start;
+      new_space       = h->m_free_start;
       h->m_free_start += nbytes;
-      h->m_free_size -= nbytes;
+      h->m_free_size  -= nbytes;
 
       obj = reinterpret_cast<HdrHeapObjImpl *>(new_space);
       obj_init_header(obj, type, nbytes, 0);
@@ -569,7 +564,7 @@ HdrHeap::marshal_length()
 
   while (h) {
     len += static_cast<int>(h->m_free_start - h->m_data_start);
-    h = h->m_next;
+    h   = h->m_next;
   }
 
   // Since when we unmarshal, we won't have a writable string
@@ -585,7 +580,7 @@ HdrHeap::marshal_length()
     }
   }
 
-  len = HdrHeapMarshalBlocks(ts::round_up(len));
+  len = HdrHeapMarshalBlocks(swoc::round_up(len));
   return len;
 }
 
@@ -597,8 +592,8 @@ compute_checksum(void *buf, int len)
 
   while (len > 4) {
     cksum += *((uint32_t *)buf);
-    buf = ((char *)buf) + 4;
-    len -= 4;
+    buf   = ((char *)buf) + 4;
+    len   -= 4;
   }
 
   if (len > 0) {
@@ -672,8 +667,8 @@ HdrHeap::marshal(char *buf, int len)
     ptr_xlation[ptr_heaps].offset = unmarshal_hdr->m_data_start - (b - buf);
 
     ptr_heap_size += copy_size;
-    b += copy_size;
-    len -= copy_size;
+    b             += copy_size;
+    len           -= copy_size;
     ptr_heaps++;
 
     unmarshal_hdr = unmarshal_hdr->m_next;
@@ -724,8 +719,8 @@ HdrHeap::marshal(char *buf, int len)
     str_xlation[str_heaps].end    = copy_start + nto_copy;
     str_xlation[str_heaps].offset = copy_start - (b - buf);
 
-    b += nto_copy;
-    len -= nto_copy;
+    b        += nto_copy;
+    len      -= nto_copy;
     str_size += nto_copy;
     str_heaps++;
   }
@@ -746,8 +741,8 @@ HdrHeap::marshal(char *buf, int len)
       ink_assert(str_xlation[str_heaps].start <= str_xlation[str_heaps].end);
 
       str_heaps++;
-      b += i.m_heap_len;
-      len -= i.m_heap_len;
+      b        += i.m_heap_len;
+      len      -= i.m_heap_len;
       str_size += i.m_heap_len;
     }
   }
@@ -807,7 +802,7 @@ HdrHeap::marshal(char *buf, int len)
 
   // Add up the total bytes used
   used = ptr_heap_size + str_size + HDR_HEAP_HDR_SIZE;
-  used = HdrHeapMarshalBlocks(ts::round_up(used));
+  used = HdrHeapMarshalBlocks(swoc::round_up(used));
 
 #ifdef HDR_HEAP_CHECKSUMS
   {
@@ -981,7 +976,7 @@ HdrHeap::unmarshal(int buf_length, int obj_type, HdrHeapObjImpl **found_obj, Ref
 
   m_magic = HDR_BUF_MAGIC_ALIVE;
 
-  unmarshal_size = HdrHeapMarshalBlocks(ts::round_up(unmarshal_size));
+  unmarshal_size = HdrHeapMarshalBlocks(swoc::round_up(unmarshal_size));
   return unmarshal_size;
 }
 
@@ -1144,7 +1139,7 @@ HdrHeap::total_used_size() const
 
   while (h) {
     size += (h->m_free_start - h->m_data_start);
-    h = h->m_next;
+    h    = h->m_next;
   }
 
   return size;
@@ -1175,9 +1170,9 @@ HdrStrHeap::allocate(int nbytes)
   char *new_space;
 
   if (m_free_size >= static_cast<unsigned>(nbytes)) {
-    new_space = m_free_start;
+    new_space    = m_free_start;
     m_free_start += nbytes;
-    m_free_size -= nbytes;
+    m_free_size  -= nbytes;
     return new_space;
   } else {
     return nullptr;
@@ -1199,7 +1194,7 @@ HdrStrHeap::expand(char *ptr, int old_size, int new_size)
 
   if (ptr + old_size == m_free_start && expand_size <= m_free_size) {
     m_free_start += expand_size;
-    m_free_size -= expand_size;
+    m_free_size  -= expand_size;
     return ptr;
   } else {
     return nullptr;

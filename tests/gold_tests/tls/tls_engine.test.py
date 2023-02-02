@@ -27,10 +27,13 @@ Test.Summary = '''
 Test tls via the async interface with the sample async_engine
 '''
 
-Test.SkipUnless(Condition.HasOpenSSLVersion('1.1.1'))
+Test.SkipUnless(
+    Condition.HasOpenSSLVersion('1.1.1'),
+    Condition.IsOpenSSL(),
+)
 
 # Define default ATS
-ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True)
+ts = Test.MakeATSProcess("ts", enable_tls=True)
 server = Test.MakeOriginServer("server")
 
 # Compile with tsxs.  That should bring in the consistent versions of openssl
@@ -96,4 +99,4 @@ tr.Processes.Default.StartBefore(Test.Processes.ts, ready=When.PortOpen(ts.Varia
 tr.Processes.Default.Streams.All = Testers.ContainsExpression(r"HTTP/(2|1\.1) 200", "Request succeeds")
 tr.StillRunningAfter = server
 
-ts.Streams.All += Testers.ContainsExpression("Send signal to ", "The Async engine triggers")
+ts.Disk.traffic_out.Content += Testers.ContainsExpression("Send signal to ", "The Async engine triggers")

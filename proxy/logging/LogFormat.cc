@@ -142,21 +142,19 @@ LogFormat::init_variables(const char *name, const char *fieldlist_str, const cha
       m_agg_marshal_space = static_cast<char *>(ats_malloc(m_field_count * INK_MIN_ALIGN));
     }
 
-    if (m_name_str) {
-      ats_free(m_name_str);
-      m_name_str = nullptr;
-      m_name_id  = 0;
-    }
+    ats_free(m_name_str);
+    m_name_str = nullptr;
+    m_name_id  = 0;
+
     if (name) {
       m_name_str = ats_strdup(name);
       m_name_id  = id_from_name(m_name_str);
     }
 
-    if (m_fieldlist_str) {
-      ats_free(m_fieldlist_str);
-      m_fieldlist_str = nullptr;
-      m_fieldlist_id  = 0;
-    }
+    ats_free(m_fieldlist_str);
+    m_fieldlist_str = nullptr;
+    m_fieldlist_id  = 0;
+
     if (fieldlist_str) {
       m_fieldlist_str = ats_strdup(fieldlist_str);
       m_fieldlist_id  = id_from_name(m_fieldlist_str);
@@ -179,7 +177,7 @@ LogFormat::init_variables(const char *name, const char *fieldlist_str, const cha
   form %<symbol>.
   -------------------------------------------------------------------------*/
 
-LogFormat::LogFormat(const char *name, const char *format_str, unsigned interval_sec)
+LogFormat::LogFormat(const char *name, const char *format_str, unsigned interval_sec, LogEscapeType escape_type)
   : m_interval_sec(0),
     m_interval_next(0),
     m_agg_marshal_space(nullptr),
@@ -191,7 +189,8 @@ LogFormat::LogFormat(const char *name, const char *format_str, unsigned interval
     m_field_count(0),
     m_printf_str(nullptr),
     m_aggregate(false),
-    m_format_str(nullptr)
+    m_format_str(nullptr),
+    m_escape_type(escape_type)
 {
   setup(name, format_str, interval_sec);
 
@@ -207,7 +206,7 @@ LogFormat::LogFormat(const char *name, const char *format_str, unsigned interval
   -------------------------------------------------------------------------*/
 
 LogFormat::LogFormat(const LogFormat &rhs)
-  : RefCountObj(rhs),
+  : RefCountObj(),
     m_interval_sec(0),
     m_interval_next(0),
     m_agg_marshal_space(nullptr),
@@ -220,7 +219,8 @@ LogFormat::LogFormat(const LogFormat &rhs)
     m_printf_str(nullptr),
     m_aggregate(false),
     m_format_str(nullptr),
-    m_format_type(rhs.m_format_type)
+    m_format_type(rhs.m_format_type),
+    m_escape_type(rhs.m_escape_type)
 {
   if (m_valid) {
     if (m_format_type == LOG_FORMAT_TEXT) {
@@ -679,7 +679,7 @@ LogFormat::parse_format_string(const char *format_str, char **printf_str, char *
         //
         field_len = stop - start - 2;
         memcpy(&(*fields_str)[fields_pos], &format_str[start + 2], field_len);
-        fields_pos += field_len;
+        fields_pos                  += field_len;
         (*printf_str)[printf_pos++] = LOG_FIELD_MARKER;
         ++field_count;
         start = stop;
@@ -691,10 +691,10 @@ LogFormat::parse_format_string(const char *format_str, char **printf_str, char *
         escape_char = parse_escape_string(&format_str[start], (len - start));
 
         if (escape_char == '\\') {
-          start += 1;
+          start                       += 1;
           (*printf_str)[printf_pos++] = static_cast<char>(escape_char);
         } else if (escape_char >= 0) {
-          start += 3;
+          start                       += 3;
           (*printf_str)[printf_pos++] = static_cast<char>(escape_char);
         } else {
           memcpy(&(*printf_str)[printf_pos], &format_str[start], stop - start + 1);
@@ -709,10 +709,10 @@ LogFormat::parse_format_string(const char *format_str, char **printf_str, char *
       escape_char = parse_escape_string(&format_str[start], (len - start));
 
       if (escape_char == '\\') {
-        start += 1;
+        start                       += 1;
         (*printf_str)[printf_pos++] = static_cast<char>(escape_char);
       } else if (escape_char >= 0) {
-        start += 3;
+        start                       += 3;
         (*printf_str)[printf_pos++] = static_cast<char>(escape_char);
       } else {
         (*printf_str)[printf_pos++] = format_str[start];

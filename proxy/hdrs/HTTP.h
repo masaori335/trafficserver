@@ -238,6 +238,12 @@ enum SquidHitMissCode {
   SQUID_HIT_RWW     = SQUID_HIT_LEVEL_6
 };
 
+constexpr std::string_view PSEUDO_HEADER_SCHEME    = ":scheme";
+constexpr std::string_view PSEUDO_HEADER_AUTHORITY = ":authority";
+constexpr std::string_view PSEUDO_HEADER_PATH      = ":path";
+constexpr std::string_view PSEUDO_HEADER_METHOD    = ":method";
+constexpr std::string_view PSEUDO_HEADER_STATUS    = ":status";
+
 enum HTTPType {
   HTTP_TYPE_UNKNOWN,
   HTTP_TYPE_REQUEST,
@@ -367,6 +373,7 @@ extern const char *HTTP_VALUE_CLOSE;
 extern const char *HTTP_VALUE_COMPRESS;
 extern const char *HTTP_VALUE_DEFLATE;
 extern const char *HTTP_VALUE_GZIP;
+extern const char *HTTP_VALUE_BROTLI;
 extern const char *HTTP_VALUE_IDENTITY;
 extern const char *HTTP_VALUE_KEEP_ALIVE;
 extern const char *HTTP_VALUE_MAX_AGE;
@@ -391,6 +398,7 @@ extern int HTTP_LEN_CLOSE;
 extern int HTTP_LEN_COMPRESS;
 extern int HTTP_LEN_DEFLATE;
 extern int HTTP_LEN_GZIP;
+extern int HTTP_LEN_BROTLI;
 extern int HTTP_LEN_IDENTITY;
 extern int HTTP_LEN_KEEP_ALIVE;
 extern int HTTP_LEN_MAX_AGE;
@@ -415,8 +423,8 @@ void http_hdr_adjust(HTTPHdrImpl *hdrp, int32_t offset, int32_t length, int32_t 
 /* Public */
 void http_init();
 
-HTTPHdrImpl *http_hdr_create(HdrHeap *heap, HTTPType polarity);
-void http_hdr_init(HdrHeap *heap, HTTPHdrImpl *hh, HTTPType polarity);
+HTTPHdrImpl *http_hdr_create(HdrHeap *heap, HTTPType polarity, HTTPVersion version);
+void http_hdr_init(HdrHeap *heap, HTTPHdrImpl *hh, HTTPType polarity, HTTPVersion version);
 HTTPHdrImpl *http_hdr_clone(HTTPHdrImpl *s_hh, HdrHeap *s_heap, HdrHeap *d_heap);
 void http_hdr_copy_onto(HTTPHdrImpl *s_hh, HdrHeap *s_heap, HTTPHdrImpl *d_hh, HdrHeap *d_heap, bool inherit_strs);
 
@@ -443,6 +451,7 @@ void http_parser_clear(HTTPParser *parser);
 ParseResult http_parser_parse_req(HTTPParser *parser, HdrHeap *heap, HTTPHdrImpl *hh, const char **start, const char *end,
                                   bool must_copy_strings, bool eof, int strict_uri_parsing, size_t max_request_line_size,
                                   size_t max_hdr_field_size);
+ParseResult validate_hdr_request_target(int method_wks_idx, URLImpl *url);
 ParseResult validate_hdr_host(HTTPHdrImpl *hh);
 ParseResult validate_hdr_content_length(HdrHeap *heap, HTTPHdrImpl *hh);
 ParseResult http_parser_parse_resp(HTTPParser *parser, HdrHeap *heap, HTTPHdrImpl *hh, const char **start, const char *end,
@@ -490,7 +499,7 @@ public:
 
   int valid() const;
 
-  void create(HTTPType polarity, HdrHeap *heap = nullptr);
+  void create(HTTPType polarity, HTTPVersion version = HTTP_INVALID, HdrHeap *heap = nullptr);
   void clear();
   void reset();
   void copy(const HTTPHdr *hdr);
@@ -664,7 +673,7 @@ protected:
   static Arena *const USE_HDR_HEAP_MAGIC;
 
   // No gratuitous copies!
-  HTTPHdr(const HTTPHdr &m) = delete;
+  HTTPHdr(const HTTPHdr &m)            = delete;
   HTTPHdr &operator=(const HTTPHdr &m) = delete;
 
 private:
@@ -684,7 +693,7 @@ HTTPHdr::valid() const
   -------------------------------------------------------------------------*/
 
 inline void
-HTTPHdr::create(HTTPType polarity, HdrHeap *heap)
+HTTPHdr::create(HTTPType polarity, HTTPVersion version, HdrHeap *heap)
 {
   if (heap) {
     m_heap = heap;
@@ -692,7 +701,7 @@ HTTPHdr::create(HTTPType polarity, HdrHeap *heap)
     m_heap = new_HdrHeap();
   }
 
-  m_http = http_hdr_create(m_heap, polarity);
+  m_http = http_hdr_create(m_heap, polarity, version);
   m_mime = m_http->m_fields_impl;
 }
 

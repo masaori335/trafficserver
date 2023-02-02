@@ -25,46 +25,45 @@
 
 #include <atomic>
 
-#define CACHE_BLOCK_SHIFT 9
-#define CACHE_BLOCK_SIZE (1 << CACHE_BLOCK_SHIFT) // 512, smallest sector size
+#define CACHE_BLOCK_SHIFT        9
+#define CACHE_BLOCK_SIZE         (1 << CACHE_BLOCK_SHIFT) // 512, smallest sector size
 #define ROUND_TO_STORE_BLOCK(_x) INK_ALIGN((_x), STORE_BLOCK_SIZE)
 #define ROUND_TO_CACHE_BLOCK(_x) INK_ALIGN((_x), CACHE_BLOCK_SIZE)
-#define ROUND_TO_SECTOR(_p, _x) INK_ALIGN((_x), _p->sector_size)
-#define ROUND_TO(_x, _y) INK_ALIGN((_x), (_y))
+#define ROUND_TO_SECTOR(_p, _x)  INK_ALIGN((_x), _p->sector_size)
+#define ROUND_TO(_x, _y)         INK_ALIGN((_x), (_y))
 
 // Vol (volumes)
-#define VOL_MAGIC 0xF1D0F00D
-#define START_BLOCKS 16 // 8k, STORE_BLOCK_SIZE
-#define START_POS ((off_t)START_BLOCKS * CACHE_BLOCK_SIZE)
-#define AGG_SIZE (4 * 1024 * 1024)     // 4MB
-#define AGG_HIGH_WATER (AGG_SIZE / 2)  // 2MB
-#define EVACUATION_SIZE (2 * AGG_SIZE) // 8MB
-#define MAX_VOL_SIZE ((off_t)512 * 1024 * 1024 * 1024 * 1024)
-#define STORE_BLOCKS_PER_CACHE_BLOCK (STORE_BLOCK_SIZE / CACHE_BLOCK_SIZE)
-#define MAX_VOL_BLOCKS (MAX_VOL_SIZE / CACHE_BLOCK_SIZE)
-#define MAX_FRAG_SIZE (AGG_SIZE - sizeof(Doc)) // true max
-#define LEAVE_FREE DEFAULT_MAX_BUFFER_SIZE
-#define PIN_SCAN_EVERY 16 // scan every 1/16 of disk
-#define VOL_HASH_TABLE_SIZE 32707
-#define VOL_HASH_EMPTY 0xFFFF
-#define VOL_HASH_ALLOC_SIZE (8 * 1024 * 1024) // one chance per this unit
-#define LOOKASIDE_SIZE 256
-#define EVACUATION_BUCKET_SIZE (2 * EVACUATION_SIZE) // 16MB
-#define RECOVERY_SIZE EVACUATION_SIZE                // 8MB
-#define AIO_NOT_IN_PROGRESS -1
-#define AIO_AGG_WRITE_IN_PROGRESS -2
-#define AUTO_SIZE_RAM_CACHE -1                               // 1-1 with directory size
+#define VOL_MAGIC                    0xF1D0F00D
+#define START_BLOCKS                 16 // 8k, STORE_BLOCK_SIZE
+#define START_POS                    ((off_t)START_BLOCKS * CACHE_BLOCK_SIZE)
+#define AGG_SIZE                     (4 * 1024 * 1024) // 4MB
+#define AGG_HIGH_WATER               (AGG_SIZE / 2)    // 2MB
+#define EVACUATION_SIZE              (2 * AGG_SIZE)    // 8MB
+#define MAX_VOL_SIZE                 ((off_t)512 * 1024 * 1024 * 1024 * 1024)
+#define MAX_VOL_BLOCKS               (MAX_VOL_SIZE / CACHE_BLOCK_SIZE)
+#define MAX_FRAG_SIZE                (AGG_SIZE - sizeof(Doc)) // true max
+#define LEAVE_FREE                   DEFAULT_MAX_BUFFER_SIZE
+#define PIN_SCAN_EVERY               16 // scan every 1/16 of disk
+#define VOL_HASH_TABLE_SIZE          32707
+#define VOL_HASH_EMPTY               0xFFFF
+#define VOL_HASH_ALLOC_SIZE          (8 * 1024 * 1024) // one chance per this unit
+#define LOOKASIDE_SIZE               256
+#define EVACUATION_BUCKET_SIZE       (2 * EVACUATION_SIZE) // 16MB
+#define RECOVERY_SIZE                EVACUATION_SIZE       // 8MB
+#define AIO_NOT_IN_PROGRESS          -1
+#define AIO_AGG_WRITE_IN_PROGRESS    -2
+#define AUTO_SIZE_RAM_CACHE          -1                      // 1-1 with directory size
 #define DEFAULT_TARGET_FRAGMENT_SIZE (1048576 - sizeof(Doc)) // 1MB
 
 #define dir_offset_evac_bucket(_o) (_o / (EVACUATION_BUCKET_SIZE / CACHE_BLOCK_SIZE))
-#define dir_evac_bucket(_e) dir_offset_evac_bucket(dir_offset(_e))
+#define dir_evac_bucket(_e)        dir_offset_evac_bucket(dir_offset(_e))
 #define offset_evac_bucket(_d, _o) \
   dir_offset_evac_bucket((_d->offset_to_vol_offset(_o)
 
 // Documents
 
-#define DOC_MAGIC ((uint32_t)0x5F129B13)
-#define DOC_CORRUPT ((uint32_t)0xDEADBABE)
+#define DOC_MAGIC       ((uint32_t)0x5F129B13)
+#define DOC_CORRUPT     ((uint32_t)0xDEADBABE)
 #define DOC_NO_CHECKSUM ((uint32_t)0xA0B0C0D0)
 
 struct Cache;
@@ -103,10 +102,10 @@ struct EvacuationBlock {
   union {
     unsigned int init;
     struct {
-      unsigned int done : 1;          // has been evacuated
-      unsigned int pinned : 1;        // check pinning timeout
+      unsigned int done          : 1; // has been evacuated
+      unsigned int pinned        : 1; // check pinning timeout
       unsigned int evacuate_head : 1; // check pinning timeout
-      unsigned int unused : 29;
+      unsigned int unused        : 29;
     } f;
   };
 
@@ -204,28 +203,11 @@ struct Vol : public Continuation {
   int dir_init_done(int event, void *data);
 
   int dir_check(bool fix);
-  int db_check(bool fix);
 
-  int
-  is_io_in_progress()
-  {
-    return io.aiocb.aio_fildes != AIO_NOT_IN_PROGRESS;
-  }
-  int
-  increment_generation()
-  {
-    // this is stored in the offset field of the directory (!=0)
-    ink_assert(mutex->thread_holding == this_ethread());
-    header->generation++;
-    if (!header->generation)
-      header->generation++;
-    return header->generation;
-  }
-  void
-  set_io_not_in_progress()
-  {
-    io.aiocb.aio_fildes = AIO_NOT_IN_PROGRESS;
-  }
+  bool evac_bucket_valid(off_t bucket) const;
+
+  int is_io_in_progress() const;
+  void set_io_not_in_progress();
 
   int aggWriteDone(int event, Event *e);
   int aggWrite(int event, void *e);
@@ -241,25 +223,25 @@ struct Vol : public Continuation {
   void evacuate_cleanup_blocks(int i);
   void evacuate_cleanup();
   EvacuationBlock *force_evacuate_head(Dir *dir, int pinned);
-  int within_hit_evacuate_window(Dir *dir);
-  uint32_t round_to_approx_size(uint32_t l);
+  int within_hit_evacuate_window(Dir *dir) const;
+  uint32_t round_to_approx_size(uint32_t l) const;
 
   // inline functions
-  int headerlen();         // calculates the total length of the vol header and the freelist
-  int direntries();        // total number of dir entries
-  Dir *dir_segment(int s); // returns the first dir in the segment s
-  size_t dirlen();         // calculates the total length of header, directories and footer
-  int vol_out_of_phase_valid(Dir *e);
+  int headerlen() const;         // calculates the total length of the vol header and the freelist
+  int direntries() const;        // total number of dir entries
+  Dir *dir_segment(int s) const; // returns the first dir in the segment s
+  size_t dirlen() const;         // calculates the total length of header, directories and footer
+  int vol_out_of_phase_valid(Dir *e) const;
 
-  int vol_out_of_phase_agg_valid(Dir *e);
-  int vol_out_of_phase_write_valid(Dir *e);
-  int vol_in_phase_valid(Dir *e);
-  int vol_in_phase_agg_buf_valid(Dir *e);
+  int vol_out_of_phase_agg_valid(Dir *e) const;
+  int vol_out_of_phase_write_valid(Dir *e) const;
+  int vol_in_phase_valid(Dir *e) const;
+  int vol_in_phase_agg_buf_valid(Dir *e) const;
 
-  off_t vol_offset(Dir *e);
-  off_t offset_to_vol_offset(off_t pos);
-  off_t vol_offset_to_offset(off_t pos);
-  off_t vol_relative_length(off_t start_offset);
+  off_t vol_offset(Dir *e) const;
+  off_t offset_to_vol_offset(off_t pos) const;
+  off_t vol_offset_to_offset(off_t pos) const;
+  off_t vol_relative_length(off_t start_offset) const;
 
   Vol() : Continuation(new_ProxyMutex())
   {
@@ -309,9 +291,9 @@ struct Doc {
 #endif
   uint32_t hlen;         ///< Length of this header.
   uint32_t doc_type : 8; ///< Doc type - indicates the format of this structure and its content.
-  uint32_t v_major : 8;  ///< Major version number.
-  uint32_t v_minor : 8;  ///< Minor version number.
-  uint32_t unused : 8;   ///< Unused, forced to zero.
+  uint32_t v_major  : 8; ///< Major version number.
+  uint32_t v_minor  : 8; ///< Minor version number.
+  uint32_t unused   : 8; ///< Unused, forced to zero.
   uint32_t sync_serial;
   uint32_t write_serial;
   uint32_t pinned; // pinned until
@@ -320,10 +302,9 @@ struct Doc {
   CryptoHash key; ///< Key for this doc.
 #endif
 
-  uint32_t data_len();
-  uint32_t prefix_len();
-  int single_fragment();
-  int no_data_in_fragment();
+  uint32_t data_len() const;
+  uint32_t prefix_len() const;
+  int single_fragment() const;
   char *hdr();
   char *data();
 };
@@ -340,98 +321,99 @@ extern unsigned short *vol_hash_table;
 // inline Functions
 
 TS_INLINE int
-Vol::headerlen()
+Vol::headerlen() const
 {
   return ROUND_TO_STORE_BLOCK(sizeof(VolHeaderFooter) + sizeof(uint16_t) * (this->segments - 1));
 }
 
 TS_INLINE Dir *
-Vol::dir_segment(int s)
+Vol::dir_segment(int s) const
 {
   return (Dir *)(((char *)this->dir) + (s * this->buckets) * DIR_DEPTH * SIZEOF_DIR);
 }
 
 TS_INLINE size_t
-Vol::dirlen()
+Vol::dirlen() const
 {
   return this->headerlen() + ROUND_TO_STORE_BLOCK(((size_t)this->buckets) * DIR_DEPTH * this->segments * SIZEOF_DIR) +
          ROUND_TO_STORE_BLOCK(sizeof(VolHeaderFooter));
 }
 
 TS_INLINE int
-Vol::direntries()
+Vol::direntries() const
 {
   return this->buckets * DIR_DEPTH * this->segments;
 }
 
 TS_INLINE int
-Vol::vol_out_of_phase_valid(Dir *e)
+Vol::vol_out_of_phase_valid(Dir *e) const
 {
   return (dir_offset(e) - 1 >= ((this->header->agg_pos - this->start) / CACHE_BLOCK_SIZE));
 }
 
 TS_INLINE int
-Vol::vol_out_of_phase_agg_valid(Dir *e)
+Vol::vol_out_of_phase_agg_valid(Dir *e) const
 {
   return (dir_offset(e) - 1 >= ((this->header->agg_pos - this->start + AGG_SIZE) / CACHE_BLOCK_SIZE));
 }
 
 TS_INLINE int
-Vol::vol_out_of_phase_write_valid(Dir *e)
+Vol::vol_out_of_phase_write_valid(Dir *e) const
 {
   return (dir_offset(e) - 1 >= ((this->header->write_pos - this->start) / CACHE_BLOCK_SIZE));
 }
 
 TS_INLINE int
-Vol::vol_in_phase_valid(Dir *e)
+Vol::vol_in_phase_valid(Dir *e) const
 {
   return (dir_offset(e) - 1 < ((this->header->write_pos + this->agg_buf_pos - this->start) / CACHE_BLOCK_SIZE));
 }
 
 TS_INLINE off_t
-Vol::vol_offset(Dir *e)
+Vol::vol_offset(Dir *e) const
 {
   return this->start + (off_t)dir_offset(e) * CACHE_BLOCK_SIZE - CACHE_BLOCK_SIZE;
 }
 
 TS_INLINE off_t
-Vol::offset_to_vol_offset(off_t pos)
+Vol::offset_to_vol_offset(off_t pos) const
 {
   return ((pos - this->start + CACHE_BLOCK_SIZE) / CACHE_BLOCK_SIZE);
 }
 
 TS_INLINE off_t
-Vol::vol_offset_to_offset(off_t pos)
+Vol::vol_offset_to_offset(off_t pos) const
 {
   return this->start + pos * CACHE_BLOCK_SIZE - CACHE_BLOCK_SIZE;
 }
 
 TS_INLINE int
-Vol::vol_in_phase_agg_buf_valid(Dir *e)
+Vol::vol_in_phase_agg_buf_valid(Dir *e) const
 {
   return (this->vol_offset(e) >= this->header->write_pos && this->vol_offset(e) < (this->header->write_pos + this->agg_buf_pos));
 }
+
 // length of the partition not including the offset of location 0.
 TS_INLINE off_t
-Vol::vol_relative_length(off_t start_offset)
+Vol::vol_relative_length(off_t start_offset) const
 {
   return (this->len + this->skip) - start_offset;
 }
 
 TS_INLINE uint32_t
-Doc::prefix_len()
+Doc::prefix_len() const
 {
   return sizeof(Doc) + hlen;
 }
 
 TS_INLINE uint32_t
-Doc::data_len()
+Doc::data_len() const
 {
   return len - sizeof(Doc) - hlen;
 }
 
 TS_INLINE int
-Doc::single_fragment()
+Doc::single_fragment() const
 {
   return data_len() == total_len;
 }
@@ -456,10 +438,13 @@ int vol_init(Vol *d, char *s, off_t blocks, off_t skip, bool clear);
 TS_INLINE EvacuationBlock *
 evacuation_block_exists(Dir *dir, Vol *p)
 {
-  EvacuationBlock *b = p->evacuate[dir_evac_bucket(dir)].head;
-  for (; b; b = b->link.next)
-    if (dir_offset(&b->dir) == dir_offset(dir))
-      return b;
+  auto bucket = dir_evac_bucket(dir);
+  if (p->evac_bucket_valid(bucket)) {
+    EvacuationBlock *b = p->evacuate[bucket].head;
+    for (; b; b = b->link.next)
+      if (dir_offset(&b->dir) == dir_offset(dir))
+        return b;
+  }
   return nullptr;
 }
 
@@ -502,7 +487,7 @@ Vol::open_read(const CryptoHash *key)
 }
 
 TS_INLINE int
-Vol::within_hit_evacuate_window(Dir *xdir)
+Vol::within_hit_evacuate_window(Dir *xdir) const
 {
   off_t oft       = dir_offset(xdir) - 1;
   off_t write_off = (header->write_pos + AGG_SIZE - start) / CACHE_BLOCK_SIZE;
@@ -514,8 +499,26 @@ Vol::within_hit_evacuate_window(Dir *xdir)
 }
 
 TS_INLINE uint32_t
-Vol::round_to_approx_size(uint32_t l)
+Vol::round_to_approx_size(uint32_t l) const
 {
   uint32_t ll = round_to_approx_dir_size(l);
   return ROUND_TO_SECTOR(this, ll);
+}
+
+inline bool
+Vol::evac_bucket_valid(off_t bucket) const
+{
+  return (bucket >= 0 && bucket < evacuate_size);
+}
+
+inline int
+Vol::is_io_in_progress() const
+{
+  return io.aiocb.aio_fildes != AIO_NOT_IN_PROGRESS;
+}
+
+inline void
+Vol::set_io_not_in_progress()
+{
+  io.aiocb.aio_fildes = AIO_NOT_IN_PROGRESS;
 }

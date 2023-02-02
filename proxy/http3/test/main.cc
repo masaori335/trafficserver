@@ -41,10 +41,10 @@ struct EventProcessorListener : Catch::TestEventListenerBase {
   testRunStarting(Catch::TestRunInfo const &testRunInfo) override
   {
     BaseLogFile *base_log_file = new BaseLogFile("stderr");
-    diags                      = new Diags(testRunInfo.name, "" /* tags */, "" /* actions */, base_log_file);
-    diags->activate_taglist("vv_quic|quic", DiagsTagType_Debug);
-    diags->config.enabled[DiagsTagType_Debug] = true;
-    diags->show_location                      = SHOW_LOCATION_DEBUG;
+    DiagsPtr::set(new Diags(testRunInfo.name, "" /* tags */, "" /* actions */, base_log_file));
+    diags()->activate_taglist("vv_quic|quic", DiagsTagType_Debug);
+    diags()->config.enabled(DiagsTagType_Debug, 1);
+    diags()->show_location = SHOW_LOCATION_DEBUG;
 
     Layout::create();
     RecProcessInit(RECM_STAND_ALONE);
@@ -56,7 +56,7 @@ struct EventProcessorListener : Catch::TestEventListenerBase {
     Thread *main_thread = new EThread;
     main_thread->set_specific();
 
-    Http3Config::startup();
+    ts::Http3Config::startup();
   }
 };
 CATCH_REGISTER_LISTENER(EventProcessorListener);

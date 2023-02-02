@@ -57,8 +57,6 @@
 #include <netdb.h>
 
 #include "records/P_RecProcess.h"
-// REC_SIGNAL_LOGGING_ERROR    is defined in I_RecSignals.h
-// REC_SIGNAL_LOGGING_WARNING  is defined in I_RecSignals.h
 
 #include "LogUtils.h"
 #include "LogLimits.h"
@@ -209,46 +207,6 @@ LogUtils::timestamp_to_time_str(long timestamp)
 }
 
 /*-------------------------------------------------------------------------
-  LogUtils::manager_alarm
-
-  This routine provides a convenient abstraction for sending the traffic
-  server manager process an alarm.  The logging system can send
-  LOG_ALARM_N_TYPES different types of alarms, as defined in LogUtils.h.
-  Subsequent alarms of the same type will override the previous alarm
-  entry.
-  -------------------------------------------------------------------------*/
-
-void
-LogUtils::manager_alarm(LogUtils::AlarmType alarm_type, const char *msg, ...)
-{
-  char msg_buf[LOG_MAX_FORMATTED_LINE];
-
-  ink_assert(alarm_type >= 0 && alarm_type < LogUtils::LOG_ALARM_N_TYPES);
-
-  if (msg == nullptr) {
-    snprintf(msg_buf, sizeof(msg_buf), "No Message");
-  } else {
-    va_list ap;
-    va_start(ap, msg);
-    vsnprintf(msg_buf, LOG_MAX_FORMATTED_LINE, msg, ap);
-    va_end(ap);
-  }
-
-  switch (alarm_type) {
-  case LogUtils::LOG_ALARM_ERROR:
-    RecSignalManager(REC_SIGNAL_LOGGING_ERROR, msg_buf);
-    break;
-
-  case LogUtils::LOG_ALARM_WARNING:
-    RecSignalManager(REC_SIGNAL_LOGGING_WARNING, msg_buf);
-    break;
-
-  default:
-    ink_assert(false);
-  }
-}
-
-/*-------------------------------------------------------------------------
   LogUtils::strip_trailing_newline
 
   This routine examines the given string buffer to see if the last
@@ -296,6 +254,8 @@ escapify_url_common(Arena *arena, char *url, size_t len_in, int *len_out, char *
   // historically this is what the traffic_server has done.
   // Note that we leave codes beyond 127 unmodified.
   //
+  // NOTE: any updates to this table should result in an update to:
+  // tools/escape_mapper/escape_mapper.cc.
   static const unsigned char codes_to_escape[32] = {
     0xFF, 0xFF, 0xFF,
     0xFF,             // control
@@ -599,7 +559,7 @@ LogUtils::file_is_writeable(const char *full_filename, off_t *size_bytes, bool *
     if (e < 0) {
       ret_val = -1;
     } else {
-      if (limit_data.rlim_cur != static_cast<rlim_t> RLIM_INFINITY) {
+      if (limit_data.rlim_cur != static_cast<rlim_t>(RLIM_INFINITY)) {
         if (has_size_limit) {
           *has_size_limit = true;
         }

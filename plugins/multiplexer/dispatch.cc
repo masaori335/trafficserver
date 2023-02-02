@@ -86,8 +86,13 @@ copy(const TSIOBufferReader &r, const TSIOBuffer b)
     const void *const pointer = TSIOBufferBlockReadStart(block, r, &size);
 
     if (pointer != nullptr && size > 0) {
-      CHECK(TSIOBufferWrite(b, pointer, size) == size);
-      length += size;
+      auto const num_written = TSIOBufferWrite(b, pointer, size);
+      if (num_written != size) {
+        TSError("[" PLUGIN_TAG "] did not write the expected number of body bytes. "
+                "Wrote: %" PRId64 ", expected: %" PRId64,
+                num_written, size);
+      }
+      length += num_written;
     }
   }
 
@@ -115,7 +120,7 @@ read(const TSIOBufferReader &r, std::string &o, int64_t l = 0)
       size = std::min(size, l);
       o.append(pointer, size);
       length += size;
-      l -= size;
+      l      -= size;
     }
   }
 
@@ -181,7 +186,7 @@ public:
     if (TSIsDebugTagSet(PLUGIN_TAG) > 0) {
       std::string buffer;
       const uint64_t length = read(r, buffer, l);
-      response += buffer;
+      response              += buffer;
       TSDebug(PLUGIN_TAG, "Receiving response chunk \"%s\" of %" PRIu64 " bytes", buffer.c_str(), length);
     }
   }

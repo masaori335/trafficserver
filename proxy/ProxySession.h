@@ -28,7 +28,6 @@
 #include "tscore/TSSystemState.h"
 #include <string_view>
 #include <memory>
-#include "P_Net.h"
 #include "InkAPIInternal.h"
 #include "http/HttpSessionAccept.h"
 #include "IPAllow.h"
@@ -82,7 +81,7 @@ public:
   virtual ~ProxySession();
 
   // noncopyable
-  ProxySession(ProxySession &) = delete;
+  ProxySession(ProxySession &)                  = delete;
   ProxySession &operator=(const ProxySession &) = delete;
 
   static int64_t next_connection_id();
@@ -118,6 +117,7 @@ public:
 
   virtual void set_active_timeout(ink_hrtime timeout_in);
   virtual void set_inactivity_timeout(ink_hrtime timeout_in);
+  virtual void set_default_inactivity_timeout(ink_hrtime timeout_in);
   virtual void cancel_inactivity_timeout();
   virtual void cancel_active_timeout();
 
@@ -161,6 +161,16 @@ public:
   {
     return nullptr;
   }
+
+  /** Given the ALPN protocol index, create an appropriate outbound session.
+   *
+   * @param[in] protocol_index A TS_ALPN_PROTOCOL value indicating what kind of
+   * protocol was negotiated toward the origin.
+   *
+   * @return A poolable session appropriate for the protocol provided via @a
+   * protocol_index.
+   */
+  static PoolableSession *create_outbound_session(int protocol_index);
 
   ////////////////////
   // Members

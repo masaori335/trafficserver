@@ -38,13 +38,13 @@ extern "C" {
 
 /* --------------------------------------------------------------------------
    Memory */
-#define TSmalloc(s) _TSmalloc((s), TS_RES_MEM_PATH)
-#define TSrealloc(p, s) _TSrealloc((p), (s), TS_RES_MEM_PATH)
-#define TSstrdup(p) _TSstrdup((p), -1, TS_RES_MEM_PATH)
-#define TSstrndup(p, n) _TSstrdup((p), (n), TS_RES_MEM_PATH)
+#define TSmalloc(s)        _TSmalloc((s), TS_RES_MEM_PATH)
+#define TSrealloc(p, s)    _TSrealloc((p), (s), TS_RES_MEM_PATH)
+#define TSstrdup(p)        _TSstrdup((p), -1, TS_RES_MEM_PATH)
+#define TSstrndup(p, n)    _TSstrdup((p), (n), TS_RES_MEM_PATH)
 #define TSstrlcpy(d, s, l) _TSstrlcpy((d), (s), (l))
 #define TSstrlcat(d, s, l) _TSstrlcat((d), (s), (l))
-#define TSfree(p) _TSfree(p)
+#define TSfree(p)          _TSfree(p)
 
 tsapi void *_TSmalloc(size_t size, const char *path);
 tsapi void *_TSrealloc(void *ptr, size_t size, const char *path);
@@ -1246,10 +1246,8 @@ tsapi TSCont TSContCreate(TSEventFunc funcp, TSMutex mutexp);
 tsapi void TSContDestroy(TSCont contp);
 tsapi void TSContDataSet(TSCont contp, void *data);
 tsapi void *TSContDataGet(TSCont contp);
-tsapi TSAction TSContSchedule(TSCont contp, TSHRTime timeout);
 tsapi TSAction TSContScheduleOnPool(TSCont contp, TSHRTime timeout, TSThreadPool tp);
 tsapi TSAction TSContScheduleOnThread(TSCont contp, TSHRTime timeout, TSEventThread ethread);
-tsapi TSAction TSContScheduleEvery(TSCont contp, TSHRTime every /* millisecs */);
 tsapi TSAction TSContScheduleEveryOnPool(TSCont contp, TSHRTime every /* millisecs */, TSThreadPool tp);
 tsapi TSAction TSContScheduleEveryOnThread(TSCont contp, TSHRTime every /* millisecs */, TSEventThread ethread);
 tsapi TSReturnCode TSContThreadAffinitySet(TSCont contp, TSEventThread ethread);
@@ -1303,16 +1301,18 @@ tsapi TSReturnCode TSSslClientCertUpdate(const char *cert_path, const char *key_
 tsapi TSReturnCode TSSslServerCertUpdate(const char *cert_path, const char *key_path);
 
 /* Update the transient secret table for SSL_CTX loading */
-tsapi TSReturnCode TSSslSecretSet(const char *secret_name, int secret_name_length, const char *secret_data, int secret_data_len);
-tsapi TSReturnCode TSSslSecretGet(const char *secret_name, int secret_name_length, const char **secret_data_return,
-                                  int *secret_data_len);
+tsapi TSReturnCode TSSslSecretSet(const char *secret_name, int secret_name_length, const char *secret_data, int secret_data_length);
+
+/* Returns secret with given name (not null terminted).  If there is no secret with the given name, return value will
+** be null and secret_data_lenght will be zero.  Calling code must free data buffer by calling TSfree(). */
+tsapi char *TSSslSecretGet(const char *secret_name, int secret_name_length, int *secret_data_length);
 
 tsapi TSReturnCode TSSslSecretUpdate(const char *secret_name, int secret_name_length);
 
 /* Create a new SSL context based on the settings in records.config */
 tsapi TSSslContext TSSslServerContextCreate(TSSslX509 cert, const char *certname, const char *rsp_file);
 tsapi void TSSslContextDestroy(TSSslContext ctx);
-tsapi void TSSslTicketKeyUpdate(char *ticketData, int ticketDataLen);
+tsapi TSReturnCode TSSslTicketKeyUpdate(char *ticketData, int ticketDataLen);
 TSAcceptor TSAcceptorGet(TSVConn sslp);
 TSAcceptor TSAcceptorGetbyID(int ID);
 int TSAcceptorCount();
@@ -1325,6 +1325,7 @@ tsapi int TSVConnIsSsl(TSVConn sslp);
 /* Returns 1 if a certificate was provided in the TLS handshake, 0 otherwise.
  */
 tsapi int TSVConnProvidedSslCert(TSVConn sslp);
+tsapi const char *TSVConnSslSniGet(TSVConn sslp, int *length);
 
 tsapi TSSslSession TSSslSessionGet(const TSSslSessionID *session_id);
 tsapi int TSSslSessionGetBuffer(const TSSslSessionID *session_id, char *buffer, int *len_ptr);
@@ -1639,24 +1640,6 @@ tsapi TSReturnCode TSUserArgIndexLookup(TSUserArgType type, int arg_idx, const c
 tsapi void TSUserArgSet(void *data, int arg_idx, void *arg);
 tsapi void *TSUserArgGet(void *data, int arg_idx);
 
-/* These are deprecated as of v9.0.0, and will be removed in v10.0.0 */
-tsapi TS_DEPRECATED void TSHttpTxnArgSet(TSHttpTxn txnp, int arg_idx, void *arg);
-tsapi TS_DEPRECATED void *TSHttpTxnArgGet(TSHttpTxn txnp, int arg_idx);
-tsapi TS_DEPRECATED void TSHttpSsnArgSet(TSHttpSsn ssnp, int arg_idx, void *arg);
-tsapi TS_DEPRECATED void *TSHttpSsnArgGet(TSHttpSsn ssnp, int arg_idx);
-tsapi TS_DEPRECATED void TSVConnArgSet(TSVConn connp, int arg_idx, void *arg);
-tsapi TS_DEPRECATED void *TSVConnArgGet(TSVConn connp, int arg_idx);
-
-tsapi TS_DEPRECATED TSReturnCode TSHttpTxnArgIndexReserve(const char *name, const char *description, int *arg_idx);
-tsapi TS_DEPRECATED TSReturnCode TSHttpTxnArgIndexNameLookup(const char *name, int *arg_idx, const char **description);
-tsapi TS_DEPRECATED TSReturnCode TSHttpTxnArgIndexLookup(int arg_idx, const char **name, const char **description);
-tsapi TS_DEPRECATED TSReturnCode TSHttpSsnArgIndexReserve(const char *name, const char *description, int *arg_idx);
-tsapi TS_DEPRECATED TSReturnCode TSHttpSsnArgIndexNameLookup(const char *name, int *arg_idx, const char **description);
-tsapi TS_DEPRECATED TSReturnCode TSHttpSsnArgIndexLookup(int arg_idx, const char **name, const char **description);
-tsapi TS_DEPRECATED TSReturnCode TSVConnArgIndexReserve(const char *name, const char *description, int *arg_idx);
-tsapi TS_DEPRECATED TSReturnCode TSVConnArgIndexNameLookup(const char *name, int *arg_idx, const char **description);
-tsapi TS_DEPRECATED TSReturnCode TSVConnArgIndexLookup(int arg_idx, const char **name, const char **description);
-
 tsapi void TSHttpTxnStatusSet(TSHttpTxn txnp, TSHttpStatus status);
 tsapi TSHttpStatus TSHttpTxnStatusGet(TSHttpTxn txnp);
 
@@ -1949,7 +1932,13 @@ tsapi TSReturnCode TSPortDescriptorAccept(TSPortDescriptor, TSCont);
 /* --------------------------------------------------------------------------
    DNS Lookups */
 tsapi TSAction TSHostLookup(TSCont contp, const char *hostname, size_t namelen);
+/** Retrieve an address from the host lookup.
+ *
+ * @param lookup_result Result handle passed to event callback.
+ * @return A @c sockaddr with the address if successful, a @c nullptr if not.
+ */
 tsapi struct sockaddr const *TSHostLookupResultAddrGet(TSHostLookupResult lookup_result);
+
 /* TODO: Eventually, we might want something like this as well, but it requires
    support for building the HostDBInfo struct:
    tsapi void TSHostLookupResultSet(TSHttpTxn txnp, TSHostLookupResult result);
@@ -2189,10 +2178,47 @@ tsapi void TSDebug(const char *tag, const char *format_str, ...) TS_PRINTFLIKE(2
     @param ... Format arguments.
  */
 tsapi void TSDebugSpecific(int debug_flag, const char *tag, const char *format_str, ...) TS_PRINTFLIKE(3, 4);
-extern int diags_on_for_plugins;
+extern int diags_on_for_plugins; /* Do not use directly. */
 #define TSDEBUG             \
   if (diags_on_for_plugins) \
   TSDebug
+
+extern char ts_new_debug_on_flag_; /* Do not use directly. */
+
+#define TSIsDbgCtlSet(ctlp__) (ts_new_debug_on_flag_ && ctlp__->on)
+
+/**
+    Output a debug line if the debug output control is turned on.
+
+    @param ctlp pointer to TSDbgCtl, returned by TSDbgCtlCreate().
+    @param ...  Format string and (optional) arguments.
+ */
+#define TSDbg(ctlp, ...)              \
+  do {                                \
+    if (TSIsDbgCtlSet(ctlp)) {        \
+      _TSDbg(ctlp->tag, __VA_ARGS__); \
+    }                                 \
+  } while (0)
+
+/**
+    Return a pointer for use with TSDbg().  For good performance,
+    this should be called in TSPluginInit() or TSRemapInit(), or in
+    static initialization in C++ (with the result stored in a
+    static pointer).
+
+    @param tag Debug tag for the control.
+ */
+tsapi TSDbgCtl const *TSDbgCtlCreate(char const *tag);
+
+/**
+    Destroy (dereference) a debug control object previously created
+    with TSDbgCtlCreate().
+
+    @param dbg_ctl pointer to debug control object.
+ */
+tsapi void TSDbgCtlDestroy(TSDbgCtl const *dbg_ctl);
+
+void _TSDbg(const char *tag, const char *format_str, ...) TS_PRINTFLIKE(2, 3); /* Not for direct use. */
 
 /* --------------------------------------------------------------------------
    logging api */
@@ -2387,10 +2413,11 @@ tsapi TSReturnCode TSAIOThreadNumSet(int thread_num);
 
 /**
     Check if transaction was aborted (due client/server errors etc.)
+    Client_abort is set as True, in case the abort was caused by the Client.
 
     @return 1 if transaction was aborted
 */
-tsapi TSReturnCode TSHttpTxnAborted(TSHttpTxn txnp);
+tsapi TSReturnCode TSHttpTxnAborted(TSHttpTxn txnp, bool *client_abort);
 
 tsapi TSVConn TSVConnCreate(TSEventFunc event_funcp, TSMutex mutexp);
 tsapi TSVConn TSVConnFdCreate(int fd);
@@ -2646,6 +2673,9 @@ tsapi TSReturnCode TSRemapFromUrlGet(TSHttpTxn txnp, TSMLoc *urlLocp);
 //
 tsapi TSReturnCode TSRemapToUrlGet(TSHttpTxn txnp, TSMLoc *urlLocp);
 
+// Get some plugin details from the TSRemapPluginInfo
+tsapi void *TSRemapDLHandleGet(TSRemapPluginInfo plugin_info);
+
 // Override response behavior, and hard-set the state machine for whether to succeed or fail, and how.
 tsapi void TSHttpTxnResponseActionSet(TSHttpTxn txnp, TSResponseAction *action);
 
@@ -2712,6 +2742,100 @@ tsapi TSReturnCode TSHostStatusGet(const char *hostname, const size_t hostname_l
  */
 tsapi void TSHostStatusSet(const char *hostname, const size_t hostname_len, TSHostStatus status, const unsigned int down_time,
                            const unsigned int reason);
+
+/*
+ * Set or get various HTTP Transaction control settings.
+ */
+tsapi bool TSHttpTxnCntlGet(TSHttpTxn txnp, TSHttpCntlType ctrl);
+tsapi TSReturnCode TSHttpTxnCntlSet(TSHttpTxn txnp, TSHttpCntlType ctrl, bool data);
+
+/**
+ * JSONRPC callback signature for method calls.
+ */
+typedef void (*TSRPCMethodCb)(const char *id, TSYaml params);
+/**
+ * JSONRPC callback signature for notification calls
+ */
+typedef void (*TSRPCNotificationCb)(TSYaml params);
+
+/**
+ * @brief Method to perform a registration and validation when a plugin is expected to handle JSONRPC calls.
+ *
+ * @note YAMLCPP The JSONRPC library will only provide binary compatibility within the life-span of a major release. Plugins must
+ * check-in if they intent to handle RPC commands, passing their yamlcpp library version this function will validate it against the
+ * one used internally in TS.
+ *
+ * @param provider_name The name of the provider.
+ * @param provider_len The length of the provider string.
+ * @param yamlcpp_lib_version a string with the yamlcpp library version.
+ * @param yamlcpp_lib_len The length of the yamlcpp_lib_len string.
+ * @return A new TSRPCProviderHandle, nullptr if the yamlcpp_lib_version was not set, or the yamlcpp version does not match with
+ * the one used internally in TS. The returned TSRPCProviderHandle will be set with the provider's name. The caller should pass the
+ * returned TSRPCProviderHandle object to each subsequent TSRPCRegisterMethod/Notification* call.
+ */
+tsapi TSRPCProviderHandle TSRPCRegister(const char *provider_name, size_t provider_len, const char *yamlcpp_lib_version,
+                                        size_t yamlcpp_lib_len);
+
+/**
+ * @brief Add new registered method handler to the JSON RPC engine.
+ *
+ * @param name Call name to be exposed by the RPC Engine, this should match the incoming request. i.e: If you register 'get_stats'
+ *             then the incoming jsonrpc call should have this very same name in the 'method' field. .. {...'method':
+ *             'get_stats'...} .
+ * @param name_len The length of the name string.
+ * @param callback  The function to be registered. See @c TSRPCMethodCb
+ * @param info TSRPCProviderHandle pointer, this will be used to provide more context information about this call. This object
+ * ideally should be the one returned by the TSRPCRegister API.
+ * @param opt Pointer to @c TSRPCHandlerOptions object. This will be used to store specifics about a particular call, the rpc
+ *            manager will use this object to perform certain actions. A copy of this object wil be stored by the rpc manager.
+ *
+ * @return TS_SUCCESS if the handler was successfully registered, TS_ERROR if the handler is already registered.
+ */
+tsapi TSReturnCode TSRPCRegisterMethodHandler(const char *name, size_t name_len, TSRPCMethodCb callback, TSRPCProviderHandle info,
+                                              const TSRPCHandlerOptions *opt);
+
+/**
+ * @brief Add new registered notification handler to the JSON RPC engine.
+ *
+ * @param name Call name to be exposed by the RPC Engine, this should match the incoming request. i.e: If you register 'get_stats'
+ *             then the incoming jsonrpc call should have this very same name in the 'method' field. .. {...'method':
+ *             'get_stats'...} .
+ * @param name_len The length of the name string.
+ * @param callback  The function to be registered. See @c TSRPCNotificationCb
+ * @param info TSRPCProviderHandle pointer, this will be used to provide more description for instance, when logging before or after
+ * a call. This object ideally should be the one returned by the TSRPCRegister API.
+ * @param opt Pointer to @c TSRPCHandlerOptions object. This will be used to store specifics about a particular call, the rpc
+ *            manager will use this object to perform certain actions. A copy of this object wil be stored by the rpc manager.
+ * @return TS_SUCCESS if the handler was successfully registered, TS_ERROR if the handler is already registered.
+ */
+tsapi TSReturnCode TSRPCRegisterNotificationHandler(const char *name, size_t name_len, TSRPCNotificationCb callback,
+                                                    TSRPCProviderHandle info, const TSRPCHandlerOptions *opt);
+
+/**
+ * @brief Function to notify the JSONRPC engine that the current handler is done working.
+ *
+ * This function must be used when implementing a 'method' rpc handler. Once the work is done and the response is ready to be sent
+ * back to the client, this function should be called. Is expected to set the YAML node as response. If the response is empty a
+ * 'success' message will be added to the client's response.
+ *
+ * @note This should not be used if you registered your handler as a notification: @c TSRPCNotificationCb
+ * @param resp The YAML node that contains the call response.
+ * @return TS_SUCCESS if no issues. TS_ERROR otherwise.
+ */
+tsapi TSReturnCode TSRPCHandlerDone(TSYaml resp);
+
+/**
+ * @brief Function to notify the JSONRPC engine that the current handler is done working and an error has arisen.
+ *
+ * @note This should not be used if you registered your handler as a notification: @c TSRPCNotificationCb
+ * call.
+ * @param code Error code.
+ * @param descr A text with a description of the error.
+ * @param descr_len The length of the descrition string.
+ * @note The @c code and @c descr will be part of the @c 'data' field in the jsonrpc error response.
+ * @return TS_SUCCESS if no issues. TS_ERROR otherwise.
+ */
+tsapi TSReturnCode TSRPCHandlerError(int code, const char *descr, size_t descr_len);
 
 #ifdef __cplusplus
 }

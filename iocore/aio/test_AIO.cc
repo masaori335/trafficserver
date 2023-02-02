@@ -23,8 +23,10 @@
 
 #include "P_AIO.h"
 #include "InkAPIInternal.h"
+#include "tscore/ink_hw.h"
 #include "tscore/I_Layout.h"
 #include "tscore/TSSystemState.h"
+#include "tscore/Random.h"
 #include <iostream>
 #include <fstream>
 
@@ -188,8 +190,8 @@ dump_summary()
     double ops_sec = (dev[i]->seq_reads + dev[i]->seq_writes + dev[i]->rand_reads) / secs;
     printf("%s: #sr:%d #sw:%d #rr:%d %0.1f secs %0.1f ops/sec\n", dev[i]->path, dev[i]->seq_reads, dev[i]->seq_writes,
            dev[i]->rand_reads, secs, ops_sec);
-    total_secs += secs;
-    total_seq_reads += dev[i]->seq_reads;
+    total_secs       += secs;
+    total_seq_reads  += dev[i]->seq_reads;
     total_seq_writes += dev[i]->seq_writes;
     total_rand_reads += dev[i]->rand_reads;
   }
@@ -197,12 +199,12 @@ dump_summary()
   printf("aggregate results\n");
   printf("-----------------\n");
   total_secs /= orig_n_accessors;
-  float sr = (total_seq_reads * seq_read_size) / total_secs;
-  sr /= 1024.0 * 1024.0;
-  float sw = (total_seq_writes * seq_write_size) / total_secs;
-  sw /= 1024.0 * 1024.0;
-  float rr = (total_rand_reads * rand_read_size) / total_secs;
-  rr /= 1024.0 * 1024.0;
+  float sr   = (total_seq_reads * seq_read_size) / total_secs;
+  sr         /= 1024.0 * 1024.0;
+  float sw   = (total_seq_writes * seq_write_size) / total_secs;
+  sw         /= 1024.0 * 1024.0;
+  float rr   = (total_rand_reads * rand_read_size) / total_secs;
+  rr         /= 1024.0 * 1024.0;
   printf("%f ops %0.2f mbytes/sec %0.1f ops/sec %0.1f ops/sec/disk seq_read\n", total_seq_reads, sr, total_seq_reads / total_secs,
          total_seq_reads / total_secs / n_disk_path);
   printf("%f ops %0.2f mbytes/sec %0.1f ops/sec %0.1f ops/sec/disk seq_write\n", total_seq_writes, sw,
@@ -268,7 +270,7 @@ AIO_Device::do_fd(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
   off_t max_hotset_offset = (static_cast<off_t>(hotset_size)) * 1024 * 1024; // MB-GB
   off_t seq_read_point    = (static_cast<off_t> MIN_OFFSET);
   off_t seq_write_point   = (static_cast<off_t> MIN_OFFSET) + max_offset / 2 + write_after * 1024 * 1024;
-  seq_write_point += (id % n_disk_path) * (max_offset / (threads_per_disk * 4));
+  seq_write_point         += (id % n_disk_path) * (max_offset / (threads_per_disk * 4));
   if (seq_write_point > max_offset) {
     seq_write_point = MIN_OFFSET;
   }
@@ -282,7 +284,7 @@ AIO_Device::do_fd(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
   io->action           = this;
   io->thread           = mutex->thread_holding;
 
-  switch (select_mode(drand48())) {
+  switch (select_mode(ts::Random::drandom())) {
   case READ_MODE:
     io->aiocb.aio_offset     = seq_read_point;
     io->aiocb.aio_nbytes     = seq_read_size;
@@ -311,8 +313,8 @@ AIO_Device::do_fd(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
   case RANDOM_READ_MODE: {
     // fprintf(stderr, "random read started \n");
     double p, f;
-    p       = drand48();
-    f       = drand48();
+    p       = ts::Random::drandom();
+    f       = ts::Random::drandom();
     off_t o = 0;
     if (f < hotset_frequency) {
       o = static_cast<off_t>(p) * max_hotset_offset;
@@ -430,7 +432,7 @@ main(int /* argc ATS_UNUSED */, char *argv[])
 
   RecProcessStart();
   ink_aio_init(AIO_MODULE_PUBLIC_VERSION);
-  srand48(time(nullptr));
+  ts::Random::seed(time(nullptr));
   printf("input file %s\n", argv[1]);
   if (!read_config(argv[1])) {
     exit(1);

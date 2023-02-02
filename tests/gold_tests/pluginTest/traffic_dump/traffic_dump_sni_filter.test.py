@@ -18,6 +18,8 @@ Verify traffic_dump functionality.
 #  limitations under the License.
 
 import os
+import sys
+
 Test.Summary = '''
 Verify traffic_dump functionality.
 '''
@@ -26,13 +28,14 @@ Test.SkipUnless(
     Condition.PluginExists('traffic_dump.so'),
 )
 
+schema_path = os.path.join(Test.Variables.AtsTestToolsDir, 'lib', 'replay_schema.json')
 replay_file = "replay/various_sni.yaml"
 server = Test.MakeVerifierServerProcess(
     "server-various-sni", replay_file,
     ssl_cert="ssl/server_combined.pem", ca_cert="ssl/signer.pem")
 
 # Define ATS and configure
-ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True)
+ts = Test.MakeATSProcess("ts", enable_tls=True)
 replay_dir = os.path.join(ts.RunDirectory, "ts", "log")
 
 ts.addSSLfile("ssl/server.pem")
@@ -43,13 +46,13 @@ ts.Disk.records_config.update({
     'proxy.config.diags.debug.enabled': 1,
     'proxy.config.diags.debug.tags': 'traffic_dump',
 
-    'proxy.config.ssl.server.cert.path': '{0}'.format(ts.Variables.SSLDir),
-    'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
+    'proxy.config.ssl.server.cert.path': ts.Variables.SSLDir,
+    'proxy.config.ssl.server.private_key.path': ts.Variables.SSLDir,
     'proxy.config.url_remap.pristine_host_hdr': 1,
-    'proxy.config.ssl.CA.cert.filename': '{0}/signer.pem'.format(ts.Variables.SSLDir),
+    'proxy.config.ssl.CA.cert.filename': f'{ts.Variables.SSLDir}/signer.pem',
     'proxy.config.exec_thread.autoconfig.scale': 1.0,
     'proxy.config.http.host_sni_policy': 2,
-    'proxy.config.ssl.TLSv1_3': 0,
+    'proxy.config.ssl.TLSv1_3.enabled': 0,
     'proxy.config.ssl.client.verify.server.policy': 'PERMISSIVE',
 })
 
@@ -58,7 +61,7 @@ ts.Disk.ssl_multicert_config.AddLine(
 )
 
 ts.Disk.remap_config.AddLine(
-    'map / https://127.0.0.1:{0}'.format(server.Variables.https_port)
+    f'map / https://127.0.0.1:{server.Variables.https_port}'
 )
 
 ts.Disk.sni_yaml.AddLines([
@@ -71,18 +74,22 @@ ts.Disk.sni_yaml.AddLines([
 # Configure traffic_dump's SNI filter to only dump connections with SNI bob.com.
 sni_filter = "bob.com"
 ts.Disk.plugin_config.AddLine(
-    'traffic_dump.so --logdir {0} --sample 1 --limit 1000000000 '
-    '--sni-filter "{1}"'.format(replay_dir, sni_filter)
+    f'traffic_dump.so --logdir {replay_dir} --sample 1 '
+    f'--sni-filter "{sni_filter}"'
 )
 
 # Set up trafficserver expectations.
-ts.Streams.stderr += Testers.ContainsExpression(
-    "Filtering to only dump connections with SNI: {}".format(sni_filter),
+ts.Disk.traffic_out.Content += Testers.ContainsExpression(
+    f"Filtering to only dump connections with SNI: {sni_filter}",
     "Verify filtering for the expected SNI.")
 
-ts.Streams.stderr += Testers.ContainsExpression(
+ts.Disk.traffic_out.Content += Testers.ContainsExpression(
     "Ignore HTTPS session with non-filtered SNI: dave",
     "Verify that the non-desired SNI session was filtered out.")
+
+ts.Disk.traffic_out.Content += Testers.ContainsExpression(
+    "Initialized with sample pool size of 1 bytes and unlimited disk utilization",
+    "Verify traffic_dump initialized with the configured disk limit.")
 
 # Set up the json replay file expectations.
 replay_file_session_1 = os.path.join(replay_dir, "127", "0000000000000000")
@@ -117,10 +124,7 @@ session_1_protocols = "http,tls,tcp,ip"
 session_1_tls_features = 'sni:bob.com,proxy-verify-mode:0,proxy-provided-cert:true'
 verify_replay = "verify_replay.py"
 tr.Setup.CopyAs(verify_replay, Test.RunDirectory)
-tr.Processes.Default.Command = 'python3 {0} {1} {2} --client-protocols "{3}" --client-tls-features "{4}"'.format(
-    verify_replay,
-    os.path.join(Test.Variables.AtsTestToolsDir, 'lib', 'replay_schema.json'),
-    replay_file_session_1,
-    session_1_protocols,
-    session_1_tls_features)
+tr.Processes.Default.Command = \
+    (f'{sys.executable} {verify_replay} {schema_path} {replay_file_session_1} '
+     f'--client-protocols "{session_1_protocols}" --client-tls-features "{session_1_tls_features}"')
 tr.Processes.Default.ReturnCode = 0

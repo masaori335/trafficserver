@@ -105,8 +105,6 @@ spawn_same_session_send(void *arg)
 
   SSL_set_fd(ssl, sfd);
   int ret            = SSL_connect(ssl);
-  int read_count     = 0;
-  int write_count    = 1;
   int write_ret      = -1;
   int post_write_ret = -1;
 
@@ -120,12 +118,10 @@ spawn_same_session_send(void *arg)
     case SSL_ERROR_WANT_READ:
     case SSL_ERROR_WANT_ACCEPT:
       FD_SET(sfd, &reads);
-      read_count++;
       break;
     case SSL_ERROR_WANT_CONNECT:
     case SSL_ERROR_WANT_WRITE:
       FD_SET(sfd, &writes);
-      write_count++;
       break;
     case SSL_ERROR_SYSCALL:
     case SSL_ERROR_SSL:
@@ -161,14 +157,12 @@ spawn_same_session_send(void *arg)
 
   char input_buf[1024];
   int read_bytes = SSL_read(ssl, input_buf, sizeof(input_buf));
-  int total_read = 0;
   while (read_bytes != 0) {
     fd_set reads;
     fd_set writes;
     FD_ZERO(&reads);
     FD_ZERO(&writes);
     if (read_bytes > 0) {
-      total_read += read_bytes;
       FD_SET(sfd, &reads);
     } else {
       int error = SSL_get_error(ssl, read_bytes);
@@ -224,7 +218,7 @@ main(int argc, char *argv[])
 {
   struct addrinfo hints;
   struct addrinfo *result, *rp;
-  int sfd, s;
+  int sfd = -1, s;
 
   if (argc < 4) {
     fprintf(stderr, "Usage: %s host thread-count header-count [port]\n", argv[0]);
@@ -236,7 +230,7 @@ main(int argc, char *argv[])
            sizeof(post_buf));
   int i;
   for (i = 0; i < header_count; i++) {
-    sprintf(req_buf + strlen(req_buf), "header%d:%d\r\n", i, i);
+    snprintf(req_buf + strlen(req_buf), sizeof(req_buf) - strlen(req_buf), "header%d:%d\r\n", i, i);
   }
   strcat(req_buf, "\r\n");
   memset(post_buf, '0', sizeof(post_buf));

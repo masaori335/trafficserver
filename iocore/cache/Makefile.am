@@ -27,6 +27,7 @@ AM_CPPFLAGS += \
 	-I$(abs_top_srcdir)/proxy/http/remap \
 	-I$(abs_top_srcdir)/mgmt \
 	-I$(abs_top_srcdir)/mgmt/utils \
+	@SWOC_INCLUDES@
 	$(TS_INCLUDES)
 
 noinst_LIBRARIES = libinkcache.a
@@ -37,7 +38,6 @@ libinkcache_a_SOURCES = \
 	CacheDisk.cc \
 	CacheHosting.cc \
 	CacheHttp.cc \
-	CacheLink.cc \
 	CachePages.cc \
 	CachePagesInternal.cc \
 	CacheRead.cc \
@@ -84,6 +84,7 @@ test_CPPFLAGS = \
 	-I$(abs_top_srcdir)/mgmt \
 	-I$(abs_top_srcdir)/mgmt/utils \
 	-I$(abs_top_srcdir)/tests/include \
+	@SWOC_INCLUDES@ \
 	$(TS_INCLUDES) \
 	@OPENSSL_INCLUDES@
 
@@ -104,8 +105,10 @@ test_LDADD = \
 	$(top_builddir)/iocore/utils/libinkutils.a \
 	$(top_builddir)/iocore/aio/libinkaio.a \
 	$(top_builddir)/src/tscore/libtscore.la \
-	$(top_builddir)/lib/records/librecords_p.a \
+	$(top_builddir)/src/records/librecords_p.a \
+	$(top_builddir)/lib/fastlz/libfastlz.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
+	@SWOC_LIBS@ \
 	@HWLOC_LIBS@ \
 	@LIBPCRE@ \
 	@LIBRESOLV@ \
@@ -116,7 +119,6 @@ test_LDADD = \
 	@YAMLCPP_LIBS@ \
 	-lm
 
-if EXPENSIVE_TESTS
 check_PROGRAMS = \
   test_Cache \
   test_RWW \
@@ -129,7 +131,6 @@ check_PROGRAMS = \
   test_Update_L_to_S \
   test_Update_S_to_L \
   test_Update_header
-endif
 
 test_main_SOURCES = \
   ./test/main.cc \

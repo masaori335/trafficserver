@@ -24,6 +24,7 @@
 #pragma once
 
 #include "ProxyProtocol.h"
+#include "I_Net.h"
 
 #include <string_view>
 #include <optional>
@@ -228,7 +229,8 @@ struct NetVCOptions {
 
   bool tls_upstream = false;
 
-  /// Reset all values to defaults.
+  unsigned char alpn_protocols_array[MAX_ALPN_STRING];
+  int alpn_protocols_array_size = 0;
 
   /**
    * Set to DISABLED, PERFMISSIVE, or ENFORCED
@@ -241,6 +243,8 @@ struct NetVCOptions {
    * Currently SIGNATURE and NAME
    */
   YamlSNIConfig::Property verifyServerProperties = YamlSNIConfig::Property::NONE;
+
+  /// Reset all values to defaults.
   void reset();
 
   void set_sock_param(int _recv_bufsize, int _send_bufsize, unsigned long _opt_flags, unsigned long _packet_mark = 0,
@@ -354,6 +358,52 @@ struct NetVCOptions {
   // noncopyable
   NetVCOptions(const NetVCOptions &) = delete;
 };
+
+inline void
+NetVCOptions::reset()
+{
+  ip_proto  = USE_TCP;
+  ip_family = AF_INET;
+  local_ip.invalidate();
+  local_port         = 0;
+  addr_binding       = ANY_ADDR;
+  f_blocking         = false;
+  f_blocking_connect = false;
+  socks_support      = NORMAL_SOCKS;
+  socks_version      = SOCKS_DEFAULT_VERSION;
+  socket_recv_bufsize =
+#if defined(RECV_BUF_SIZE)
+    RECV_BUF_SIZE;
+#else
+    0;
+#endif
+  socket_send_bufsize  = 0;
+  sockopt_flags        = 0;
+  packet_mark          = 0;
+  packet_tos           = 0;
+  packet_notsent_lowat = 0;
+
+  etype = ET_NET;
+
+  sni_servername              = nullptr;
+  ssl_servername              = nullptr;
+  sni_hostname                = nullptr;
+  ssl_client_cert_name        = nullptr;
+  ssl_client_private_key_name = nullptr;
+  outbound_sni_policy         = nullptr;
+}
+
+inline void
+NetVCOptions::set_sock_param(int _recv_bufsize, int _send_bufsize, unsigned long _opt_flags, unsigned long _packet_mark,
+                             unsigned long _packet_tos, unsigned long _packet_notsent_lowat)
+{
+  socket_recv_bufsize  = _recv_bufsize;
+  socket_send_bufsize  = _send_bufsize;
+  sockopt_flags        = _opt_flags;
+  packet_mark          = _packet_mark;
+  packet_tos           = _packet_tos;
+  packet_notsent_lowat = _packet_notsent_lowat;
+}
 
 /**
   A VConnection for a network socket. Abstraction for a net connection.
@@ -548,9 +598,9 @@ public:
   virtual void cancel_active_timeout() = 0;
 
   /**
-    Clears the inactivity timeout. No inactivity timeouts will be
-    sent until set_inactivity_timeout() is used to reset the
-    inactivity timeout.
+    Clears the inactivity timeout. No inactivity timeouts will be sent (aside
+    from the default inactivity timeout) until set_inactivity_timeout() is used
+    to reset the inactivity timeout.
 
   */
   virtual void cancel_inactivity_timeout() = 0;
@@ -767,7 +817,7 @@ public:
   }
 
   // noncopyable
-  NetVConnection(const NetVConnection &) = delete;
+  NetVConnection(const NetVConnection &)            = delete;
   NetVConnection &operator=(const NetVConnection &) = delete;
 
   ProxyProtocolVersion

@@ -24,6 +24,7 @@
 #pragma once
 
 #include "tscore/ink_platform.h"
+#include "tscore/ink_atomic.h"
 #include "tscore/Diags.h"
 #include "LogFormat.h"
 #include "LogLimits.h"
@@ -33,7 +34,7 @@ class LogObject;
 class LogConfig;
 class LogBufferIterator;
 
-#define LOG_SEGMENT_COOKIE 0xaceface
+#define LOG_SEGMENT_COOKIE  0xaceface
 #define LOG_SEGMENT_VERSION 2
 
 #if defined(linux)
@@ -108,7 +109,7 @@ union LB_State {
   struct {
     uint32_t offset;           // buffer offset(bytes in buffer)
     uint16_t num_entries;      // number of entries in buffer
-    uint16_t full : 1;         // not accepting more checkouts
+    uint16_t full        : 1;  // not accepting more checkouts
     uint16_t num_writers : 15; // number of writers
   } s;
 };
@@ -150,6 +151,8 @@ public:
     return (ink_atomic_cas(&m_state.ival, old_state.ival, new_state.ival));
   }
 
+  // 'fast' mode only, not thread-safe
+  LB_ResultCode fast_write(size_t *write_offset, size_t write_size);
   LB_ResultCode checkout_write(size_t *write_offset, size_t write_size);
   LB_ResultCode checkin_write(size_t write_offset);
   void force_full();
@@ -189,10 +192,10 @@ public:
   // static functions
   static size_t max_entry_bytes();
   static int to_ascii(LogEntryHeader *entry, LogFormatType type, char *buf, int max_len, const char *symbol_str, char *printf_str,
-                      unsigned buffer_version, const char *alt_format = nullptr);
+                      unsigned buffer_version, const char *alt_format = nullptr, LogEscapeType escape_type = LOG_ESCAPE_NONE);
   static int resolve_custom_entry(LogFieldList *fieldlist, char *printf_str, char *read_from, char *write_to, int write_to_len,
                                   long timestamp, long timestamp_us, unsigned buffer_version, LogFieldList *alt_fieldlist = nullptr,
-                                  char *alt_printf_str = nullptr);
+                                  char *alt_printf_str = nullptr, LogEscapeType escape_type = LOG_ESCAPE_NONE);
 
   static void
   destroy(LogBuffer *&lb)
@@ -229,7 +232,7 @@ public:
 
   // noncopyable
   // -- member functions that are not allowed --
-  LogBuffer(const LogBuffer &rhs) = delete;
+  LogBuffer(const LogBuffer &rhs)            = delete;
   LogBuffer &operator=(const LogBuffer &rhs) = delete;
 
 private:
@@ -288,7 +291,7 @@ public:
 
   // noncopyable
   // -- member functions not allowed --
-  LogBufferIterator(const LogBufferIterator &) = delete;
+  LogBufferIterator(const LogBufferIterator &)            = delete;
   LogBufferIterator &operator=(const LogBufferIterator &) = delete;
 
 private:

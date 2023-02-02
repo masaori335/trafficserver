@@ -24,21 +24,22 @@
 #pragma once
 
 #include "I_EventSystem.h"
+#include "tscore/PendingAction.h"
 
-#define MAX_NAMED 32
-#define DEFAULT_DNS_RETRIES 5
-#define MAX_DNS_RETRIES 9
-#define DEFAULT_DNS_TIMEOUT 30
-#define MAX_DNS_IN_FLIGHT 2048
+#define MAX_NAMED                       32
+#define DEFAULT_DNS_RETRIES             5
+#define MAX_DNS_RETRIES                 9
+#define DEFAULT_DNS_TIMEOUT             30
+#define MAX_DNS_IN_FLIGHT               2048
 #define MAX_DNS_TCP_CONTINUOUS_FAILURES 10
-#define DEFAULT_FAILOVER_NUMBER (DEFAULT_DNS_RETRIES + 1)
-#define DEFAULT_FAILOVER_PERIOD (DEFAULT_DNS_TIMEOUT + 30)
+#define DEFAULT_FAILOVER_NUMBER         (DEFAULT_DNS_RETRIES + 1)
+#define DEFAULT_FAILOVER_PERIOD         (DEFAULT_DNS_TIMEOUT + 30)
 // how many seconds before FAILOVER_PERIOD to try the primary with
 // a well known address
 #define DEFAULT_FAILOVER_TRY_PERIOD (DEFAULT_DNS_TIMEOUT + 1)
-#define DEFAULT_DNS_SEARCH 1
-#define FAILOVER_SOON_RETRY 5
-#define NO_NAMESERVER_SELECTED -1
+#define DEFAULT_DNS_SEARCH          1
+#define FAILOVER_SOON_RETRY         5
+#define NO_NAMESERVER_SELECTED      -1
 
 //
 // Config
@@ -57,13 +58,13 @@ extern unsigned int dns_sequence_number;
 // Constants
 //
 
-#define DNS_PERIOD HRTIME_MSECONDS(100)
-#define DNS_DELAY_PERIOD HRTIME_MSECONDS(10)
+#define DNS_PERIOD                         HRTIME_MSECONDS(100)
+#define DNS_DELAY_PERIOD                   HRTIME_MSECONDS(10)
 #define DNS_SEQUENCE_NUMBER_RESTART_OFFSET 4000
-#define DNS_PRIMARY_RETRY_PERIOD HRTIME_SECONDS(5)
-#define DNS_PRIMARY_REOPEN_PERIOD HRTIME_SECONDS(60)
-#define BAD_DNS_RESULT (reinterpret_cast<HostEnt *>((uintptr_t)-1))
-#define DEFAULT_NUM_TRY_SERVER 8
+#define DNS_PRIMARY_RETRY_PERIOD           HRTIME_SECONDS(5)
+#define DNS_PRIMARY_REOPEN_PERIOD          HRTIME_SECONDS(60)
+#define BAD_DNS_RESULT                     (reinterpret_cast<HostEnt *>((uintptr_t)-1))
+#define DEFAULT_NUM_TRY_SERVER             8
 
 // these are from nameser.h
 #ifndef HFIXEDSZ
@@ -72,9 +73,6 @@ extern unsigned int dns_sequence_number;
 #ifndef QFIXEDSZ
 #define QFIXEDSZ 4
 #endif
-
-// Events
-#define DNS_EVENT_LOOKUP DNS_EVENT_EVENTS_START
 
 // Stats
 enum DNS_Stats {
@@ -169,9 +167,10 @@ struct DNSHandler : public Continuation {
   DNSConnection udpcon[MAX_NAMED];
   Queue<DNSEntry> entries;
   Queue<DNSConnection> triggered;
-  int in_flight          = 0;
-  int name_server        = 0;
-  int in_write_dns       = 0;
+  int in_flight    = 0;
+  int name_server  = 0;
+  int in_write_dns = 0;
+
   HostEnt *hostent_cache = nullptr;
 
   int ns_down[MAX_NAMED];
@@ -212,16 +211,16 @@ struct DNSHandler : public Continuation {
             (ink_hrtime)HRTIME_SECONDS(dns_failover_period));
       Debug("dns", "\tdelta time is %" PRId64 "", (Thread::get_hrtime() - crossed_failover_number[i]));
     }
-    return (crossed_failover_number[i] &&
-            ((Thread::get_hrtime() - crossed_failover_number[i]) > HRTIME_SECONDS(dns_failover_period)));
+    return ns_down[i] || (crossed_failover_number[i] &&
+                          ((Thread::get_hrtime() - crossed_failover_number[i]) > HRTIME_SECONDS(dns_failover_period)));
   }
 
   bool
   failover_soon(int i)
   {
-    return (crossed_failover_number[i] &&
-            ((Thread::get_hrtime() - crossed_failover_number[i]) >
-             (HRTIME_SECONDS(dns_failover_try_period + failover_soon_number[i] * FAILOVER_SOON_RETRY))));
+    return ns_down[i] || (crossed_failover_number[i] &&
+                          ((Thread::get_hrtime() - crossed_failover_number[i]) >
+                           (HRTIME_SECONDS(dns_failover_try_period + failover_soon_number[i] * FAILOVER_SOON_RETRY))));
   }
 
   void recv_dns(int event, Event *e);
@@ -265,6 +264,10 @@ private:
   // Check tcp connection for TCP_RETRY mode
   void check_and_reset_tcp_conn();
   bool reset_tcp_conn(int ndx);
+
+  /** The event used for the periodic retry of connectivity to any down name
+   * servers. */
+  PendingAction _dns_retry_event;
 };
 
 /* --------------------------------------------------------------

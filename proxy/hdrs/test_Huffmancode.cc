@@ -136,6 +136,12 @@ values_test()
 
     int bytes        = huffman_decode(dst_start, encoded_mapped.y, encoded_size);
     char ascii_value = i / 2;
+
+    // EOS is treated as invalid so check for an error
+    if (value == 0x3fffffff) {
+      assert(bytes == -1);
+      continue;
+    }
     assert(dst_start[0] == ascii_value);
     assert(bytes == 1);
   }
@@ -148,14 +154,15 @@ const static struct {
   uint8_t *expect;
   int64_t expect_len;
 } huffman_encode_test_data[] = {
-  {(uint8_t *)"", 0, (uint8_t *)"", 0},
-  {(uint8_t *)"0", 1, (uint8_t *)"\x07", 1},
-  {(uint8_t *)"302", 3, (uint8_t *)"\x64\x02", 2},
-  {(uint8_t *)"private", 7, (uint8_t *)"\xae\xc3\x77\x1a\x4b", 5},
+  {(uint8_t *)"",                              0,  (uint8_t *)"",                                                                     0 },
+  {(uint8_t *)"0",                             1,  (uint8_t *)"\x07",                                                                 1 },
+  {(uint8_t *)"302",                           3,  (uint8_t *)"\x64\x02",                                                             2 },
+  {(uint8_t *)"private",                       7,  (uint8_t *)"\xae\xc3\x77\x1a\x4b",                                                 5 },
   {(uint8_t *)"Mon, 21 Oct 2013 20:13:21 GMT", 29,
-   (uint8_t *)"\xd0\x7a\xbe\x94\x10\x54\xd4\x44\xa8\x20\x05\x95\x04\x0b\x81\x66\xe0\x82\xa6\x2d\x1b\xff", 22},
-  {(uint8_t *)"https://www.example.com", 23, (uint8_t *)"\x9d\x29\xad\x17\x18\x63\xc7\x8f\x0b\x97\xc8\xe9\xae\x82\xae\x43\xd3",
-   17}};
+   (uint8_t *)"\xd0\x7a\xbe\x94\x10\x54\xd4\x44\xa8\x20\x05\x95\x04\x0b\x81\x66\xe0\x82\xa6\x2d\x1b\xff",                             22},
+  {(uint8_t *)"https://www.example.com",       23, (uint8_t *)"\x9d\x29\xad\x17\x18\x63\xc7\x8f\x0b\x97\xc8\xe9\xae\x82\xae\x43\xd3",
+   17                                                                                                                                   }
+};
 
 void
 encode_test()
@@ -171,6 +178,29 @@ encode_test()
   }
 }
 
+void
+decode_errors_test()
+{
+  const static struct {
+    char *input;
+    int input_len;
+  } test_cases[] = {
+    {(char *)"\x00",                 1},
+    {(char *)"\xff",                 1},
+    {(char *)"\x1f\xff",             2},
+    {(char *)"\xff\xae",             2},
+    {(char *)"\xff\x9f\xff\xff\xff", 5},
+  };
+
+  for (unsigned int i = 0; i < sizeof(test_cases) / sizeof(test_cases[0]); i++) {
+    int dst_len = 2 * test_cases[i].input_len;
+    char *dst   = (char *)malloc(dst_len);
+    int len     = huffman_decode(dst, (uint8_t *)test_cases[i].input, test_cases[i].input_len);
+    assert(len == -1);
+    free(dst);
+  }
+}
+
 int
 main()
 {
@@ -180,6 +210,7 @@ main()
     random_test();
   }
   values_test();
+  decode_errors_test();
 
   hpack_huffman_fin();
 

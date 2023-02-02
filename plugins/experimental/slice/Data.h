@@ -25,6 +25,7 @@
 #include "Stage.h"
 
 #include <netinet/in.h>
+#include <unordered_map>
 
 struct Config;
 
@@ -41,7 +42,7 @@ enum BlockState {
 };
 
 struct Data {
-  Data(Data const &) = delete;
+  Data(Data const &)            = delete;
   Data &operator=(Data const &) = delete;
 
   Config *const m_config;
@@ -91,6 +92,8 @@ struct Data {
 
   Stage m_upstream;
   Stage m_dnstream;
+
+  bool m_prefetchable{false};
 
   HdrMgr m_req_hdrmgr;  // manager for server request
   HdrMgr m_resp_hdrmgr; // manager for client response

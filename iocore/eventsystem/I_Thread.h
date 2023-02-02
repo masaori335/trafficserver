@@ -110,9 +110,9 @@ public:
   */
   Ptr<ProxyMutex> mutex;
 
-  virtual void set_specific();
+  virtual void set_specific() = 0;
 
-  static ink_thread_key thread_data_key;
+  static thread_local Thread *this_thread_ptr;
 
   // For THREAD_ALLOC
   ProxyAllocator eventAllocator;
@@ -170,7 +170,7 @@ public:
   */
   static ink_hrtime get_hrtime_updated();
 
-  Thread(const Thread &) = delete;
+  Thread(const Thread &)            = delete;
   Thread &operator=(const Thread &) = delete;
   virtual ~Thread();
 

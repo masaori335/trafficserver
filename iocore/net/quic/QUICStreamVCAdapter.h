@@ -25,7 +25,7 @@
 #include "QUICStreamAdapter.h"
 #include "I_IOBuffer.h"
 
-class QUICStreamVCAdapter : public QUICStreamAdapter, public VConnection
+class QUICStreamVCAdapter : public VConnection, public QUICStreamAdapter
 {
 public:
   class IOInfo;
@@ -72,6 +72,7 @@ public:
   }
   ~IOInfo()
   {
+    adapter.do_io_close();
     free_MIOBuffer(this->read_buffer);
     free_MIOBuffer(this->write_buffer);
   }

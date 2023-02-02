@@ -749,6 +749,8 @@ CacheVC::openReadMain(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
 
       doc->magic = DOC_CORRUPT;
 
+      CACHE_INCREMENT_DYN_STAT(cache_read_seek_fail_stat);
+
       CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
       if (!lock.is_locked()) {
         SET_HANDLER(&CacheVC::openReadDirDelete);
@@ -775,7 +777,7 @@ CacheVC::openReadMain(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
   b->_buf_end = b->_end;
   vio.buffer.writer()->append_block(b);
   vio.ndone += bytes;
-  doc_pos += bytes;
+  doc_pos   += bytes;
   if (vio.ntodo() <= 0) {
     return calluser(VC_EVENT_READ_COMPLETE);
   } else {
@@ -1135,9 +1137,10 @@ CacheVC::openReadStartHead(int event, Event *e)
                "first alt=%d[%s]",
                key.slice32(0), uml, doc->hlen, doc->len, sizeof(Doc), doc->v_major, doc->v_minor, vector.count(), alt_length,
                alt->m_magic,
-               (CACHE_ALT_MAGIC_ALIVE == alt->m_magic ?
-                  "alive" :
-                  CACHE_ALT_MAGIC_MARSHALED == alt->m_magic ? "serial" : CACHE_ALT_MAGIC_DEAD == alt->m_magic ? "dead" : "bogus"));
+               (CACHE_ALT_MAGIC_ALIVE == alt->m_magic     ? "alive" :
+                CACHE_ALT_MAGIC_MARSHALED == alt->m_magic ? "serial" :
+                CACHE_ALT_MAGIC_DEAD == alt->m_magic      ? "dead" :
+                                                            "bogus"));
           dir_delete(&key, vol, &dir);
         }
         err = ECACHE_BAD_META_DATA;
@@ -1173,6 +1176,20 @@ CacheVC::openReadStartHead(int event, Event *e)
       } else {
         f.single_fragment = false;
       }
+
+      // Now that we have selected an alternate, validate that the content length and object size match
+      MIMEField *field = alternate.response_get()->field_find(MIME_FIELD_CONTENT_LENGTH, MIME_LEN_CONTENT_LENGTH);
+      if (field) {
+        uint64_t cl = static_cast<uint64_t>(field->value_get_int64());
+        if (cl != doc_len) {
+          Warning("OpenReadHead failed for cachekey %X : alternate content length doesn't match doc_len %" PRId64 " != %" PRId64,
+                  key.slice32(0), cl, doc_len);
+          CACHE_INCREMENT_DYN_STAT(cache_read_invalid_stat);
+          err = ECACHE_BAD_META_DATA;
+          goto Ldone;
+        }
+      }
+
     } else {
       next_CacheKey(&key, &doc->key);
       f.single_fragment = doc->single_fragment();

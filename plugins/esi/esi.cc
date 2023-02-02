@@ -61,21 +61,21 @@ struct OptionInfo {
 static HandlerManager *gHandlerManager = nullptr;
 static Utils::HeaderValueList gAllowlistCookies;
 
-#define DEBUG_TAG "plugin_esi"
-#define PROCESSOR_DEBUG_TAG "plugin_esi_processor"
-#define GZIP_DEBUG_TAG "plugin_esi_gzip"
-#define GUNZIP_DEBUG_TAG "plugin_esi_gunzip"
-#define PARSER_DEBUG_TAG "plugin_esi_parser"
-#define FETCHER_DEBUG_TAG "plugin_esi_fetcher"
-#define VARS_DEBUG_TAG "plugin_esi_vars"
+#define DEBUG_TAG             "plugin_esi"
+#define PROCESSOR_DEBUG_TAG   "plugin_esi_processor"
+#define GZIP_DEBUG_TAG        "plugin_esi_gzip"
+#define GUNZIP_DEBUG_TAG      "plugin_esi_gunzip"
+#define PARSER_DEBUG_TAG      "plugin_esi_parser"
+#define FETCHER_DEBUG_TAG     "plugin_esi_fetcher"
+#define VARS_DEBUG_TAG        "plugin_esi_vars"
 #define HANDLER_MGR_DEBUG_TAG "plugin_esi_handler_mgr"
-#define EXPR_DEBUG_TAG VARS_DEBUG_TAG
+#define EXPR_DEBUG_TAG        VARS_DEBUG_TAG
 
-#define MIME_FIELD_XESI "X-Esi"
+#define MIME_FIELD_XESI     "X-Esi"
 #define MIME_FIELD_XESI_LEN 5
 
 #define HTTP_VALUE_PRIVATE_EXPIRES "-1"
-#define HTTP_VALUE_PRIVATE_CC "max-age=0, private"
+#define HTTP_VALUE_PRIVATE_CC      "max-age=0, private"
 
 enum DataType {
   DATA_TYPE_RAW_ESI     = 0,
@@ -169,13 +169,13 @@ class TSStatSystem : public StatSystem
 {
 public:
   void
-  create(int handle)
+  create(int handle) override
   {
     g_stat_indices[handle] = TSStatCreate(Stats::STAT_NAMES[handle], TS_RECORDDATATYPE_INT, TS_STAT_PERSISTENT, TS_STAT_SYNC_COUNT);
   }
 
   void
-  increment(int handle, int step = 1)
+  increment(int handle, int step = 1) override
   {
     TSStatIntIncrement(g_stat_indices[handle], step);
   }
@@ -578,7 +578,8 @@ removeCacheKey(TSHttpTxn txnp)
 static void
 cacheNodeList(ContData *cont_data)
 {
-  if (TSHttpTxnAborted(cont_data->txnp) == TS_SUCCESS) {
+  bool client_abort;
+  if (TSHttpTxnAborted(cont_data->txnp, &client_abort) == TS_SUCCESS) {
     TSDebug(cont_data->debug_tag, "[%s] Not caching node list as txn has been aborted", __FUNCTION__);
     return;
   }
@@ -1292,6 +1293,20 @@ isTxnTransformable(TSHttpTxn txnp, bool is_cache_txn, bool *intercept_header, bo
     return false;
   }
 
+  // if origin returns status 304, check cached response instead
+  int response_status;
+  if (is_cache_txn == false) {
+    response_status = TSHttpHdrStatusGet(bufp, hdr_loc);
+    if (response_status == TS_HTTP_STATUS_NOT_MODIFIED) {
+      TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
+      header_obtained = TSHttpTxnCachedRespGet(txnp, &bufp, &hdr_loc);
+      if (header_obtained != TS_SUCCESS) {
+        TSError("[esi][%s] Couldn't get txn cache response header", __FUNCTION__);
+        return false;
+      }
+    }
+  }
+
   do {
     *intercept_header = checkHeaderValue(bufp, hdr_loc, SERVER_INTERCEPT_HEADER, SERVER_INTERCEPT_HEADER_LEN);
     if (*intercept_header) {
@@ -1580,12 +1595,12 @@ esiPluginInit(int argc, const char *argv[], struct OptionInfo *pOptionInfo)
   if (argc > 1) {
     int c;
     static const struct option longopts[] = {
-      {const_cast<char *>("packed-node-support"), no_argument, nullptr, 'n'},
-      {const_cast<char *>("private-response"), no_argument, nullptr, 'p'},
-      {const_cast<char *>("disable-gzip-output"), no_argument, nullptr, 'z'},
-      {const_cast<char *>("first-byte-flush"), no_argument, nullptr, 'b'},
-      {const_cast<char *>("handler-filename"), required_argument, nullptr, 'f'},
-      {nullptr, 0, nullptr, 0},
+      {const_cast<char *>("packed-node-support"), no_argument,       nullptr, 'n'},
+      {const_cast<char *>("private-response"),    no_argument,       nullptr, 'p'},
+      {const_cast<char *>("disable-gzip-output"), no_argument,       nullptr, 'z'},
+      {const_cast<char *>("first-byte-flush"),    no_argument,       nullptr, 'b'},
+      {const_cast<char *>("handler-filename"),    required_argument, nullptr, 'f'},
+      {nullptr,                                   0,                 nullptr, 0  },
     };
 
     int longindex = 0;

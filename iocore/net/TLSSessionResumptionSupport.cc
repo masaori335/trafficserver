@@ -122,6 +122,12 @@ TLSSessionResumptionSupport::getSSLSessionCacheHit() const
   return this->_sslSessionCacheHit;
 }
 
+bool
+TLSSessionResumptionSupport::getSSLOriginSessionCacheHit() const
+{
+  return this->_sslOriginSessionCacheHit;
+}
+
 ssl_curve_id
 TLSSessionResumptionSupport::getSSLCurveNID() const
 {
@@ -134,10 +140,13 @@ TLSSessionResumptionSupport::getSession(SSL *ssl, const unsigned char *id, int l
   SSLSessionID sid(id, len);
 
   *copy = 0;
-  if (diags->tag_activated("ssl.session_cache")) {
-    char printable_buf[(len * 2) + 1];
-    sid.toString(printable_buf, sizeof(printable_buf));
-    Debug("ssl.session_cache.get", "ssl_get_cached_session cached session '%s' context %p", printable_buf, SSL_get_SSL_CTX(ssl));
+  if (diags()->on()) {
+    static DbgCtl dbg_ctl("ssl.session_cache.get");
+    if (dbg_ctl.ptr()->on) {
+      char printable_buf[(len * 2) + 1];
+      sid.toString(printable_buf, sizeof(printable_buf));
+      DbgPrint(dbg_ctl, "ssl_get_cached_session cached session '%s' context %p", printable_buf, SSL_get_SSL_CTX(ssl));
+    }
   }
 
   APIHook *hook = ssl_hooks->get(TSSslHookInternalID(TS_SSL_SESSION_HOOK));
@@ -173,29 +182,27 @@ TLSSessionResumptionSupport::getSession(SSL *ssl, const unsigned char *id, int l
   return session;
 }
 
-SSL_SESSION *
+std::shared_ptr<SSL_SESSION>
 TLSSessionResumptionSupport::getOriginSession(SSL *ssl, const std::string &lookup_key)
 {
-  SSL_SESSION *session = nullptr;
-  ssl_curve_id curve   = 0;
-  if (origin_sess_cache->get_session(lookup_key, &session, &curve)) {
-    ink_assert(session);
+  ssl_curve_id curve                       = 0;
+  std::shared_ptr<SSL_SESSION> shared_sess = origin_sess_cache->get_session(lookup_key, &curve);
 
+  if (shared_sess != nullptr) {
     // Double check the timeout
-    if (is_ssl_session_timed_out(session)) {
+    if (is_ssl_session_timed_out(shared_sess.get())) {
       SSL_INCREMENT_DYN_STAT(ssl_origin_session_cache_miss);
       origin_sess_cache->remove_session(lookup_key);
-      SSL_SESSION_free(session);
-      session = nullptr;
+      shared_sess.reset();
     } else {
       SSL_INCREMENT_DYN_STAT(ssl_origin_session_cache_hit);
-      this->_setSSLSessionCacheHit(true);
+      this->_setSSLOriginSessionCacheHit(true);
       this->_setSSLCurveNID(curve);
     }
   } else {
     SSL_INCREMENT_DYN_STAT(ssl_origin_session_cache_miss);
   }
-  return session;
+  return shared_sess;
 }
 
 void
@@ -216,8 +223,12 @@ TLSSessionResumptionSupport::_setSessionInformation(ssl_ticket_key_block *keyblo
 {
   const ssl_ticket_key_t &most_recent_key = keyblock->keys[0];
   memcpy(keyname, most_recent_key.key_name, sizeof(most_recent_key.key_name));
-  RAND_bytes(iv, EVP_MAX_IV_LENGTH);
-  EVP_EncryptInit_ex(cipher_ctx, EVP_aes_128_cbc(), nullptr, most_recent_key.aes_key, iv);
+  if (RAND_bytes(iv, EVP_MAX_IV_LENGTH) != 1) {
+    return -1;
+  }
+  if (EVP_EncryptInit_ex(cipher_ctx, EVP_aes_128_cbc(), nullptr, most_recent_key.aes_key, iv) != 1) {
+    return -2;
+  }
 #ifdef HAVE_SSL_CTX_SET_TLSEXT_TICKET_KEY_EVP_CB
   const OSSL_PARAM params[] = {
     OSSL_PARAM_construct_octet_string(OSSL_MAC_PARAM_KEY, const_cast<unsigned char *>(most_recent_key.hmac_secret),
@@ -225,9 +236,13 @@ TLSSessionResumptionSupport::_setSessionInformation(ssl_ticket_key_block *keyblo
     OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, mac_param_digest, 0),
     OSSL_PARAM_construct_end(),
   };
-  EVP_MAC_CTX_set_params(hctx, params);
+  if (EVP_MAC_CTX_set_params(hctx, params) != 1) {
+    return -3;
+  }
 #else
-  HMAC_Init_ex(hctx, most_recent_key.hmac_secret, sizeof(most_recent_key.hmac_secret), evp_md_func, nullptr);
+  if (HMAC_Init_ex(hctx, most_recent_key.hmac_secret, sizeof(most_recent_key.hmac_secret), evp_md_func, nullptr) != 1) {
+    return -3;
+  }
 #endif
 
   Debug("ssl_session_ticket", "create ticket for a new session.");
@@ -247,16 +262,22 @@ TLSSessionResumptionSupport::_getSessionInformation(ssl_ticket_key_block *keyblo
 {
   for (unsigned i = 0; i < keyblock->num_keys; ++i) {
     if (memcmp(keyname, keyblock->keys[i].key_name, sizeof(keyblock->keys[i].key_name)) == 0) {
-      EVP_DecryptInit_ex(cipher_ctx, EVP_aes_128_cbc(), nullptr, keyblock->keys[i].aes_key, iv);
+      if (EVP_DecryptInit_ex(cipher_ctx, EVP_aes_128_cbc(), nullptr, keyblock->keys[i].aes_key, iv) != 1) {
+        return -2;
+      }
 #ifdef HAVE_SSL_CTX_SET_TLSEXT_TICKET_KEY_EVP_CB
       const OSSL_PARAM params[] = {
         OSSL_PARAM_construct_octet_string(OSSL_MAC_PARAM_KEY, keyblock->keys[i].hmac_secret, sizeof(keyblock->keys[i].hmac_secret)),
         OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, mac_param_digest, 0),
         OSSL_PARAM_construct_end(),
       };
-      EVP_MAC_CTX_set_params(hctx, params);
+      if (EVP_MAC_CTX_set_params(hctx, params) != 1) {
+        return -3;
+      }
 #else
-      HMAC_Init_ex(hctx, keyblock->keys[i].hmac_secret, sizeof(keyblock->keys[i].hmac_secret), evp_md_func, nullptr);
+      if (HMAC_Init_ex(hctx, keyblock->keys[i].hmac_secret, sizeof(keyblock->keys[i].hmac_secret), evp_md_func, nullptr) != 1) {
+        return -3;
+      }
 #endif
 
       Debug("ssl_session_ticket", "verify the ticket for an existing session.");
@@ -290,6 +311,12 @@ void
 TLSSessionResumptionSupport::_setSSLSessionCacheHit(bool state)
 {
   this->_sslSessionCacheHit = state;
+}
+
+void
+TLSSessionResumptionSupport::_setSSLOriginSessionCacheHit(bool state)
+{
+  this->_sslOriginSessionCacheHit = state;
 }
 
 void

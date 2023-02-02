@@ -23,6 +23,8 @@
 
 #pragma once
 
+#include <unordered_set>
+
 #include "HTTP2.h"
 #include "ProxySession.h"
 #include "Http2ConnectionState.h"
@@ -34,13 +36,13 @@
 // HTTP2_SESSION_EVENT_RECV   Http2Frame *          Received a frame
 // HTTP2_SESSION_EVENT_XMIT   Http2Frame *          Send this frame
 
-#define HTTP2_SESSION_EVENT_INIT (HTTP2_SESSION_EVENTS_START + 1)
-#define HTTP2_SESSION_EVENT_FINI (HTTP2_SESSION_EVENTS_START + 2)
-#define HTTP2_SESSION_EVENT_RECV (HTTP2_SESSION_EVENTS_START + 3)
-#define HTTP2_SESSION_EVENT_XMIT (HTTP2_SESSION_EVENTS_START + 4)
+#define HTTP2_SESSION_EVENT_INIT          (HTTP2_SESSION_EVENTS_START + 1)
+#define HTTP2_SESSION_EVENT_FINI          (HTTP2_SESSION_EVENTS_START + 2)
+#define HTTP2_SESSION_EVENT_RECV          (HTTP2_SESSION_EVENTS_START + 3)
+#define HTTP2_SESSION_EVENT_XMIT          (HTTP2_SESSION_EVENTS_START + 4)
 #define HTTP2_SESSION_EVENT_SHUTDOWN_INIT (HTTP2_SESSION_EVENTS_START + 5)
 #define HTTP2_SESSION_EVENT_SHUTDOWN_CONT (HTTP2_SESSION_EVENTS_START + 6)
-#define HTTP2_SESSION_EVENT_REENABLE (HTTP2_SESSION_EVENTS_START + 7)
+#define HTTP2_SESSION_EVENT_REENABLE      (HTTP2_SESSION_EVENTS_START + 7)
 
 enum class Http2SessionCod : int {
   NOT_PROVIDED,
@@ -103,6 +105,7 @@ public:
   void remember(const SourceLocation &location, int event, int reentrant = NO_REENTRANT);
 
   int64_t write_avail();
+  bool is_write_high_water() const;
 
   virtual ProxySession *get_proxy_session() = 0;
 

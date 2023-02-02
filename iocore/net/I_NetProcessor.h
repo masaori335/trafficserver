@@ -27,6 +27,7 @@
 #include "tscore/IpMap.h"
 #include "I_EventSystem.h"
 #include "I_Socks.h"
+#include "I_NetVConnection.h"
 struct socks_conf_struct;
 #define NET_CONNECT_TIMEOUT 30
 
@@ -69,7 +70,6 @@ public:
     /// Are frequent accepts expected?
     /// Default: @c false.
     bool frequent_accept;
-    bool backdoor;
 
     /// Socket receive buffer size.
     /// 0 => OS default.
@@ -224,7 +224,7 @@ public:
   static AcceptOptions const DEFAULT_ACCEPT_OPTIONS;
 
   // noncopyable
-  NetProcessor(const NetProcessor &) = delete;
+  NetProcessor(const NetProcessor &)            = delete;
   NetProcessor &operator=(const NetProcessor &) = delete;
 
 private:

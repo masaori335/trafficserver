@@ -17,6 +17,7 @@
 #  limitations under the License.
 
 import os
+import sys
 
 # ----
 # Setup Test
@@ -39,7 +40,7 @@ httpbin = Test.MakeHttpBinServer("httpbin")
 # ----
 # Setup ATS
 # ----
-ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True, enable_cache=False)
+ts = Test.MakeATSProcess("ts", enable_tls=True, enable_cache=False)
 
 # add ssl materials like key, certificates for the server
 ts.addDefaultSSLFiles()
@@ -75,8 +76,8 @@ logging:
 Test.Disk.File(os.path.join(ts.Variables.LOGDIR, 'access.log'), exists=True, content='gold/httpbin_access.gold')
 
 # TODO: when httpbin 0.8.0 or later is released, remove below json pretty print hack
-json_printer = '''
-python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2, separators=(',', ': ')))"
+json_printer = f'''
+{sys.executable} -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2, separators=(',', ': ')))"
 '''
 
 # ----

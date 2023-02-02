@@ -44,14 +44,45 @@
 #include "tscore/ink_time.h"
 #include "tscore/ink_hrtime.h"
 #include "tscore/ink_thread.h"
-#include "tscore/BufferWriter.h"
+#include "tscore/Regression.h"
 #include "tscore/Diags.h"
 
-int diags_on_for_plugins         = 0;
-int DiagsConfigState::enabled[2] = {0, 0};
+int diags_on_for_plugins          = 0;
+char ts_new_debug_on_flag_        = 0;
+int DiagsConfigState::_enabled[2] = {0, 0};
+
+void
+DiagsConfigState::enabled(DiagsTagType dtt, int new_value)
+{
+  if (_enabled[dtt] == new_value) {
+    return;
+  }
+  _enabled[dtt] = new_value;
+
+  if (DiagsTagType_Debug == dtt) {
+    diags_on_for_plugins  = 1 == new_value;
+    ts_new_debug_on_flag_ = (1 & new_value) != 0;
+  }
+}
 
 // Global, used for all diagnostics
-Diags *diags = nullptr;
+Diags *DiagsPtr::_diags_ptr = nullptr;
+
+void
+DiagsPtr::set(Diags *new_ptr)
+{
+  _diags_ptr = new_ptr;
+
+  DbgCtl::update();
+}
+
+static bool regression_testing_on = false;
+
+void
+tell_diags_regression_testing_is_on()
+{
+  regression_testing_on = true;
+}
 
 static bool
 location(const SourceLocation *loc, DiagsShowLocation show, DiagsLevel level)
@@ -115,9 +146,8 @@ Diags::Diags(std::string_view prefix_string, const char *bdt, const char *bat, B
     base_action_tags = ats_strdup(bat);
   }
 
-  config.enabled[DiagsTagType_Debug]  = (base_debug_tags != nullptr);
-  config.enabled[DiagsTagType_Action] = (base_action_tags != nullptr);
-  diags_on_for_plugins                = config.enabled[DiagsTagType_Debug];
+  config.enabled(DiagsTagType_Debug, base_debug_tags != nullptr ? 1 : 0);
+  config.enabled(DiagsTagType_Action, base_action_tags != nullptr ? 1 : 0);
 
   // The caller must always provide a non-empty prefix.
 
@@ -266,7 +296,7 @@ Diags::print_va(const char *debug_tag, DiagsLevel diags_level, const SourceLocat
     }
   }
 
-  if (config.outputs[diags_level].to_stderr) {
+  if (config.outputs[diags_level].to_stderr || regression_testing_on) {
     if (stderr_log && stderr_log->m_fp) {
       va_list tmp;
       va_copy(tmp, ap);
@@ -375,6 +405,9 @@ Diags::activate_taglist(const char *taglist, DiagsTagType mode)
     activated_tags[mode]->compile(taglist);
     unlock();
   }
+  if ((DiagsTagType_Debug == mode) && (this == diags())) {
+    DbgCtl::update();
+  }
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -396,6 +429,9 @@ Diags::deactivate_all(DiagsTagType mode)
     activated_tags[mode] = nullptr;
   }
   unlock();
+  if ((DiagsTagType_Debug == mode) && (this == diags())) {
+    DbgCtl::update();
+  }
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -446,9 +482,9 @@ Diags::dump(FILE *fp) const
   int i;
 
   fprintf(fp, "Diags:\n");
-  fprintf(fp, "  debug.enabled: %d\n", config.enabled[DiagsTagType_Debug]);
+  fprintf(fp, "  debug.enabled: %d\n", config.enabled(DiagsTagType_Debug));
   fprintf(fp, "  debug default tags: '%s'\n", (base_debug_tags ? base_debug_tags : "NULL"));
-  fprintf(fp, "  action.enabled: %d\n", config.enabled[DiagsTagType_Action]);
+  fprintf(fp, "  action.enabled: %d\n", config.enabled(DiagsTagType_Action));
   fprintf(fp, "  action default tags: '%s'\n", (base_action_tags ? base_action_tags : "NULL"));
   fprintf(fp, "  outputs:\n");
   for (i = 0; i < DiagsLevel_Count; i++) {

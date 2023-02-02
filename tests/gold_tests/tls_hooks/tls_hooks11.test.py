@@ -24,7 +24,7 @@ Test.Summary = '''
 Test different combinations of TLS handshake hooks to ensure they are applied consistently.
 '''
 
-ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True)
+ts = Test.MakeATSProcess("ts", enable_tls=True)
 server = Test.MakeOriginServer("server")
 request_header = {"headers": "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n", "timestamp": "1469733493.993", "body": ""}
 # desired response form the origin server
@@ -58,10 +58,10 @@ tr.Processes.Default.Command = 'curl -k -H \'host:example.com:{0}\' https://127.
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.Streams.stdout = "gold/preaccept-1.gold"
 
-ts.Streams.stderr = "gold/ts-preaccept-delayed-1.gold"
+ts.Disk.traffic_out.Content = "gold/ts-preaccept-delayed-1.gold"
 
 preacceptstring = "Pre accept delay callback 0"
-ts.Streams.All = Testers.ContainsExpression(
+ts.Disk.traffic_out.Content = Testers.ContainsExpression(
     r"\A(?:(?!{0}).)*{0}.*({0})?(?!.*{0}).*\Z".format(preacceptstring),
     "Pre accept message appears only once or twice",
     reflags=re.S | re.M)

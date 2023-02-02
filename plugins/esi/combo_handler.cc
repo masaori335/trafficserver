@@ -63,7 +63,7 @@ unsigned MaxFileCount = DEFAULT_MAX_FILE_COUNT;
 // We hardcode "immutable" here because it's not yet defined in the ATS API
 #define HTTP_IMMUTABLE "immutable"
 
-int arg_idx;
+int arg_idx = -1;
 static string SIG_KEY_NAME;
 static vector<string> HEADER_ALLOWLIST;
 
@@ -267,7 +267,7 @@ CacheControlHeader::update(TSMBuffer bufp, TSMLoc hdr_loc)
         if (strncasecmp(val, TS_HTTP_VALUE_MAX_AGE, TS_HTTP_LEN_MAX_AGE) == 0) {
           unsigned int max_age = 0;
           char *ptr            = const_cast<char *>(val);
-          ptr += TS_HTTP_LEN_MAX_AGE;
+          ptr                  += TS_HTTP_LEN_MAX_AGE;
           while ((*ptr == ' ') || (*ptr == '\t')) {
             ptr++;
           }
@@ -356,7 +356,7 @@ TSPluginInit(int argc, const char *argv[])
     int c;
     static const struct option longopts[] = {
       {"max-files", required_argument, nullptr, 'f'},
-      {nullptr, 0, nullptr, 0},
+      {nullptr,     0,                 nullptr, 0  },
     };
 
     int longindex = 0;
@@ -495,8 +495,8 @@ handleReadRequestHeader(TSCont /* contp ATS_UNUSED */, TSEvent event, void *edat
           InterceptData *int_data = new InterceptData(contp);
           TSContDataSet(contp, int_data);
           // todo: check if these two cacheable sets are required
-          TSHttpTxnReqCacheableSet(txnp, 1);
-          TSHttpTxnRespCacheableSet(txnp, 1);
+          TSHttpTxnCntlSet(txnp, TS_HTTP_CNTL_RESPONSE_CACHEABLE, true);
+          TSHttpTxnCntlSet(txnp, TS_HTTP_CNTL_REQUEST_CACHEABLE, true);
           getClientRequest(txnp, bufp, hdr_loc, url_loc, int_data->creq);
           LOG_DEBUG("Setup server intercept to handle client request");
         }
@@ -652,7 +652,7 @@ parseQueryParameters(const char *query, int query_len, ClientRequest &creq)
                 common_prefix_path      = common_prefix;
                 common_prefix_path_size = i;
                 ++i; // go beyond the ':'
-                common_prefix += i;
+                common_prefix      += i;
                 common_prefix_size -= i;
                 break;
               }
@@ -866,7 +866,7 @@ readInterceptRequest(InterceptData &int_data)
         int_data.read_complete = true;
       }
       consumed += data_len;
-      block = TSIOBufferBlockNext(block);
+      block    = TSIOBufferBlockNext(block);
     }
   }
   LOG_DEBUG("Consumed %d bytes from input vio", consumed);
@@ -1234,6 +1234,13 @@ TSRemapInit(TSRemapInterface *api_info, char *errbuf, int errbuf_size)
   if (api_info->size < sizeof(TSRemapInterface)) {
     strncpy(errbuf, "[TSRemapInit] - Incorrect size of TSRemapInterface structure", errbuf_size - 1);
     return TS_ERROR;
+  }
+
+  if (TSUserArgIndexReserve(TS_USER_ARGS_TXN, DEBUG_TAG, "will save plugin-enable flag here", &arg_idx) != TS_SUCCESS) {
+    LOG_ERROR("failed to reserve private data slot");
+    return TS_ERROR;
+  } else {
+    LOG_DEBUG("txn_arg_idx: %d", arg_idx);
   }
 
   TSDebug(DEBUG_TAG, "%s plugin's remap part is initialized", DEBUG_TAG);

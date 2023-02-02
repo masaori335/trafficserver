@@ -23,7 +23,7 @@
 #include "TLSSNISupport.h"
 #include "tscore/ink_assert.h"
 #include "tscore/Diags.h"
-#include "P_SSLSNI.h"
+#include "SSLSNIConfig.h"
 
 int TLSSNISupport::_ex_data_index = -1;
 
@@ -57,9 +57,14 @@ TLSSNISupport::unbind(SSL *ssl)
 int
 TLSSNISupport::perform_sni_action()
 {
-  const char *servername = this->_get_sni_server_name();
+  const char *servername = this->get_sni_server_name();
+  if (!servername) {
+    Debug("ssl_sni", "No servername provided");
+    return SSL_TLSEXT_ERR_OK;
+  }
+
   SNIConfig::scoped_config params;
-  if (const auto &actions = params->get(servername); !actions.first) {
+  if (const auto &actions = params->get({servername, std::strlen(servername)}); !actions.first) {
     Debug("ssl_sni", "%s not available in the map", servername);
   } else {
     for (auto &&item : *actions.first) {
@@ -137,7 +142,7 @@ TLSSNISupport::_clear()
 }
 
 const char *
-TLSSNISupport::_get_sni_server_name() const
+TLSSNISupport::get_sni_server_name() const
 {
   return _sni_server_name.get() ? _sni_server_name.get() : "";
 }

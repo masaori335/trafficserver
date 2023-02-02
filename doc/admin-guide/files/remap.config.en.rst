@@ -44,7 +44,11 @@ Refer to  :ref:`reverse-proxy-and-http-redirects`, for information about
 redirecting HTTP requests and using reverse proxy.
 
 After you modify the :file:`remap.config` run the
-:option:`traffic_ctl config reload` to apply the changes.
+:option:`traffic_ctl config reload` to apply the changes. The current configuration is replaced
+with the new configuration only if there are no errors in the file. Any syntax error will prevent
+an update. Even if syntactically correct the file is considered valid only if it has at least :ts:cv:`proxy.config.url_remap.min_rules_required`
+rules in it. This defaults to 0, but can be set higher if it is desirable to prevent loading an
+empty or missing file.
 
 Format
 ======
@@ -265,7 +269,7 @@ Client Request                   Translated Request
 ``http://www.x.com/Widgets``     ``http://server.hoster.com/x/Widgets``
 ================================ =====================================
 
- 
+
 
 ================================ ======================================= =============================
 Client Request                   Origin Server Header                    Translated Request
@@ -276,7 +280,7 @@ Client Request                   Origin Server Header                    Transla
 When acting as a reverse proxy for multiple servers, Traffic Server is
 unable to route to URLs from older browsers that do not send the
 ``Host:`` header. As a solution, set the variable :ts:cv:`proxy.config.header.parse.no_host_url_redirect`
-in the :file:`records.config` file to the URL to which Traffic Server will redirect
+in the :file:`records.yaml` file to the URL to which Traffic Server will redirect
 requests without host headers.
 
 Redirect Mapping Rules

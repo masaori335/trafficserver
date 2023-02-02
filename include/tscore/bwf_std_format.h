@@ -26,6 +26,7 @@
 #include <atomic>
 #include <array>
 #include <string_view>
+#include <chrono>
 #include "tscpp/util/TextView.h"
 #include "tscore/BufferWriterForward.h"
 
@@ -36,6 +37,20 @@ ts::BufferWriter &
 bwformat(ts::BufferWriter &w, ts::BWFSpec const &spec, atomic<T> const &v)
 {
   return ts::bwformat(w, spec, v.load());
+}
+
+template <typename Rep, typename Period>
+ts::BufferWriter &
+bwformat(ts::BufferWriter &w, ts::BWFSpec const &spec, chrono::duration<Rep, Period> const &d)
+{
+  return bwformat(w, spec, d.count());
+}
+
+template <typename Clock, typename Duration>
+ts::BufferWriter &
+bwformat(ts::BufferWriter &w, ts::BWFSpec const &spec, chrono::time_point<Clock, Duration> const &t)
+{
+  return bwformat(w, spec, t.time_since_epoch());
 }
 
 } // end namespace std
@@ -73,7 +88,11 @@ namespace bwf
   namespace detail
   {
     // Special case conversions - these handle nullptr because the @c std::string_view spec is stupid.
-    inline std::string_view FirstOfConverter(std::nullptr_t) { return std::string_view{}; }
+    inline std::string_view
+    FirstOfConverter(std::nullptr_t)
+    {
+      return std::string_view{};
+    }
     inline std::string_view
     FirstOfConverter(char const *s)
     {
@@ -91,7 +110,7 @@ namespace bwf
   /// All arguments must be convertible to @c std::string.
   template <typename... Args>
   std::string_view
-  FirstOf(Args &&... args)
+  FirstOf(Args &&...args)
   {
     std::array<std::string_view, sizeof...(args)> strings{{detail::FirstOfConverter(args)...}};
     for (auto &s : strings) {
@@ -130,5 +149,4 @@ namespace bwf
 BufferWriter &bwformat(BufferWriter &w, BWFSpec const &spec, bwf::Errno const &e);
 BufferWriter &bwformat(BufferWriter &w, BWFSpec const &spec, bwf::Date const &date);
 BufferWriter &bwformat(BufferWriter &w, BWFSpec const &spec, bwf::OptionalAffix const &opts);
-
 } // namespace ts

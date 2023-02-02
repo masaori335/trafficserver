@@ -27,11 +27,6 @@ Test.SkipUnless(
 Test.ContinueOnFail = True
 
 plugin_name = "test_tsapi"
-log_file_name = "log.txt"
-
-
-# The test plugin will output test logging to this file.
-Test.Env["OUTPUT_FILE"] = os.path.join(Test.RunDirectory, log_file_name)
 
 server = Test.MakeOriginServer("server")
 
@@ -47,7 +42,11 @@ server.addResponse("sessionlog.json", request_header, response_header)
 
 # Disable the cache to make sure each request is forwarded to the origin
 # server.
-ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True, enable_cache=False)
+ts = Test.MakeATSProcess("ts", enable_tls=True, enable_cache=False)
+
+# The test plugin will output test logging to this file.
+log_file_name = os.path.join(ts.Variables.LOGDIR, "log.txt")
+Test.Env["OUTPUT_FILE"] = log_file_name
 
 ts.addDefaultSSLFiles()
 
@@ -56,7 +55,7 @@ ts.Disk.records_config.update({
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.url_remap.remap_required': 1,
-    'proxy.config.diags.debug.enabled': 1,
+    'proxy.config.diags.debug.enabled': 3,
     'proxy.config.diags.debug.tags': f'http|{plugin_name}',
 })
 
@@ -74,10 +73,16 @@ ts.Disk.remap_config.AddLine(
     "map https://myhost.test:123 http://127.0.0.1:{0} @plugin={1} @plugin={1}".format(server.Variables.Port, f"{plugin_name}.so")
 )
 
+# For some reason, without this delay, traffic_server cannot reliably open the cleartext port for listening without an
+# error.
+#
 tr = Test.AddTestRun()
-# Probe server port to check if ready.
-tr.Processes.Default.StartBefore(server, ready=When.PortOpen(server.Variables.Port))
-tr.Processes.Default.StartBefore(Test.Processes.ts)
+tr.Processes.Default.Command = "sleep 3"
+tr.Processes.Default.ReturnCode = 0
+
+tr = Test.AddTestRun()
+tr.Processes.Default.StartBefore(server)
+tr.Processes.Default.StartBefore(ts)
 #
 tr.Processes.Default.Command = (
     'curl --verbose --ipv4 --header "Host: mYhOsT.teSt" hTtP://loCalhOst:{}/'.format(ts.Variables.port)
@@ -99,7 +104,7 @@ tr.Processes.Default.ReturnCode = 0
 
 tr = Test.AddTestRun()
 # Change server port number (which can vary) to a fixed string for compare to gold file.
-second_log_file_name = "log2.txt"
+second_log_file_name = os.path.join(ts.Variables.LOGDIR, "log2.txt")
 tr.Processes.Default.Command = f"sed 's/{server.Variables.Port}/SERVER_PORT/' < {log_file_name} > {second_log_file_name}"
 tr.Processes.Default.ReturnCode = 0
 f = tr.Disk.File(second_log_file_name)

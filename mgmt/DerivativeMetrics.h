@@ -24,8 +24,7 @@
 #pragma once
 
 #include <tuple>
-
-#include "records/I_RecLocal.h"
+#include "records/I_RecDefs.h"
 
 using DerivativeSum = std::tuple<const char *, RecDataT, std::vector<const char *>>;
 
@@ -36,6 +35,6 @@ public:
   void Update();
 
   // Don't allow copy and assign
-  DerivativeMetrics(DerivativeMetrics const &) = delete;
+  DerivativeMetrics(DerivativeMetrics const &)            = delete;
   DerivativeMetrics &operator=(DerivativeMetrics const &) = delete;
 };

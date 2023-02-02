@@ -17,9 +17,6 @@
  */
 #include "tscore/ink_config.h"
 
-// Needs special OpenSSL APIs as a global plugin for early CLIENT_HELLO inspection
-#if TS_USE_HELLO_CB
-
 #include <cstring>
 
 #include "sni_limiter.h"
@@ -44,6 +41,7 @@ sni_queue_cont(TSCont cont, TSEvent event, void *edata)
       (void)contp; // Ugly, but silences some compilers.
       TSDebug(PLUGIN_NAME, "SNI=%s: Enabling queued VC after %ldms", key.data(), static_cast<long>(delay.count()));
       TSVConnReenable(vc);
+      limiter->incrementMetric(RATE_LIMITER_METRIC_RESUMED);
     }
 
     // Kill any queued VCs if they are too old
@@ -58,6 +56,7 @@ sni_queue_cont(TSCont cont, TSEvent event, void *edata)
         (void)contp;
         TSDebug(PLUGIN_NAME, "Queued VC is too old (%ldms), erroring out", static_cast<long>(age.count()));
         TSVConnReenableEx(vc, TS_EVENT_ERROR);
+        limiter->incrementMetric(RATE_LIMITER_METRIC_EXPIRED);
       }
     }
   }
@@ -76,6 +75,8 @@ SniSelector::insert(std::string_view sni, SniRateLimiter *limiter)
     TSDebug(PLUGIN_NAME, "Added global limiter for SNI=%s (limit=%u, queue=%u, max_age=%ldms)", sni.data(), limiter->limit,
             limiter->max_queue, static_cast<long>(limiter->max_age.count()));
 
+    limiter->initializeMetrics(RATE_LIMITER_TYPE_SNI);
+
     return true;
   }
 
@@ -85,6 +86,10 @@ SniSelector::insert(std::string_view sni, SniRateLimiter *limiter)
 SniRateLimiter *
 SniSelector::find(std::string_view sni)
 {
+  if (sni.empty()) { // Likely shouldn't happen, but we can shortcircuit
+    return nullptr;
+  }
+
   auto limiter = _limiters.find(sni);
 
   if (limiter != _limiters.end()) {
@@ -104,16 +109,17 @@ SniSelector::factory(const char *sni_list, int argc, const char *argv[])
   char *saveptr;
   char *sni   = strdup(sni_list); // We make a copy of the sni list, to not touch the original string
   char *token = strtok_r(sni, ",", &saveptr);
-  SniRateLimiter def_limiter;
 
-  def_limiter.initialize(argc, argv); // Creates the template limiter
-  _needs_queue_cont = (def_limiter.max_queue > 0);
-
+  // Todo: We are repeating initializing here with the same configurations, but once we move this to
+  // YAML, and refactor this, it'll be better. And this is not particularly expensive.
   while (nullptr != token) {
-    SniRateLimiter *limiter = new SniRateLimiter(def_limiter); // Make a shallow copy
+    SniRateLimiter *limiter = new SniRateLimiter();
     TSReleaseAssert(limiter);
 
+    limiter->initialize(argc, argv);
     limiter->description = token;
+
+    _needs_queue_cont = (limiter->max_queue > 0);
 
     insert(std::string_view(limiter->description), limiter);
     token = strtok_r(nullptr, ",", &saveptr);
@@ -136,5 +142,3 @@ SniSelector::setupQueueCont()
     _action = TSContScheduleEveryOnPool(_queue_cont, QUEUE_DELAY_TIME.count(), TS_THREAD_POOL_TASK);
   }
 }
-
-#endif

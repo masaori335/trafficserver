@@ -27,7 +27,7 @@ Ensure that handshake fails if invalid alpn string is offered
 Test.SkipUnless(Condition.HasOpenSSLVersion('1.1.1'))
 
 # Define default ATS
-ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True)
+ts = Test.MakeATSProcess("ts", enable_tls=True)
 
 # add ssl materials like key, certificates for the server
 ts.addSSLfile("ssl/server.pem")
@@ -72,5 +72,5 @@ tr = Test.AddTestRun("alpn h2")
 tr.Processes.Default.Command = "curl -k --http2 -v -o /dev/null https://127.0.0.1:{}".format(ts.Variables.ssl_port)
 tr.ReturnCode = 0
 tr.StillRunningAfter = ts
-tr.Processes.Default.Streams.All += Testers.IncludesExpression("ALPN, server accepted to use h2", "negotiated h2")
+tr.Processes.Default.Streams.All += Testers.IncludesExpression("ALPN. server accepted.*h2", "negotiated h2")
 tr.Processes.Default.Streams.All += Testers.IncludesExpression("HTTP/2 404 ", "Good response")

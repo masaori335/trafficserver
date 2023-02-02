@@ -33,6 +33,7 @@
 #include <sstream>
 
 #include <string>
+#include <filesystem>
 #include <getopt.h>
 
 #include <netinet/in.h>
@@ -55,8 +56,6 @@ constexpr char PLUGIN[] = "statichit";
   VDEBUG("vio=%p vio.cont=%p, vio.cont.data=%p, vio.vc=%p " fmt, (vio), TSVIOContGet(vio), TSContDataGet(TSVIOContGet(vio)), \
          TSVIOVConnGet(vio), ##__VA_ARGS__)
 
-static TSCont TxnHook;
-
 static int StatCountBytes     = -1;
 static int StatCountResponses = -1;
 
@@ -64,21 +63,76 @@ static int StaticHitInterceptHook(TSCont contp, TSEvent event, void *edata);
 static int StaticHitTxnHook(TSCont contp, TSEvent event, void *edata);
 
 struct StaticHitConfig {
-  explicit StaticHitConfig(const std::string &filePath, const std::string &mimeType, bool disableExact)
-    : filePath(filePath), mimeType(mimeType), disableExact(disableExact)
+  explicit StaticHitConfig(const std::string &fileOrDir, const std::string &mimeType, bool exact) : mimeType(mimeType)
   {
+    std::filesystem::path base_path{fileOrDir};
+
+    if (!base_path.is_absolute()) {
+      base_path = std::filesystem::path(TSConfigDirGet()) / base_path;
+    }
+    base_path = std::filesystem::weakly_canonical(base_path);
+
+    if (std::filesystem::is_directory(base_path)) {
+      dirPath      = base_path;
+      filePath     = "";
+      disableExact = true;
+    } else {
+      dirPath      = "";
+      filePath     = base_path;
+      disableExact = exact;
+    }
   }
 
-  ~StaticHitConfig() {}
+  ~StaticHitConfig() { TSContDestroy(cont); }
 
+  std::string_view
+  makePath(TSHttpTxn txnp, std::string &output) const
+  {
+    std::string_view ret = {};
+
+    if (!dirPath.empty()) {
+      TSMBuffer reqp;
+      TSMLoc hdr_loc = nullptr, url_loc = nullptr;
+
+      if (TS_SUCCESS == TSHttpTxnClientReqGet(txnp, &reqp, &hdr_loc)) {
+        if (TS_SUCCESS == TSHttpHdrUrlGet(reqp, hdr_loc, &url_loc)) {
+          int path_len = 0;
+          auto path    = TSUrlPathGet(reqp, url_loc, &path_len);
+
+          std::filesystem::path requested_file_path(
+            std::filesystem::weakly_canonical(dirPath / std::string_view{path, static_cast<size_t>(path_len)}));
+
+          TSHandleMLocRelease(reqp, hdr_loc, url_loc);
+          TSHandleMLocRelease(reqp, TS_NULL_MLOC, hdr_loc);
+
+          if (std::equal(dirPath.begin(), dirPath.end(), requested_file_path.begin()) &&
+              std::filesystem::is_regular_file(requested_file_path)) {
+            output = requested_file_path.string();
+            ret    = {output.c_str(), output.size()};
+          }
+        } else {
+          TSHandleMLocRelease(reqp, TS_NULL_MLOC, hdr_loc);
+        }
+      }
+    } else {
+      ret = filePath;
+    }
+
+    return ret;
+  }
+
+  std::filesystem::path dirPath;
   std::string filePath;
-  std::string mimeType;
 
-  int successCode = 200;
-  int failureCode = 404;
-  int maxAge      = 0;
+  std::string mimeType = "";
+  int successCode      = 200;
+  int failureCode      = 404;
+  int maxAge           = 0;
 
   bool disableExact = false;
+  bool isDirectory  = false;
+
+  TSCont cont;
 };
 
 struct StaticHitRequest;
@@ -166,12 +220,16 @@ struct StaticHitRequest {
   std::string mimeType;
 
   static StaticHitRequest *
-  createStaticHitRequest(StaticHitConfig *tc)
+  createStaticHitRequest(StaticHitConfig *tc, TSHttpTxn txn)
   {
     StaticHitRequest *shr = new StaticHitRequest;
     std::ifstream ifstr;
+    std::string output;
+    std::string_view filePath = tc->makePath(txn, output);
 
-    ifstr.open(tc->filePath);
+    VDEBUG("Requested file path: %s", filePath.data());
+
+    ifstr.open(filePath.data());
     if (!ifstr) {
       shr->statusCode = tc->failureCode;
       return shr;
@@ -366,7 +424,6 @@ StaticHitInterceptHook(TSCont contp, TSEvent event, void *edata)
     VDEBUG("reading vio=%p vc=%p, trq=%p", arg.vio, TSVIOVConnGet(arg.vio), cdata.trq);
 
     TSIOBufferBlock blk;
-    ssize_t consumed     = 0;
     TSParseResult result = TS_PARSE_CONT;
 
     for (blk = TSIOBufferReaderStart(cdata.trq->readio.reader); blk; blk = TSIOBufferBlockNext(blk)) {
@@ -408,8 +465,7 @@ StaticHitInterceptHook(TSCont contp, TSEvent event, void *edata)
         return TS_EVENT_NONE;
 
       case TS_PARSE_CONT:
-        // We consumed the buffer we got minus the remainder.
-        consumed += (nbytes - std::distance(ptr, end));
+        break;
       }
     }
 
@@ -487,9 +543,9 @@ StaticHitInterceptHook(TSCont contp, TSEvent event, void *edata)
 static void
 StaticHitSetupIntercept(StaticHitConfig *cfg, TSHttpTxn txn)
 {
-  StaticHitRequest *req = StaticHitRequest::createStaticHitRequest(cfg);
+  StaticHitRequest *req = StaticHitRequest::createStaticHitRequest(cfg, txn);
+
   if (req == nullptr) {
-    VERROR("could not create request for %s", cfg->filePath.c_str());
     return;
   }
 
@@ -552,8 +608,6 @@ done:
 TSReturnCode
 TSRemapInit(TSRemapInterface * /* api_info */, char * /* errbuf */, int /* errbuf_size */)
 {
-  TxnHook = TSContCreate(StaticHitTxnHook, nullptr);
-
   if (TSStatFindName("statichit.response_bytes", &StatCountBytes) == TS_ERROR) {
     StatCountBytes = TSStatCreate("statichit.response_bytes", TS_RECORDDATATYPE_COUNTER, TS_STAT_NON_PERSISTENT, TS_STAT_SYNC_SUM);
   }
@@ -597,9 +651,8 @@ TSRemapDoRemap(void *ih, TSHttpTxn rh, TSRemapRequestInfo *rri)
     TSHttpTxnConfigIntSet(rh, TS_CONFIG_HTTP_CACHE_HTTP, 0);
     StaticHitSetupIntercept(static_cast<StaticHitConfig *>(ih), rh);
   } else {
-    TSHttpTxnHookAdd(rh, TS_HTTP_CACHE_LOOKUP_COMPLETE_HOOK, TxnHook);
+    TSHttpTxnHookAdd(rh, TS_HTTP_CACHE_LOOKUP_COMPLETE_HOOK, static_cast<StaticHitConfig *>(ih)->cont);
   }
-  TSContDataSet(TxnHook, ih);
 
   return TSREMAP_NO_REMAP; // This plugin never rewrites anything.
 }
@@ -607,13 +660,15 @@ TSRemapDoRemap(void *ih, TSHttpTxn rh, TSRemapRequestInfo *rri)
 TSReturnCode
 TSRemapNewInstance(int argc, char *argv[], void **ih, char * /* errbuf ATS_UNUSED */, int /* errbuf_size ATS_UNUSED */)
 {
-  static const struct option longopt[] = {{"file-path", required_argument, nullptr, 'f'},
-                                          {"mime-type", required_argument, nullptr, 'm'},
-                                          {"max-age", required_argument, nullptr, 'a'},
-                                          {"failure-code", required_argument, nullptr, 'c'},
-                                          {"success-code", required_argument, nullptr, 's'},
-                                          {"disable-exact", no_argument, nullptr, 'd'},
-                                          {nullptr, no_argument, nullptr, '\0'}};
+  static const struct option longopt[] = {
+    {"file-path",     required_argument, nullptr, 'f' },
+    {"mime-type",     required_argument, nullptr, 'm' },
+    {"max-age",       required_argument, nullptr, 'a' },
+    {"failure-code",  required_argument, nullptr, 'c' },
+    {"success-code",  required_argument, nullptr, 's' },
+    {"disable-exact", no_argument,       nullptr, 'd' },
+    {nullptr,         no_argument,       nullptr, '\0'}
+  };
 
   std::string filePath;
   std::string mimeType = "text/plain";
@@ -656,15 +711,12 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char * /* errbuf ATS_UNUSE
   }
 
   if (filePath.size() == 0) {
-    printf("Need to specify --file-path\n");
+    VERROR("Need to specify --file-path\n");
     return TS_ERROR;
   }
 
-  if (filePath.find('/') != 0) {
-    filePath = std::string(TSConfigDirGet()) + '/' + filePath;
-  }
-
   StaticHitConfig *tc = new StaticHitConfig(filePath, mimeType, disableExact);
+
   if (maxAge > 0) {
     tc->maxAge = maxAge;
   }
@@ -674,6 +726,10 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char * /* errbuf ATS_UNUSE
   if (successCode > 0) {
     tc->successCode = successCode;
   }
+
+  // Finally, create the continuation to use for this remap rule, tracking the config as cont data.
+  tc->cont = TSContCreate(StaticHitTxnHook, nullptr);
+  TSContDataSet(tc->cont, tc);
 
   *ih = static_cast<void *>(tc);
 

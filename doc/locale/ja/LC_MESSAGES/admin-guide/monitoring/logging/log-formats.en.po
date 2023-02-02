@@ -187,10 +187,10 @@ msgstr ""
 #: ../../../admin-guide/monitoring/logging/log-formats.en.rst:97
 msgid ""
 "These formats may be used by enabling the :ts:cv:`proxy.config.log."
-"custom_logs_enabled` setting in :file:`records.config` and adding "
+"custom_logs_enabled` setting in :file:`records.yaml` and adding "
 "appropriate entries to :file:`logging.config`."
 msgstr ""
-"これらのフォーマットは :file:`records.config` の :ts:cv:`proxy.config.log."
+"これらのフォーマットは :file:`records.yaml` の :ts:cv:`proxy.config.log."
 "custom_logs_enabled` 設定を有効にし、 :file:`logging.config` に適切なエント"
 "リを追加することで使えるようになります。"
 
@@ -986,11 +986,6 @@ msgid ""
 msgstr ""
 "|TS| へのクライアントリクエストの HTTP メソッド。``GET`` や ``POST`` やその"
 "他のものです。( ``cqtx`` のサブセット )"
-
-#: ../../../admin-guide/monitoring/logging/log-formats.en.rst:403
-#, fuzzy
-msgid "``cqhv``"
-msgstr "``cqhl``"
 
 #: ../../../admin-guide/monitoring/logging/log-formats.en.rst:403
 msgid "The client request HTTP version."
@@ -2462,9 +2457,6 @@ msgstr "クライアントが接続したが、その後リクエストを送る
 
 #~ msgid "chp"
 #~ msgstr "chp"
-
-#~ msgid "cqhv"
-#~ msgstr "cqhv"
 
 #~ msgid "cqpv"
 #~ msgstr "cqpv"

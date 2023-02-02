@@ -24,6 +24,7 @@
 
 #include "catch.hpp"
 
+#include "tscore/ink_hw.h"
 #include "tscore/ink_thread.h"
 #include "tscore/ink_memory.h"
 #include "tscore/ink_queue.h"
@@ -170,7 +171,10 @@ TEST_CASE("simple new and free", "")
   // go 100 times in default (--benchmark-samples)
   char name[16];
   snprintf(name, sizeof(name), "nthreads = %d", nthreads);
-  BENCHMARK(name) { return setup_test_case_1(nthreads); };
+  BENCHMARK(name)
+  {
+    return setup_test_case_1(nthreads);
+  };
 }
 } // namespace
 

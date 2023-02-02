@@ -58,7 +58,6 @@ UrlRewrite::load()
 
   config_file_path = RecConfigReadConfigPath("proxy.config.url_remap.filename", ts::filename::REMAP);
   if (!config_file_path) {
-    pmgmt->signalManager(MGMT_SIGNAL_CONFIG_ERROR, "Unable to find proxy.config.url_remap.filename");
     Warning("%s Unable to locate %s. No remappings in effect", modulePrefix, ts::filename::REMAP);
     return false;
   }
@@ -66,7 +65,6 @@ UrlRewrite::load()
   this->ts_name = nullptr;
   REC_ReadConfigStringAlloc(this->ts_name, "proxy.config.proxy_name");
   if (this->ts_name == nullptr) {
-    pmgmt->signalManager(MGMT_SIGNAL_CONFIG_ERROR, "Unable to read proxy.config.proxy_name");
     Warning("%s Unable to determine proxy name.  Incorrect redirects could be generated", modulePrefix);
     this->ts_name = ats_strdup("");
   }
@@ -74,7 +72,6 @@ UrlRewrite::load()
   this->http_default_redirect_url = nullptr;
   REC_ReadConfigStringAlloc(this->http_default_redirect_url, "proxy.config.http.referer_default_redirect");
   if (this->http_default_redirect_url == nullptr) {
-    pmgmt->signalManager(MGMT_SIGNAL_CONFIG_ERROR, "Unable to read proxy.config.http.referer_default_redirect");
     Warning("%s Unable to determine default redirect url for \"referer\" filter.", modulePrefix);
     this->http_default_redirect_url = ats_strdup("http://www.apache.org");
   }
@@ -89,10 +86,17 @@ UrlRewrite::load()
   Debug("url_rewrite_regex", "strategyFactory file: %s", sf.c_str());
   strategyFactory = new NextHopStrategyFactory(sf.c_str());
 
-  if (0 == this->BuildTable(config_file_path)) {
-    _valid = true;
-    if (is_debug_tag_set("url_rewrite")) {
-      Print();
+  if (TS_SUCCESS == this->BuildTable(config_file_path)) {
+    int n_rules = this->rule_count(); // Minimum # of rules to be considered a valid configuration.
+    int required_rules;
+    REC_ReadConfigInteger(required_rules, "proxy.config.url_remap.min_rules_required");
+    if (n_rules >= required_rules) {
+      _valid = true;
+      if (is_debug_tag_set("url_rewrite")) {
+        Print();
+      }
+    } else {
+      Warning("%s %d rules defined but %d rules required, configuration is invalid.", modulePrefix, n_rules, required_rules);
     }
   } else {
     Warning("something failed during BuildTable() -- check your remap plugins!");
@@ -178,7 +182,10 @@ UrlRewrite::PrintStore(const MappingsStore &store) const
 
   if (!store.regex_list.empty()) {
     printf("    Regex mappings:\n");
-    forl_LL(RegexMapping, list_iter, store.regex_list) { list_iter->url_map->Print(); }
+    forl_LL(RegexMapping, list_iter, store.regex_list)
+    {
+      list_iter->url_map->Print();
+    }
   }
 }
 
@@ -348,10 +355,12 @@ UrlRewrite::ReverseMap(HTTPHdr *response_header)
   const struct {
     const char *const field;
     const int len;
-  } url_headers[N_URL_HEADERS] = {{MIME_FIELD_LOCATION, MIME_LEN_LOCATION},
-                                  {MIME_FIELD_CONTENT_LOCATION, MIME_LEN_CONTENT_LOCATION},
-                                  {"URI", 3},
-                                  {"Destination", 11}};
+  } url_headers[N_URL_HEADERS] = {
+    {MIME_FIELD_LOCATION,         MIME_LEN_LOCATION        },
+    {MIME_FIELD_CONTENT_LOCATION, MIME_LEN_CONTENT_LOCATION},
+    {"URI",                       3                        },
+    {"Destination",               11                       }
+  };
 
   if (unlikely(num_rules_reverse == 0)) {
     ink_assert(reverse_mappings.empty());
@@ -698,11 +707,8 @@ UrlRewrite::BuildTable(const char *path)
   temporary_redirects.hash_lookup.reset(new URLTable);
   forward_mappings_with_recv_port.hash_lookup.reset(new URLTable);
 
-  int zret = 0;
-
   if (!remap_parse_config(path, this)) {
-    // XXX handle file reload error
-    zret = 3;
+    return TS_ERROR;
   }
 
   // Destroy unused tables
@@ -730,7 +736,7 @@ UrlRewrite::BuildTable(const char *path)
     forward_mappings_with_recv_port.hash_lookup.reset(nullptr);
   }
 
-  return zret;
+  return TS_SUCCESS;
 }
 
 /**
@@ -765,7 +771,8 @@ UrlRewrite::TableInsert(std::unique_ptr<URLTable> &h_table, url_mapping *mapping
     h_table->emplace(src_host, ht_contents);
   }
   if (!ht_contents->Insert(mapping)) {
-    Warning("Could not insert new mapping");
+    // Trie::Insert only fails due to an attempt to add a duplicate entry.
+    Warning("Could not insert new mapping: duplicated entry exists");
     return false;
   }
   return true;
@@ -957,9 +964,7 @@ UrlRewrite::_destroyList(RegexMappingList &mappings)
   RegexMapping *list_iter;
   while ((list_iter = mappings.pop()) != nullptr) {
     delete list_iter->url_map;
-    if (list_iter->to_url_host_template) {
-      ats_free(list_iter->to_url_host_template);
-    }
+    ats_free(list_iter->to_url_host_template);
     delete list_iter;
   }
   mappings.clear();

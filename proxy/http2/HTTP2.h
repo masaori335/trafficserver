@@ -27,33 +27,22 @@
 #include "tscore/ink_memory.h"
 #include "HPACK.h"
 #include "MIME.h"
-#include "records/P_RecDefs.h"
+#include "records/I_RecDefs.h"
 
 class HTTPHdr;
 
-typedef unsigned Http2StreamId;
+// [RFC 9113] 5.1.1 Stream identifiers.
+using Http2StreamId = uint32_t;
 
-constexpr Http2StreamId HTTP2_CONNECTION_CONTROL_STRTEAM = 0;
-constexpr uint8_t HTTP2_FRAME_NO_FLAG                    = 0;
+constexpr Http2StreamId HTTP2_CONNECTION_CONTROL_STREAM = 0;
+constexpr uint8_t HTTP2_FRAME_NO_FLAG                   = 0;
 
 // [RFC 7540] 6.9.2. Initial Flow Control Window Size
 // the flow control window can be come negative so we need to track it with a signed type.
-typedef int32_t Http2WindowSize;
+using Http2WindowSize = int32_t;
 
 extern const char *const HTTP2_CONNECTION_PREFACE;
 const size_t HTTP2_CONNECTION_PREFACE_LEN = 24;
-
-extern const char *HTTP2_VALUE_SCHEME;
-extern const char *HTTP2_VALUE_METHOD;
-extern const char *HTTP2_VALUE_AUTHORITY;
-extern const char *HTTP2_VALUE_PATH;
-extern const char *HTTP2_VALUE_STATUS;
-
-extern const unsigned HTTP2_LEN_SCHEME;
-extern const unsigned HTTP2_LEN_METHOD;
-extern const unsigned HTTP2_LEN_AUTHORITY;
-extern const unsigned HTTP2_LEN_PATH;
-extern const unsigned HTTP2_LEN_STATUS;
 
 const size_t HTTP2_FRAME_HEADER_LEN       = 9;
 const size_t HTTP2_DATA_PADLEN_LEN        = 1;
@@ -105,13 +94,15 @@ enum {
   HTTP2_STAT_MAX_PING_FRAMES_PER_MINUTE_EXCEEDED,
   HTTP2_STAT_MAX_PRIORITY_FRAMES_PER_MINUTE_EXCEEDED,
   HTTP2_STAT_INSUFFICIENT_AVG_WINDOW_UPDATE,
+  HTTP2_STAT_MAX_CONCURRENT_STREAMS_EXCEEDED_IN,
+  HTTP2_STAT_MAX_CONCURRENT_STREAMS_EXCEEDED_OUT,
 
   HTTP2_N_STATS // Terminal counter, NOT A STAT INDEX.
 };
 
 #define HTTP2_INCREMENT_THREAD_DYN_STAT(_s, _t) RecIncrRawStat(http2_rsb, _t, (int)_s, 1);
 #define HTTP2_DECREMENT_THREAD_DYN_STAT(_s, _t) RecIncrRawStat(http2_rsb, _t, (int)_s, -1);
-#define HTTP2_SUM_THREAD_DYN_STAT(_s, _t, _v) RecIncrRawStat(http2_rsb, _t, (int)_s, _v);
+#define HTTP2_SUM_THREAD_DYN_STAT(_s, _t, _v)   RecIncrRawStat(http2_rsb, _t, (int)_s, _v);
 extern RecRawStatBlock *http2_rsb; // Container for statistics.
 
 // [RFC 7540] 6.9.1. The Flow Control Window
@@ -368,8 +359,16 @@ Http2ErrorCode http2_encode_header_blocks(HTTPHdr *, uint8_t *, uint32_t, uint32
 
 ParseResult http2_convert_header_from_2_to_1_1(HTTPHdr *);
 ParseResult http2_convert_header_from_1_1_to_2(HTTPHdr *);
-void http2_init_pseudo_headers(HTTPHdr &);
 void http2_init();
+
+/** Each of these values correspond to the flow control policy described in or
+ * records.config documentation for proxy.config.http2.flow_control.policy_in.
+ */
+enum class Http2FlowControlPolicy {
+  STATIC_SESSION_AND_STATIC_STREAM,
+  LARGE_SESSION_AND_STATIC_STREAM,
+  LARGE_SESSION_AND_DYNAMIC_STREAM,
+};
 
 // Not sure where else to put this, but figure this is as good of a start as
 // anything else.
@@ -384,7 +383,8 @@ public:
   static uint32_t max_active_streams_in;
   static bool throttling;
   static uint32_t stream_priority_enabled;
-  static uint32_t initial_window_size;
+  static uint32_t initial_window_size_in;
+  static Http2FlowControlPolicy flow_control_policy_in;
   static uint32_t max_frame_size;
   static uint32_t header_table_size;
   static uint32_t max_header_list_size;
@@ -394,6 +394,7 @@ public:
   static uint32_t push_diary_size;
   static uint32_t zombie_timeout_in;
   static float stream_error_rate_threshold;
+  static uint32_t stream_error_sampling_threshold;
   static uint32_t max_settings_per_frame;
   static uint32_t max_settings_per_minute;
   static uint32_t max_settings_frames_per_minute;
@@ -406,6 +407,7 @@ public:
   static uint32_t write_buffer_block_size;
   static float write_size_threshold;
   static uint32_t write_time_threshold;
+  static uint32_t buffer_water_mark;
 
   static void init();
 };

@@ -55,7 +55,7 @@
 #include "tscore/ink_platform.h"
 #include "tscore/EventNotify.h"
 #include "tscore/Regression.h"
-#include "records/P_RecProcess.h"
+#include "records/I_RecProcess.h"
 #include "LogFile.h"
 #include "LogBuffer.h"
 
@@ -173,13 +173,6 @@ public:
   static int va_error(const char *format, va_list ap);
   static int error(const char *format, ...) TS_PRINTFLIKE(1, 2);
 
-  /////////////////////////////////////////////////////////////////////////
-  // 'Wire tracing' enabled by source ip or by percentage of connections //
-  /////////////////////////////////////////////////////////////////////////
-  static void trace_in(const sockaddr *peer_addr, uint16_t peer_port, const char *format_string, ...) TS_PRINTFLIKE(3, 4);
-  static void trace_out(const sockaddr *peer_addr, uint16_t peer_port, const char *format_string, ...) TS_PRINTFLIKE(3, 4);
-  static void trace_va(bool in, const sockaddr *peer_addr, uint16_t peer_port, const char *format_string, va_list ap);
-
   // public data members
   static LogObject *error_log;
   /** The latest fully initialized LogConfig.
@@ -238,17 +231,5 @@ LogThrottlingIsValid(int throttling_val)
 static inline bool
 LogRollingEnabledIsValid(int enabled)
 {
-  return (enabled >= Log::NO_ROLLING || enabled < Log::INVALID_ROLLING_VALUE);
+  return (enabled >= Log::NO_ROLLING || enabled < Log::INVALID_ROLLING_VALUE); // lgtm[cpp/constant-comparison]
 }
-
-#define TraceIn(flag, ...)        \
-  do {                            \
-    if (unlikely(flag))           \
-      Log::trace_in(__VA_ARGS__); \
-  } while (0)
-
-#define TraceOut(flag, ...)        \
-  do {                             \
-    if (unlikely(flag))            \
-      Log::trace_out(__VA_ARGS__); \
-  } while (0)

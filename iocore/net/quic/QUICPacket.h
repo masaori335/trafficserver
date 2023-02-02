@@ -34,7 +34,7 @@
 
 #define QUIC_FIELD_OFFSET_CONNECTION_ID 1
 #define QUIC_FIELD_OFFSET_PACKET_NUMBER 4
-#define QUIC_FIELD_OFFSET_PAYLOAD 5
+#define QUIC_FIELD_OFFSET_PAYLOAD       5
 
 class UDPConnection;
 
@@ -354,7 +354,7 @@ public:
   Ptr<IOBufferBlock> header_block() const override;
   Ptr<IOBufferBlock> payload_block() const override;
 
-  const QUICVersion supported_version(uint8_t index) const;
+  QUICVersion supported_version(uint8_t index) const;
   int nversions() const;
 
 private:

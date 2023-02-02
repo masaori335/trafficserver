@@ -39,6 +39,7 @@
 #include <ts/remap.h>
 
 using std::strlen;
+using std::string_view;
 
 struct AuthRequestContext;
 
@@ -55,9 +56,12 @@ static TSCont AuthOsDnsContinuation;
 
 struct AuthOptions {
   std::string hostname;
+  std::string forward_header_prefix;
   int hostport                   = -1;
   AuthRequestTransform transform = nullptr;
   bool force                     = false;
+  bool cache_internal_requests   = false;
+  string_view forwardHeaderPrefix;
 
   AuthOptions()  = default;
   ~AuthOptions() = default;
@@ -80,6 +84,7 @@ struct StateTransition {
 };
 
 static TSEvent StateAuthProxyConnect(AuthRequestContext *, void *);
+static TSEvent StateAuthProxyWriteReady(AuthRequestContext *, void *);
 static TSEvent StateAuthProxyWriteComplete(AuthRequestContext *, void *);
 static TSEvent StateUnauthorized(AuthRequestContext *, void *);
 static TSEvent StateAuthorized(AuthRequestContext *, void *);
@@ -100,41 +105,49 @@ StateContinue(AuthRequestContext *, void *)
 }
 
 // State table for sending the auth proxy response to the client.
-static const StateTransition StateTableSendResponse[] = {{TS_EVENT_HTTP_SEND_RESPONSE_HDR, StateAuthProxySendResponse, nullptr},
-                                                         {TS_EVENT_NONE, nullptr, nullptr}};
+static const StateTransition StateTableSendResponse[] = {
+  {TS_EVENT_HTTP_SEND_RESPONSE_HDR, StateAuthProxySendResponse, nullptr},
+  {TS_EVENT_NONE,                   nullptr,                    nullptr}
+};
 
 // State table for reading the proxy response body content.
 static const StateTransition StateTableProxyReadContent[] = {
-  {TS_EVENT_VCONN_READ_READY, StateAuthProxyReadContent, StateTableProxyReadContent},
-  {TS_EVENT_VCONN_READ_COMPLETE, StateAuthProxyReadContent, StateTableProxyReadContent},
-  {TS_EVENT_VCONN_EOS, StateAuthProxyCompleteContent, StateTableProxyReadContent},
-  {TS_EVENT_HTTP_SEND_RESPONSE_HDR, StateContinue, StateTableSendResponse},
-  {TS_EVENT_ERROR, StateUnauthorized, nullptr},
-  {TS_EVENT_IMMEDIATE, StateAuthorized, nullptr},
-  {TS_EVENT_NONE, nullptr, nullptr}};
+  {TS_EVENT_VCONN_READ_READY,       StateAuthProxyReadContent,     StateTableProxyReadContent},
+  {TS_EVENT_VCONN_READ_COMPLETE,    StateAuthProxyReadContent,     StateTableProxyReadContent},
+  {TS_EVENT_VCONN_EOS,              StateAuthProxyCompleteContent, StateTableProxyReadContent},
+  {TS_EVENT_HTTP_SEND_RESPONSE_HDR, StateContinue,                 StateTableSendResponse    },
+  {TS_EVENT_ERROR,                  StateUnauthorized,             nullptr                   },
+  {TS_EVENT_IMMEDIATE,              StateAuthorized,               nullptr                   },
+  {TS_EVENT_NONE,                   nullptr,                       nullptr                   }
+};
 
 // State table for reading the auth proxy response header.
 static const StateTransition StateTableProxyReadHeader[] = {
-  {TS_EVENT_VCONN_READ_READY, StateAuthProxyReadHeaders, StateTableProxyReadHeader},
-  {TS_EVENT_VCONN_READ_COMPLETE, StateAuthProxyReadHeaders, StateTableProxyReadHeader},
-  {TS_EVENT_HTTP_READ_REQUEST_HDR, StateAuthProxyCompleteHeaders, StateTableProxyReadHeader},
-  {TS_EVENT_HTTP_SEND_RESPONSE_HDR, StateContinue, StateTableSendResponse},
-  {TS_EVENT_HTTP_CONTINUE, StateAuthProxyReadContent, StateTableProxyReadContent},
-  {TS_EVENT_VCONN_EOS, StateUnauthorized, nullptr}, // XXX Should we check headers on EOS?
-  {TS_EVENT_ERROR, StateUnauthorized, nullptr},
-  {TS_EVENT_IMMEDIATE, StateAuthorized, nullptr},
-  {TS_EVENT_NONE, nullptr, nullptr}};
+  {TS_EVENT_VCONN_READ_READY,       StateAuthProxyReadHeaders,     StateTableProxyReadHeader },
+  {TS_EVENT_VCONN_READ_COMPLETE,    StateAuthProxyReadHeaders,     StateTableProxyReadHeader },
+  {TS_EVENT_HTTP_READ_REQUEST_HDR,  StateAuthProxyCompleteHeaders, StateTableProxyReadHeader },
+  {TS_EVENT_HTTP_SEND_RESPONSE_HDR, StateContinue,                 StateTableSendResponse    },
+  {TS_EVENT_HTTP_CONTINUE,          StateAuthProxyReadContent,     StateTableProxyReadContent},
+  {TS_EVENT_VCONN_EOS,              StateUnauthorized,             nullptr                   }, // XXX Should we check headers on EOS?
+  {TS_EVENT_ERROR,                  StateUnauthorized,             nullptr                   },
+  {TS_EVENT_IMMEDIATE,              StateAuthorized,               nullptr                   },
+  {TS_EVENT_NONE,                   nullptr,                       nullptr                   }
+};
 
 // State table for sending the request to the auth proxy.
 static const StateTransition StateTableProxyRequest[] = {
+  {TS_EVENT_VCONN_WRITE_READY,    StateAuthProxyWriteReady,    StateTableProxyRequest   },
   {TS_EVENT_VCONN_WRITE_COMPLETE, StateAuthProxyWriteComplete, StateTableProxyReadHeader},
-  {TS_EVENT_ERROR, StateUnauthorized, nullptr},
-  {TS_EVENT_NONE, nullptr, nullptr}};
+  {TS_EVENT_ERROR,                StateUnauthorized,           nullptr                  },
+  {TS_EVENT_NONE,                 nullptr,                     nullptr                  }
+};
 
 // Initial state table.
-static const StateTransition StateTableInit[] = {{TS_EVENT_HTTP_POST_REMAP, StateAuthProxyConnect, StateTableProxyRequest},
-                                                 {TS_EVENT_ERROR, StateUnauthorized, nullptr},
-                                                 {TS_EVENT_NONE, nullptr, nullptr}};
+static const StateTransition StateTableInit[] = {
+  {TS_EVENT_HTTP_POST_REMAP, StateAuthProxyConnect, StateTableProxyRequest},
+  {TS_EVENT_ERROR,           StateUnauthorized,     nullptr               },
+  {TS_EVENT_NONE,            nullptr,               nullptr               }
+};
 
 struct AuthRequestContext {
   TSHttpTxn txn = nullptr; // Original client transaction we are authorizing.
@@ -533,6 +546,13 @@ StateAuthProxyReadHeaders(AuthRequestContext *auth, void * /* edata ATS_UNUSED *
 }
 
 static TSEvent
+StateAuthProxyWriteReady(AuthRequestContext *auth, void * /* edata ATS_UNUSED */)
+{
+  TSVConnWrite(auth->vconn, auth->cont, auth->iobuf.reader, TSIOBufferReaderAvail(auth->iobuf.reader));
+  return TS_EVENT_CONTINUE;
+}
+
+static TSEvent
 StateAuthProxyWriteComplete(AuthRequestContext *auth, void * /* edata ATS_UNUSED */)
 {
   // We finished writing the auth proxy request. Kick off a read to get the response.
@@ -612,6 +632,38 @@ StateAuthorized(AuthRequestContext *auth, void *)
     TSHttpTxnConfigIntSet(auth->txn, TS_CONFIG_HTTP_CACHE_IGNORE_AUTHENTICATION, 1);
   }
 
+  if (!options->forward_header_prefix.empty()) {
+    // Copy headers with configured prefix in the authentication response to the original request
+    TSMLoc field_loc;
+    TSMLoc next_field_loc;
+    TSMBuffer request_bufp;
+    TSMLoc request_hdr;
+
+    TSReleaseAssert(TSHttpTxnClientReqGet(auth->txn, &request_bufp, &request_hdr) == TS_SUCCESS);
+    field_loc = TSMimeHdrFieldGet(auth->rheader.buffer, auth->rheader.header, 0);
+    TSReleaseAssert(field_loc != TS_NULL_MLOC);
+
+    while (field_loc) {
+      int key_len = 0;
+      int val_len = 0;
+
+      char *key = const_cast<char *>(TSMimeHdrFieldNameGet(auth->rheader.buffer, auth->rheader.header, field_loc, &key_len));
+      char *val =
+        const_cast<char *>(TSMimeHdrFieldValueStringGet(auth->rheader.buffer, auth->rheader.header, field_loc, -1, &val_len));
+
+      if (key && val && ContainsPrefix(string_view(key, key_len), options->forward_header_prefix)) {
+        // Append the matched header key/val to the original request
+        HttpSetMimeHeader(request_bufp, request_hdr, string_view(key, key_len), string_view(val, val_len));
+      }
+
+      // Validate the next header field
+      next_field_loc = TSMimeHdrFieldNext(auth->rheader.buffer, auth->rheader.header, field_loc);
+      TSHandleMLocRelease(auth->rheader.buffer, auth->rheader.header, field_loc);
+      field_loc = next_field_loc;
+    }
+  }
+
+  // Proceed with the modified request
   TSHttpTxnReenable(auth->txn, TS_EVENT_HTTP_CONTINUE);
   return TS_EVENT_CONTINUE;
 }
@@ -622,6 +674,14 @@ static bool
 AuthRequestIsTagged(TSHttpTxn txn)
 {
   return AuthTaggedRequestArg != -1 && TSUserArgGet(txn, AuthTaggedRequestArg) != nullptr;
+}
+
+// Return true if the internal requests can be cached.
+static bool
+CacheInternalRequests(TSHttpTxn txn)
+{
+  AuthOptions *opt = static_cast<AuthOptions *>(TSUserArgGet(txn, AuthTaggedRequestArg));
+  return opt ? opt->cache_internal_requests : false;
 }
 
 static int
@@ -642,8 +702,8 @@ AuthProxyGlobalHook(TSCont /* cont ATS_UNUSED */, TSEvent event, void *edata)
       // it as a global plugin (not highly recommended). Also remember that
       // the HEAD auth request might trip a different remap rule, particularly
       // if you do not have pristine host-headers enabled.
-      TSHttpTxnConfigIntSet(txn, TS_CONFIG_HTTP_CACHE_HTTP, 0);
-
+      if (!CacheInternalRequests(txn))
+        TSHttpTxnConfigIntSet(txn, TS_CONFIG_HTTP_CACHE_HTTP, 0);
       AuthLogDebug("re-enabling internal transaction");
       TSHttpTxnReenable(txn, TS_EVENT_HTTP_CONTINUE);
       return TS_EVENT_NONE;
@@ -670,11 +730,13 @@ AuthParseOptions(int argc, const char **argv)
   // on some platforms (e.g. Solaris / Illumos). On sane platforms (e.g. linux), it'll get
   // automatically casted back to the const char*, as the struct is defined in <getopt.h>.
   static const struct option longopt[] = {
-    {const_cast<char *>("auth-host"), required_argument, nullptr, 'h'},
-    {const_cast<char *>("auth-port"), required_argument, nullptr, 'p'},
-    {const_cast<char *>("auth-transform"), required_argument, nullptr, 't'},
-    {const_cast<char *>("force-cacheability"), no_argument, nullptr, 'c'},
-    {nullptr, 0, nullptr, 0},
+    {const_cast<char *>("auth-host"),             required_argument, nullptr, 'h'},
+    {const_cast<char *>("auth-port"),             required_argument, nullptr, 'p'},
+    {const_cast<char *>("auth-transform"),        required_argument, nullptr, 't'},
+    {const_cast<char *>("force-cacheability"),    no_argument,       nullptr, 'c'},
+    {const_cast<char *>("cache-internal"),        no_argument,       nullptr, 'i'},
+    {const_cast<char *>("forward-header-prefix"), required_argument, nullptr, 'f'},
+    {nullptr,                                     0,                 nullptr, 0  },
   };
 
   AuthOptions *options = AuthNew<AuthOptions>();
@@ -694,6 +756,12 @@ AuthParseOptions(int argc, const char **argv)
       break;
     case 'c':
       options->force = true;
+      break;
+    case 'i':
+      options->cache_internal_requests = true;
+      break;
+    case 'f':
+      options->forward_header_prefix = optarg;
       break;
     case 't':
       if (strcasecmp(optarg, "redirect") == 0) {

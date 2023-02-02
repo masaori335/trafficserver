@@ -26,10 +26,10 @@
 
 #include "I_SplitDNS.h"
 
-#define SRV_COST (RRFIXEDSZ + 0)
-#define SRV_WEIGHT (RRFIXEDSZ + 2)
-#define SRV_PORT (RRFIXEDSZ + 4)
-#define SRV_SERVER (RRFIXEDSZ + 6)
+#define SRV_COST    (RRFIXEDSZ + 0)
+#define SRV_WEIGHT  (RRFIXEDSZ + 2)
+#define SRV_PORT    (RRFIXEDSZ + 4)
+#define SRV_SERVER  (RRFIXEDSZ + 6)
 #define SRV_FIXEDSZ (RRFIXEDSZ + 6)
 
 EventType ET_DNS = ET_CALL;
@@ -442,7 +442,7 @@ DNSEntry::init(DNSQueryData target, int qtype_arg, Continuation *acont, DNSProce
     }
   }
 
-  SET_HANDLER((DNSEntryHandler)&DNSEntry::mainEvent);
+  SET_HANDLER(&DNSEntry::mainEvent);
 }
 
 /**
@@ -524,12 +524,12 @@ DNSHandler::open_con(sockaddr const *target, bool failed, int icon, bool over_tc
     }
     return false;
   } else {
-    ns_down[icon] = 0;
     if (cur_con.eio.start(pd, &cur_con, EVENTIO_READ) < 0) {
       Error("[iocore_dns] open_con: Failed to add %d server to epoll list\n", icon);
     } else {
-      cur_con.num = icon;
-      Debug("dns", "opening connection %s SUCCEEDED for %d", ip_text, icon);
+      cur_con.num   = icon;
+      ns_down[icon] = 0;
+      Debug("dns", "opening connection %s on fd %d SUCCEEDED for %d", ip_text, cur_con.fd, icon);
     }
     ret = true;
   }
@@ -609,6 +609,11 @@ DNSHandler::startEvent(int /* event ATS_UNUSED */, Event *e)
       n_con = 1;
     }
 
+    // Retrying the name servers is something done periodically over the
+    // lifetime of the handler. This ensures that we don't miss retrying if it
+    // is necessary.
+    this->_dns_retry_event = this_ethread()->schedule_every(this, DNS_PRIMARY_RETRY_PERIOD);
+
     return EVENT_CONT;
   } else {
     ink_assert(false); // I.e. this should never really happen
@@ -675,7 +680,7 @@ DNSHandler::retry_named(int ndx, ink_hrtime t, bool reopen)
   try_servers = (try_servers + 1) % countof(try_server_names);
   ink_assert(r >= 0);
   if (r >= 0) { // looking for a bounce
-    int res = socketManager.send(con_fd, buffer, r, 0);
+    int res = SocketManager::send(con_fd, buffer, r, 0);
     Debug("dns", "ping result = %d", res);
   }
 }
@@ -705,7 +710,7 @@ DNSHandler::try_primary_named(bool reopen)
     }
     ink_assert(r >= 0);
     if (r >= 0) { // looking for a bounce
-      int res = socketManager.send(con_fd, buffer, r, 0);
+      int res = SocketManager::send(con_fd, buffer, r, 0);
       Debug("dns", "ping result = %d", res);
     }
   }
@@ -729,6 +734,15 @@ void
 DNSHandler::failover()
 {
   Debug("dns", "failover: initiating failover attempt, current name_server=%d", name_server);
+  if (!ns_down[name_server]) {
+    ip_text_buffer buff;
+    // mark this nameserver as down
+    Debug("dns", "failover: Marking nameserver %d as down", name_server);
+    ns_down[name_server] = 1;
+    Warning("connection to DNS server %s lost, marking as down",
+            ats_ip_ntop(&m_res->nsaddr_list[name_server].sa, buff, sizeof(buff)));
+  }
+
   // no hope, if we have only one server
   if (m_res->nscount > 1) {
     ip_text_buffer buff1, buff2;
@@ -848,7 +862,7 @@ DNSHandler::recv_dns(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
         if (dnsc->tcp_data.total_length == 0) {
           // see if TS gets a two-byte size
           uint16_t tmp = 0;
-          res          = socketManager.recv(dnsc->fd, &tmp, sizeof(tmp), MSG_PEEK);
+          res          = SocketManager::recv(dnsc->fd, &tmp, sizeof(tmp), MSG_PEEK);
           if (res == -EAGAIN || res == 1) {
             break;
           }
@@ -856,7 +870,7 @@ DNSHandler::recv_dns(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
             goto Lerror;
           }
           // reading total size
-          res = socketManager.recv(dnsc->fd, &(dnsc->tcp_data.total_length), sizeof(dnsc->tcp_data.total_length), 0);
+          res = SocketManager::recv(dnsc->fd, &(dnsc->tcp_data.total_length), sizeof(dnsc->tcp_data.total_length), 0);
           if (res == -EAGAIN) {
             break;
           }
@@ -870,7 +884,7 @@ DNSHandler::recv_dns(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
         }
         // continue reading data
         void *buf_start = (char *)dnsc->tcp_data.buf_ptr->buf + dnsc->tcp_data.done_reading;
-        res             = socketManager.recv(dnsc->fd, buf_start, dnsc->tcp_data.total_length - dnsc->tcp_data.done_reading, 0);
+        res             = SocketManager::recv(dnsc->fd, buf_start, dnsc->tcp_data.total_length - dnsc->tcp_data.done_reading, 0);
         if (res == -EAGAIN) {
           break;
         }
@@ -892,7 +906,7 @@ DNSHandler::recv_dns(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
         hostent_cache = dnsBufAllocator.alloc();
       }
 
-      res = socketManager.recvfrom(dnsc->fd, hostent_cache->buf, MAX_DNS_RESPONSE_LEN, 0, &from_ip.sa, &from_length);
+      res = SocketManager::recvfrom(dnsc->fd, hostent_cache->buf, MAX_DNS_RESPONSE_LEN, 0, &from_ip.sa, &from_length);
       Debug("dns", "DNSHandler::recv_dns res = [%d]", res);
       if (res == -EAGAIN) {
         break;
@@ -1017,10 +1031,6 @@ DNSHandler::mainEvent(int event, Event *e)
     write_dns(this);
   }
 
-  if (std::any_of(ns_down, ns_down + n_con, [](int f) { return f != 0; })) {
-    this_ethread()->schedule_at(this, DNS_PRIMARY_RETRY_PERIOD);
-  }
-
   return EVENT_CONT;
 }
 
@@ -1125,7 +1135,7 @@ DNSHandler::get_query_id()
         return q1;
       }
     }
-    i <<= 6;
+    i  <<= 6;
     q2 &= 0x3F;
     while (query_id_in_use(i + q2)) {
       ++q2;
@@ -1173,7 +1183,7 @@ write_dns_event(DNSHandler *h, DNSEntry *e, bool over_tcp)
   int con_fd                      = over_tcp ? h->tcpcon[h->name_server].fd : h->udpcon[h->name_server].fd;
   Debug("dns", "send query (qtype=%d) for %s to fd %d", e->qtype, e->qname, con_fd);
 
-  int s = socketManager.send(con_fd, buffer, r, 0);
+  int s = SocketManager::send(con_fd, buffer, r, 0);
   if (s != r) {
     Debug("dns", "send() failed: qname = %s, %d != %d, nameserver= %d", e->qname, s, r, h->name_server);
 
@@ -1230,7 +1240,7 @@ DNSEntry::delayEvent(int event, Event *e)
 {
   (void)event;
   if (dnsProcessor.handler) {
-    SET_HANDLER((DNSEntryHandler)&DNSEntry::mainEvent);
+    SET_HANDLER(&DNSEntry::mainEvent);
     return handleEvent(EVENT_IMMEDIATE, e);
   }
   e->schedule_in(DNS_DELAY_PERIOD);
@@ -1251,7 +1261,7 @@ DNSEntry::mainEvent(int event, Event *e)
     }
     if (!dnsH) {
       Debug("dns", "handler not found, retrying...");
-      SET_HANDLER((DNSEntryHandler)&DNSEntry::delayEvent);
+      SET_HANDLER(&DNSEntry::delayEvent);
       return handleEvent(event, e);
     }
 
@@ -1519,6 +1529,24 @@ dns_process(DNSHandler *handler, HostEnt *buf, int len)
   bool server_ok    = true;
   uint32_t temp_ttl = 0;
 
+  const char *RCODE_NAME[] = {
+    "NOERROR", "FORMERR", "SERVFAIL", "NXDOMAIN", "NOTIMP", "REFUSED", "YXDOMAIN", "YXRRSET", "NXRRSET", "NOTAUTH", "NOTZONE",
+  };
+
+  const char *RCODE_DESCRIPTION[] = {
+    "No Error",
+    "Format Error",
+    "Server Failure",
+    "Non-Existent Domain",
+    "Not Implemented",
+    "Query Refused",
+    "Name Exists when it should not",
+    "RR Set Exists when it should not",
+    "RR Set that should exist does not",
+    "Not Authorized",
+    "Name not contained in zone",
+  };
+
   //
   // Do we have an entry for this id?
   //
@@ -1543,31 +1571,36 @@ dns_process(DNSHandler *handler, HostEnt *buf, int len)
     goto Lerror;
   }
 
+  // Logs using SiteThrottled* version is helpful for noisy logs, being used here
+  // instead of print statements to help with the possible retries when a dns code occurs
   if (h->rcode != NOERROR || !h->ancount) {
     Debug("dns", "received rcode = %d", h->rcode);
     switch (h->rcode) {
     default:
-      Warning("Unknown DNS error %d for [%s]", h->rcode, e->qname);
+      SiteThrottledWarning("UNKNOWN: DNS error %d for [%s]", h->rcode, e->qname);
       retry     = true;
       server_ok = false; // could be server problems
       goto Lerror;
+    case NOERROR: // included for completeness.
+      Debug("dns", "%s: DNS error %d for [%s]: %s", RCODE_NAME[h->rcode], h->rcode, e->qname, RCODE_DESCRIPTION[h->rcode]);
+      break;
     case SERVFAIL: // recoverable error
+      SiteThrottledNote("%s: DNS error %d for [%s]: %s", RCODE_NAME[h->rcode], h->rcode, e->qname, RCODE_DESCRIPTION[h->rcode]);
       retry = true;
       break;
     case FORMERR: // unrecoverable errors
     case REFUSED:
     case NOTIMP:
-      Debug("dns", "DNS error %d for [%s]", h->rcode, e->qname);
+      SiteThrottledNote("%s: DNS error %d for [%s]: %s", RCODE_NAME[h->rcode], h->rcode, e->qname, RCODE_DESCRIPTION[h->rcode]);
       server_ok = false; // could be server problems
       goto Lerror;
-    case NOERROR:
     case NXDOMAIN:
-    case 6:  // YXDOMAIN
-    case 7:  // YXRRSET
-    case 8:  // NOTAUTH
-    case 9:  // NOTAUTH
-    case 10: // NOTZONE
-      Debug("dns", "DNS error %d for [%s]", h->rcode, e->qname);
+    case YXDOMAIN:
+    case YXRRSET:
+    case NXRRSET:
+    case NOTAUTH:
+    case NOTZONE:
+      SiteThrottledNote("%s: DNS error %d for [%s]: %s", RCODE_NAME[h->rcode], h->rcode, e->qname, RCODE_DESCRIPTION[h->rcode]);
       goto Lerror;
     }
   } else {
@@ -1629,8 +1662,8 @@ dns_process(DNSHandler *handler, HostEnt *buf, int len)
         n = rname_len + 1;
       }
       buf->ent.h_name = reinterpret_cast<char *>(bp);
-      bp += n;
-      buflen -= n;
+      bp              += n;
+      buflen          -= n;
     }
     //
     // Configure HostEnt data structure
@@ -1668,7 +1701,7 @@ dns_process(DNSHandler *handler, HostEnt *buf, int len)
     if (e->qtype == T_SRV) {
       for (int ctr = ntohs(h->qdcount); ctr > 0; ctr--) {
         int strlen = dn_skipname(here, eom);
-        here += strlen + QFIXEDSZ;
+        here       += strlen + QFIXEDSZ;
       }
     }
     //
@@ -1704,18 +1737,18 @@ dns_process(DNSHandler *handler, HostEnt *buf, int len)
           ++error;
           break;
         }
-        cp += n;
-        *ap++ = bp;
-        n     = strlen(reinterpret_cast<char *>(bp)) + 1;
-        bp += n;
+        cp     += n;
+        *ap++  = bp;
+        n      = strlen(reinterpret_cast<char *>(bp)) + 1;
+        bp     += n;
         buflen -= n;
-        n = strlen(reinterpret_cast<char *>(tbuf)) + 1;
+        n      = strlen(reinterpret_cast<char *>(tbuf)) + 1;
         if (n > buflen) {
           ++error;
           break;
         }
         ink_strlcpy(reinterpret_cast<char *>(bp), reinterpret_cast<char *>(tbuf), buflen);
-        bp += n;
+        bp     += n;
         buflen -= n;
         if (is_debug_tag_set("dns")) {
           switch (type) {
@@ -1746,27 +1779,27 @@ dns_process(DNSHandler *handler, HostEnt *buf, int len)
         if (!answer) {
           buf->ent.h_name = reinterpret_cast<char *>(bp);
           Debug("dns", "received PTR name = %s", bp);
-          n = strlen(reinterpret_cast<char *>(bp)) + 1;
-          bp += n;
+          n      = strlen(reinterpret_cast<char *>(bp)) + 1;
+          bp     += n;
           buflen -= n;
         } else if (ap < &buf->host_aliases[DNS_MAX_ALIASES - 1]) {
           *ap++ = bp;
           Debug("dns", "received PTR alias = %s", bp);
-          n = strlen(reinterpret_cast<char *>(bp)) + 1;
-          bp += n;
+          n      = strlen(reinterpret_cast<char *>(bp)) + 1;
+          bp     += n;
           buflen -= n;
         }
       } else if (type == T_SRV) {
         if (buf->srv_hosts.hosts.size() >= hostdb_round_robin_max_count) {
           break;
         }
-        cp         = here; /* hack */
-        int strlen = dn_skipname(cp, eom);
-        cp += strlen;
+        cp                           = here; /* hack */
+        int strlen                   = dn_skipname(cp, eom);
+        cp                           += strlen;
         const unsigned char *srv_off = cp;
-        cp += SRV_FIXEDSZ;
-        cp += dn_skipname(cp, eom);
-        here = cp; /* hack */
+        cp                           += SRV_FIXEDSZ;
+        cp                           += dn_skipname(cp, eom);
+        here                         = cp; /* hack */
 
         SRV srv;
 
@@ -1804,13 +1837,13 @@ dns_process(DNSHandler *handler, HostEnt *buf, int len)
           buf->ent.h_name     = reinterpret_cast<char *>(bp);
           nn                  = strlen(reinterpret_cast<char *>(bp)) + 1;
           Debug("dns", "received %s name = %s", QtypeName(type), bp);
-          bp += nn;
+          bp     += nn;
           buflen -= nn;
         }
         // attempt to use the original buffer (if it is word aligned)
         if (!(((uintptr_t)cp) % sizeof(unsigned int))) {
           *hap++ = cp;
-          cp += n;
+          cp     += n;
         } else {
           ip_text_buffer ip_string;
           bp = static_cast<unsigned char *>(align_pointer_forward(bp, sizeof(int)));
@@ -1962,7 +1995,7 @@ struct DNSRegressionContinuation : public Continuation {
       i(0),
       test(t)
   {
-    SET_HANDLER((DNSRegContHandler)&DNSRegressionContinuation::mainEvent);
+    SET_HANDLER(&DNSRegressionContinuation::mainEvent);
   }
 };
 

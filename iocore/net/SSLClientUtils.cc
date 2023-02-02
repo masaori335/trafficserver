@@ -27,7 +27,9 @@
 
 #include "P_Net.h"
 #include "P_SSLClientUtils.h"
+#include "P_SSLConfig.h"
 #include "P_SSLNetVConnection.h"
+#include "P_TLSKeyLogger.h"
 #include "YamlSNIConfig.h"
 #include "SSLDiags.h"
 #include "SSLSessionCache.h"
@@ -236,6 +238,12 @@ SSLInitClientContext(const SSLConfigParams *params)
     SSL_CTX_sess_set_new_cb(client_ctx, ssl_new_session_callback);
   }
 
+#if TS_HAS_TLS_KEYLOGGING
+  if (unlikely(TLSKeyLogger::is_enabled())) {
+    SSL_CTX_set_keylog_callback(client_ctx, TLSKeyLogger::ssl_keylog_cb);
+  }
+#endif
+
   return client_ctx;
 
 fail:
@@ -260,7 +268,8 @@ SSLCreateClientContext(const struct SSLConfigParams *params, const char *ca_bund
   }
 
   if (!SSL_CTX_use_certificate_chain_file(ctx.get(), cert_path)) {
-    SSLError("SSLCreateClientContext(): failed to load client certificate.");
+    SSLError("SSLCreateClientContext(): failed to load client certificate: %s",
+             (!cert_path || cert_path[0] == '\0') ? "[empty file name]" : cert_path);
     return nullptr;
   }
 
@@ -269,17 +278,23 @@ SSLCreateClientContext(const struct SSLConfigParams *params, const char *ca_bund
   }
 
   if (!SSL_CTX_use_PrivateKey_file(ctx.get(), key_path, SSL_FILETYPE_PEM)) {
-    SSLError("SSLCreateClientContext(): failed to load client private key.");
+    SSLError("SSLCreateClientContext(): failed to load client private key: %s",
+             (!key_path || key_path[0] == '\0') ? "[empty file]" : key_path);
     return nullptr;
   }
 
   if (!SSL_CTX_check_private_key(ctx.get())) {
-    SSLError("SSLCreateClientContext(): client private key does not match client certificate.");
+    SSLError("SSLCreateClientContext(): client private key: %s does not match client certificate: %s",
+             (!key_path || key_path[0] == '\0') ? "[empty file]" : key_path,
+             (!cert_path || cert_path[0] == '\0') ? "[empty file]" : cert_path);
     return nullptr;
   }
 
   if (ca_bundle_file || ca_bundle_path) {
     if (!SSL_CTX_load_verify_locations(ctx.get(), ca_bundle_file, ca_bundle_path)) {
+      SSLError("SSLCreateClientContext(): Invalid CA Certificate file: %s or CA Certificate path: %s",
+               (!ca_bundle_file || ca_bundle_file[0] == '\0') ? "[empty file name]" : ca_bundle_file,
+               (!ca_bundle_path || ca_bundle_path[0] == '\0') ? "[empty path]" : ca_bundle_path);
       SSLError("SSLCreateClientContext(): Invalid client CA cert file/CA path.");
       return nullptr;
     }

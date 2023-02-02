@@ -28,7 +28,7 @@ ts = Test.MakeATSProcess('ts')
 Test.testName = 'Test TSContScheduleOnPool API'
 
 ts.Disk.records_config.update({
-    'proxy.config.exec_thread.autoconfig': 0,
+    'proxy.config.exec_thread.autoconfig.enabled': 0,
     'proxy.config.exec_thread.autoconfig.scale': 1.5,
     'proxy.config.exec_thread.limit': 32,
     'proxy.config.accept_threads': 1,
@@ -45,5 +45,5 @@ tr = Test.AddTestRun()
 tr.Processes.Default.Command = 'printf "Test TSContScheduleOnPool API"'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(ts)
-ts.Streams.All = "gold/schedule_on_pool.gold"
-ts.Streams.All += Testers.ExcludesExpression('fail', 'should not contain "fail"')
+ts.Disk.traffic_out.Content = "gold/schedule_on_pool.gold"
+ts.Disk.traffic_out.Content += Testers.ExcludesExpression('fail', 'should not contain "fail"')

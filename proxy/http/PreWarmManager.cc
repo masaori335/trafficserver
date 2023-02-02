@@ -25,13 +25,16 @@
 #include "PreWarmConfig.h"
 
 #include "HttpConfig.h"
-#include "P_SSLSNI.h"
+#include "SSLSNIConfig.h"
+#include "P_VConnection.h"
+#include "I_NetProcessor.h"
 
+#include "tscore/ink_time.h"
 #include "tscpp/util/PostScript.h"
 
 #include <algorithm>
 
-#define PreWarmSMDebug(fmt, ...) Debug("prewarm_sm", "[%p] " fmt, this, ##__VA_ARGS__);
+#define PreWarmSMDebug(fmt, ...)  Debug("prewarm_sm", "[%p] " fmt, this, ##__VA_ARGS__);
 #define PreWarmSMVDebug(fmt, ...) Debug("v_prewarm_sm", "[%p] " fmt, this, ##__VA_ARGS__);
 
 ClassAllocator<PreWarmSM> preWarmSMAllocator("preWarmSMAllocator");
@@ -41,8 +44,8 @@ namespace
 {
 using namespace std::literals;
 
-constexpr int DOWN_SERVER_TIMEOUT  = 300;
-constexpr size_t STAT_NAME_BUF_LEN = 1024;
+constexpr ts_seconds DOWN_SERVER_TIMEOUT = 300s;
+constexpr size_t STAT_NAME_BUF_LEN       = 1024;
 
 constexpr std::string_view SRV_TUNNEL_TCP                = "_tunnel._tcp."sv;
 constexpr std::string_view CLIENT_SNI_POLICY_SERVER_NAME = "server_name"sv;
@@ -265,23 +268,30 @@ PreWarmSM::state_init(int event, void *data)
 int
 PreWarmSM::state_dns_lookup(int event, void *data)
 {
-  HostDBInfo *info = static_cast<HostDBInfo *>(data);
+  HostDBRecord *record = static_cast<HostDBRecord *>(data);
 
   switch (event) {
   case EVENT_HOST_DB_LOOKUP: {
     _pending_action = nullptr;
 
-    if (info == nullptr || info->is_failed()) {
+    if (record == nullptr || record->is_failed()) {
       PreWarmSMVDebug("hostdb lookup is failed");
 
       retry();
       return EVENT_DONE;
     }
 
-    IpEndpoint addr;
+    HostDBInfo *info = record->select_next_rr(ts_clock::now(), DOWN_SERVER_TIMEOUT);
 
-    ats_ip_copy(addr, info->ip());
-    addr.port() = htons(_dst->port);
+    if (info == nullptr) {
+      PreWarmSMVDebug("hostdb lookup found no entry");
+      retry();
+      return EVENT_DONE;
+    }
+    IpEndpoint addr;
+    addr.assign(info->data.ip);
+
+    addr.network_order_port() = htons(_dst->port);
 
     if (is_debug_tag_set("v_prewarm_sm")) {
       char addrbuf[INET6_ADDRPORTSTRLEN];
@@ -302,23 +312,19 @@ PreWarmSM::state_dns_lookup(int event, void *data)
     _pending_action = nullptr;
     std::string_view hostname;
 
-    if (info == nullptr || !info->is_srv || !info->round_robin) {
+    if (record == nullptr || !record->is_srv()) {
       // no SRV record, fallback to default lookup
       hostname = _dst->host;
     } else {
-      HostDBRoundRobin *rr = info->rr();
-      HostDBInfo *srv      = nullptr;
-      if (rr) {
-        char srv_hostname[MAXDNAME] = {0};
+      char srv_hostname[MAXDNAME] = {0};
 
-        ink_hrtime now = Thread::get_hrtime();
-        srv = rr->select_best_srv(srv_hostname, &mutex->thread_holding->generator, ink_hrtime_to_sec(now), DOWN_SERVER_TIMEOUT);
-        hostname = std::string_view(srv_hostname);
+      hostname = std::string_view(srv_hostname);
 
-        if (srv == nullptr) {
-          // lookup SRV record failed, fallback to default lookup
-          hostname = _dst->host;
-        }
+      HostDBInfo *info =
+        record->select_best_srv(srv_hostname, &mutex->thread_holding->generator, ts_clock::now(), DOWN_SERVER_TIMEOUT);
+      if (info == nullptr) {
+        // lookup SRV record failed, fallback to default lookup
+        hostname = _dst->host;
       }
     }
 
@@ -508,7 +514,7 @@ PreWarmSM::is_inactive_timeout_expired(ink_hrtime now)
 }
 
 void
-PreWarmSM::process_hostdb_info(HostDBInfo *r)
+PreWarmSM::process_hostdb_info(HostDBRecord *r)
 {
   ink_release_assert(this->handler == &PreWarmSM::state_dns_lookup);
 
@@ -516,7 +522,7 @@ PreWarmSM::process_hostdb_info(HostDBInfo *r)
 }
 
 void
-PreWarmSM::process_srv_info(HostDBInfo *r)
+PreWarmSM::process_srv_info(HostDBRecord *r)
 {
   ink_release_assert(this->handler == &PreWarmSM::state_dns_lookup);
 
@@ -1015,7 +1021,7 @@ PreWarmManager::reconfigure()
   bool is_prewarm_enabled = prewarm_conf->enabled;
 
   SNIConfig::scoped_config sni_conf;
-  for (const auto &item : sni_conf->Y_sni.items) {
+  for (const auto &item : sni_conf->yaml_sni.items) {
     if (item.tunnel_prewarm == YamlSNIConfig::TunnelPreWarm::ENABLED) {
       is_prewarm_enabled = true;
       break;
@@ -1064,7 +1070,7 @@ PreWarmManager::_parse_sni_conf(PreWarm::ParsedSNIConf &parsed_conf, const SNICo
 {
   PreWarmConfig::scoped_config prewarm_conf;
 
-  for (const auto &item : sni_conf->Y_sni.items) {
+  for (const auto &item : sni_conf->yaml_sni.items) {
     if (item.tunnel_type != SNIRoutingType::FORWARD && item.tunnel_type != SNIRoutingType::PARTIAL_BLIND) {
       continue;
     }

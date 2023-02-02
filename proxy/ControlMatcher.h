@@ -69,7 +69,7 @@
  *   ip table - supports ip ranges.  A single ip address is treated as
  *       a range with the same beginning and end address.  The table is
  *       is divided up into a fixed number of  levels, indexed 8 bit
- *       boundaries, starting at the the high bit of the address.  Subsequent
+ *       boundaries, starting at the high bit of the address.  Subsequent
  *       levels are allocated only when needed.
  *
  ****************************************************************************/
@@ -101,14 +101,6 @@
 #ifdef HAVE_CTYPE_H
 #include <cctype>
 #endif
-
-#define SignalError(_buf, _already)                         \
-  {                                                         \
-    if (_already == false)                                  \
-      pmgmt->signalManager(MGMT_SIGNAL_CONFIG_ERROR, _buf); \
-    _already = true;                                        \
-    Error("%s", _buf);                                      \
-  }
 
 class HostLookup;
 struct HttpApiInfo;
@@ -144,10 +136,10 @@ public:
     ink_zero(dest_ip);
   }
 
-  HTTPHdr *hdr          = nullptr;
-  char *hostname_str    = nullptr;
-  HttpApiInfo *api_info = nullptr;
-  time_t xact_start     = 0;
+  HTTPHdr *hdr             = nullptr;
+  char const *hostname_str = nullptr;
+  HttpApiInfo *api_info    = nullptr;
+  time_t xact_start        = 0;
   IpEndpoint src_ip;
   IpEndpoint dest_ip;
   uint16_t incoming_port                = 0;
@@ -297,12 +289,12 @@ private:
   IpMap ip_map; // Data structure to do lookups
 };
 
-#define ALLOW_HOST_TABLE 1 << 0
-#define ALLOW_IP_TABLE 1 << 1
-#define ALLOW_REGEX_TABLE 1 << 2
+#define ALLOW_HOST_TABLE       1 << 0
+#define ALLOW_IP_TABLE         1 << 1
+#define ALLOW_REGEX_TABLE      1 << 2
 #define ALLOW_HOST_REGEX_TABLE 1 << 3
-#define ALLOW_URL_TABLE 1 << 4
-#define DONT_BUILD_TABLE 1 << 5 // for testing
+#define ALLOW_URL_TABLE        1 << 4
+#define DONT_BUILD_TABLE       1 << 5 // for testing
 
 template <class Data, class MatchResult> class ControlMatcher
 {

@@ -29,6 +29,7 @@ AM_CPPFLAGS += \
 	-I$(abs_top_srcdir)/proxy/hdrs \
 	-I$(abs_top_srcdir)/proxy/shared \
 	-I$(abs_top_srcdir)/proxy/http/remap \
+	@SWOC_INCLUDES@ \
 	$(TS_INCLUDES)
 
 noinst_LIBRARIES = libhttp2.a
@@ -67,8 +68,10 @@ TESTS = $(check_PROGRAMS)
 # The order of libinkevent.a and libhdrs.a is sensitive for LLD on debug build.
 # Be careful if you change the order. Details in GitHub #6666
 test_libhttp2_LDADD = \
-	libhttp2.a \
-	$(top_builddir)/lib/records/librecords_p.a \
+	HTTP2.o \
+	Http2Frame.o \
+	HPACK.o \
+	$(top_builddir)/src/records/librecords_p.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/src/tscore/libtscore.la \
 	$(top_builddir)/proxy/hdrs/libhdrs.a \
@@ -76,7 +79,15 @@ test_libhttp2_LDADD = \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/mgmt/libmgmt_p.la \
 	$(top_builddir)/proxy/shared/libUglyLogStubs.a \
-	@HWLOC_LIBS@
+	@SWOC_LIBS@ @HWLOC_LIBS@
+
+if OS_LINUX
+test_libhttp2_LDFLAGS = $(AM_LDFLAGS)\
+	-Wl,--unresolved-symbols=ignore-all
+else
+test_libhttp2_LDFLAGS = $(AM_LDFLAGS)\
+    -Wl,-undefined -Wl,suppress -Wl,-flat_namespace -Wl,-dead_strip
+endif
 
 test_libhttp2_CPPFLAGS = $(AM_CPPFLAGS)\
 	-I$(abs_top_srcdir)/tests/include
@@ -89,7 +100,8 @@ test_libhttp2_SOURCES = \
 
 test_Http2DependencyTree_LDADD = \
 	$(top_builddir)/src/tscore/libtscore.la \
-	$(top_builddir)/src/tscpp/util/libtscpputil.la
+	$(top_builddir)/src/tscpp/util/libtscpputil.la \
+	@SWOC_LIBS@
 
 test_Http2DependencyTree_CPPFLAGS = $(AM_CPPFLAGS)\
 	-I$(abs_top_srcdir)/tests/include
@@ -101,7 +113,8 @@ test_Http2DependencyTree_SOURCES = \
 test_Http2FrequencyCounter_LDADD = \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/src/tscore/libtscore.la \
-	$(top_builddir)/src/tscpp/util/libtscpputil.la
+	$(top_builddir)/src/tscpp/util/libtscpputil.la \
+	@SWOC_LIBS@
 
 test_Http2FrequencyCounter_CPPFLAGS = $(AM_CPPFLAGS)\
 	-I$(abs_top_srcdir)/tests/include
@@ -116,10 +129,10 @@ test_HPACK_LDADD = \
 	$(top_builddir)/src/tscore/libtscore.la \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
-	$(top_builddir)/lib/records/librecords_p.a \
+	$(top_builddir)/src/records/librecords_p.a \
 	$(top_builddir)/mgmt/libmgmt_p.la \
 	$(top_builddir)/proxy/shared/libUglyLogStubs.a \
-	@HWLOC_LIBS@
+	@SWOC_LIBS@ @HWLOC_LIBS@
 
 test_HPACK_SOURCES = \
 	test_HPACK.cc \

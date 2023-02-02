@@ -102,6 +102,7 @@ NextHopStrategyFactory::NextHopStrategyFactory(const char *file) : fn(file)
         NH_Error("Invalid policy '%s' for the strategy named '%s', this strategy will be ignored.", policy_value.c_str(),
                  name.c_str());
       } else {
+        NH_Debug(NH_DEBUG_TAG, "createStragety '%s'", name.c_str());
         createStrategy(name, policy_type, strategy);
         strategy.done();
       }
@@ -139,29 +140,25 @@ NextHopStrategyFactory::createStrategy(const std::string &name, const NHPolicyTy
     return;
   }
 
-  switch (policy_type) {
-  case NH_FIRST_LIVE:
-  case NH_RR_STRICT:
-  case NH_RR_IP:
-  case NH_RR_LATCHED:
-    strat_rr = std::make_shared<NextHopRoundRobin>(name, policy_type);
-    if (strat_rr->Init(node)) {
+  try {
+    switch (policy_type) {
+    case NH_FIRST_LIVE:
+    case NH_RR_STRICT:
+    case NH_RR_IP:
+    case NH_RR_LATCHED:
+      strat_rr = std::make_shared<NextHopRoundRobin>(name, policy_type, node);
       _strategies.emplace(std::make_pair(std::string(name), strat_rr));
-    } else {
-      strat.reset();
-    }
-    break;
-  case NH_CONSISTENT_HASH:
-    strat_chash = std::make_shared<NextHopConsistentHash>(name, policy_type);
-    if (strat_chash->Init(node)) {
+      break;
+    case NH_CONSISTENT_HASH:
+      strat_chash = std::make_shared<NextHopConsistentHash>(name, policy_type, node);
       _strategies.emplace(std::make_pair(std::string(name), strat_chash));
-    } else {
-      strat_chash.reset();
-    }
-    break;
-  default: // handles P_UNDEFINED, no strategy is added
-    break;
-  };
+      break;
+    default: // handles P_UNDEFINED, no strategy is added
+      break;
+    };
+  } catch (std::exception &ex) {
+    strat.reset();
+  }
 }
 
 std::shared_ptr<NextHopSelectionStrategy>
@@ -188,7 +185,7 @@ NextHopStrategyFactory::strategyInstance(const char *name)
 
 /*
  * loads the contents of a file into a std::stringstream document.  If the file has a '#include file'
- * directive, that 'file' is read into the document beginning at the the point where the
+ * directive, that 'file' is read into the document beginning at the point where the
  * '#include' was found. This allows the 'strategy' and 'hosts' yaml files to be separate.  The
  * 'strategy' yaml file would then normally have the '#include hosts.yml' in it's beginning.
  */

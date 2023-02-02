@@ -16,13 +16,15 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import sys
+
 Test.Summary = '''
 Test ATS TLSv1.3 0-RTT support
 '''
 
+# Checking only OpenSSL version allows you to run this test with BoringSSL (and it should pass).
 Test.SkipUnless(
     Condition.HasOpenSSLVersion('1.1.1'),
-    Condition.IsOpenSSL(),
 )
 
 ts = Test.MakeATSProcess('ts', enable_tls=True)
@@ -110,11 +112,11 @@ ts.Setup.Copy('early_h2_multi2.txt')
 ts.Disk.records_config.update({
     'proxy.config.diags.debug.enabled': 1,
     'proxy.config.diags.debug.tags': 'http',
-    'proxy.config.exec_thread.autoconfig': 0,
+    'proxy.config.exec_thread.autoconfig.enabled': 0,
     'proxy.config.exec_thread.limit': 8,
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts.Variables.SSLDir),
-    'proxy.config.ssl.session_cache': 2,
+    'proxy.config.ssl.session_cache.value': 2,
     'proxy.config.ssl.session_cache.size': 512000,
     'proxy.config.ssl.session_cache.timeout': 7200,
     'proxy.config.ssl.session_cache.num_buckets': 32768,
@@ -143,8 +145,7 @@ tr.StillRunningAfter = server
 tr.StillRunningAfter += ts
 
 tr = Test.AddTestRun('TLSv1.3 0-RTT Support (HTTP/1.1 GET)')
-tr.Processes.Default.Command = 'python3 test-0rtt-s_client.py {0} {1} {2} {3}'.format(
-    ts.Variables.ssl_port, 'h1', 'get', Test.RunDirectory)
+tr.Processes.Default.Command = f'{sys.executable} test-0rtt-s_client.py {ts.Variables.ssl_port} h1 get {Test.RunDirectory}'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.Streams.All = Testers.ContainsExpression('early data accepted', '')
 tr.Processes.Default.Streams.All += Testers.ExcludesExpression('curl test', '')
@@ -152,8 +153,7 @@ tr.StillRunningAfter = server
 tr.StillRunningAfter += ts
 
 tr = Test.AddTestRun('TLSv1.3 0-RTT Support (HTTP/1.1 POST)')
-tr.Processes.Default.Command = 'python3 test-0rtt-s_client.py {0} {1} {2} {3}'.format(
-    ts.Variables.ssl_port, 'h1', 'post', Test.RunDirectory)
+tr.Processes.Default.Command = f'{sys.executable} test-0rtt-s_client.py {ts.Variables.ssl_port} h1 post {Test.RunDirectory}'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.Streams.All = Testers.ContainsExpression('HTTP/1.1 425 Too Early', '')
 tr.Processes.Default.Streams.All += Testers.ExcludesExpression('curl test', '')
@@ -162,8 +162,7 @@ tr.StillRunningAfter = server
 tr.StillRunningAfter += ts
 
 tr = Test.AddTestRun('TLSv1.3 0-RTT Support (HTTP/2 GET)')
-tr.Processes.Default.Command = 'python3 test-0rtt-s_client.py {0} {1} {2} {3}'.format(
-    ts.Variables.ssl_port, 'h2', 'get', Test.RunDirectory)
+tr.Processes.Default.Command = f'{sys.executable} test-0rtt-s_client.py {ts.Variables.ssl_port} h2 get {Test.RunDirectory}'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.Streams.All = Testers.ContainsExpression('early data accepted', '')
 tr.Processes.Default.Streams.All += Testers.ExcludesExpression('curl test', '')
@@ -171,8 +170,7 @@ tr.StillRunningAfter = server
 tr.StillRunningAfter += ts
 
 tr = Test.AddTestRun('TLSv1.3 0-RTT Support (HTTP/2 POST)')
-tr.Processes.Default.Command = 'python3 test-0rtt-s_client.py {0} {1} {2} {3}'.format(
-    ts.Variables.ssl_port, 'h2', 'post', Test.RunDirectory)
+tr.Processes.Default.Command = f'{sys.executable} test-0rtt-s_client.py {ts.Variables.ssl_port} h2 post {Test.RunDirectory}'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.Streams.All = Testers.ContainsExpression(':status 425', 'Only safe methods are allowed')
 tr.Processes.Default.Streams.All += Testers.ExcludesExpression('curl test', '')
@@ -181,8 +179,7 @@ tr.StillRunningAfter = server
 tr.StillRunningAfter += ts
 
 tr = Test.AddTestRun('TLSv1.3 0-RTT Support (HTTP/2 Multiplex)')
-tr.Processes.Default.Command = 'python3 test-0rtt-s_client.py {0} {1} {2} {3}'.format(
-    ts.Variables.ssl_port, 'h2', 'multi1', Test.RunDirectory)
+tr.Processes.Default.Command = f'{sys.executable} test-0rtt-s_client.py {ts.Variables.ssl_port} h2 multi1 {Test.RunDirectory}'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.Streams.All = Testers.ContainsExpression('early data accepted multi_1', '')
 tr.Processes.Default.Streams.All += Testers.ContainsExpression('early data accepted multi_2', '')
@@ -192,8 +189,7 @@ tr.StillRunningAfter = server
 tr.StillRunningAfter += ts
 
 tr = Test.AddTestRun('TLSv1.3 0-RTT Support (HTTP/2 Multiplex with POST)')
-tr.Processes.Default.Command = 'python3 test-0rtt-s_client.py {0} {1} {2} {3}'.format(
-    ts.Variables.ssl_port, 'h2', 'multi2', Test.RunDirectory)
+tr.Processes.Default.Command = f'{sys.executable} test-0rtt-s_client.py {ts.Variables.ssl_port} h2 multi2 {Test.RunDirectory}'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.Streams.All = Testers.ContainsExpression('early data accepted multi_1', '')
 tr.Processes.Default.Streams.All += Testers.ContainsExpression(':status 425', 'Only safe methods are allowed')

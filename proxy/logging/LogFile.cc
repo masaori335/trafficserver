@@ -63,9 +63,10 @@
   -------------------------------------------------------------------------*/
 
 LogFile::LogFile(const char *name, const char *header, LogFileFormat format, uint64_t signature, size_t ascii_buffer_size,
-                 size_t max_line_size, int pipe_buffer_size)
+                 size_t max_line_size, int pipe_buffer_size, LogEscapeType escape_type)
   : m_file_format(format),
     m_name(ats_strdup(name)),
+    m_escape_type(escape_type),
     m_header(ats_strdup(header)),
     m_signature(signature),
     m_max_line_size(max_line_size),
@@ -83,7 +84,7 @@ LogFile::LogFile(const char *name, const char *header, LogFileFormat format, uin
   m_fd                = -1;
   m_ascii_buffer_size = (ascii_buffer_size < max_line_size ? max_line_size : ascii_buffer_size);
 
-  Debug("log-file", "exiting LogFile constructor, m_name=%s, this=%p", m_name, this);
+  Debug("log-file", "exiting LogFile constructor, m_name=%s, this=%p, escape_type=%d", m_name, this, escape_type);
 }
 
 /*-------------------------------------------------------------------------
@@ -92,27 +93,6 @@ LogFile::LogFile(const char *name, const char *header, LogFileFormat format, uin
   This (copy) constructor builds a LogFile object from another LogFile object.
   -------------------------------------------------------------------------*/
 
-LogFile::LogFile(const LogFile &copy)
-  : RefCountObj(copy),
-    m_file_format(copy.m_file_format),
-    m_name(ats_strdup(copy.m_name)),
-    m_header(ats_strdup(copy.m_header)),
-    m_signature(copy.m_signature),
-    m_ascii_buffer_size(copy.m_ascii_buffer_size),
-    m_max_line_size(copy.m_max_line_size),
-    m_pipe_buffer_size(copy.m_pipe_buffer_size),
-    m_fd(copy.m_fd)
-{
-  ink_release_assert(m_ascii_buffer_size >= m_max_line_size);
-
-  if (copy.m_log) {
-    m_log = new BaseLogFile(*(copy.m_log));
-  } else {
-    m_log = nullptr;
-  }
-
-  Debug("log-file", "exiting LogFile copy constructor, m_name=%s, this=%p", m_name, this);
-}
 /*-------------------------------------------------------------------------
   LogFile::~LogFile
   -------------------------------------------------------------------------*/
@@ -561,7 +541,7 @@ LogFile::write_ascii_logbuffer(LogBufferHeader *buffer_header, int fd, const cha
       fmt_buf_bytes += fmt_line_bytes;
       ink_assert(fmt_buf_bytes < LOG_MAX_FORMATTED_BUFFER);
       fmt_buf[fmt_buf_bytes] = '\n'; // keep entries separate
-      fmt_buf_bytes += 1;
+      fmt_buf_bytes          += 1;
     }
   }
   if (fmt_buf_bytes > 0) {
@@ -627,10 +607,10 @@ LogFile::write_ascii_logbuffer3(LogBufferHeader *buffer_header, const char *alt_
       }
 
       int bytes = LogBuffer::to_ascii(entry_header, format_type, &ascii_buffer[fmt_buf_bytes], m_max_line_size - 1, fieldlist_str,
-                                      printf_str, buffer_header->version, alt_format);
+                                      printf_str, buffer_header->version, alt_format, get_escape_type());
 
       if (bytes > 0) {
-        fmt_buf_bytes += bytes;
+        fmt_buf_bytes               += bytes;
         ascii_buffer[fmt_buf_bytes] = '\n';
         ++fmt_buf_bytes;
         ++fmt_entry_count;
@@ -762,7 +742,6 @@ LogFile::check_fd()
   // XXX if open_file() returns, LOG_FILE_FILESYSTEM_CHECKS_FAILED, raise a more informative alarm ...
   if (err != LOG_FILE_NO_ERROR && err != LOG_FILE_NO_PIPE_READERS) {
     if (!failure_last_call) {
-      LogUtils::manager_alarm(LogUtils::LOG_ALARM_ERROR, "Traffic Server could not open logfile %s.", m_name);
       Warning("Traffic Server could not open logfile %s: %s.", m_name, strerror(errno));
     }
     failure_last_call = true;

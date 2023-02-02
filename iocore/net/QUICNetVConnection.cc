@@ -31,7 +31,6 @@
 #include "P_QUICPacketHandler.h"
 #include "P_Net.h"
 #include "InkAPIInternal.h" // Added to include the quic_hook definitions
-#include "Log.h"
 
 #include "P_SSLNextProtocolSet.h"
 #include "QUICMultiCertConfigLoader.h"
@@ -55,10 +54,10 @@ static constexpr uint8_t QUANTUM_TEST_VALUE[1200] = {'Q'};
 
 #define QUICConDebug(fmt, ...) Debug(QUIC_DEBUG_TAG.data(), "[%s] " fmt, this->cids().data(), ##__VA_ARGS__)
 
-#define QUICConVDebug(fmt, ...) Debug("v_quic_net", "[%s] " fmt, this->cids().data(), ##__VA_ARGS__)
+#define QUICConVDebug(fmt, ...)   Debug("v_quic_net", "[%s] " fmt, this->cids().data(), ##__VA_ARGS__)
 #define QUICConVVVDebug(fmt, ...) Debug("vvv_quic_net", "[%s] " fmt, this->cids().data(), ##__VA_ARGS__)
 
-#define QUICFCDebug(fmt, ...) Debug("quic_flow_ctrl", "[%s] " fmt, this->cids().data(), ##__VA_ARGS__)
+#define QUICFCDebug(fmt, ...)  Debug("quic_flow_ctrl", "[%s] " fmt, this->cids().data(), ##__VA_ARGS__)
 #define QUICFCVDebug(fmt, ...) Debug("v_quic_flow_ctrl", "[%s] " fmt, this->cids().data(), ##__VA_ARGS__)
 
 #define QUICError(fmt, ...)                                           \
@@ -242,7 +241,7 @@ void
 QUICNetVConnection::init(QUICVersion version, QUICConnectionId peer_cid, QUICConnectionId original_cid, UDPConnection *udp_con,
                          QUICPacketHandler *packet_handler, QUICResetTokenTable *rtable)
 {
-  SET_HANDLER((NetVConnHandler)&QUICNetVConnection::startEvent);
+  SET_HANDLER(&QUICNetVConnection::startEvent);
   this->_initial_version             = version;
   this->_udp_con                     = udp_con;
   this->_packet_handler              = packet_handler;
@@ -267,7 +266,7 @@ QUICNetVConnection::init(QUICVersion version, QUICConnectionId peer_cid, QUICCon
                          QUICConnectionId retry_cid, UDPConnection *udp_con, QUICPacketHandler *packet_handler,
                          QUICResetTokenTable *rtable, QUICConnectionTable *ctable)
 {
-  SET_HANDLER((NetVConnHandler)&QUICNetVConnection::acceptEvent);
+  SET_HANDLER(&QUICNetVConnection::acceptEvent);
   this->_initial_version             = version;
   this->_udp_con                     = udp_con;
   this->_packet_handler              = packet_handler;
@@ -366,16 +365,12 @@ QUICNetVConnection::acceptEvent(int event, Event *e)
   this->read.enabled = 1;
 
   // Handshake callback handler.
-  SET_HANDLER((NetVConnHandler)&QUICNetVConnection::state_pre_handshake);
+  SET_HANDLER(&QUICNetVConnection::state_pre_handshake);
 
   // Send this netvc to InactivityCop.
   nh->startCop(this);
 
-  if (inactivity_timeout_in) {
-    set_inactivity_timeout(inactivity_timeout_in);
-  } else {
-    set_inactivity_timeout(0);
-  }
+  set_inactivity_timeout(inactivity_timeout_in);
 
   if (active_timeout_in) {
     set_active_timeout(active_timeout_in);
@@ -454,7 +449,7 @@ QUICNetVConnection::start()
 
   this->_remote_flow_controller = new QUICRemoteConnectionFlowController(UINT64_MAX);
   this->_local_flow_controller  = new QUICLocalConnectionFlowController(&this->_rtt_measure, UINT64_MAX);
-  this->_stream_manager         = new QUICStreamManager(this->_context.get(), this->_application_map);
+  this->_stream_manager         = new QUICStreamManagerImpl(this->_context.get(), this->_application_map);
   this->_token_creator          = new QUICTokenCreator(this->_context.get());
 
   static constexpr int QUIC_STREAM_MANAGER_WEIGHT = QUICFrameGeneratorWeight::AFTER_DATA - 1;
@@ -576,7 +571,7 @@ QUICNetVConnection::connectUp(EThread *t, int fd)
   this->thread   = this_ethread();
   ink_assert(nh->mutex->thread_holding == this->thread);
 
-  SET_HANDLER((NetVConnHandler)&QUICNetVConnection::state_pre_handshake);
+  SET_HANDLER(&QUICNetVConnection::state_pre_handshake);
 
   if ((res = nh->startIO(this)) < 0) {
     // FIXME: startIO only return 0 now! what should we do if it failed ?
@@ -1447,7 +1442,7 @@ QUICNetVConnection::_state_closing_receive_packet()
 
     if (this->_state_closing_recv_packet_window < STATE_CLOSING_MAX_RECV_PKT_WIND &&
         this->_state_closing_recv_packet_count >= this->_state_closing_recv_packet_window) {
-      this->_state_closing_recv_packet_count = 0;
+      this->_state_closing_recv_packet_count  = 0;
       this->_state_closing_recv_packet_window <<= 1;
 
       this->_schedule_packet_write_ready(true);
@@ -1679,6 +1674,8 @@ QUICNetVConnection::_packetize_frames(uint8_t *packet_buf, QUICEncryptionLevel l
       frame =
         g->generate_frame(frame_instance_buffer, level, this->_remote_flow_controller->credit(), max_frame_size, len, seq_num);
       if (frame) {
+        ink_release_assert(dynamic_cast<QUICStreamBase *>(frame->generated_by()) == nullptr);
+        ink_release_assert(dynamic_cast<QUICBidirectionalStream *>(frame->generated_by()) == nullptr);
         this->_context->trigger(QUICContext::CallbackEvent::FRAME_PACKETIZE, *frame);
         // Some frame types must not be sent on Initial and Handshake packets
         switch (auto t = frame->type(); level) {
@@ -1700,7 +1697,7 @@ QUICNetVConnection::_packetize_frames(uint8_t *packet_buf, QUICEncryptionLevel l
           ink_assert(ret == 0);
         }
         last_block = this->_store_frame(last_block, size_added, max_frame_size, *frame, frames);
-        len += size_added;
+        len        += size_added;
 
         // FIXME ACK frame should have priority
         if (frame->type() == QUICFrameType::STREAM) {
@@ -2138,7 +2135,7 @@ void
 QUICNetVConnection::_switch_to_handshake_state()
 {
   QUICConDebug("Enter state_handshake");
-  SET_HANDLER((NetVConnHandler)&QUICNetVConnection::state_handshake);
+  SET_HANDLER(&QUICNetVConnection::state_handshake);
 }
 
 void
@@ -2149,7 +2146,7 @@ QUICNetVConnection::_switch_to_established_state()
     QUICConDebug("Negotiated cipher suite: %s", this->_handshake_handler->negotiated_cipher_suite());
     this->_record_tls_handshake_end_time();
 
-    SET_HANDLER((NetVConnHandler)&QUICNetVConnection::state_connection_established);
+    SET_HANDLER(&QUICNetVConnection::state_connection_established);
 
     std::shared_ptr<const QUICTransportParameters> remote_tp = this->_handshake_handler->remote_transport_parameters();
     std::shared_ptr<const QUICTransportParameters> local_tp  = this->_handshake_handler->local_transport_parameters();
@@ -2201,7 +2198,7 @@ QUICNetVConnection::_switch_to_closing_state(QUICConnectionErrorUPtr error)
   ink_hrtime rto = this->_rtt_measure.current_pto_period();
 
   QUICConDebug("Enter state_connection_closing");
-  SET_HANDLER((NetVConnHandler)&QUICNetVConnection::state_connection_closing);
+  SET_HANDLER(&QUICNetVConnection::state_connection_closing);
 
   // This states SHOULD persist for three times the
   // current Retransmission Timeout (RTO) interval as defined in
@@ -2229,7 +2226,7 @@ QUICNetVConnection::_switch_to_draining_state(QUICConnectionErrorUPtr error)
   ink_hrtime rto = this->_rtt_measure.current_pto_period();
 
   QUICConDebug("Enter state_connection_draining");
-  SET_HANDLER((NetVConnHandler)&QUICNetVConnection::state_connection_draining);
+  SET_HANDLER(&QUICNetVConnection::state_connection_draining);
 
   // This states SHOULD persist for three times the
   // current Retransmission Timeout (RTO) interval as defined in
@@ -2247,7 +2244,7 @@ QUICNetVConnection::_switch_to_close_state()
     QUICConDebug("Switching state without handshake completion");
   }
   QUICConDebug("Enter state_connection_closed");
-  SET_HANDLER((NetVConnHandler)&QUICNetVConnection::state_connection_closed);
+  SET_HANDLER(&QUICNetVConnection::state_connection_closed);
   this->_schedule_closed_event();
 }
 
@@ -2323,8 +2320,8 @@ QUICNetVConnection::_setup_handshake_protocol(const shared_SSL_CTX &ctx)
 {
   // Initialize handshake protocol specific stuff
   // For QUICv1 TLS is the only option
-  QUICTLS *tls = new QUICTLS(this->_pp_key_info, ctx.get(), this->direction(), this->options,
-                             this->_quic_config->client_session_file(), this->_quic_config->client_keylog_file());
+  QUICTLS *tls =
+    new QUICTLS(this->_pp_key_info, ctx.get(), this->direction(), this->options, this->_quic_config->client_session_file());
   SSL_set_ex_data(tls->ssl_handle(), QUIC::ssl_quic_qc_index, static_cast<QUICConnection *>(this));
   TLSBasicSupport::bind(tls->ssl_handle(), this);
   TLSSessionResumptionSupport::bind(tls->ssl_handle(), this);

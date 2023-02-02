@@ -33,7 +33,7 @@
 #include "ProxyConfig.h"
 #include "ControlBase.h"
 #include "ControlMatcher.h"
-#include "records/P_RecProcess.h"
+#include "records/I_RecProcess.h"
 #include "tscore/ConsistentHash.h"
 #include "tscore/Tokenizer.h"
 #include "tscore/ink_apidefs.h"
@@ -42,7 +42,8 @@
 #include <algorithm>
 #include <vector>
 
-#define MAX_PARENTS 64
+#define MAX_PARENTS           64
+#define DEFAULT_PARENT_WEIGHT 1.0
 
 struct RequestData;
 struct matcher_line;
@@ -105,64 +106,7 @@ struct SimpleRetryResponseCodes {
 private:
   std::vector<int> codes;
 };
-// class pRetriers
-//
-//    Count of retriers with atomic read, increment, and decrement.
-//
-class pRetriers
-{
-public:
-  int
-  operator()() const
-  {
-    return _v.load();
-  }
 
-  void
-  clear()
-  {
-    _v = 0;
-  }
-
-  bool
-  inc(int max_retriers)
-  {
-    ink_assert(max_retriers > 0);
-
-    int r = _v.load(std::memory_order_relaxed);
-    while (r < max_retriers) {
-      if (_v.compare_exchange_weak(r, r + 1)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  void
-  dec()
-  {
-    int r = _v.load(std::memory_order_relaxed);
-    while (r > 0) {
-      if (_v.compare_exchange_weak(r, r - 1)) {
-        break;
-      }
-    }
-  }
-
-  pRetriers() = default;
-
-  pRetriers(pRetriers const &o) { _v = o._v.load(); }
-
-  pRetriers &
-  operator=(pRetriers const &o)
-  {
-    _v = o._v.load();
-    return *this;
-  }
-
-private:
-  std::atomic<int> _v = 0;
-};
 // struct pRecord
 //
 //    A record for an individual parent
@@ -178,13 +122,6 @@ public:
   int idx;
   float weight;
   char hash_string[MAXDNAME + 1];
-  pRetriers retriers;
-
-  void
-  retryComplete()
-  {
-    retriers.dec();
-  }
 };
 
 typedef ControlMatcher<ParentRecord, ParentResult> P_table;
@@ -240,7 +177,7 @@ public:
 //   between HttpTransact & the parent selection code.  The following
 ParentRecord *const extApiRecord = (ParentRecord *)0xeeeeffff;
 
-// used here to to set the number of ATSConsistentHashIter's
+// used here to set the number of ATSConsistentHashIter's
 // used in NextHopSelectionStrategy to limit the host group
 // size as well, group size is one to one with the number of rings
 constexpr const uint32_t MAX_GROUP_RINGS = 5;
@@ -250,6 +187,7 @@ struct ParentResult {
   // For outside consumption
   ParentResultType result;
   const char *hostname;
+  const char *url;
   int port;
   bool retry;
   bool chash_init[MAX_GROUP_RINGS] = {false};
@@ -324,17 +262,17 @@ struct ParentResult {
   }
 
   bool
-  response_is_retryable(HTTPStatus response_code) const
+  response_is_retryable(ParentRetry_t retry_type, HTTPStatus response_code) const
   {
-    Debug("parent_select", "In response_is_retryable, code: %d", response_code);
-    if (retry_type() == PARENT_RETRY_BOTH) {
+    Debug("parent_select", "In response_is_retryable, code: %d, type: %d", response_code, retry_type);
+    if (retry_type == PARENT_RETRY_BOTH) {
       Debug("parent_select", "Saw retry both");
       return (rec->unavailable_server_retry_responses->contains(response_code) ||
               rec->simple_server_retry_responses->contains(response_code));
-    } else if (retry_type() == PARENT_RETRY_UNAVAILABLE_SERVER) {
+    } else if (retry_type == PARENT_RETRY_UNAVAILABLE_SERVER) {
       Debug("parent_select", "Saw retry unavailable server");
       return rec->unavailable_server_retry_responses->contains(response_code);
-    } else if (retry_type() == PARENT_RETRY_SIMPLE) {
+    } else if (retry_type == PARENT_RETRY_SIMPLE) {
       Debug("parent_select", "Saw retry simple retry");
       return rec->simple_server_retry_responses->contains(response_code);
     } else {
@@ -424,16 +362,6 @@ public:
 
   // virtual destructor.
   virtual ~ParentSelectionStrategy(){};
-
-  void
-  retryComplete(ParentResult *result)
-  {
-    pRecord *p = getParents(result);
-    uint32_t n = numParents(result);
-    if (p != nullptr && result->last_parent < n) {
-      p[result->last_parent].retryComplete();
-    }
-  }
 };
 
 class ParentConfigParams : public ConfigInfo
@@ -483,15 +411,6 @@ public:
     } else {
       ink_release_assert(result->rec->selection_strategy != nullptr);
       return result->rec->selection_strategy->numParents(result);
-    }
-  }
-
-  void
-  retryComplete(ParentResult *result)
-  {
-    if (!result->is_api_result()) {
-      ink_release_assert(result != nullptr);
-      result->rec->selection_strategy->retryComplete(result);
     }
   }
 

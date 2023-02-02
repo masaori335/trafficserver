@@ -27,7 +27,7 @@ export CCACHE_BASEDIR
 # and mgmt, hence we have to build proxy/hdrs first.
 
 # depends on the generates ts/ts.h include file.
-SUBDIRS = src/tscpp/util lib src/tscore iocore proxy mgmt src plugins tools example rc configs include tests
+SUBDIRS = include lib src/tscpp/util src/tscore src/records iocore proxy mgmt src plugins tools example rc configs tests
 
 if BUILD_DOCS
 SUBDIRS += doc include
@@ -73,6 +73,8 @@ asf-distdir:
 	test -d .git && git clone . $(distdir)
 	cd $(distdir) && autoreconf -i
 	$(RM) -r -- $(distdir)/autom4te.cache $(distdir)/ci `find $(distdir) -name .git -o -name .gitignore -o -name .gitmodules`
+	grep -v 'img.shields.io' $(distdir)/README.md > $(distdir)/README.md.clean
+	mv $(distdir)/README.md.clean $(distdir)/README.md
 
 asf-dist-sign: asf-dist
 	sha512sum -b $(distdir).tar.bz2 >$(distdir).tar.bz2.sha512
@@ -111,6 +113,7 @@ endif
 rat:
 	java -jar $(top_srcdir)/ci/apache-rat-0.13-SNAPSHOT.jar -E $(top_srcdir)/ci/rat-regex.txt  -d $(top_srcdir)
 
+.PHONY: autopep8
 autopep8:
 	@$(top_srcdir)/tools/autopep8.sh $(top_srcdir)
 
@@ -120,11 +123,25 @@ autopep8:
 #
 # If you make changes to directory structures, you must update this as well.
 #
-.PHONY:	clang-format-src clang-format-example clang-format-iocore clang-format-lib clang-format-mgmt \
-	clang-format-plugins clang-format-proxy clang-format-tools perltidy
+CLANG_FORMAT_DIR_TARGETS = \
+	clang-format-src \
+	clang-format-example \
+	clang-format-iocore \
+	clang-format-include \
+	clang-format-mgmt \
+	clang-format-plugins \
+	clang-format-proxy \
+	clang-format-tools
 
-clang-format: 	clang-format-src clang-format-example clang-format-iocore clang-format-lib clang-format-mgmt \
-		clang-format-plugins clang-format-proxy clang-format-tools clang-format-tests
+.PHONY:	$(CLANG_FORMAT_DIR_TARGETS)
+
+CLANG_FORMAT_SENTINEL = $(top_srcdir)/.git/fmt/.clang-format-installed
+$(CLANG_FORMAT_SENTINEL):
+	@$(top_srcdir)/tools/clang-format.sh --install
+
+.PHONY:	clang-format
+clang-format: $(CLANG_FORMAT_SENTINEL)
+	$(MAKE) $(CLANG_FORMAT_DIR_TARGETS)
 
 clang-format-src:
 	@$(top_srcdir)/tools/clang-format.sh $(top_srcdir)/src
@@ -135,9 +152,8 @@ clang-format-example:
 clang-format-iocore:
 	@$(top_srcdir)/tools/clang-format.sh $(top_srcdir)/iocore
 
-clang-format-lib:
+clang-format-include:
 	@$(top_srcdir)/tools/clang-format.sh $(top_srcdir)/include
-	@$(top_srcdir)/tools/clang-format.sh $(top_srcdir)/lib/records
 
 clang-format-mgmt:
 	@$(top_srcdir)/tools/clang-format.sh $(top_srcdir)/mgmt
@@ -154,6 +170,12 @@ clang-format-tools:
 clang-format-tests:
 	@$(top_srcdir)/tools/clang-format.sh $(top_srcdir)/tests
 
+# Run the various format targets. perltidy is not included because the user may
+# not have it installed.
+.PHONY: format
+format: clang-format autopep8
+
+.PHONY: perltidy
 perltidy:
 	perltidy -q -b -bext='/' `find . -name \*.pm -o -name \*.pl`
 

@@ -24,7 +24,7 @@ Test.Summary = '''
 Test different combinations of TLS handshake hooks to ensure they are applied consistently.
 '''
 
-ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True)
+ts = Test.MakeATSProcess("ts", enable_tls=True)
 server = Test.MakeOriginServer("server")
 request_header = {"headers": "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n", "timestamp": "1469733493.993", "body": ""}
 # desired response form the origin server
@@ -58,17 +58,17 @@ tr.Processes.Default.Command = 'curl -k -H \'host:example.com:{0}\' https://127.
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.Streams.stdout = "gold/preaccept-1.gold"
 
-ts.Streams.stderr = "gold/ts-preaccept1-sni1-cert1.gold"
+ts.Disk.traffic_out.Content = "gold/ts-preaccept1-sni1-cert1.gold"
 snistring = "SNI callback 0"
 preacceptstring = "Pre accept callback 0"
 certstring = "Cert callback 0"
-ts.Streams.All = Testers.ContainsExpression(
+ts.Disk.traffic_out.Content = Testers.ContainsExpression(
     "\A(?:(?!{0}).)*{0}(?!.*{0}).*\Z".format(snistring), "SNI message appears only once", reflags=re.S | re.M)
 # the preaccept may get triggered twice because the test framework creates a TCP connection before handing off to traffic_server
-ts.Streams.All += Testers.ContainsExpression("\A(?:(?!{0}).)*{0}.*({0})?(?!.*{0}).*\Z".format(
+ts.Disk.traffic_out.Content += Testers.ContainsExpression("\A(?:(?!{0}).)*{0}.*({0})?(?!.*{0}).*\Z".format(
     preacceptstring), "Pre accept message appears only once or twice", reflags=re.S | re.M)
-ts.Streams.All += Testers.ContainsExpression("\A(?:(?!{0}).)*{0}(?!.*{0}).*\Z".format(certstring),
-                                             "Cert message appears only once", reflags=re.S | re.M)
+ts.Disk.traffic_out.Content += Testers.ContainsExpression("\A(?:(?!{0}).)*{0}(?!.*{0}).*\Z".format(certstring),
+                                                          "Cert message appears only once", reflags=re.S | re.M)
 
 tr.Processes.Default.TimeOut = 15
 tr.TimeOut = 15

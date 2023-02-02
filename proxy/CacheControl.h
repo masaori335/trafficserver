@@ -30,7 +30,7 @@
 
 #pragma once
 
-#include "P_EventSystem.h"
+#include "I_EventSystem.h"
 #include "ControlBase.h"
 #include "tscore/Result.h"
 
@@ -42,7 +42,7 @@ const int CC_UNSET_TIME = -1;
 
 //   Use 10 second time for purify testing under low
 //     load to verify memory allocation
-//#define CACHE_CONTROL_TIMEOUT            (HRTIME_SECOND*10)
+// #define CACHE_CONTROL_TIMEOUT            (HRTIME_SECOND*10)
 
 enum CacheControlType {
   CC_INVALID = 0,
@@ -84,7 +84,7 @@ public:
   //    on which a parameter was set
   //   Used to tell if a parameter needs to
   //    be overridden by something that appeared
-  //    earlier in the the config file
+  //    earlier in the config file
   //
   int reval_line         = -1;
   int never_line         = -1;

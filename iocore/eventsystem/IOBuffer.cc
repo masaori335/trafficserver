@@ -31,7 +31,7 @@
 //
 // General Buffer Allocator
 //
-Allocator ioBufAllocator[DEFAULT_BUFFER_SIZES];
+FreelistAllocator ioBufAllocator[DEFAULT_BUFFER_SIZES];
 ClassAllocator<MIOBuffer> ioAllocator("ioAllocator", DEFAULT_BUFFER_NUMBER);
 ClassAllocator<IOBufferData> ioDataAllocator("ioDataAllocator", DEFAULT_BUFFER_NUMBER);
 ClassAllocator<IOBufferBlock> ioBlockAllocator("ioBlockAllocator", DEFAULT_BUFFER_NUMBER);
@@ -43,20 +43,34 @@ int64_t max_iobuffer_size           = DEFAULT_BUFFER_SIZES - 1;
 // Initialization
 //
 void
-init_buffer_allocators(int iobuffer_advice)
+init_buffer_allocators(int iobuffer_advice, int chunk_sizes[DEFAULT_BUFFER_SIZES], bool use_hugepages)
 {
   for (int i = 0; i < DEFAULT_BUFFER_SIZES; i++) {
     int64_t s = DEFAULT_BUFFER_BASE_SIZE * ((static_cast<int64_t>(1)) << i);
     int64_t a = DEFAULT_BUFFER_ALIGNMENT;
-    int n     = i <= default_large_iobuffer_size ? DEFAULT_BUFFER_NUMBER : DEFAULT_HUGE_BUFFER_NUMBER;
+    int n     = chunk_sizes[i];
+    if (n == 0) {
+      n = i <= default_large_iobuffer_size ? DEFAULT_BUFFER_NUMBER : DEFAULT_HUGE_BUFFER_NUMBER;
+    }
     if (s < a) {
       a = s;
     }
 
     auto name = new char[64];
-    snprintf(name, 64, "ioBufAllocator[%d]", i);
-    ioBufAllocator[i].re_init(name, s, n, a, iobuffer_advice);
+    if (use_hugepages) {
+      snprintf(name, 64, "ioBufAllocatorHP[%d]", i);
+    } else {
+      snprintf(name, 64, "ioBufAllocator[%d]", i);
+    }
+    ioBufAllocator[i].re_init(name, s, n, a, use_hugepages, iobuffer_advice);
   }
+}
+
+void
+init_buffer_allocators(int iobuffer_advice)
+{
+  int chunk_sizes[DEFAULT_BUFFER_SIZES] = {0};
+  init_buffer_allocators(iobuffer_advice, chunk_sizes, false);
 }
 
 //
@@ -109,7 +123,7 @@ MIOBuffer::write(IOBufferBlock const *b, int64_t alen, int64_t offset)
 
   while (b && len > 0) {
     int64_t max_bytes = b->read_avail();
-    max_bytes -= offset;
+    max_bytes         -= offset;
     if (max_bytes <= 0) {
       offset = -max_bytes;
       b      = b->next.get();
@@ -122,12 +136,12 @@ MIOBuffer::write(IOBufferBlock const *b, int64_t alen, int64_t offset)
       bytes = len;
     }
     IOBufferBlock *bb = b->clone();
-    bb->_start += offset;
+    bb->_start        += offset;
     bb->_buf_end = bb->_end = bb->_start + bytes;
     append_block(bb);
     offset = 0;
-    len -= bytes;
-    b = b->next.get();
+    len    -= bytes;
+    b      = b->next.get();
   }
 
   return alen - len;
@@ -170,10 +184,10 @@ IOBufferReader::read(void *ab, int64_t len)
     }
     ::memcpy(b, start(), l);
     consume(l);
-    b += l;
-    n -= l;
+    b     += l;
+    n     -= l;
     bytes += l;
-    l = block_read_avail();
+    l     = block_read_avail();
   }
   return bytes;
 }
@@ -183,12 +197,12 @@ int64_t
 IOBufferReader::memchr(char c, int64_t len, int64_t offset)
 {
   IOBufferBlock *b = block.get();
-  offset += start_offset;
-  int64_t o = offset;
+  offset           += start_offset;
+  int64_t o        = offset;
 
   while (b && len) {
     int64_t max_bytes = b->read_avail();
-    max_bytes -= offset;
+    max_bytes         -= offset;
     if (max_bytes <= 0) {
       offset = -max_bytes;
       b      = b->next.get();
@@ -205,8 +219,8 @@ IOBufferReader::memchr(char c, int64_t len, int64_t offset)
     if (p) {
       return static_cast<int64_t>(o - start_offset + p - s);
     }
-    o += bytes;
-    len -= bytes;
+    o      += bytes;
+    len    -= bytes;
     b      = b->next.get();
     offset = 0;
   }
@@ -219,11 +233,11 @@ IOBufferReader::memcpy(void *ap, int64_t len, int64_t offset)
 {
   char *p          = static_cast<char *>(ap);
   IOBufferBlock *b = block.get();
-  offset += start_offset;
+  offset           += start_offset;
 
   while (b && len) {
     int64_t max_bytes = b->read_avail();
-    max_bytes -= offset;
+    max_bytes         -= offset;
     if (max_bytes <= 0) {
       offset = -max_bytes;
       b      = b->next.get();
@@ -236,8 +250,8 @@ IOBufferReader::memcpy(void *ap, int64_t len, int64_t offset)
       bytes = len;
     }
     ::memcpy(p, b->start() + offset, bytes);
-    p += bytes;
-    len -= bytes;
+    p      += bytes;
+    len    -= bytes;
     b      = b->next.get();
     offset = 0;
   }
@@ -263,7 +277,7 @@ IOBufferChain::write(IOBufferBlock *blocks, int64_t length, int64_t offset)
       if (offset) {
         bb->consume(offset);
         block_bytes -= offset; // bytes really available to use.
-        offset = 0;
+        offset      = 0;
       }
       if (block_bytes > n) {
         bb->_end -= (block_bytes - n);
@@ -276,7 +290,7 @@ IOBufferChain::write(IOBufferBlock *blocks, int64_t length, int64_t offset)
   }
 
   length -= n; // actual bytes written to chain.
-  _len += length;
+  _len   += length;
   return length;
 }
 
@@ -320,8 +334,8 @@ IOBufferChain::consume(int64_t size)
   while (_head != nullptr && size > 0 && (bytes = _head->read_avail()) > 0) {
     if (size >= bytes) {
       _head = _head->next;
-      zret += bytes;
-      size -= bytes;
+      zret  += bytes;
+      size  -= bytes;
     } else {
       _head->consume(size);
       zret += size;

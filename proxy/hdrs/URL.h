@@ -77,11 +77,12 @@ public:
 
   uint32_t m_clean : 1;
   /// Whether the URI had an absolutely empty path, not even an initial '/'.
-  uint32_t m_path_is_empty : 1;
+  uint32_t m_path_is_empty       : 1;
   uint32_t m_normalization_flags : 2; // Only valid if both m_clean and m_ptr_printed_sting are non-zero.
   // 8 bytes + 4 bits, will result in padding
 
   // Accessors
+  const char *get_scheme(int *length);
   const char *set_scheme(HdrHeap *heap, const char *value, int value_wks_idx, int length, bool copy_string);
   const char *get_user(int *length);
   void set_user(HdrHeap *heap, const char *value, int length, bool copy_string);
@@ -185,6 +186,8 @@ extern int URL_LEN_MMST;
 
 /* Public */
 bool validate_host_name(std::string_view addr);
+bool validate_scheme(std::string_view scheme);
+
 void url_init();
 
 URLImpl *url_create(HdrHeap *heap);
@@ -343,7 +346,7 @@ public:
 public:
   static char *unescapify(Arena *arena, const char *str, int length);
   // No gratuitous copies!
-  URL(const URL &u) = delete;
+  URL(const URL &u)            = delete;
   URL &operator=(const URL &u) = delete;
 
 private:
@@ -512,13 +515,9 @@ inline const std::string_view
 URL::scheme_get()
 {
   ink_assert(valid());
-
-  if (m_url_impl->m_scheme_wks_idx >= 0) {
-    return std::string_view{hdrtoken_index_to_wks(m_url_impl->m_scheme_wks_idx),
-                            static_cast<size_t>(hdrtoken_index_to_length(m_url_impl->m_scheme_wks_idx))};
-  } else {
-    return std::string_view{m_url_impl->m_ptr_scheme, m_url_impl->m_len_scheme};
-  }
+  int length;
+  const char *scheme = m_url_impl->get_scheme(&length);
+  return std::string_view{scheme, static_cast<size_t>(length)};
 }
 
 inline const char *

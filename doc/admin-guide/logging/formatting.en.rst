@@ -39,7 +39,8 @@ fairly simple: every format must contain a ``Format`` attribute, which is the
 string defining the contents of each line in the log, and may also contain an
 optional ``Interval`` attribute defining the log aggregation interval for
 any logs which use the format (see :ref:`admin-logging-type-summary` for more
-information).
+information). It may also contain an optional ``escape`` attribute defining the
+escape of log fields. Possible values for ``escape`` are ``json`` or ``none``.
 
 The return value from the ``format`` function is the log format object which
 may then be supplied to the appropriate ``log.*`` functions that define your
@@ -487,7 +488,8 @@ incoming/outgoing ports, and network interfaces used during transactions.
 ===== ============== ==========================================================
 Field Source         Description
 ===== ============== ==========================================================
-chi   Client         IP address of the client's host.
+chi   Client         IP address of the client's host. If :ref:`Proxy Protocol <proxy-protocol>`
+                     is used, this represents the IP address of the previous hop.
 chih  Client         IP address of the client's host, in hexadecimal.
 hii   Proxy          IP address for the proxy's incoming interface (to which
                      the client connected).
@@ -556,7 +558,6 @@ cqint Client Request   If a request was generated internally (via a plugin), the
 Protocols and Versions
 ~~~~~~~~~~~~~~~~~~~~~~
 
-.. _cqhv:
 .. _cqpv:
 .. _csshv:
 .. _sshv:
@@ -567,8 +568,6 @@ were in effect for a given event.
 ===== ===================== ===================================================
 Field Source                Description
 ===== ===================== ===================================================
-cqhv  Client Request        Client request HTTP version. Deprecated since 9.0.
-                            Use ``cqpv`` instead.
 cqpv  Client Request        Client request protocol and version.
 sqpv  Proxy Request         Origin negotiated protocol and version
 csshv Cached Proxy Response Origin server's HTTP version from cached version of
@@ -636,6 +635,9 @@ cqssu  Client Request SSL Elliptic Curve used by |TS| to communicate with the
 cqssa  Client Request ALPN Protocol ID negotiated with the client.
 pqssl  Proxy Request  Indicates whether the connection from |TS| to the origin
                       was over SSL or not.
+pqssr  Proxy Request  SSL session ticket reused status from |TS| to the origin;
+                      indicates if the current request hit the SSL session ticket
+                      and avoided a full SSL handshake.
 pscert Proxy Request  1 if origin requested certificate from |TS| during TLS
                       handshake but no client certificate was defined. 2 if origin
                       requested certificate from |TS| during TLS handshake and a
@@ -803,6 +805,10 @@ URLs, Schemes, and Paths
 .. _cquc:
 .. _cqup:
 .. _cqus:
+.. _pqu:
+.. _pquc:
+.. _pqup:
+.. _pqus:
 .. _cquuc:
 .. _cquup:
 .. _cquuh:
@@ -816,13 +822,26 @@ Field Source         Description
 cqu   Proxy Request  URL of the proxy request from |TS| to the origin. If a
                      remap rule is used (:file:`remap.config`), the original
                      client URL is replaced with the URL in the target of the
-                     remap rule.
+                     remap rule. Deprecated since 10.0. Use ``pqu`` instead.
 cquc  Proxy Request  Canonical URL from the proxy request to origin. This field
                      differs from cqu_ by having its contents URL-escaped
                      (spaces and various other characters are replaced by
+                     percent-escaped entity codes). Deprecated since 10.0.
+                     Use ``pquc`` instead.
+cqup  Proxy Request  Path component from the proxy request. Deprecated since
+                     10.0. Use ``pqup`` instead.
+cqus  Proxy Request  URL scheme from the proxy request. Deprecated since 10.0.
+                     Use ``pqus`` instead.
+pqu   Proxy Request  URL of the proxy request from |TS| to the origin. If a
+                     remap rule is used (:file:`remap.config`), the original
+                     client URL is replaced with the URL in the target of the
+                     remap rule.
+pquc  Proxy Request  Canonical URL from the proxy request to origin. This field
+                     differs from pqu_ by having its contents URL-escaped
+                     (spaces and various other characters are replaced by
                      percent-escaped entity codes).
-cqup  Proxy Request  Path component from the proxy request.
-cqus  Proxy Request  URL scheme from the proxy request.
+pqup  Proxy Request  Path component from the proxy request.
+pqus  Proxy Request  URL scheme from the proxy request.
 cquuc Client Request Canonical (prior to remapping) effective URL from client request.
                      It is possible that plugins prior to the remap phase have
                      changed the client request, so this field may not match the
@@ -837,7 +856,7 @@ Line Length
 
 The maximum line size for a log entry can be configured via the following
 parameters, the details of which are documented in the linked
-:file:`records.config` descriptions:
+:file:`records.yaml` descriptions:
 
 - :ts:cv:`proxy.config.log.max_line_size`
 - :ts:cv:`proxy.config.log.ascii_buffer_size`
@@ -872,8 +891,13 @@ The below slice specifiers are allowed.
 
 Some examples below ::
 
-  '%<cqup>'       // the whole characters of <cqup>.
-  '%<cqup>[:]'    // the whole characters of <cqup>.
-  '%<cqup[0:30]>' // the first 30 characters of <cqup>.
-  '%<cqup[-10:]>' // the last 10 characters of <cqup>.
-  '%<cqup[:-5]>'  // everything except the last 5 characters of <cqup>.
+  '%<pqup>'       // the whole characters of <pqup>.
+  '%<pqup>[:]'    // the whole characters of <pqup>.
+  '%<pqup[0:30]>' // the first 30 characters of <pqup>.
+  '%<pqup[-10:]>' // the last 10 characters of <pqup>.
+  '%<pqup[:-5]>'  // everything except the last 5 characters of <pqup>.
+
+Note when ``escape`` in ``format`` is set to ``json``, the start is the
+position before escaping JSON strings, and escaped values are sliced at
+the length (= end - start). If slicing cuts in the middle of escaped
+characters, the whole character is removed.

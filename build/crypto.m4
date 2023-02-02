@@ -45,7 +45,8 @@ dnl Check OpenSSL Version
 dnl
 AC_DEFUN([TS_CHECK_CRYPTO_VERSION], [
   AC_MSG_CHECKING([OpenSSL version])
-  AC_RUN_IFELSE([AC_LANG_SOURCE([[
+  AC_RUN_IFELSE([AC_LANG_SOURCE(
+  [
 #include <openssl/opensslv.h>
 int main() {
   if (OPENSSL_VERSION_NUMBER < 0x1000200fL) {
@@ -53,7 +54,28 @@ int main() {
   }
   return 0;
 }
-]])],[AC_MSG_RESULT([ok])],[AC_MSG_FAILURE([requires OpenSSL version 1.0.2 or greater])],[])
+  ])],
+  [AC_MSG_RESULT([ok])], [AC_MSG_FAILURE([requires OpenSSL version 1.0.2 or greater])], [AC_MSG_RESULT([assuming ok])]
+  )
+])
+
+dnl
+dnl Check OpenSSL Version 3
+dnl
+AC_DEFUN([TS_CHECK_OPENSSL3], [
+  AC_MSG_CHECKING([for OpenSSL version 3])
+  AC_RUN_IFELSE([AC_LANG_SOURCE(
+  [
+#include <openssl/opensslv.h>
+int main() {
+  if (OPENSSL_VERSION_NUMBER > 0x3000000fL) {
+    return 0;
+  }
+  return 1;
+}
+  ])],
+  [AC_MSG_RESULT(yes) TS_ADDTO(CPPFLAGS, -DOPENSSL_API_COMPAT=10002 -DOPENSSL_IS_OPENSSL3) openssl_is_openssl3=1], [AC_MSG_RESULT(no)]
+  )
 ])
 
 dnl
@@ -274,6 +296,21 @@ AC_DEFUN([TS_CHECK_CRYPTO_OCSP], [
 dnl
 dnl Since OpenSSL 1.1.1
 dnl
+AC_DEFUN([TS_CHECK_CRYPTO_KEYLOGGING], [
+  _keylogging_saved_LIBS=$LIBS
+  TS_ADDTO(LIBS, [$OPENSSL_LIBS])
+  AC_CHECK_FUNCS(SSL_CTX_set_keylog_callback, [enable_tls_keylogging=yes], [enable_tls_keylogging=no])
+  LIBS=$_keylogging_saved_LIBS
+
+  AC_MSG_CHECKING(whether to enable TLS keylogging support)
+  AC_MSG_RESULT([$enable_tls_keylogging])
+  TS_ARG_ENABLE_VAR([has], [tls-keylogging])
+  AC_SUBST(has_tls_keylogging)
+])
+
+dnl
+dnl Since OpenSSL 1.1.1
+dnl
 AC_DEFUN([TS_CHECK_CRYPTO_SET_CIPHERSUITES], [
   _set_ciphersuites_saved_LIBS=$LIBS
 
@@ -295,17 +332,15 @@ dnl
 AC_DEFUN([TS_CHECK_EARLY_DATA], [
   _set_ciphersuites_saved_LIBS=$LIBS
 
+  has_tls_early_data=0
+  early_data_check=no
   TS_ADDTO(LIBS, [$OPENSSL_LIBS])
   AC_CHECK_HEADERS(openssl/ssl.h)
   AC_CHECK_FUNCS(
-    SSL_set_max_early_data,
+    SSL_set_max_early_data SSL_read_early_data SSL_write_early_data SSL_in_early_data,
     [
       has_tls_early_data=1
       early_data_check=yes
-    ],
-    [
-      has_tls_early_data=0
-      early_data_check=no
     ]
   )
 
@@ -367,6 +402,7 @@ AC_DEFUN([TS_CHECK_SESSION_TICKET], [
 dnl SSL_set1_verify_cert_store macro is for OpenSSL 1.1.1
 dnl SSL_set1_verify_cert_store function is for BoringSSL
 AC_DEFUN([TS_CHECK_VERIFY_CERT_STORE], [
+  _saved_LIBS=$LIBS
 
   TS_ADDTO(LIBS, [$OPENSSL_LIBS])
   AC_CHECK_HEADERS(openssl/ssl.h)
@@ -397,6 +433,8 @@ AC_DEFUN([TS_CHECK_VERIFY_CERT_STORE], [
     ],
     []
   )
+
+  LIBS=$_saved_LIBS
 
   AC_MSG_CHECKING([for setting verify cert store APIs])
   AC_MSG_RESULT([$verify_cert_store_check])

@@ -16,6 +16,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import sys
 
 Test.SkipUnless(
     Condition.PluginExists('request_buffer.so')
@@ -26,7 +27,7 @@ class SlowPostAttack:
     def __init__(cls):
         Test.Summary = 'Test how ATS handles the slow-post attack'
         cls._origin_max_connections = 3
-        cls._slow_post_client = 'slow_post_client.py'
+        cls._slow_post_client = 'slow_post_clients.py'
         cls.setupOriginServer()
         cls.setupTS()
         cls._ts.Setup.CopyAs(cls._slow_post_client, Test.RunDirectory)
@@ -46,7 +47,7 @@ class SlowPostAttack:
         self._server.addResponse("sessionlog.json", request_header2, response_header2)
 
     def setupTS(self):
-        self._ts = Test.MakeATSProcess("ts", select_ports=True)
+        self._ts = Test.MakeATSProcess("ts")
         self._ts.Disk.remap_config.AddLine(
             'map / http://127.0.0.1:{0}'.format(self._server.Variables.Port)
         )
@@ -60,8 +61,8 @@ class SlowPostAttack:
 
     def run(self):
         tr = Test.AddTestRun()
-        tr.Processes.Default.Command = 'python3 {0} -p {1} -c {2}'.format(
-            self._slow_post_client, self._ts.Variables.port, self._origin_max_connections)
+        tr.Processes.Default.Command = \
+            f'{sys.executable} {self._slow_post_client} -p {self._ts.Variables.port} -c {self._origin_max_connections}'
         tr.Processes.Default.ReturnCode = 0
         tr.Processes.Default.StartBefore(self._server)
         tr.Processes.Default.StartBefore(Test.Processes.ts)

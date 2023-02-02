@@ -63,7 +63,7 @@ for i in range(num_nh):
     )
     ts_nh.append(ts)
 
-ts = Test.MakeATSProcess("ts", command="traffic_server 2> trace.log")
+ts = Test.MakeATSProcess("ts", use_traffic_out=False, command="traffic_server 2> trace.log")
 
 ts.Disk.records_config.update({
     'proxy.config.diags.debug.enabled': 1,
@@ -74,6 +74,7 @@ ts.Disk.records_config.update({
     'proxy.config.http.uncacheable_requests_bypass_parent': 0,
     'proxy.config.http.no_dns_just_forward_to_parent': 1,
     'proxy.config.http.parent_proxy.mark_down_hostdb': 0,
+    'proxy.config.http.down_server.cache_time': 1,
     'proxy.config.http.parent_proxy.self_detect': 0,
 })
 
@@ -90,6 +91,7 @@ for i in range(num_nh):
     # The health check URL does not seem to be used currently.
     # s.AddLine(f"          health_check_url: http://next_hop{i}:{ts_nh[i].Variables.port}")
     s.AddLine(f"      weight: 1.0")
+
 s.AddLines([
     "strategies:",
     "  - strategy: the-strategy",

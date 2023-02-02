@@ -73,23 +73,6 @@ int64_t TSCacheHttpInfoSizeGet(TSCacheHttpInfo infop);
 tsapi int TSMimeHdrFieldEqual(TSMBuffer bufp, TSMLoc hdr_obj, TSMLoc field1, TSMLoc field2);
 tsapi TSReturnCode TSHttpTxnHookRegisteredFor(TSHttpTxn txnp, TSHttpHookID id, TSEventFunc funcp);
 
-/* Various HTTP "control" modes */
-typedef enum {
-  TS_HTTP_CNTL_GET_LOGGING_MODE,
-  TS_HTTP_CNTL_SET_LOGGING_MODE,
-  TS_HTTP_CNTL_GET_INTERCEPT_RETRY_MODE,
-  TS_HTTP_CNTL_SET_INTERCEPT_RETRY_MODE
-} TSHttpCntlType;
-
-#define TS_HTTP_CNTL_OFF (void *)0
-#define TS_HTTP_CNTL_ON (void *)1
-/* usage:
-   void *onoff = 0;
-   TSHttpTxnCntl(.., TS_HTTP_CNTL_GET_LOGGING_MODE, &onoff);
-   if (onoff == TS_HTTP_CNTL_ON) ....
-*/
-tsapi TSReturnCode TSHttpTxnCntl(TSHttpTxn txnp, TSHttpCntlType cntl, void *data);
-
 /* Protocols APIs */
 tsapi void TSVConnCacheHttpInfoSet(TSVConn connp, TSCacheHttpInfo infop);
 
@@ -114,19 +97,19 @@ tsapi void TSHttpTxnServerRequestBodySet(TSHttpTxn txnp, char *buf, int64_t bufl
 
 /* ===== High Resolution Time ===== */
 #define TS_HRTIME_FOREVER (10 * TS_HRTIME_DECADE)
-#define TS_HRTIME_DECADE (10 * TS_HRTIME_YEAR)
-#define TS_HRTIME_YEAR (365 * TS_HRTIME_DAY + TS_HRTIME_DAY / 4)
-#define TS_HRTIME_WEEK (7 * TS_HRTIME_DAY)
-#define TS_HRTIME_DAY (24 * TS_HRTIME_HOUR)
-#define TS_HRTIME_HOUR (60 * TS_HRTIME_MINUTE)
-#define TS_HRTIME_MINUTE (60 * TS_HRTIME_SECOND)
-#define TS_HRTIME_SECOND (1000 * TS_HRTIME_MSECOND)
+#define TS_HRTIME_DECADE  (10 * TS_HRTIME_YEAR)
+#define TS_HRTIME_YEAR    (365 * TS_HRTIME_DAY + TS_HRTIME_DAY / 4)
+#define TS_HRTIME_WEEK    (7 * TS_HRTIME_DAY)
+#define TS_HRTIME_DAY     (24 * TS_HRTIME_HOUR)
+#define TS_HRTIME_HOUR    (60 * TS_HRTIME_MINUTE)
+#define TS_HRTIME_MINUTE  (60 * TS_HRTIME_SECOND)
+#define TS_HRTIME_SECOND  (1000 * TS_HRTIME_MSECOND)
 #define TS_HRTIME_MSECOND (1000 * TS_HRTIME_USECOND)
 #define TS_HRTIME_USECOND (1000 * TS_HRTIME_NSECOND)
 #define TS_HRTIME_NSECOND (1LL)
 
 #define TS_HRTIME_APPROX_SECONDS(_x) ((_x) >> 30) /*  off by 7.3% */
-#define TS_HRTIME_APPROX_FACTOR (((float)(1 << 30)) / (((float)HRTIME_SECOND)))
+#define TS_HRTIME_APPROX_FACTOR      (((float)(1 << 30)) / (((float)HRTIME_SECOND)))
 
 /*
 ////////////////////////////////////////////////////////////////////
@@ -135,12 +118,12 @@ tsapi void TSHttpTxnServerRequestBodySet(TSHttpTxn txnp, char *buf, int64_t bufl
 //
 ////////////////////////////////////////////////////////////////////
 */
-#define TS_HRTIME_YEARS(_x) ((_x)*TS_HRTIME_YEAR)
-#define TS_HRTIME_WEEKS(_x) ((_x)*TS_HRTIME_WEEK)
-#define TS_HRTIME_DAYS(_x) ((_x)*TS_HRTIME_DAY)
-#define TS_HRTIME_HOURS(_x) ((_x)*TS_HRTIME_HOUR)
-#define TS_HRTIME_MINUTES(_x) ((_x)*TS_HRTIME_MINUTE)
-#define TS_HRTIME_SECONDS(_x) ((_x)*TS_HRTIME_SECOND)
+#define TS_HRTIME_YEARS(_x)    ((_x)*TS_HRTIME_YEAR)
+#define TS_HRTIME_WEEKS(_x)    ((_x)*TS_HRTIME_WEEK)
+#define TS_HRTIME_DAYS(_x)     ((_x)*TS_HRTIME_DAY)
+#define TS_HRTIME_HOURS(_x)    ((_x)*TS_HRTIME_HOUR)
+#define TS_HRTIME_MINUTES(_x)  ((_x)*TS_HRTIME_MINUTE)
+#define TS_HRTIME_SECONDS(_x)  ((_x)*TS_HRTIME_SECOND)
 #define TS_HRTIME_MSECONDS(_x) ((_x)*TS_HRTIME_MSECOND)
 #define TS_HRTIME_USECONDS(_x) ((_x)*TS_HRTIME_USECOND)
 #define TS_HRTIME_NSECONDS(_x) ((_x)*TS_HRTIME_NSECOND)
@@ -344,6 +327,7 @@ tsapi char *TSMatcherLineValue(TSMatcherLine ml, int element);
 /****************************************************************************
  *  Set a records.config integer variable
  ****************************************************************************/
+// DEPRECATED
 tsapi TSReturnCode TSMgmtConfigIntSet(const char *var_name, TSMgmtInt value);
 
 tsapi TSReturnCode TSMgmtConfigFileAdd(const char *parent, const char *fileName);
@@ -351,13 +335,13 @@ tsapi TSReturnCode TSMgmtConfigFileAdd(const char *parent, const char *fileName)
  * Interfaces used by Wireless group
  * ---------------------------------------------------------------------- */
 
-#define TS_NET_EVENT_DATAGRAM_READ_COMPLETE TS_EVENT_INTERNAL_206
-#define TS_NET_EVENT_DATAGRAM_READ_ERROR TS_EVENT_INTERNAL_207
+#define TS_NET_EVENT_DATAGRAM_READ_COMPLETE  TS_EVENT_INTERNAL_206
+#define TS_NET_EVENT_DATAGRAM_READ_ERROR     TS_EVENT_INTERNAL_207
 #define TS_NET_EVENT_DATAGRAM_WRITE_COMPLETE TS_EVENT_INTERNAL_208
-#define TS_NET_EVENT_DATAGRAM_WRITE_ERROR TS_EVENT_INTERNAL_209
-#define TS_NET_EVENT_DATAGRAM_READ_READY TS_EVENT_INTERNAL_210
-#define TS_NET_EVENT_DATAGRAM_OPEN TS_EVENT_INTERNAL_211
-#define TS_NET_EVENT_DATAGRAM_ERROR TS_EVENT_INTERNAL_212
+#define TS_NET_EVENT_DATAGRAM_WRITE_ERROR    TS_EVENT_INTERNAL_209
+#define TS_NET_EVENT_DATAGRAM_READ_READY     TS_EVENT_INTERNAL_210
+#define TS_NET_EVENT_DATAGRAM_OPEN           TS_EVENT_INTERNAL_211
+#define TS_NET_EVENT_DATAGRAM_ERROR          TS_EVENT_INTERNAL_212
 
 /**
  * Extended FetchSM's AIPs

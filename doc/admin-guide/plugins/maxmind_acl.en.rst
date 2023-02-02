@@ -62,7 +62,8 @@ Rules
 You can mix and match the allow rules and deny rules, however deny rules will always take precedence so in the above case ``127.0.0.1`` would be denied.
 The IP rules can take either single IPs or cidr formatted rules. It will also accept IPv6 IP and ranges.
 
-The regex portion can be added to both the allow and deny sections for creating allowable or deniable regexes. Each regex takes a country code first and a regex second.
+The regex portion can be added to both the allow and deny sections for creating allowable or deniable regexes. Each regex takes a country code first and a regex second. The regex
+operates on the entire original request URL, the pre-remapped fqdn and path.
 In the above example all requests from the US would be allowed except for those on ``txt`` and ``mp3`` files. More rules should be added as pairs, not as additions to existing lists.
 
 Currently the only rules available are ``country``, ``ip``, and ``regex``, though more can easily be added if needed. Each config file does require a top level
@@ -78,3 +79,32 @@ Optional
 ========
 
 There is an optional ``html`` field which takes a html file that will be used as the body of the response for any denied requests if you wish to use a custom one.
+
+Anonymous
+=========
+
+There is also an optional ``anonymous`` field. This allows you to use the MaxMind GeoIP2 Anonymous IP database and reference it's optional fields. These are ``ip``, ``vpn``,
+``hosting``, ``public``, ``tor``, and ``residential``. Currently anonymous blocking cannot be combined with GeoIP blocking since it is considered a separate database.
+However if you custom generate your own database that includes anonymous data then you could use them at the same time. Another solution is to have two instances
+of the maxmind_acl plugin on a remap, one to handle geo blocking and another for anonymous blocking. A setting of ``true`` will cause that type to be blocked, ``false``
+will not block and is effectively a no-op.
+
+An example configuration ::
+
+   maxmind:
+    database: GeoIP2-Anonymous-IP.mmdb
+    anonymous:
+     hosting: false
+     ip: true
+     vpn: true
+     tor: false
+    allow:
+     ip:
+      - 127.0.0.1  # Can insert known anonymous IP you wish to allow here
+
+This would block anonymous IPs and VPNs while allowing hosting and tor IPs. However if an IP has multiple designations then having a ``false`` set will not stop a ``true`` entry from being blocked.
+For example in the above if an IP had both vpn and hosting true in the database then it would still be blocked due to the vpn designation.
+
+The allow IP and deny IP fields also will work while using the anonymous blocking if you wish to allow specific known IPs or block specific IPs. Keep in mind that the same rule about reversing the logic
+applies, so that even if you are only doing anonymous IP blocking, and then set allowable IPs to allow certain anonymous IP through (if desired), this will reverse the logic and default to blocking all
+IPs unless they fall into a range in the allow list.

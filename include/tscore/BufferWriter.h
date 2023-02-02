@@ -31,8 +31,9 @@
 #include <iosfwd>
 #include <string_view>
 
+#include "swoc/MemSpan.h"
+
 #include "tscpp/util/TextView.h"
-#include "tscpp/util/MemSpan.h"
 #include "tscore/BufferWriterForward.h"
 
 namespace ts
@@ -185,14 +186,14 @@ public:
       "{} {1} {}", and "{0} {1} {2}" are equivalent. Using an explicit index does not reset the
       position of subsequent substitutions, therefore "{} {0} {}" is equivalent to "{0} {0} {2}".
   */
-  template <typename... Rest> BufferWriter &print(TextView fmt, Rest &&... rest);
+  template <typename... Rest> BufferWriter &print(TextView fmt, Rest &&...rest);
   /** Print overload to take arguments as a tuple instead of explicitly.
       This is useful for forwarding variable arguments from other functions / methods.
   */
   template <typename... Args> BufferWriter &printv(TextView fmt, std::tuple<Args...> const &args);
 
   /// Print using a preparsed @a fmt.
-  template <typename... Args> BufferWriter &print(BWFormat const &fmt, Args &&... args);
+  template <typename... Args> BufferWriter &print(BWFormat const &fmt, Args &&...args);
   /** Print overload to take arguments as a tuple instead of explicitly.
       This is useful for forwarding variable arguments from other functions / methods.
   */
@@ -232,12 +233,12 @@ public:
    */
   FixedBufferWriter(std::nullptr_t);
 
-  FixedBufferWriter(const FixedBufferWriter &) = delete;
+  FixedBufferWriter(const FixedBufferWriter &)            = delete;
   FixedBufferWriter &operator=(const FixedBufferWriter &) = delete;
   FixedBufferWriter(FixedBufferWriter &&)                 = delete;
-  FixedBufferWriter &operator=(FixedBufferWriter &&) = delete;
+  FixedBufferWriter &operator=(FixedBufferWriter &&)      = delete;
 
-  FixedBufferWriter(MemSpan<char> &span) : _buf(span.begin()), _capacity(static_cast<size_t>(span.size())) {}
+  FixedBufferWriter(swoc::MemSpan<char> &span) : _buf(span.begin()), _capacity(static_cast<size_t>(span.size())) {}
 
   /// Write a single character @a c to the buffer.
   FixedBufferWriter &
@@ -394,9 +395,9 @@ public:
   ssize_t operator>>(int fd) const override;
 
   // Overrides for co-variance
-  template <typename... Rest> self_type &print(TextView fmt, Rest &&... rest);
+  template <typename... Rest> self_type &print(TextView fmt, Rest &&...rest);
   template <typename... Args> self_type &printv(TextView fmt, std::tuple<Args...> const &args);
-  template <typename... Args> self_type &print(BWFormat const &fmt, Args &&... args);
+  template <typename... Args> self_type &print(BWFormat const &fmt, Args &&...args);
   template <typename... Args> self_type &printv(BWFormat const &fmt, std::tuple<Args...> const &args);
 
 protected:
@@ -529,7 +530,9 @@ namespace bw_fmt
   /// @a TUPLE.  Due to language limitations it cannot be done directly. The formatters can be
   /// accessed via standard array access in contrast to templated tuple access. The actual array is
   /// static and therefore at run time the only operation is loading the address of the array.
-  template <typename TUPLE, size_t... N> ArgFormatterSignature<TUPLE> *Get_Arg_Formatter_Array(std::index_sequence<N...>)
+  template <typename TUPLE, size_t... N>
+  ArgFormatterSignature<TUPLE> *
+  Get_Arg_Formatter_Array(std::index_sequence<N...>)
   {
     static ArgFormatterSignature<TUPLE> fa[sizeof...(N)] = {&bw_fmt::Arg_Formatter<TUPLE, N>...};
     return fa;
@@ -608,7 +611,7 @@ protected:
 
 template <typename... Args>
 BufferWriter &
-BufferWriter::print(TextView fmt, Args &&... args)
+BufferWriter::print(TextView fmt, Args &&...args)
 {
   return this->printv(fmt, std::forward_as_tuple(args...));
 }
@@ -669,7 +672,7 @@ BufferWriter::printv(TextView fmt, std::tuple<Args...> const &args)
 
 template <typename... Args>
 BufferWriter &
-BufferWriter::print(BWFormat const &fmt, Args &&... args)
+BufferWriter::print(BWFormat const &fmt, Args &&...args)
 {
   return this->printv(fmt, std::forward_as_tuple(args...));
 }
@@ -732,7 +735,7 @@ bwformat(BufferWriter &w, BWFSpec const &spec, const void *ptr)
 }
 
 // MemSpan
-BufferWriter &bwformat(BufferWriter &w, BWFSpec const &spec, MemSpan<void> const &span);
+BufferWriter &bwformat(BufferWriter &w, BWFSpec const &spec, swoc::MemSpan<void> const &span);
 
 // -- Common formatters --
 
@@ -854,17 +857,17 @@ std::string &
 bwprintv(std::string &s, ts::TextView fmt, std::tuple<Args...> const &args)
 {
   auto len = s.size(); // remember initial size
-  size_t n = ts::FixedBufferWriter(const_cast<char *>(s.data()), s.size()).printv(fmt, std::move(args)).extent();
+  size_t n = ts::FixedBufferWriter(const_cast<char *>(s.data()), s.size()).printv(fmt, args).extent();
   s.resize(n);   // always need to resize - if shorter, must clip pre-existing text.
   if (n > len) { // dropped data, try again.
-    ts::FixedBufferWriter(const_cast<char *>(s.data()), s.size()).printv(fmt, std::move(args));
+    ts::FixedBufferWriter(const_cast<char *>(s.data()), s.size()).printv(fmt, args);
   }
   return s;
 }
 
 template <typename... Args>
 std::string &
-bwprint(std::string &s, ts::TextView fmt, Args &&... args)
+bwprint(std::string &s, ts::TextView fmt, Args &&...args)
 {
   return bwprintv(s, fmt, std::forward_as_tuple(args...));
 }
@@ -879,7 +882,7 @@ inline FixedBufferWriter::FixedBufferWriter(char *buffer, size_t capacity) : _bu
 
 template <typename... Args>
 inline auto
-FixedBufferWriter::print(TextView fmt, Args &&... args) -> self_type &
+FixedBufferWriter::print(TextView fmt, Args &&...args) -> self_type &
 {
   return static_cast<self_type &>(this->super_type::printv(fmt, std::forward_as_tuple(args...)));
 }
@@ -893,7 +896,7 @@ FixedBufferWriter::printv(TextView fmt, std::tuple<Args...> const &args) -> self
 
 template <typename... Args>
 inline auto
-FixedBufferWriter::print(BWFormat const &fmt, Args &&... args) -> self_type &
+FixedBufferWriter::print(BWFormat const &fmt, Args &&...args) -> self_type &
 {
   return static_cast<self_type &>(this->super_type::printv(fmt, std::forward_as_tuple(args...)));
 }

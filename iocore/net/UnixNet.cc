@@ -22,6 +22,8 @@
  */
 
 #include "P_Net.h"
+#include "I_AIO.h"
+#include "tscore/ink_hrtime.h"
 
 using namespace std::literals;
 
@@ -69,20 +71,30 @@ public:
         continue;
       }
 
+      if (ne->default_inactivity_timeout_in == -1) {
+        // If no context-specific default inactivity timeout has been set by an
+        // override plugin, then use the global default.
+        Debug("inactivity_cop", "vc: %p setting the global default inactivity timeout of %d, next_inactivity_timeout_at: %" PRId64,
+              ne, nh.config.default_inactivity_timeout, ne->next_inactivity_timeout_at);
+        ne->set_default_inactivity_timeout(HRTIME_SECONDS(nh.config.default_inactivity_timeout));
+      }
+
       // set a default inactivity timeout if one is not set
       // The event `EVENT_INACTIVITY_TIMEOUT` only be triggered if a read
       // or write I/O operation was set by `do_io_read()` or `do_io_write()`.
-      if (ne->next_inactivity_timeout_at == 0 && nh.config.default_inactivity_timeout > 0 &&
-          (ne->read.enabled || ne->write.enabled)) {
+      if (ne->next_inactivity_timeout_at == 0 && ne->default_inactivity_timeout_in > 0 && (ne->read.enabled || ne->write.enabled)) {
         Debug("inactivity_cop", "vc: %p inactivity timeout not set, setting a default of %d", ne,
               nh.config.default_inactivity_timeout);
-        ne->set_default_inactivity_timeout(HRTIME_SECONDS(nh.config.default_inactivity_timeout));
+        ne->use_default_inactivity_timeout = true;
+        ne->next_inactivity_timeout_at     = Thread::get_hrtime() + ne->default_inactivity_timeout_in;
+        ne->inactivity_timeout_in          = 0;
         NET_INCREMENT_DYN_STAT(default_inactivity_timeout_applied_stat);
       }
 
       if (ne->next_inactivity_timeout_at && ne->next_inactivity_timeout_at < now) {
         if (ne->is_default_inactivity_timeout()) {
           // track the connections that timed out due to default inactivity
+          Debug("inactivity_cop", "vc: %p timed out due to default inactivity timeout", ne);
           NET_INCREMENT_DYN_STAT(default_inactivity_timeout_count_stat);
         }
         if (nh.keep_alive_queue.in(ne)) {
@@ -258,6 +270,9 @@ initialize_thread_for_net(EThread *thread)
   thread->ep->type = EVENTIO_ASYNC_SIGNAL;
 #if HAVE_EVENTFD
   thread->ep->start(pd, thread->evfd, nullptr, EVENTIO_READ);
+#if TS_USE_LINUX_IO_URING
+  thread->ep->start(pd, DiskHandler::local_context());
+#endif
 #else
   thread->ep->start(pd, thread->evpipe[0], nullptr, EVENTIO_READ);
 #endif
@@ -267,7 +282,7 @@ initialize_thread_for_net(EThread *thread)
 
 NetHandler::NetHandler() : Continuation(nullptr)
 {
-  SET_HANDLER((NetContHandler)&NetHandler::mainNetEvent);
+  SET_HANDLER(&NetHandler::mainNetEvent);
 }
 
 int
@@ -486,11 +501,19 @@ int
 NetHandler::waitForActivity(ink_hrtime timeout)
 {
   EventIO *epd = nullptr;
+#if AIO_MODE == AIO_MODE_IO_URING
+  DiskHandler *dh = DiskHandler::local_context();
+  bool servicedh  = false;
+#endif
 
   NET_INCREMENT_DYN_STAT(net_handler_run_stat);
   SCOPED_MUTEX_LOCK(lock, mutex, this->thread);
 
   process_enabled_list();
+
+#if AIO_MODE == AIO_MODE_IO_URING
+  dh->submit();
+#endif
 
   // Polling event by PollCont
   PollCont *p = get_PollCont(this->thread);
@@ -542,7 +565,11 @@ NetHandler::waitForActivity(ink_hrtime timeout)
     } else if (epd->type == EVENTIO_ASYNC_SIGNAL) {
       net_signal_hook_callback(this->thread);
     } else if (epd->type == EVENTIO_NETACCEPT) {
-      this->thread->schedule_imm(epd->data.c);
+      this->thread->schedule_imm(epd->data.na);
+#if AIO_MODE == AIO_MODE_IO_URING
+    } else if (epd->type == EVENTIO_DISK) {
+      servicedh = true;
+#endif
     }
     ev_next_event(pd, x);
   }
@@ -550,6 +577,12 @@ NetHandler::waitForActivity(ink_hrtime timeout)
   pd->result = 0;
 
   process_ready_list();
+
+#if AIO_MODE == AIO_MODE_IO_URING
+  if (servicedh) {
+    dh->service();
+  }
+#endif
 
   return EVENT_CONT;
 }
@@ -603,8 +636,8 @@ NetHandler::manage_active_queue(NetEvent *enabling_ne, bool ignore_queue_size = 
     if (ne == enabling_ne) {
       continue;
     }
-    if ((ne->inactivity_timeout_in && ne->next_inactivity_timeout_at <= now) ||
-        (ne->active_timeout_in && ne->next_activity_timeout_at <= now)) {
+    if ((ne->next_inactivity_timeout_at && ne->next_inactivity_timeout_at <= now) ||
+        (ne->next_activity_timeout_at && ne->next_activity_timeout_at <= now)) {
       _close_ne(ne, now, handle_event, closed, total_idle_time, total_idle_count);
     }
     if (ignore_queue_size == false && max_requests_per_thread_in > active_queue_size) {
@@ -781,4 +814,17 @@ NetHandler::remove_from_active_queue(NetEvent *ne)
     active_queue.remove(ne);
     --active_queue_size;
   }
+}
+
+int
+EventIO::start(EventLoop l, DiskHandler *dh)
+{
+#if AIO_MODE == AIO_MODE_IO_URING
+  data.dh = dh;
+  int fd  = dh->register_eventfd();
+  type    = EVENTIO_DISK;
+  return start_common(l, fd, EVENTIO_READ);
+#else
+  return 1;
+#endif
 }

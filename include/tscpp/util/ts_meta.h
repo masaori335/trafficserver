@@ -83,7 +83,7 @@ namespace meta
   };
 
   /** This is the final case - it forces the super class hierarchy.
-   * After defining the cases using the indexed case arguments, this is used to to perform the call.
+   * After defining the cases using the indexed case arguments, this is used to perform the call.
    * To increase the hierarchy depth, change the template argument to a larger number.
    */
   static constexpr CaseTag<9> CaseArg{};
@@ -94,5 +94,12 @@ namespace meta
   CaseVoidFunc()
   {
   }
+
+  // helper type for the visitor
+  template <class... Ts> struct overloaded : Ts... {
+    using Ts::operator()...;
+  };
+  // explicit deduction guide (not needed as of C++20)
+  template <class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 } // namespace meta
 } // namespace ts

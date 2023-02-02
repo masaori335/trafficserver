@@ -22,7 +22,7 @@ Test.Summary = '''
 Test per SNI server name selection of CA certs for validating cert sent by client.
 '''
 
-ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True)
+ts = Test.MakeATSProcess("ts", enable_tls=True)
 
 server = Test.MakeOriginServer("server")
 
@@ -47,7 +47,7 @@ ts.Disk.records_config.update({
     'proxy.config.url_remap.pristine_host_hdr': 1,
     'proxy.config.ssl.client.certification_level': 2,
     'proxy.config.ssl.CA.cert.filename': f'{ts.Variables.SSLDir}/aaa-ca.pem',
-    'proxy.config.ssl.TLSv1_3': 0
+    'proxy.config.ssl.TLSv1_3.enabled': 0
 })
 
 ts.Disk.ssl_multicert_config.AddLine(

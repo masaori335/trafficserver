@@ -69,7 +69,7 @@ public:
   ~RulesConfig()
   {
     TSDebug(PLUGIN_NAME_DBG, "RulesConfig DTOR");
-    for (int i = TS_HTTP_READ_REQUEST_HDR_HOOK; i <= TS_HTTP_LAST_HOOK; ++i) {
+    for (int i = TS_HTTP_READ_REQUEST_HDR_HOOK; i <= TS_HTTP_LAST_HOOK; ++i) { // lgtm[cpp/constant-comparison]
       delete _rules[i];
     }
     TSContDestroy(_cont);
@@ -302,7 +302,10 @@ cont_rewrite_headers(TSCont contp, TSEvent event, void *edata)
   return 0;
 }
 
-static const struct option longopt[] = {{"geo-db-path", required_argument, nullptr, 'm'}, {nullptr, no_argument, nullptr, '\0'}};
+static const struct option longopt[] = {
+  {"geo-db-path", required_argument, nullptr, 'm' },
+  {nullptr,       no_argument,       nullptr, '\0'}
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 // Initialize the InkAPI plugin for the global hooks we support.

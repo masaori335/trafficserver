@@ -29,6 +29,9 @@
 #include "tscore/ink_assert.h"
 
 using namespace ts;
+template <typename T> using MemSpan = swoc::MemSpan<T>;
+using swoc::round_down;
+using swoc::round_up;
 
 void
 MemArena::Block::operator delete(void *ptr)
@@ -61,7 +64,7 @@ MemArena::make_block(size_t n)
   // Allocate space for the Block instance and the request memory and construct a Block at the front.
   // In theory this could use ::operator new(n) but this causes a size mismatch during ::operator delete.
   // Easier to use malloc and override @c delete.
-  auto free_space = n - sizeof(Block);
+  auto free_space  = n - sizeof(Block);
   _active_reserved += free_space;
   return BlockPtr(new (::malloc(n)) Block(free_space));
 }

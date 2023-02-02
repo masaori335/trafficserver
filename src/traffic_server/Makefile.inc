@@ -34,12 +34,15 @@ traffic_server_traffic_server_CPPFLAGS = \
 	-I$(abs_top_srcdir)/proxy/shared \
 	-I$(abs_top_srcdir)/mgmt \
 	-I$(abs_top_srcdir)/mgmt/utils \
+        @SWOC_INCLUDES@ \
 	$(TS_INCLUDES) \
 	@OPENSSL_INCLUDES@ \
-	@BORINGOCSP_INCLUDES@
+	@BORINGOCSP_INCLUDES@ \
+	@YAMLCPP_INCLUDES@
 
 traffic_server_traffic_server_LDFLAGS = \
 	$(AM_LDFLAGS) \
+        @SWOC_LDFLAGS@ \
 	@YAMLCPP_LDFLAGS@ \
 	@BORINGOCSP_LDFLAGS@
 
@@ -53,8 +56,11 @@ traffic_server_traffic_server_SOURCES = \
 	traffic_server/InkAPI.cc \
 	traffic_server/InkIOCoreAPI.cc \
 	traffic_server/SocksProxy.cc \
+	traffic_server/RpcAdminPubHandlers.cc \
+	traffic_server/RpcAdminPubHandlers.h \
 	shared/overridable_txn_vars.cc \
 	traffic_server/traffic_server.cc
+
 
 if BUILD_TESTS
 traffic_server_traffic_server_SOURCES += \
@@ -69,6 +75,7 @@ traffic_server_traffic_server_LDADD = \
 	$(top_builddir)/proxy/hdrs/libhdrs.a \
 	$(top_builddir)/proxy/shared/libdiagsconfig.a \
 	$(top_builddir)/mgmt/libmgmt_p.la \
+  $(top_builddir)/mgmt/libmgmt_c.la \
 	$(top_builddir)/iocore/utils/libinkutils.a \
 	$(top_builddir)/iocore/dns/libinkdns.a \
 	$(top_builddir)/iocore/hostdb/libinkhostdb.a \
@@ -80,17 +87,23 @@ traffic_server_traffic_server_LDADD = \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/proxy/libproxy.a \
 	$(top_builddir)/iocore/net/libinknet.a \
-	$(top_builddir)/lib/records/librecords_p.a \
+	$(top_builddir)/src/records/librecords_p.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
+	$(top_builddir)/mgmt/rpc/libjsonrpc_server.la \
+	$(top_builddir)/mgmt/rpc/libjsonrpc_protocol.la \
+	$(top_builddir)/mgmt/config/libconfigmanager.la \
+	$(top_builddir)/mgmt/rpc/librpcpublichandlers.la \
 	@HWLOC_LIBS@ \
 	@LIBPCRE@ \
 	@LIBRESOLV@ \
 	@LIBZ@ \
 	@LIBLZMA@ \
 	@LIBPROFILER@ \
+        @SWOC_LIBS@ \
 	@OPENSSL_LIBS@ \
 	@YAMLCPP_LIBS@ \
 	@BORINGOCSP_LIBS@ \
+	@URING_LIBS@ \
 	-lm
 
 if IS_DARWIN
@@ -100,5 +113,10 @@ endif
 if ENABLE_QUIC
 traffic_server_traffic_server_LDADD += \
   $(top_builddir)/proxy/http3/libhttp3.a \
-  $(top_builddir)/iocore/net/quic/libquic.a
+  $(top_builddir)/iocore/net/quic/libquic.a \
+  $(top_builddir)/iocore/eventsystem/libinkevent.a
+if USE_QUICHE
+traffic_server_traffic_server_LDADD += \
+  $(QUICHE_LIB)
+endif
 endif

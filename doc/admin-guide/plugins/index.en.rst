@@ -60,6 +60,7 @@ Plugins that are considered stable are installed by default in |TS| releases.
    Generator <generator.en>
    Header Rewrite <header_rewrite.en>
    Health Checks <healthchecks.en>
+   HTTP Stats <http_stats.en>
    Lua <lua.en>
    Regex Remap <regex_remap.en>
    Regex Revalidate <regex_revalidate.en>
@@ -113,6 +114,9 @@ Plugins that are considered stable are installed by default in |TS| releases.
 :doc:`Health Checks <healthchecks.en>`
     Define service health check links.
 
+:doc:`HTTP Stats <http_stats.en>`
+    A remap-based plugin that provides an HTTP interface to all |TS| statistics.
+
 :doc:`Lua <lua.en>`
    Allows plugins to be written in Lua instead of C code.
 
@@ -164,16 +168,19 @@ directory of the |TS| source tree. Experimental plugins can be compiled by passi
    Money Trace <money_trace.en>
    MP4 <mp4.en>
    Multiplexer <multiplexer.en>
-   MySQL Remap <mysql_remap.en>
+   OpenTelemetry Tracer <otel_tracer.en>
    Parent Select <parent_select.en>
    Rate Limit <rate_limit.en>
+   Remap Stats <remap_stats.en>
    URI Signing <uri_signing.en>
    Legacy Signed URLs <url_sig.en>
    Slice <slice.en>
    SSL Headers <sslheaders.en>
    SSL Session Reuse <ssl_session_reuse.en>
+   STEK Share <stek_share.en>
    System Statistics <system_stats.en>
    Traffic Dump <traffic_dump.en>
+   Wasm <wasm.en>
    WebP Transform <webp_transform.en>
    Prefetch <prefetch.en>
 
@@ -226,8 +233,8 @@ directory of the |TS| source tree. Experimental plugins can be compiled by passi
    this can be used to do A/B testing by sending a duplicated slice of inbound production traffic to
    experimental upstreams.
 
-:doc:`MySQL Remap <mysql_remap.en>`
-   Allows dynamic remaps from a MySQL database.
+:doc:`OpenTelemetry Tracer <otel_tracer.en>`
+   Allows Trafficserver to participate in OpenTelemetry distributed tracing system
 
 :doc:`Prefetch <prefetch.en>`
    Pre-fetch objects based on the requested URL path pattern.
@@ -238,6 +245,9 @@ directory of the |TS| source tree. Experimental plugins can be compiled by passi
 
 :doc:`Rate Limit <rate_limit.en>`
    Simple transaction rate limiting.
+
+:doc:`Remap Stats <remap_stats.en>`
+   This global plugin adds remap stats to the stats.
 
 :doc:`Remap Purge <remap_purge.en>`
    This remap plugin allows the administrator to easily setup remotely
@@ -265,11 +275,17 @@ directory of the |TS| source tree. Experimental plugins can be compiled by passi
 :doc:`SSL Headers <sslheaders.en>`
    Populate request headers with SSL session information.
 
+:doc:`STEK Share <stek_share.en>`
+    Coordinates STEK (Session Ticket Encryption Key) between ATS instances running in a group.
+
 :doc:`System Stats <system_stats.en>`
     Inserts system statistics in to the stats list
 
 :doc:`Traffic Dump <traffic_dump.en>`
    Dumps traffic data into a JSON format file which can be used to replay traffic.
+
+:doc:`Wasm <wasm.en>`
+   Allows WebAssembly/Wasm (proxy-wasm) module to be used as ATS Plugin.
 
 :doc:`WebP Transform <webp_transform.en>`
    Converts jpeg and png images to webp format.

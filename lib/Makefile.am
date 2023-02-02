@@ -16,26 +16,37 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-SUBDIRS = . records fastlz
+SUBDIRS = . fastlz
 
 if BUILD_PERL_LIB
 SUBDIRS += perl
 endif
 
-# to prevent Clang Analyzer warning
-LOCAL =
+# These are broken out because the build and header export are separate actions.
+# Also clang analyzer requires the `all-local` target, which is annoying.
 
 if BUILD_YAML_CPP
-LOCAL += yamlcpp
-endif
-
-all-local:	$(LOCAL)
+all-local:: yamlcpp
 	$(MAKE) -C yamlcpp
 
-clean-local:
+clean-local::
 	$(MAKE) -C yamlcpp clean
+endif
 
 if EXPORT_YAML_HEADERS
-install-data-local:
+install-data-local::
 	$(MAKE) -C yamlcpp install
 endif
+
+if BUILD_SWOC
+all-local:: swoc
+	$(MAKE) -C swoc
+
+clean-local::
+	$(MAKE) -C swoc clean
+
+install-data-local::
+	$(MAKE) -C swoc install
+
+endif
+

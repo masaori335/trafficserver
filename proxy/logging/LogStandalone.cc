@@ -36,7 +36,6 @@
 #include "P_EventSystem.h"
 #include "records/P_RecProcess.h"
 
-#include "ProcessManager.h"
 #include "MgmtUtils.h"
 // Needs LibRecordsConfigInit()
 #include "RecordsConfig.h"
@@ -60,7 +59,6 @@ char error_tags[1024]    = "";
 char action_tags[1024]   = "";
 char command_string[512] = "";
 
-// Diags *diags = NULL;
 DiagsConfig *diagsConfig      = nullptr;
 HttpBodyFactory *body_factory = nullptr;
 AppVersionInfo appVersionInfo;
@@ -98,25 +96,13 @@ initialize_process_manager()
 {
   mgmt_use_syslog();
 
-  // Temporary Hack to Enable Communication with LocalManager
-  if (getenv("PROXY_REMOTE_MGMT")) {
-    remote_management_flag = true;
-  }
-
   // diags should have been initialized by caller, e.g.: sac.cc
-  ink_assert(diags);
+  ink_assert(diags());
 
-  RecProcessInit(remote_management_flag ? RECM_CLIENT : RECM_STAND_ALONE, diags);
+  RecProcessInit(RECM_STAND_ALONE, diags());
   LibRecordsConfigInit();
 
-  // Start up manager
-  pmgmt = new ProcessManager(remote_management_flag);
-
-  pmgmt->start();
-
-  RecProcessInitMessage(remote_management_flag ? RECM_CLIENT : RECM_STAND_ALONE);
-
-  pmgmt->reconfigure();
+  RecProcessInitMessage(RECM_STAND_ALONE);
 
   //
   // Define version info records

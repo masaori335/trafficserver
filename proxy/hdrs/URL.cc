@@ -114,6 +114,36 @@ validate_host_name(std::string_view addr)
   return std::all_of(addr.begin(), addr.end(), &is_host_char);
 }
 
+/**
+   Checks if the (un-well-known) scheme is valid
+
+   RFC 3986 Section 3.1
+   These are the valid characters in a scheme:
+     scheme      = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
+   return an error if there is another character in the scheme
+*/
+bool
+validate_scheme(std::string_view scheme)
+{
+  if (scheme.empty()) {
+    return false;
+  }
+
+  if (!ParseRules::is_alpha(scheme[0])) {
+    return false;
+  }
+
+  for (size_t i = 0; i < scheme.size(); ++i) {
+    const char &c = scheme[i];
+
+    if (!(ParseRules::is_alnum(c) != 0 || c == '+' || c == '-' || c == '.')) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /*-------------------------------------------------------------------------
   -------------------------------------------------------------------------*/
 
@@ -682,6 +712,21 @@ url_string_get_buf(URLImpl *url, char *dstbuf, int dstbuf_size, int *length)
   -------------------------------------------------------------------------*/
 
 const char *
+URLImpl::get_scheme(int *length)
+{
+  if (this->m_scheme_wks_idx >= 0) {
+    *length = hdrtoken_index_to_length(this->m_scheme_wks_idx);
+    return hdrtoken_index_to_wks(this->m_scheme_wks_idx);
+  } else {
+    *length = this->m_len_scheme;
+    return this->m_ptr_scheme;
+  }
+}
+
+/*-------------------------------------------------------------------------
+  -------------------------------------------------------------------------*/
+
+const char *
 URLImpl::get_user(int *length)
 {
   *length = this->m_len_user;
@@ -948,8 +993,8 @@ unescape_str(char *&buf, char *buf_e, const char *&str, const char *str_e, int &
 
   first_pct = ink_memcpy_until_char(buf, const_cast<char *>(str), min_len, '%');
   copy_len  = static_cast<int>(first_pct - str);
-  str += copy_len;
-  buf += copy_len;
+  str       += copy_len;
+  buf       += copy_len;
   if (copy_len == min_len) {
     return;
   }
@@ -958,16 +1003,16 @@ unescape_str(char *&buf, char *buf_e, const char *&str, const char *str_e, int &
     switch (state) {
     case 0:
       if (str[0] == '%') {
-        str += 1;
+        str   += 1;
         state = 1;
       } else {
         *buf++ = str[0];
-        str += 1;
+        str    += 1;
       }
       break;
     case 1:
       if (ParseRules::is_hex(str[0])) {
-        str += 1;
+        str   += 1;
         state = 2;
       } else {
         *buf++ = str[-1];
@@ -990,8 +1035,8 @@ unescape_str(char *&buf, char *buf_e, const char *&str, const char *str_e, int &
         }
 
         *buf++ = tmp;
-        str += 1;
-        state = 0;
+        str    += 1;
+        state  = 0;
       } else {
         *buf++ = str[-2];
         state  = 3;
@@ -1015,16 +1060,16 @@ unescape_str_tolower(char *&buf, char *end, const char *&str, const char *str_e,
     switch (state) {
     case 0:
       if (str[0] == '%') {
-        str += 1;
+        str   += 1;
         state = 1;
       } else {
         *buf++ = ParseRules::ink_tolower(str[0]);
-        str += 1;
+        str    += 1;
       }
       break;
     case 1:
       if (ParseRules::is_hex(str[0])) {
-        str += 1;
+        str   += 1;
         state = 2;
       } else {
         *buf++ = ParseRules::ink_tolower(str[-1]);
@@ -1047,8 +1092,8 @@ unescape_str_tolower(char *&buf, char *end, const char *&str, const char *str_e,
         }
 
         *buf++ = tmp;
-        str += 1;
-        state = 0;
+        str    += 1;
+        state  = 0;
       } else {
         *buf++ = ParseRules::ink_tolower(str[-2]);
         state  = 3;
@@ -1133,18 +1178,8 @@ url_parse_scheme(HdrHeap *heap, URLImpl *url, const char **start, const char *en
 
         if (!(scheme_wks_idx > 0 && hdrtoken_wks_to_token_type(scheme_wks) == HDRTOKEN_TYPE_SCHEME)) {
           // Unknown scheme, validate the scheme
-
-          // RFC 3986 Section 3.1
-          // These are the valid characters in a scheme:
-          //   scheme      = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
-          // return an error if there is another character in the scheme
-          if (!ParseRules::is_alpha(*scheme_start)) {
+          if (!validate_scheme({scheme_start, static_cast<size_t>(scheme_end - scheme_start)})) {
             return PARSE_RESULT_ERROR;
-          }
-          for (cur = scheme_start + 1; cur < scheme_end; ++cur) {
-            if (!(ParseRules::is_alnum(*cur) != 0 || *cur == '+' || *cur == '-' || *cur == '.')) {
-              return PARSE_RESULT_ERROR;
-            }
           }
         }
         url->set_scheme(heap, scheme_start, scheme_wks_idx, scheme_end - scheme_start, copy_strings_p);
@@ -1735,7 +1770,7 @@ url_CryptoHash_get_fast(const URLImpl *url, CryptoContext &ctx, CryptoHash *hash
 
   p = buffer;
   memcpy_tolower(p, url->m_ptr_scheme, url->m_len_scheme);
-  p += url->m_len_scheme;
+  p    += url->m_len_scheme;
   *p++ = ':';
   *p++ = '/';
   *p++ = '/';
@@ -1744,10 +1779,10 @@ url_CryptoHash_get_fast(const URLImpl *url, CryptoContext &ctx, CryptoHash *hash
   // no password
   *p++ = '@';
   memcpy_tolower(p, url->m_ptr_host, url->m_len_host);
-  p += url->m_len_host;
+  p    += url->m_len_host;
   *p++ = '/';
   memcpy(p, url->m_ptr_path, url->m_len_path);
-  p += url->m_len_path;
+  p    += url->m_len_path;
   *p++ = ';';
   // no params
   *p++ = '?';

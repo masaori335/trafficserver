@@ -84,7 +84,7 @@ union IpEndpoint;
   -------------------------------------------------------------------------*/
 
 // DEFAULT_STR_LEN MUST be less than INK_MIN_ALIGN
-#define DEFAULT_STR "-"
+#define DEFAULT_STR     "-"
 #define DEFAULT_STR_LEN 1
 
 extern char INVALID_STR[];
@@ -189,6 +189,7 @@ public:
   int marshal_proxy_host_name(char *);             // STR
   int marshal_proxy_host_ip(char *);               // STR
   int marshal_proxy_req_is_ssl(char *);            // INT
+  int marshal_proxy_req_ssl_reused(char *);        // INT
   int marshal_proxy_req_all_header_fields(char *); // STR
 
   //
@@ -303,13 +304,13 @@ public:
   static int unmarshal_itox(int64_t val, char *dest, int field_width = 0, char leading_char = ' ');
   static int unmarshal_int_to_str(char **buf, char *dest, int len);
   static int unmarshal_int_to_str_hex(char **buf, char *dest, int len);
-  static int unmarshal_str(char **buf, char *dest, int len, LogSlice *slice = nullptr);
+  static int unmarshal_str(char **buf, char *dest, int len, LogSlice *slice, LogEscapeType escape_type);
   static int unmarshal_ttmsf(char **buf, char *dest, int len);
   static int unmarshal_int_to_date_str(char **buf, char *dest, int len);
   static int unmarshal_int_to_time_str(char **buf, char *dest, int len);
   static int unmarshal_int_to_netscape_str(char **buf, char *dest, int len);
   static int unmarshal_http_version(char **buf, char *dest, int len);
-  static int unmarshal_http_text(char **buf, char *dest, int len, LogSlice *slice = nullptr);
+  static int unmarshal_http_text(char **buf, char *dest, int len, LogSlice *slice, LogEscapeType escape_type);
   static int unmarshal_http_status(char **buf, char *dest, int len);
   static int unmarshal_ip(char **buf, IpEndpoint *dest);
   static int unmarshal_ip_to_str(char **buf, char *dest, int len);
@@ -340,7 +341,7 @@ public:
 
   // noncopyable
   // -- member functions that are not allowed --
-  LogAccess(const LogAccess &rhs) = delete;      // no copies
+  LogAccess(const LogAccess &rhs)      = delete; // no copies
   LogAccess &operator=(LogAccess &rhs) = delete; // or assignment
 
 private:

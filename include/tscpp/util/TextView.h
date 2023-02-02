@@ -33,81 +33,9 @@
 #include <string>
 #include <string_view>
 #include <limits>
+#include <cstdint>
 
-/** Compare views with ordering, ignoring case.
- *
- * @param lhs input view
- * @param rhs input view
- * @return The ordered comparison value.
- *
- * - -1 if @a lhs is less than @a rhs
- * -  1 if @a lhs is greater than @a rhs
- * -  0 if the views have identical content.
- *
- * If one view is the prefix of the other, the shorter view is less (first in the ordering).
- */
-int strcasecmp(const std::string_view &lhs, const std::string_view &rhs);
-
-/** Compare views with ordering.
- *
- * @param lhs input view
- * @param rhs input view
- * @return The ordered comparison value.
- *
- * - -1 if @a lhs is less than @a rhs
- * -  1 if @a lhs is greater than @a rhs
- * -  0 if the views have identical content.
- *
- * If one view is the prefix of the other, the shorter view is less (first in the ordering).
- *
- * @note For string views, there is no difference between @c strcmp and @c memcmp.
- * @see strcmp
- */
-int memcmp(const std::string_view &lhs, const std::string_view &rhs);
-
-/** Copy bytes.
- *
- * @param dst Destination buffer.
- * @param src Original string.
- * @return @a dest
- *
- * This is a convenience for
- * @code
- *   memcpy(dst, src.data(), size.size());
- * @endcode
- * Therefore @a dst must point at a buffer large enough to hold @a src. If this is not already
- * determined, then presuming @c DST_SIZE is the size of the buffer at @a dst
- * @code
- *   memcpy(dst, src.prefix(DST_SIZE));
- * @endcode
- *
- */
-inline void *
-memcpy(void *dst, const std::string_view &src)
-{
-  return memcpy(dst, src.data(), src.size());
-}
-
-/** Compare views with ordering.
- *
- * @param lhs input view
- * @param rhs input view
- * @return The ordered comparison value.
- *
- * - -1 if @a lhs is less than @a rhs
- * -  1 if @a lhs is greater than @a rhs
- * -  0 if the views have identical content.
- *
- * If one view is the prefix of the other, the shorter view is less (first in the ordering).
- *
- * @note For string views, there is no difference between @c strcmp and @c memcmp.
- * @see memcmp
- */
-inline int
-strcmp(const std::string_view &lhs, const std::string_view &rhs)
-{
-  return memcmp(lhs, rhs);
-}
+#include "swoc/string_view_util.h"
 
 namespace ts
 {
@@ -205,9 +133,9 @@ public:
   const char *data_end() const;
 
   /// Assignment.
-  self_type &operator                    =(super_type const &that);
+  self_type &operator=(super_type const &that);
   template <size_t N> self_type &operator=(const char (&s)[N]);
-  self_type &operator                    =(const std::string &s);
+  self_type &operator=(const std::string &s);
 
   /// Explicitly set the view.
   self_type &assign(char const *ptr, size_t n);
@@ -619,15 +547,22 @@ svto_radix(ts::TextView &src)
 {
   static_assert(0 < N && N <= 36, "Radix must be in the range 1..36");
   uintmax_t zret{0};
-  uintmax_t v;
-  while (src.size() && (0 <= (v = ts::svtoi_convert[static_cast<unsigned char>(*src)])) && v < N) {
+
+  if (src.empty()) {
+    return zret;
+  }
+
+  uintmax_t v = ts::svtoi_convert[static_cast<unsigned char>(*src)];
+  while (src.size() && v < N) {
     auto n = zret * N + v;
     if (n < zret) { // overflow / wrap
       return std::numeric_limits<uintmax_t>::max();
     }
     zret = n;
     ++src;
+    v = ts::svtoi_convert[static_cast<unsigned char>(*src)];
   }
+
   return zret;
 };
 
@@ -1262,7 +1197,10 @@ namespace literals
    * rather bizarre to me, but there it is. Update: this depends on the version of the compiler,
    * so hopefully someday this can be removed.
    */
-  constexpr ts::TextView operator"" _tv(const char *s, size_t n) { return {s, n}; }
+  constexpr ts::TextView operator"" _tv(const char *s, size_t n)
+  {
+    return {s, n};
+  }
 } // namespace literals
 
 /** Functor for STL containers that need caseless comparisons of standard string types.

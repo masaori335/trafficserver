@@ -35,7 +35,7 @@
 #include <optional>
 
 #include "tscore/ink_platform.h"
-#include "P_EventSystem.h"
+#include "I_EventSystem.h"
 #include "HttpCacheSM.h"
 #include "HttpTransact.h"
 #include "UrlRewrite.h"
@@ -44,9 +44,10 @@
 #include "../ProxyTransaction.h"
 #include "HdrUtils.h"
 #include "tscore/History.h"
+#include "tscore/PendingAction.h"
 
 #define HTTP_API_CONTINUE (INK_API_EVENT_EVENTS_START + 0)
-#define HTTP_API_ERROR (INK_API_EVENT_EVENTS_START + 1)
+#define HTTP_API_ERROR    (INK_API_EVENT_EVENTS_START + 1)
 
 // The default size for http header buffers when we don't
 //   need to include extra space for the document
@@ -168,54 +169,6 @@ enum HttpPluginTunnel_t {
 
 class PluginVCCore;
 
-class PendingAction
-{
-public:
-  bool
-  is_empty() const
-  {
-    return pending_action == nullptr;
-  }
-  PendingAction &
-  operator=(Action *b)
-  {
-    // Don't do anything if the new action is _DONE
-    if (b != ACTION_RESULT_DONE) {
-      if (b != pending_action && pending_action != nullptr) {
-        pending_action->cancel();
-      }
-      pending_action = b;
-    }
-    return *this;
-  }
-  Continuation *
-  get_continuation() const
-  {
-    return pending_action ? pending_action->continuation : nullptr;
-  }
-  Action *
-  get() const
-  {
-    return pending_action;
-  }
-  void
-  clear_if_action_is(Action *current_action)
-  {
-    if (current_action == pending_action) {
-      pending_action = nullptr;
-    }
-  }
-  ~PendingAction()
-  {
-    if (pending_action) {
-      pending_action->cancel();
-    }
-  }
-
-private:
-  Action *pending_action = nullptr;
-};
-
 class PostDataBuffers
 {
 public:
@@ -251,6 +204,7 @@ public:
 class HttpSM : public Continuation, public PluginUserArgs<TS_USER_ARGS_TXN>
 {
   friend class HttpPagesHandler;
+  friend class HttpTransact;
 
 public:
   HttpSM();
@@ -307,8 +261,8 @@ public:
   // Handles the setting of all state necessary before
   //   calling transact to process the hostdb lookup
   // A NULL 'r' argument indicates the hostdb lookup failed
-  void process_hostdb_info(HostDBInfo *r);
-  void process_srv_info(HostDBInfo *r);
+  void process_hostdb_info(HostDBRecord *record);
+  void process_srv_info(HostDBRecord *record);
 
   // Called by transact.  Synchronous.
   VConnection *do_transform_open();
@@ -390,7 +344,7 @@ public:
   void check_sni_host();
   SNIRoutingType get_tunnel_type() const;
 
-protected:
+private:
   int reentrancy_count = 0;
 
   HttpTunnel tunnel;
@@ -406,7 +360,7 @@ public:
 
   ProxyTransaction *ua_txn = nullptr;
 
-protected:
+private:
   IOBufferReader *ua_raw_buffer_reader = nullptr;
 
   HttpVCTableEntry *ua_entry     = nullptr;
@@ -422,9 +376,17 @@ protected:
 
   HttpTransformInfo transform_info;
   HttpTransformInfo post_transform_info;
-  /// Set if plugin client / user agents are active.
-  /// Need primarily for cleanup.
-  bool has_active_plugin_agents = false;
+  /** A flag to keep track of whether there are active request plugin agents.
+   *
+   * This is used to guide plugin agent cleanup.
+   */
+  bool has_active_request_plugin_agents = false;
+
+  /** A flag to keep track of whether there are active response plugin agents.
+   *
+   * This is used to guide plugin agent cleanup.
+   */
+  bool has_active_response_plugin_agents = false;
 
   HttpCacheSM cache_sm;
   HttpCacheSM transform_cache_sm;
@@ -451,6 +413,7 @@ protected:
   int state_read_client_request_header(int event, void *data);
   int state_watch_for_client_abort(int event, void *data);
   int state_read_push_response_header(int event, void *data);
+  int state_pre_resolve(int event, void *data);
   int state_hostdb_lookup(int event, void *data);
   int state_hostdb_reverse_lookup(int event, void *data);
   int state_mark_os_down(int event, void *data);
@@ -518,7 +481,7 @@ protected:
   void handle_server_setup_error(int event, void *data);
   void handle_http_server_open();
   void handle_post_failure();
-  void mark_host_failure(HostDBInfo *info, time_t time_down);
+  void mark_host_failure(ResolveInfo *info, ts_time time_down);
   void release_server_session(bool serve_from_cache = false);
   void set_ua_abort(HttpTransact::AbortState_t ua_abort, int event);
   int write_header_into_buffer(HTTPHdr *h, MIOBuffer *b);
@@ -549,14 +512,23 @@ protected:
   HttpTunnelProducer *setup_cache_transfer_to_transform();
   HttpTunnelProducer *setup_transfer_from_transform_to_cache_only();
 
-  /** Configure consumers for transform plugins.
+  /** Configure consumers for client response transform plugins.
    *
    * @param[in] p The Tunnel's producer for whom transform plugins' consumers
    *   will be configured.
    * @param[in] num_header_bytes The number of header bytes in the stream.
    *   These will be skipped and not passed to the consumers of the data sink.
    */
-  void setup_plugin_agents(HttpTunnelProducer *p, int num_header_bytes);
+  void setup_client_response_plugin_agents(HttpTunnelProducer *p, int num_header_bytes = 0);
+
+  /** Configure consumers for client request transform plugins.
+   *
+   * @param[in] p The Tunnel's producer for whom transform plugins' consumers
+   *   will be configured.
+   * @param[in] num_header_bytes The number of header bytes in the stream.
+   *   These will be skipped and not passed to the consumers of the data sink.
+   */
+  void setup_client_request_plugin_agents(HttpTunnelProducer *p, int num_header_bytes = 0);
 
   HttpTransact::StateMachineAction_t last_action     = HttpTransact::SM_ACTION_UNDEFINED;
   int (HttpSM::*m_last_state)(int event, void *data) = nullptr;
@@ -568,6 +540,9 @@ protected:
   int find_server_buffer_size();
   int find_http_resp_buffer_size(int64_t cl);
   int64_t server_transfer_init(MIOBuffer *buf, int hdr_size);
+
+  /// Update the milestones to track time spent in the plugin API.
+  void milestone_update_api_time();
 
 public:
   // TODO:  Now that bodies can be empty, should the body counters be set to -1 ? TS-2213
@@ -589,6 +564,7 @@ public:
   bool client_ssl_reused              = false;
   bool client_connection_is_ssl       = false;
   bool is_internal                    = false;
+  bool server_ssl_reused              = false;
   bool server_connection_is_ssl       = false;
   bool is_waiting_for_full_body       = false;
   bool is_using_post_buffer           = false;
@@ -614,7 +590,7 @@ public:
   //  do_api_callout_internal()
   bool hooks_set = false;
 
-protected:
+private:
   TSHttpHookID cur_hook_id = TS_HTTP_LAST_HOOK;
   APIHook const *cur_hook  = nullptr;
   HttpHookState hook_state;
@@ -672,6 +648,17 @@ private:
 ////
 // Inline Functions
 //
+
+// This can't be defined until HttpSM is defined.
+//
+inline int64_t
+HttpTransact::State::state_machine_id() const
+{
+  ink_assert(state_machine != nullptr);
+
+  return state_machine->sm_id;
+}
+
 inline ProxyTransaction *
 HttpSM::get_ua_txn()
 {

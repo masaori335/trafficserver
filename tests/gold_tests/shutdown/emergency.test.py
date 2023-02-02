@@ -28,7 +28,7 @@ ts = Test.MakeATSProcess('ts')
 Test.testName = 'Emergency Shutdown Test'
 
 ts.Disk.records_config.update({
-    'proxy.config.exec_thread.autoconfig': 0,
+    'proxy.config.exec_thread.autoconfig.enabled': 0,
     'proxy.config.exec_thread.autoconfig.scale': 1.5,
     'proxy.config.exec_thread.limit': 16,
     'proxy.config.accept_threads': 1,
@@ -47,5 +47,5 @@ tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(ts)
 ts.ReturnCode = 33
 ts.Ready = 0  # Need this to be 0 because we are testing shutdown, this is to make autest not think ats went away for a bad reason.
-ts.Streams.All = Testers.ExcludesExpression('failed to shutdown', 'should NOT contain "failed to shutdown"')
+ts.Disk.traffic_out.Content = Testers.ExcludesExpression('failed to shutdown', 'should NOT contain "failed to shutdown"')
 ts.Disk.diags_log.Content = Testers.IncludesExpression('testing emergency shutdown', 'should contain "testing emergency shutdown"')

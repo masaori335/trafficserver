@@ -123,7 +123,7 @@ RHEL / CentOS
 configured on your machine yet, you must install them first with the following::
 
     wget https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
-    sudo rpm -Uvh epel-release-7*.rpm
+    sudo rpm -Uvh epel-release-latest-7*.rpm
 
 Ensuring that you replace the release number with a value that is appropriate
 for your system. Once you have EPEL installed, you may install |TS| itself. ::
@@ -242,7 +242,7 @@ networks, as long as |TS| is able to reach the origin host.
 Enable Reverse Proxying
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-Within the :file:`records.config` configuration file, ensure that the following
+Within the :file:`records.yaml` configuration file, ensure that the following
 settings have been configured as shown below::
 
     CONFIG proxy.config.http.cache.http INT 1
@@ -374,7 +374,7 @@ Final Configurations
 Once completed, the following configuration files for |AW| contain the following
 entries:
 
-:file:`records.config`::
+:file:`records.yaml`::
 
     CONFIG proxy.config.http.cache.http INT 1
     CONFIG proxy.config.reverse_proxy.enabled INT 1
@@ -416,7 +416,7 @@ Enable Forward Proxying
 Contrary to a reverse proxy, where you have a defined list of origin servers for
 which you wish to proxy (and optionally cache), a forward proxy is used to
 proxy (and optionally cache) for arbitrary remote hosts. As such, the following
-settings in :file:`records.config` are the base configuration for a minimal
+settings in :file:`records.yaml` are the base configuration for a minimal
 forward proxy::
 
     CONFIG proxy.config.url_remap.remap_required INT 0

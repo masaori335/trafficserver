@@ -33,7 +33,7 @@ lookup state if a document is found in the cache. This will have
 the effect of serving the document without consulting the ``AuthProxy``
 plugin. you can disable this behavior by setting
 :ts:cv:`proxy.config.http.doc_in_cache_skip_dns` to ``0`` in
-:file:`records.config`.
+:file:`records.yaml`.
 
 Note that the authorization request will need to match a remap rule
 (which, as a standalone remap rule, does not need to call the
@@ -80,12 +80,22 @@ Plugin Options
   The TCP port of the authorization host. This is only used by the
   ``redirect`` transform.
 
+--forward-header-prefix=PREFIX
+  If the option is enabled, authentication response header fields, which
+  contain the specified prefix, will be sent to the original server in
+  the original request.
+
 --force-cacheability
   If this options is set, the plugin will allow Traffic Server to
   cache the result of authorized requests. In the normal case, requests
   with authorization headers are nor cacheable, but this flag allows
   that by setting the :ts:cv:`proxy.config.http.cache.ignore_authentication`
   option on the request.
+
+--cache-internal
+  The option will allow the Traffic Server to cache internal
+  requests. By default, internally generated requests are
+  not cached as the agent needs to take the authorization decisions.
 
 Examples
 --------
@@ -101,10 +111,11 @@ HTTP request to a `HEAD` request and sending that to the origin server
 
 
 In this example, the request is directed to a local authentication server
-that authorizes the request based on internal policy rules::
+that authorizes the request based on internal policy rules. Authentication response
+headers with the prefix will be proxied to the original server::
 
   map http://cache.example.com http://origin.internal.com/ \
-    @plugin=authproxy.so @pparam=--auth-transform=redirect @pparam=--auth-host=127.0.0.1 @pparam=--auth-port=9000
+    @plugin=authproxy.so @pparam=--auth-transform=redirect @pparam=--auth-host=127.0.0.1 @pparam=--auth-port=9000 @pparam=--forward-header-prefix=x-requested
 
   map http://origin.internal.com/ http://origin.internal.com/ \
-    @plugin=authproxy.so @pparam=--auth-transform=redirect @pparam=--auth-host=127.0.0.1 @pparam=--auth-port=9000
+    @plugin=authproxy.so @pparam=--auth-transform=redirect @pparam=--auth-host=127.0.0.1 @pparam=--auth-port=9000 @pparam=--forward-header-prefix=x-requested

@@ -28,10 +28,10 @@
 class SSLNetVConnection;
 
 // Log an SSL error.
-#define SSLError(fmt, ...) SSLDiagnostic(MakeSourceLocation(), false, nullptr, fmt, ##__VA_ARGS__)
+#define SSLError(fmt, ...)       SSLDiagnostic(MakeSourceLocation(), false, nullptr, fmt, ##__VA_ARGS__)
 #define SSLErrorVC(vc, fmt, ...) SSLDiagnostic(MakeSourceLocation(), false, (vc), fmt, ##__VA_ARGS__)
 // Log a SSL diagnostic using the "ssl" diagnostic tag.
-#define SSLDebug(fmt, ...) SSLDiagnostic(MakeSourceLocation(), true, nullptr, fmt, ##__VA_ARGS__)
+#define SSLDebug(fmt, ...)       SSLDiagnostic(MakeSourceLocation(), true, nullptr, fmt, ##__VA_ARGS__)
 #define SSLVCDebug(vc, fmt, ...) SSLDiagnostic(MakeSourceLocation(), true, (vc), fmt, ##__VA_ARGS__)
 
 void SSLDiagnostic(const SourceLocation &loc, bool debug, SSLNetVConnection *vc, const char *fmt, ...) TS_PRINTFLIKE(4, 5);
@@ -39,5 +39,11 @@ void SSLDiagnostic(const SourceLocation &loc, bool debug, SSLNetVConnection *vc,
 // Return a static string name for a SSL_ERROR constant.
 const char *SSLErrorName(int ssl_error);
 
-// Log a SSL network buffer.
-void SSLDebugBufferPrint(const char *tag, const char *buffer, unsigned buflen, const char *message);
+// Log a SSL network buffer.  TAG must be a C-string literal debug tag.
+#define SSLDebugBufferPrint(TAG, BUFFER, BUFFER_LEN, MESSAGE) \
+  do {                                                        \
+    if (is_debug_tag_set(TAG))                                \
+      SSLDebugBufferPrint_(BUFFER, BUFFER_LEN, MESSAGE);      \
+  } while (0)
+
+void SSLDebugBufferPrint_(const char *buffer, unsigned buflen, const char *message);

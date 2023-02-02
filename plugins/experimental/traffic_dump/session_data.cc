@@ -47,31 +47,35 @@ char const constexpr *const json_closing = "]}]}";
  * A mapping from IP_PROTO_TAG to the string describing the JSON protocol node.
  */
 std::unordered_map<std::string_view, std::string> tag_to_node = {
-  {IP_PROTO_TAG_IPV4, R"("name":"ip","version":"4")"},
-  {IP_PROTO_TAG_IPV6, R"("name":"ip","version":"6")"},
+  {IP_PROTO_TAG_IPV4,      R"("name":"ip","version":"4")"    },
+  {IP_PROTO_TAG_IPV6,      R"("name":"ip","version":"6")"    },
 
-  {IP_PROTO_TAG_TCP, R"("name":"tcp")"},
-  {IP_PROTO_TAG_UDP, R"("name":"udp")"},
+  {IP_PROTO_TAG_TCP,       R"("name":"tcp")"                 },
+  {IP_PROTO_TAG_UDP,       R"("name":"udp")"                 },
 
-  {IP_PROTO_TAG_QUIC, R"("name:":"quic")"},
+  {IP_PROTO_TAG_QUIC,      R"("name:":"quic")"               },
 
-  {IP_PROTO_TAG_TLS_1_0, R"("name":"tls","version":"1.0")"},
-  {IP_PROTO_TAG_TLS_1_1, R"("name":"tls","version":"1.1")"},
-  {IP_PROTO_TAG_TLS_1_2, R"("name":"tls","version":"1.2")"},
-  {IP_PROTO_TAG_TLS_1_3, R"("name":"tls","version":"1.3")"},
+  {IP_PROTO_TAG_TLS_1_0,   R"("name":"tls","version":"1.0")" },
+  {IP_PROTO_TAG_TLS_1_1,   R"("name":"tls","version":"1.1")" },
+  {IP_PROTO_TAG_TLS_1_2,   R"("name":"tls","version":"1.2")" },
+  {IP_PROTO_TAG_TLS_1_3,   R"("name":"tls","version":"1.3")" },
 
-  {IP_PROTO_TAG_HTTP_0_9, R"("name":"http","version":"0.9")"},
-  {IP_PROTO_TAG_HTTP_1_0, R"("name":"http","version":"1.0")"},
-  {IP_PROTO_TAG_HTTP_1_1, R"("name":"http","version":"1.1")"},
-  {IP_PROTO_TAG_HTTP_2_0, R"("name":"http","version":"2")"},
+  {IP_PROTO_TAG_HTTP_0_9,  R"("name":"http","version":"0.9")"},
+  {IP_PROTO_TAG_HTTP_1_0,  R"("name":"http","version":"1.0")"},
+  {IP_PROTO_TAG_HTTP_1_1,  R"("name":"http","version":"1.1")"},
+  {IP_PROTO_TAG_HTTP_2_0,  R"("name":"http","version":"2")"  },
 
   {IP_PROTO_TAG_HTTP_QUIC, R"("name":"http","version":"0.9")"},
-  {IP_PROTO_TAG_HTTP_3, R"("name":"http","version":"3")"},
+  {IP_PROTO_TAG_HTTP_3,    R"("name":"http","version":"3")"  },
 };
 
 std::unordered_map<std::string_view, std::string> http_tag_to_version = {
-  {IP_PROTO_TAG_HTTP_0_9, "0.9"}, {IP_PROTO_TAG_HTTP_1_0, "1.0"},  {IP_PROTO_TAG_HTTP_1_1, "1.1"},
-  {IP_PROTO_TAG_HTTP_2_0, "2"},   {IP_PROTO_TAG_HTTP_QUIC, "0.9"}, {IP_PROTO_TAG_HTTP_3, "3"},
+  {IP_PROTO_TAG_HTTP_0_9,  "0.9"},
+  {IP_PROTO_TAG_HTTP_1_0,  "1.0"},
+  {IP_PROTO_TAG_HTTP_1_1,  "1.1"},
+  {IP_PROTO_TAG_HTTP_2_0,  "2"  },
+  {IP_PROTO_TAG_HTTP_QUIC, "0.9"},
+  {IP_PROTO_TAG_HTTP_3,    "3"  },
 };
 
 /** Create a TLS characteristics node.
@@ -151,6 +155,7 @@ int SessionData::session_arg_index                 = -1;
 std::atomic<int64_t> SessionData::sample_pool_size = default_sample_pool_size;
 std::atomic<int64_t> SessionData::max_disk_usage   = default_max_disk_usage;
 std::atomic<int64_t> SessionData::disk_usage       = 0;
+std::atomic<bool> SessionData::enforce_disk_limit  = default_enforce_disk_limit;
 ts::file::path SessionData::log_directory{default_log_directory};
 uint64_t SessionData::session_counter = 0;
 std::string SessionData::sni_filter;
@@ -175,17 +180,26 @@ SessionData::reset_disk_usage()
 }
 
 void
+SessionData::disable_disk_limit_enforcement()
+{
+  enforce_disk_limit = false;
+}
+
+void
 SessionData::set_max_disk_usage(int64_t new_max_disk_usage)
 {
-  max_disk_usage = new_max_disk_usage;
+  enforce_disk_limit = true;
+  max_disk_usage     = new_max_disk_usage;
 }
 
 bool
-SessionData::init(std::string_view log_directory, int64_t max_disk_usage, int64_t sample_size, std::string_view ip_filter)
+SessionData::init(std::string_view log_directory, bool enforce_disk_limit, int64_t max_disk_usage, int64_t sample_size,
+                  std::string_view ip_filter)
 {
-  SessionData::log_directory    = log_directory;
-  SessionData::max_disk_usage   = max_disk_usage;
-  SessionData::sample_pool_size = sample_size;
+  SessionData::log_directory      = log_directory;
+  SessionData::max_disk_usage     = max_disk_usage;
+  SessionData::enforce_disk_limit = enforce_disk_limit;
+  SessionData::sample_pool_size   = sample_size;
 
   if (!ip_filter.empty()) {
     client_ip_filter.emplace();
@@ -210,16 +224,20 @@ SessionData::init(std::string_view log_directory, int64_t max_disk_usage, int64_
   TSHttpHookAdd(TS_HTTP_SSN_CLOSE_HOOK, ssncont);
 
   TSDebug(debug_tag, "Initialized with log directory: %s", SessionData::log_directory.c_str());
-  TSDebug(debug_tag, "Initialized with sample pool size %" PRId64 " bytes and disk limit %" PRId64 " bytes", sample_size,
-          max_disk_usage);
+  if (!SessionData::enforce_disk_limit) {
+    TSDebug(debug_tag, "Initialized with sample pool size of %" PRId64 " bytes and unlimited disk utilization", sample_size);
+  } else {
+    TSDebug(debug_tag, "Initialized with sample pool size of %" PRId64 " bytes and disk limit of %" PRId64 " bytes", sample_size,
+            max_disk_usage);
+  }
   return true;
 }
 
 bool
-SessionData::init(std::string_view log_directory, int64_t max_disk_usage, int64_t sample_size, std::string_view ip_filter,
-                  std::string_view sni_filter)
+SessionData::init(std::string_view log_directory, bool enforce_disk_limit, int64_t max_disk_usage, int64_t sample_size,
+                  std::string_view ip_filter, std::string_view sni_filter)
 {
-  if (!init(log_directory, max_disk_usage, sample_size, ip_filter)) {
+  if (!init(log_directory, enforce_disk_limit, max_disk_usage, sample_size, ip_filter)) {
     return false;
   }
   SessionData::sni_filter = sni_filter;
@@ -320,7 +338,7 @@ SessionData::write_to_disk_no_lock(std::string_view content)
     if (TS_SUCCESS == TSAIOWrite(log_fd, write_offset, pBuf, content.size(), aio_cont)) {
       // Update offset within file and aio events count
       write_offset += content.size();
-      aio_count += 1;
+      aio_count    += 1;
 
       return TS_SUCCESS;
     }
@@ -464,7 +482,7 @@ SessionData::global_session_handler(TSCont contp, TSEvent event, void *edata)
     if (this_session_count % sample_pool_size != 0) {
       TSDebug(debug_tag, "Ignore session %" PRId64 " per the random sampling mechanism", id);
       break;
-    } else if (disk_usage >= max_disk_usage) {
+    } else if (enforce_disk_limit && disk_usage >= max_disk_usage) {
       TSDebug(debug_tag, "Ignore session %" PRId64 " due to disk usage %" PRId64 " bytes", id, disk_usage.load());
       break;
     } else {

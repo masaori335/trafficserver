@@ -26,6 +26,7 @@
 */
 
 #include <string>
+#include <cstring>
 #include <regex>
 
 #include <netinet/in.h>
@@ -53,7 +54,7 @@ enum class State {
 };
 
 #define ICAP_SERVICE_URL "icap://127.0.0.1/avscan"
-#define ICAP_VERSION "1.0"
+#define ICAP_VERSION     "1.0"
 
 struct TransformData {
   State state = State::BEGIN;
@@ -359,7 +360,7 @@ handle_read_http_body(TSCont contp, TransformData *data)
           int64_t pos          = sm.position(0);
           int64_t token_length = sm[0].length();
 
-          data->http_body_chunk_length = std::stoi(sm[2].str().c_str(), nullptr, 16);
+          data->http_body_chunk_length         = std::stoi(sm[2].str().c_str(), nullptr, 16);
           data->http_body_total_length_written += data->http_body_chunk_length;
           TSIOBufferReaderConsume(data->icap_resp_reader, pos + token_length - consumed);
           break;
@@ -367,7 +368,7 @@ handle_read_http_body(TSCont contp, TransformData *data)
 
         TSIOBufferReaderConsume(data->icap_resp_reader, data_len);
         consumed += data_len;
-        blk = TSIOBufferBlockNext(blk);
+        blk      = TSIOBufferBlockNext(blk);
       }
       if (blk == nullptr) {
         return 0;
@@ -377,8 +378,8 @@ handle_read_http_body(TSCont contp, TransformData *data)
     /* Write the chunk to downstream */
     int64_t towrite;
 
-    avail   = TSIOBufferReaderAvail(data->icap_resp_reader);
-    towrite = data->http_body_chunk_length < avail ? data->http_body_chunk_length : avail;
+    avail                        = TSIOBufferReaderAvail(data->icap_resp_reader);
+    towrite                      = data->http_body_chunk_length < avail ? data->http_body_chunk_length : avail;
     data->http_body_chunk_length -= towrite;
     TSIOBufferCopy(TSVIOBufferGet(data->output_vio), data->icap_resp_reader, towrite, 0);
     TSIOBufferReaderConsume(data->icap_resp_reader, towrite);
@@ -553,12 +554,12 @@ handle_write_header(TSCont contp, TransformData *data)
   /* formulate the ICAP request header */
   char res_buf[1000];
   memset(res_buf, 0, 1000);
-  sprintf(res_buf,
-          "RESPMOD %s ICAP/%s\r\n"
-          "Host: %s\r\n"
-          "Connection: close\r\n" // "Connection: close" is used since each scan creates a new connection
-          "Encapsulated: req-hdr=0, res-hdr=%" PRIu64 ", res-body=%" PRIu64 "\r\n\r\n",
-          ICAP_SERVICE_URL, ICAP_VERSION, server_ip.c_str(), client_req_size, server_resp_size + client_req_size);
+  snprintf(res_buf, sizeof(res_buf),
+           "RESPMOD %s ICAP/%s\r\n"
+           "Host: %s\r\n"
+           "Connection: close\r\n" // "Connection: close" is used since each scan creates a new connection
+           "Encapsulated: req-hdr=0, res-hdr=%" PRIu64 ", res-body=%" PRIu64 "\r\n\r\n",
+           ICAP_SERVICE_URL, ICAP_VERSION, server_ip.c_str(), client_req_size, server_resp_size + client_req_size);
 
   TSIOBufferWrite(data->input_buf, (const char *)res_buf, strlen(res_buf));
   TSHttpHdrPrint(bufp_c, req_loc, data->input_buf);

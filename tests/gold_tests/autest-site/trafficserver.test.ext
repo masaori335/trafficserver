@@ -18,11 +18,24 @@
 
 from __future__ import print_function
 import os
+import yaml
+
 from ports import get_port
 
 
 def make_id(s):
     return s.replace(".", "_").replace('-', '_')
+
+
+def get_typename(s):
+    file_ext = os.path.splitext(s)[1]
+    typename = "ats:config"
+
+    # We want the file to be handled as yaml file so we get the benefits of it.
+    if file_ext == ".yaml" or file_ext == ".yml":
+        typename = "ats:config:yaml"
+
+    return typename
 
 
 # A mapping from log type to the log name. 'stdout' and 'stderr' are handled
@@ -40,7 +53,9 @@ default_log_data = {
 
 def MakeATSProcess(obj, name, command='traffic_server', select_ports=True,
                    enable_tls=False, enable_cache=True, enable_quic=False,
-                   block_for_debug=False, log_data=default_log_data):
+                   block_for_debug=False, log_data=default_log_data,
+                   use_traffic_out=True, dump_runroot=True,
+                   enable_proxy_protocol=False):
     #####################################
     # common locations
 
@@ -71,16 +86,23 @@ def MakeATSProcess(obj, name, command='traffic_server', select_ports=True,
     storage_dir = os.path.join(ts_dir, 'storage')
     cache_dir = os.path.join(ts_dir, 'cache')
 
-    if block_for_debug:
-        if command.startswith('traffic_server'):
-            command += ' --block'
-        elif command.startswith('traffic_manager'):
-            if '--tsArgs' not in command:
-                command += ' --tsArgs'
-            command += ' --block'
+    ts_args = ''
+    if use_traffic_out:
+        # Bind stdout/err to traffic.out. This allows tests to wait upon
+        # content from the traffic.out file, something that cannot be done on
+        # process stdout/stderr in AuTest.
+        traffic_out = os.path.join(log_dir, 'traffic.out')
+        ts_args += f' --bind_stderr {traffic_out}'
+        ts_args += f' --bind_stdout {traffic_out}'
 
+    if block_for_debug:
+        ts_args += ' --block'
+
+    # Have the full command including arguments in the cmdline so tool scripts
+    # can eventually use some keyword from the path to trace a particular TS instance
+    process_cmd = f"{os.path.join(ts_dir, bin_dir)}/{command} {ts_args}"
     # create process
-    p = obj.Processes.Process(name, command)
+    p = obj.Processes.Process(name, process_cmd)
     #p_debug = obj.Processes.Process("port-debug", "ss --listen --tcp --process")
     #p_debug.Env['PATH'] = "/usr/sbin" + os.pathsep + p.ComposeEnv()['PATH']
     # p.StartBefore(p_debug)
@@ -161,9 +183,6 @@ def MakeATSProcess(obj, name, command='traffic_server', select_ports=True,
     p.Setup.MakeDir(runtime_dir)
     p.chownForATSProcess(runtime_dir)
 
-    # will need this for traffic_manager is it runs
-    p.Setup.MakeDir(os.path.join(config_dir, 'snapshots'))
-    p.Env['PROXY_CONFIG_SNAPSHOT_DIR'] = os.path.join(config_dir, 'snapshots')
     ##########################################################
     # create subdirectories that need to exist (but are empty)
     # ssl directory has to be created for keeping certs and keys
@@ -201,7 +220,7 @@ def MakeATSProcess(obj, name, command='traffic_server', select_ports=True,
         p.Disk.error_log = p.Streams.stderr
     else:
         tmpname = os.path.join(log_dir, fname)
-        p.Disk.File(tmpname, id='error_log', exists=False)
+        p.Disk.File(tmpname, id='error_log')
     # diags.log
     fname = log_data['diags']
     if fname == 'stdout':
@@ -220,34 +239,25 @@ def MakeATSProcess(obj, name, command='traffic_server', select_ports=True,
         "Unrecognized configuration value",
         f"Diags log file {fname} should not contain a warning about an unrecognized configuration")
 
-    if command == "traffic_manager":
-        fname = log_data['manager']
-        if fname == 'stdout':
-            p.Disk.manager_log = p.Streams.stdout
-        elif fname == 'stderr':
-            p.Disk.manager_log = p.Streams.stderr
-        else:
-            tmpname = os.path.join(log_dir, fname)
-            p.Disk.File(tmpname, id='manager_log')
+    # traffic.out
+    fname = "traffic.out"
+    tmpname = os.path.join(log_dir, fname)
+    p.Disk.File(tmpname, id='traffic_out')
 
     # config files
     def MakeConfigFile(self, fname):
         tmpname = os.path.join(config_dir, fname)
-        return self.File(tmpname, id=make_id(fname), typename="ats:config")
+        return self.File(tmpname, id=make_id(fname), typename=get_typename(fname))
 
     AddMethodToInstance(p.Disk, MakeConfigFile)
 
     # "Core" config files are pre-defined as variables.
-    fname = "records.config"
+    fname = "records.yaml"
     tmpname = os.path.join(config_dir, fname)
-    p.Disk.File(tmpname, id=make_id(fname), typename="ats:config:records")
+    # Note: make_id -> We keep the records_config to be used in autests just for backward compatibility
+    p.Disk.File(tmpname, id=make_id("records.config"), typename="ats:config:records")
 
     fname = "cache.config"
-    tmpname = os.path.join(config_dir, fname)
-    p.Disk.File(tmpname, id=make_id(fname), typename="ats:config")
-
-    # for conf_remap_float, used by conf_remap plugin
-    fname = "delain.config"
     tmpname = os.path.join(config_dir, fname)
     p.Disk.File(tmpname, id=make_id(fname), typename="ats:config")
 
@@ -259,7 +269,6 @@ def MakeATSProcess(obj, name, command='traffic_server', select_ports=True,
     tmpname = os.path.join(config_dir, fname)
     p.Disk.File(tmpname, id=make_id(fname), typename="ats:config")
 
-    # magic file that should probally not exist
     fname = "logging.yaml"
     tmpname = os.path.join(config_dir, fname)
     p.Disk.File(tmpname, id=make_id(fname), typename="ats:config")
@@ -300,6 +309,26 @@ def MakeATSProcess(obj, name, command='traffic_server', select_ports=True,
     tmpname = os.path.join(config_dir, fname)
     p.Disk.File(tmpname, id=make_id(fname), typename="ats:config")
 
+    # The big motivation in exposing this file is that we need to tell the traffic_ctl
+    # where to find the socket to interact with the TS. traffic_ctl cannot rely only
+    # in the build layout for unit test.
+    fname = "runroot.yaml"
+    tmpname = os.path.join(config_dir, fname)
+    p.Disk.File(tmpname, id=make_id(fname), typename="ats:config")
+
+    # Fill in the runroot file and set the config var, this will be used traffic_server
+    # and traffic_ctl
+    if dump_runroot:
+        p.Disk.runroot_yaml.AddLines([f'runtimedir: {runtime_dir}',
+                                      f'cachedir: {cache_dir}',
+                                      f'localstatedir: {runtime_dir}',
+                                      f'bindir: {bin_dir}',
+                                      f'prefix: {ts_dir}',
+                                      f'logdir: {log_dir}',
+                                      f'sysconfdir: {config_dir}'])
+        # Add more if needed
+        p.Env['TS_RUNROOT'] = os.path.join(config_dir, "runroot.yaml")
+
     ##########################################################
     # set up default ports
     # get some ports  TODO make it so we can hold on to the socket
@@ -313,6 +342,14 @@ def MakeATSProcess(obj, name, command='traffic_server', select_ports=True,
         if enable_tls:
             get_port(p, "ssl_port")
             get_port(p, "ssl_portv6")
+
+        if enable_proxy_protocol:
+            get_port(p, "proxy_protocol_port")
+            get_port(p, "proxy_protocol_portv6")
+
+            if enable_tls:
+                get_port(p, "proxy_protocol_ssl_port")
+                get_port(p, "proxy_protocol_ssl_portv6")
     else:
         p.Variables.port = 8080
         p.Variables.portv6 = 8080
@@ -323,6 +360,14 @@ def MakeATSProcess(obj, name, command='traffic_server', select_ports=True,
 
     get_port(p, "manager_port")
     get_port(p, "admin_port")
+
+    if enable_tls or enable_quic:
+        fname = "tls_session_keys.txt"
+        tmpname = os.path.join(log_dir, fname)
+        p.Disk.File(tmpname, id='tls_session_keys')
+        p.Disk.records_config.update({
+            'proxy.config.ssl.keylog_file': tmpname,
+        })
 
     if enable_cache:
         # In records.config, the cache is enabled by default so there's nothing
@@ -359,6 +404,10 @@ def MakeATSProcess(obj, name, command='traffic_server', select_ports=True,
         if enable_quic:
             port_str += " {ssl_port}:quic {ssl_portv6}:quic:ipv6".format(
                 ssl_port=p.Variables.ssl_port, ssl_portv6=p.Variables.ssl_portv6)
+        if enable_proxy_protocol:
+            port_str += f" {p.Variables.proxy_protocol_port}:pp {p.Variables.proxy_protocol_portv6}:pp:ipv6"
+            if enable_tls:
+                port_str += f" {p.Variables.proxy_protocol_ssl_port}:pp:ssl {p.Variables.proxy_protocol_ssl_portv6}:pp:ssl:ipv6"
         #p.Env['PROXY_CONFIG_HTTP_SERVER_PORTS'] = port_str
         p.Disk.records_config.update({
             'proxy.config.http.server_ports': port_str,
@@ -370,10 +419,7 @@ def MakeATSProcess(obj, name, command='traffic_server', select_ports=True,
     p.Env['PROXY_CONFIG_ADMIN_AUTOCONF_PORT'] = str(
         p.Variables.admin_port)  # support pre ATS 6.x
 
-    if command == "traffic_manager":
-        p.ReturnCode = 2
-    else:
-        p.ReturnCode = 0
+    p.ReturnCode = 0
 
     if block_for_debug:
         p.Env['PROXY_BLOCK'] = '1'
@@ -443,23 +489,10 @@ class Config(File):
         self.content += line
 
 
-class RecordsConfig(Config, dict):
+class YAMLFile(File):
     '''
-    Create a "dict" representation of records.config
-
-    This can be accessed as a multi-level dictionary
-
-    such as:
-    rc['CONFIG']['proxy.config.log.hostname']
+    Class representing a YAML config file.
     '''
-
-    reverse_kind_map = {
-        str: 'STRING',
-        int: 'INT',
-        float: 'FLOAT',
-    }
-
-    line_template = 'CONFIG {name} {kind} {val}\n'
 
     def __init__(self,
                  runable,
@@ -468,8 +501,11 @@ class RecordsConfig(Config, dict):
                  size=None,
                  content_tester=None,
                  execute=False,
-                 runtime=True):
-        super(RecordsConfig, self).__init__(
+                 runtime=True,
+                 content=None,
+                 root_tag=None):
+
+        super(YAMLFile, self).__init__(
             runable,
             name,
             exists=None,
@@ -477,22 +513,119 @@ class RecordsConfig(Config, dict):
             content_tester=None,
             execute=False,
             runtime=True)
+        self.__root_tag = root_tag
+        self.__content = {}
+
         self.WriteCustomOn(self._do_write)
 
     def _do_write(self, name):
         host.WriteVerbosef('ats-config-file', "Writing out file {0}", name)
-        if len(self) > 0:
+
+        def float_representer(dumper, value):
+            return dumper.represent_scalar(u'tag:yaml.org,2002:float', str(value), style="'")
+
+        def int_representer(dumper, value):
+            return dumper.represent_scalar(u'tag:yaml.org,2002:int', str(value), style="'")
+
+        if len(self.__content) > 0:
             with open(name, 'w') as f:
-                for name, val in self.items():
-                    f.write(
-                        self.line_template.format(
-                            name=name,
-                            kind=self.reverse_kind_map[type(val)],
-                            val=val)
-                    )
+                yaml.add_representer(float, float_representer)
+                yaml.add_representer(int, int_representer)
+                updated_content = {}
+                if self.__root_tag:
+                    updated_content[self.__root_tag] = self.__content
+                else:
+                    updated_content = self.__content
+
+                yaml.dump(updated_content, f)
+
         return (True,
                 "Writing config file {0}".format(os.path.split(self.Name)[-1]),
                 "Success")
+
+    def __update(self, content, out):
+        for key, value in content.items():
+            if key in out:
+                if isinstance(out[key], dict) == False:
+                    out.update(content)
+                    continue
+
+                self.__update(value, out[key])
+            else:
+                out[key] = {}
+                out[key] = value
+
+    def update(self, content):
+        data = {}
+        if isinstance(content, str):  # from new style
+            data = yaml.load(content, Loader=yaml.Loader)
+        else:
+            data = content  # Already an object.
+
+        self.__update(data, self.__content)
+
+
+class RecordsYAML(YAMLFile):
+    def __init__(self,
+                 runable,
+                 name,
+                 exists=None,
+                 size=None,
+                 content_tester=None,
+                 execute=False,
+                 runtime=True):
+        super(RecordsYAML, self).__init__(
+            runable,
+            name,
+            exists,
+            size,
+            content_tester,
+            execute,
+            runtime,
+            root_tag="ts")
+
+    def _make_obj_from_legacy_record(self, config, var, value):
+        '''
+        Walk the record down and build up the YAML structure.
+        '''
+        key = ''
+        index = var.find('.')
+        if index < 0:  # last part
+            config[var] = value
+        else:
+            key = var[:index]
+            if key not in config:
+                config[key] = {}
+
+            self._make_obj_from_legacy_record(config[key], var[index + 1:], value)
+
+    def __legacy_update(self, obj):
+        config = {}
+        for name, value in obj.items():
+            ori_name = name
+            if name.startswith("proxy.config."):
+                name = name[len("proxy.config."):]
+            elif name.startswith("local.config."):
+                name = name[len("local.config."):]
+            # Maybe an non standard variable name.
+
+            # unwrap the record and make it a YAML field.
+            self._make_obj_from_legacy_record(config, name, value)
+
+        super(RecordsYAML, self).update(config)
+
+    def update(self, data):
+        if isinstance(data, dict):
+            '''
+            If the data is already parsed or (more likely) is a legacy objects
+            we still support it, so update from the passed object.
+            '''
+            self.__legacy_update(data)
+        else:
+            '''
+            We also support plain YAML(str) to be passed on. Base class will load from the yaml parser.
+            '''
+            super(RecordsYAML, self).update(data)
 
 
 ##########################################################################
@@ -518,6 +651,8 @@ def addSSLFileFromDefaultTestFolder(self, filename):
 
 
 RegisterFileType(Config, "ats:config")
-RegisterFileType(RecordsConfig, "ats:config:records")
+RegisterFileType(YAMLFile, "ats:config:yaml")
+RegisterFileType(RecordsYAML, "ats:config:records")
 ExtendTestRun(chownForATSProcess, name="ChownForATSProcess")
 ExtendTest(MakeATSProcess, name="MakeATSProcess")
+ExtendTestRun(MakeATSProcess, name="MakeATSProcess")

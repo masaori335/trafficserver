@@ -30,7 +30,7 @@ Fatal Process Messages
 ======================
 
 ``Accept port is not between 1 and 65535. Please check configuration``
-   The port specified in :file:`records.config` that accepts
+   The port specified in :file:`records.yaml` that accepts
    incoming HTTP requests is not valid.
 
 ``Self loop is detected in parent proxy configuration``
@@ -117,11 +117,6 @@ Alarm Messages
 ``Traffic Server failed to parse line <line number> of the logging config file <filename>``
    Check your custom log configuration file; there could be syntax
    errors. Refer to :ref:`admin-logging-fields` for correct custom log format fields.
-
-``vip_config binary is not setuid root, manager will be unable to enable virtual ip addresses``
-   The :program:`traffic_manager` process is not able to set virtual IP
-   addresses. You must ``setuid root`` for the ``vip_config`` file in
-   the Traffic Server ``bin`` directory.
 
 .. _body-factory:
 

@@ -36,6 +36,7 @@
 #include "HttpSM.h"
 #include "HttpDebugNames.h"
 #include "tscore/ParseRules.h"
+#include "tscore/ink_memory.h"
 
 static const int min_block_transfer_bytes = 256;
 static const char *const CHUNK_HEADER_FMT = "%" PRIx64 "\r\n";
@@ -134,8 +135,16 @@ ChunkedHandler::read_size()
       if (state == CHUNK_READ_SIZE) {
         // The http spec says the chunked size is always in hex
         if (ParseRules::is_hex(*tmp)) {
+          // Make sure we will not overflow running_sum with our shift.
+          if (!can_safely_shift_left(running_sum, 4)) {
+            // We have no more space in our variable for the shift.
+            state = CHUNK_READ_ERROR;
+            done  = true;
+            break;
+          }
           num_digits++;
-          running_sum *= 16;
+          // Shift over one hex value.
+          running_sum <<= 4;
 
           if (ParseRules::is_digit(*tmp)) {
             running_sum += *tmp - '0';
@@ -214,9 +223,9 @@ ChunkedHandler::transfer_bytes()
 
     if (moved > 0) {
       chunked_reader->consume(moved);
-      bytes_left = bytes_left - moved;
+      bytes_left     = bytes_left - moved;
       dechunked_size += moved;
-      total_moved += moved;
+      total_moved    += moved;
     } else {
       break;
     }
@@ -261,7 +270,7 @@ ChunkedHandler::read_trailer()
       } else if (ParseRules::is_lf(*tmp)) {
         // For a LF to signal we are done reading the
         //   trailer, the line must have either been blank
-        //   or must have have only had a CR on it
+        //   or must have only had a CR on it
         if (state == CHUNK_READ_TRAILER_CR || state == CHUNK_READ_TRAILER_BLANK) {
           state = CHUNK_READ_DONE;
           Debug("http_chunk", "completed read of trailers");
@@ -1130,7 +1139,7 @@ HttpTunnel::producer_handler(int event, HttpTunnelProducer *p)
 
     // If we were in PRECOMPLETE when this function was called
     // and we are doing chunking, then we just wrote the last
-    // chunk in the the function call above.  We are done with the
+    // chunk in the function call above.  We are done with the
     // tunnel.
     if (event == HTTP_TUNNEL_EVENT_PRECOMPLETE) {
       event = VC_EVENT_EOS;
@@ -1165,7 +1174,7 @@ HttpTunnel::producer_handler(int event, HttpTunnelProducer *p)
     }
   } // end of added logic for partial copy of POST
 
-  Debug("http_redirect", "[HttpTunnel::producer_handler] enable_redirection: [%d %d %d] event: %d, state: %d", p->alive == true,
+  Debug("http_redirect", "[%" PRId64 "] enable_redirection: [%d %d %d] event: %d, state: %d", sm->sm_id, p->alive == true,
         sm->enable_redirection, (p->self_consumer && p->self_consumer->alive == true), event, p->chunked_handler.state);
 
   switch (event) {
@@ -1272,7 +1281,7 @@ HttpTunnel::consumer_reenable(HttpTunnelConsumer *c)
 
     if (backlog >= flow_state.high_water) {
       if (is_debug_tag_set("http_tunnel")) {
-        Debug("http_tunnel", "Throttle   %p %" PRId64 " / %" PRId64, p, backlog, p->backlog());
+        Debug("http_tunnel", "[%" PRId64 "] Throttle   %p %" PRId64 " / %" PRId64, sm->sm_id, p, backlog, p->backlog());
       }
       p->throttle(); // p becomes srcp for future calls to this method
     } else {
@@ -1287,7 +1296,7 @@ HttpTunnel::consumer_reenable(HttpTunnelConsumer *c)
         }
         if (backlog < flow_state.low_water) {
           if (is_debug_tag_set("http_tunnel")) {
-            Debug("http_tunnel", "Unthrottle %p %" PRId64 " / %" PRId64, p, backlog, p->backlog());
+            Debug("http_tunnel", "[%" PRId64 "] Unthrottle %p %" PRId64 " / %" PRId64, sm->sm_id, p, backlog, p->backlog());
           }
           srcp->unthrottle();
           if (srcp->read_vio) {

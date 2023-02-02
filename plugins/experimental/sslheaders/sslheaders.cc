@@ -212,10 +212,10 @@ SslHdrParseOptions(int argc, const char **argv)
 {
   static const struct option longopt[] = {
     {const_cast<char *>("attach"), required_argument, nullptr, 'a'},
-    {nullptr, 0, nullptr, 0},
+    {nullptr,                      0,                 nullptr, 0  },
   };
 
-  ats_scoped_obj<SslHdrInstance> hdr(new SslHdrInstance());
+  std::unique_ptr<SslHdrInstance> hdr(new SslHdrInstance());
 
   for (;;) {
     int opt;

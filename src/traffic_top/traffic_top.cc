@@ -34,7 +34,7 @@
 
 // At least on solaris, the default ncurses defines macros such as
 // clear() that break stdlibc++.
-#define NOMACROS 1
+#define NOMACROS         1
 #define NCURSES_NOMACROS 1
 
 #if defined HAVE_NCURSESW_CURSES_H
@@ -55,8 +55,7 @@
 
 #include "tscore/I_Layout.h"
 #include "tscore/ink_args.h"
-#include "records/I_RecProcess.h"
-#include "RecordsConfig.h"
+#include "tscore/I_Version.h"
 #include "tscore/runroot.h"
 
 using namespace std;
@@ -126,7 +125,7 @@ prettyPrint(const int x, const int y, const double number, const int type)
   }
   attron(COLOR_PAIR(color));
   attron(A_BOLD);
-  mvprintw(y, x, buffer);
+  mvprintw(y, x, "%s", buffer);
   attroff(COLOR_PAIR(color));
   attroff(A_BOLD);
 }
@@ -143,7 +142,7 @@ makeTable(const int x, const int y, const list<string> &items, Stats &stats)
     int type;
 
     stats.getStat(item, value, prettyName, type);
-    mvprintw(my_y, x, prettyName.c_str());
+    mvprintw(my_y, x, "%s", prettyName.c_str());
     prettyPrint(x + 10, my_y++, value, type);
   }
 }
@@ -411,30 +410,14 @@ main(int argc, const char **argv)
 
   runroot_handler(argv);
   Layout::create();
-  RecProcessInit(RECM_STAND_ALONE, nullptr /* diags */);
-  LibRecordsConfigInit();
 
-  switch (n_file_arguments) {
-  case 0: {
-    ats_scoped_str rundir(RecConfigReadRuntimeDir());
-
-    TSMgmtError err = TSInit(rundir, static_cast<TSInitOptionT>(TS_MGMT_OPT_NO_EVENTS | TS_MGMT_OPT_NO_SOCK_TESTS));
-    if (err != TS_ERR_OKAY) {
-      fprintf(stderr, "Error: connecting to local manager: %s\n", TSGetErrorMessage(err));
-      exit(1);
-    }
-    break;
-  }
-
-  case 1:
+  if (n_file_arguments == 1) {
 #if HAS_CURL
     url = file_arguments[0];
 #else
     usage(argument_descriptions, countof(argument_descriptions), USAGE);
 #endif
-    break;
-
-  default:
+  } else if (n_file_arguments > 1) {
     usage(argument_descriptions, countof(argument_descriptions), USAGE);
   }
 

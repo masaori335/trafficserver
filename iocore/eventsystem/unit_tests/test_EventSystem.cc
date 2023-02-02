@@ -25,13 +25,14 @@
 #include "catch.hpp"
 
 #include "I_EventSystem.h"
+#include "tscore/ink_atomic.h"
 #include "tscore/I_Layout.h"
 #include "tscore/TSSystemState.h"
 
 #include "diags.i"
 
 #define TEST_TIME_SECOND 60
-#define TEST_THREADS 2
+#define TEST_THREADS     2
 
 TEST_CASE("EventSystem", "[iocore]")
 {

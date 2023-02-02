@@ -25,10 +25,11 @@
 
 #include "tscore/ink_platform.h"
 #include "records/I_RecHttp.h"
-#include "P_EventSystem.h"
+#include "I_EventSystem.h"
 #include "HttpConfig.h"
 #include "HTTP.h"
 #include "I_Net.h"
+#include "I_SessionAccept.h"
 #include <records/I_RecHttp.h>
 
 namespace detail
@@ -197,6 +198,6 @@ public:
   int mainEvent(int event, void *netvc) override;
 
   // noncopyable
-  HttpSessionAccept(const HttpSessionAccept &) = delete;
+  HttpSessionAccept(const HttpSessionAccept &)            = delete;
   HttpSessionAccept &operator=(const HttpSessionAccept &) = delete;
 };

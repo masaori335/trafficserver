@@ -24,10 +24,10 @@
 #pragma once
 
 #include "QPACK.h"
-
+#include "hdrs/VersionConverter.h"
 #include "Http3FrameHandler.h"
 
-class Http3HeaderVIOAdaptor : public Http3FrameHandler, public Continuation
+class Http3HeaderVIOAdaptor : public Continuation, public Http3FrameHandler
 {
 public:
   Http3HeaderVIOAdaptor(VIO *sink, HTTPType http_type, QPACK *qpack, uint64_t stream_id);
@@ -47,7 +47,7 @@ private:
   bool _is_complete   = false;
 
   HTTPHdr _header; ///< HTTP header buffer for decoding
+  VersionConverter _hvc;
 
   int _on_qpack_decode_complete();
-  ParseResult _convert_header_from_3_to_1_1(HTTPHdr *hdr);
 };

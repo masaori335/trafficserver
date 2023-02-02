@@ -22,6 +22,9 @@
  */
 
 #include "tsmemcache.h"
+#include "I_NetVConnection.h"
+#include "I_NetProcessor.h"
+#include "tscore/ink_atomic.h"
 
 /*
   TODO
@@ -31,7 +34,7 @@
   - cleanup creader dependency in stream_event
  */
 
-#define REALTIME_MAXDELTA 60 * 60 * 24 * 30
+#define REALTIME_MAXDELTA       60 * 60 * 24 * 30
 #define STRCMP_REST(_c, _s, _e) (((_e) - (_s)) < (int)sizeof(_c) || STRCMP(_s, _c) || !isspace((_s)[sizeof(_c) - 1]))
 
 ClassAllocator<MC> theMCAllocator("MC");
@@ -41,7 +44,6 @@ static time_t base_day_time;
 // These should be persistent.
 int32_t MC::verbosity     = 0;
 ink_hrtime MC::last_flush = 0;
-int64_t MC::next_cas      = 1;
 
 static void
 tsmemcache_constants()
@@ -179,9 +181,9 @@ MC::die()
   if (cbuf) {
     free_MIOBuffer(cbuf);
   }
-  if (tbuf) {
-    ats_free(tbuf);
-  }
+
+  ats_free(tbuf);
+
   mutex = NULL;
   theMCAllocator.free(this);
   return EVENT_DONE;
@@ -351,9 +353,9 @@ MC::read_from_client()
     cbuf->clear();
   }
   ink_assert(!crvc && !cwvc);
-  if (tbuf) {
-    ats_free(tbuf);
-  }
+
+  ats_free(tbuf);
+
   return TS_SET_CALL(&MC::read_from_client_event, VC_EVENT_READ_READY, rvio);
 }
 
@@ -498,45 +500,16 @@ int
 MC::binary_get_event(int event, void *data)
 {
   ink_assert(!"EVENT_ITEM_GOT is incorrect here");
-  if (event != TSMEMCACHE_EVENT_GOT_ITEM) {
-    CHECK_READ_AVAIL(binary_header.request.keylen, &MC::binary_get);
-    key         = binary_get_key(this);
-    header.nkey = binary_header.request.keylen;
-    return get_item();
-  } else if (event == CACHE_EVENT_OPEN_READ_FAILED) {
-    if (f.noreply) {
-      return read_from_client();
-    }
-    if (binary_header.request.opcode == PROTOCOL_BINARY_CMD_GETK) {
-      add_binary_header(PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0, header.nkey, header.nkey);
-      wbuf->write(key, header.nkey);
-      return write_then_read_from_client();
-    } else {
-      return write_binary_error(PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
-    }
-  } else if (event == CACHE_EVENT_OPEN_READ) {
-    protocol_binary_response_get *rsp = &res.get;
-    uint16_t keylen                   = 0;
-    uint32_t bodylen                  = sizeof(rsp->message.body) + (rcache_header->nbytes - 2);
-    bool getk =
-      (binary_header.request.opcode == PROTOCOL_BINARY_CMD_GETK || binary_header.request.opcode == PROTOCOL_BINARY_CMD_GETKQ);
-    if (getk) {
-      bodylen += header.nkey;
-      keylen = header.nkey;
-    }
-    add_binary_header(0, sizeof(rsp->message.body), keylen, bodylen);
-    rsp->message.header.response.cas = ink_hton64(rcache_header->cas);
-    rsp->message.body.flags          = htonl(rcache_header->flags);
-    wbuf->write(&rsp->message.body, sizeof(rsp->message.body));
-    if (getk) {
-      wbuf->write(key, header.nkey);
-    }
-    crvio = crvc->do_io_read(this, rcache_header->nbytes, wbuf);
-    return stream_then_read_from_client(rcache_header->nbytes);
-  } else {
+
+  if (event == TSMEMCACHE_EVENT_GOT_ITEM) {
     return unexpected_event();
   }
-  return 0;
+
+  CHECK_READ_AVAIL(binary_header.request.keylen, &MC::binary_get);
+  key         = binary_get_key(this);
+  header.nkey = binary_header.request.keylen;
+
+  return get_item();
 }
 
 int
@@ -814,7 +787,7 @@ MC::ascii_set_event(int event, void *data)
         return ASCII_RESPONSE("EXISTS");
       }
     }
-    header.cas = ink_atomic_increment(&next_cas, 1);
+    header.cas = next_cas++;
     if (f.set_append || f.set_prepend) {
       header.nbytes = nbytes + rcache_header->nbytes;
     } else {
@@ -961,7 +934,7 @@ MC::ascii_incr_decr_event(int event, void *data)
         header.exptime = UINT32_MAX; // 136 years
       }
     }
-    header.cas = ink_atomic_increment(&next_cas, 1);
+    header.cas = next_cas++;
     {
       char *localdata = nullptr;
       int len         = 0;
@@ -1159,7 +1132,7 @@ MC::ascii_set(char *s, char *e)
   SKIP_SPACE;
   if (*s == 'n' && !STRCMP_REST("oreply", s + 1, e)) {
     f.noreply = 1;
-    s += 7;
+    s         += 7;
     if (s >= e) {
       return ASCII_CLIENT_ERROR("bad command line");
     }
@@ -1192,11 +1165,14 @@ MC::ascii_delete(char *s, char *e)
   SKIP_SPACE;
   if (*s == 'n' && !STRCMP_REST("oreply", s + 1, e)) {
     f.noreply = 1;
-    s += 7;
+    s         += 7;
     if (s >= e) {
       return ASCII_CLIENT_ERROR("bad command line");
     }
     SKIP_SPACE;
+  }
+  if (*s == '0') {
+    s++;
   }
   if (*s == '\r') {
     s++;
@@ -1223,7 +1199,7 @@ MC::ascii_incr_decr(char *s, char *e)
   SKIP_SPACE;
   if (*s == 'n' && !STRCMP_REST("oreply", s + 1, e)) {
     f.noreply = 1;
-    s += 7;
+    s         += 7;
     if (s >= e) {
       return ASCII_CLIENT_ERROR("bad command line");
     }
@@ -1389,7 +1365,7 @@ MC::read_ascii_from_client_event(int event, void *data)
 #if __WORDSIZE == 64
     last_flush = new_last_flush; // this will be atomic for native word size
 #else
-    ink_atomic_swap(&last_flush, new_last_flush);
+    last_flush.exchange(new_last_flush);
 #endif
     if (!is_end_of_cmd(s, e)) {
       break;

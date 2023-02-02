@@ -71,22 +71,16 @@ ParentConfigParams::nextParent(HttpRequestData *, ParentResult *, unsigned int, 
   ink_assert(false);
 }
 
-#include "Log.h"
-void
-Log::trace_in(sockaddr const *, unsigned short, char const *, ...)
-{
-  ink_assert(false);
-}
-
-void
-Log::trace_out(sockaddr const *, unsigned short, char const *, ...)
-{
-  ink_assert(false);
-}
-
 #include "InkAPIInternal.h"
 int
 APIHook::invoke(int, void *) const
+{
+  ink_assert(false);
+  return 0;
+}
+
+int
+APIHook::blocking_invoke(int, void *) const
 {
   ink_assert(false);
   return 0;
@@ -151,30 +145,6 @@ HttpRequestData::get_client_ip()
 SslAPIHooks *ssl_hooks             = nullptr;
 LifecycleAPIHooks *lifecycle_hooks = nullptr;
 StatPagesManager statPagesManager;
-
-#include "ProcessManager.h"
-ProcessManager *pmgmt = nullptr;
-
-int
-BaseManager::registerMgmtCallback(int, MgmtCallback const &)
-{
-  ink_assert(false);
-  return 0;
-}
-
-void
-ProcessManager::signalManager(int, char const *, int)
-{
-  ink_assert(false);
-  return;
-}
-
-void
-ProcessManager::signalManager(int, char const *)
-{
-  ink_assert(false);
-  return;
-}
 
 #include "PreWarmManager.h"
 void

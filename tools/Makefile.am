@@ -26,7 +26,7 @@ AM_CPPFLAGS += \
 	$(iocore_include_dirs) \
 	-I$(abs_top_srcdir)/include \
 	-I$(abs_top_srcdir)/include/wccp \
-	$(TS_INCLUDES)
+	$(TS_INCLUDES) @SWOC_INCLUDES@
 
 if BUILD_TEST_TOOLS
 bin_PROGRAMS = jtest/jtest
@@ -53,6 +53,14 @@ http_load_http_load_SOURCES = \
 	http_load/timers.h
 
 endif
+
+if BUILD_TEST_TOOLS
+bin_PROGRAMS += escape_mapper/escape_mapper
+else
+noinst_PROGRAMS += escape_mapper/escape_mapper
+endif
+
+escape_mapper_escape_mapper_SOURCES = escape_mapper/escape_mapper.cc
 
 all-am: Makefile $(PROGRAMS) $(SCRIPTS) $(DATA)
 	@sed "s/ -fPIE//" tsxs > tsxs.new

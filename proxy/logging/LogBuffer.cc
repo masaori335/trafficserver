@@ -188,6 +188,39 @@ LogBuffer::~LogBuffer()
 }
 
 /*-------------------------------------------------------------------------
+  LogBuffer::fast_write
+
+  This function is used for the thread-local 'fast' log buffer mode and is not thread-safe.
+  In 'fast' mode, each thread owns its own LogBuffer rather than multiple threads contending over one.
+  -------------------------------------------------------------------------*/
+
+LogBuffer::LB_ResultCode
+LogBuffer::fast_write(size_t *write_offset, size_t write_size)
+{
+  LB_ResultCode ret_val    = LB_OK;
+  size_t actual_write_size = INK_ALIGN(write_size + sizeof(LogEntryHeader), m_write_align);
+  if (m_state.s.offset + actual_write_size <= m_size) {
+    size_t offset = m_state.s.offset;
+
+    LogEntryHeader *entry_header = reinterpret_cast<LogEntryHeader *>(&m_buffer[offset]);
+    struct timeval tp            = ink_hrtime_to_timeval(Thread::get_hrtime());
+
+    entry_header->timestamp      = tp.tv_sec;
+    entry_header->timestamp_usec = tp.tv_usec;
+    entry_header->entry_len      = actual_write_size;
+
+    *write_offset = offset + sizeof(LogEntryHeader);
+
+    m_state.s.offset += actual_write_size;
+    m_state.s.num_entries++;
+  } else {
+    ret_val = LB_FULL_NO_WRITERS;
+  }
+
+  return ret_val;
+}
+
+/*-------------------------------------------------------------------------
   LogBuffer::checkout_write
   -------------------------------------------------------------------------*/
 
@@ -321,7 +354,6 @@ LogBuffer::checkin_write(size_t write_offset)
     if (--new_s.s.num_writers == 0) {
       ret_val = (old_s.s.full ? LB_ALL_WRITERS_DONE : LB_OK);
     }
-
   } while (!switch_state(old_s, new_s));
 
   //    Debug("log-logbuffer","[%p] checkin_write for buffer %u (%s) "
@@ -382,23 +414,23 @@ LogBuffer::_add_buffer_header(const LogConfig *cfg)
 
   if (fmt->name()) {
     m_header->fmt_name_offset = header_len;
-    header_len += add_header_str(fmt->name(), &m_buffer[header_len], m_size - header_len);
+    header_len                += add_header_str(fmt->name(), &m_buffer[header_len], m_size - header_len);
   }
   if (fmt->fieldlist()) {
     m_header->fmt_fieldlist_offset = header_len;
-    header_len += add_header_str(fmt->fieldlist(), &m_buffer[header_len], m_size - header_len);
+    header_len                     += add_header_str(fmt->fieldlist(), &m_buffer[header_len], m_size - header_len);
   }
   if (fmt->printf_str()) {
     m_header->fmt_printf_offset = header_len;
-    header_len += add_header_str(fmt->printf_str(), &m_buffer[header_len], m_size - header_len);
+    header_len                  += add_header_str(fmt->printf_str(), &m_buffer[header_len], m_size - header_len);
   }
   if (cfg->hostname) {
     m_header->src_hostname_offset = header_len;
-    header_len += add_header_str(cfg->hostname, &m_buffer[header_len], m_size - header_len);
+    header_len                    += add_header_str(cfg->hostname, &m_buffer[header_len], m_size - header_len);
   }
   if (m_owner->get_base_filename()) {
     m_header->log_filename_offset = header_len;
-    header_len += add_header_str(m_owner->get_base_filename(), &m_buffer[header_len], m_size - header_len);
+    header_len                    += add_header_str(m_owner->get_base_filename(), &m_buffer[header_len], m_size - header_len);
   }
   // update the rest of the header fields; make sure the header_len is
   // correctly aligned, so that the first record will start on a legal
@@ -445,7 +477,7 @@ LogBuffer::max_entry_bytes()
 int
 LogBuffer::resolve_custom_entry(LogFieldList *fieldlist, char *printf_str, char *read_from, char *write_to, int write_to_len,
                                 long timestamp, long timestamp_usec, unsigned buffer_version, LogFieldList *alt_fieldlist,
-                                char *alt_printf_str)
+                                char *alt_printf_str, LogEscapeType escape_type)
 {
   if (fieldlist == nullptr || printf_str == nullptr) {
     return 0;
@@ -501,7 +533,7 @@ LogBuffer::resolve_custom_entry(LogFieldList *fieldlist, char *printf_str, char 
       ++markCount;
       if (field != nullptr) {
         char *to = &write_to[bytes_written];
-        res      = field->unmarshal(&read_from, to, write_to_len - bytes_written);
+        res      = field->unmarshal(&read_from, to, write_to_len - bytes_written, escape_type);
 
         if (res < 0) {
           SiteThrottledNote("%s", buffer_size_exceeded_msg);
@@ -510,8 +542,8 @@ LogBuffer::resolve_custom_entry(LogFieldList *fieldlist, char *printf_str, char 
         }
 
         bytes_written += res;
-        lastField = field;
-        field     = fieldlist->next(field);
+        lastField     = field;
+        field         = fieldlist->next(field);
       } else {
         ts::LocalBufferWriter<10 * 1024> bw;
         if (auto bs = fieldlist->badSymbols(); bs.size() > 0) {
@@ -549,7 +581,7 @@ LogBuffer::resolve_custom_entry(LogFieldList *fieldlist, char *printf_str, char 
   -------------------------------------------------------------------------*/
 int
 LogBuffer::to_ascii(LogEntryHeader *entry, LogFormatType type, char *buf, int buf_len, const char *symbol_str, char *printf_str,
-                    unsigned buffer_version, const char *alt_format)
+                    unsigned buffer_version, const char *alt_format, LogEscapeType escape_type)
 {
   ink_assert(entry != nullptr);
   ink_assert(type == LOG_FORMAT_CUSTOM || type == LOG_FORMAT_TEXT);
@@ -642,7 +674,7 @@ LogBuffer::to_ascii(LogEntryHeader *entry, LogFormatType type, char *buf, int bu
   }
 
   int ret = resolve_custom_entry(fieldlist, printf_str, read_from, write_to, buf_len, entry->timestamp, entry->timestamp_usec,
-                                 buffer_version, alt_fieldlist, alt_printf_str);
+                                 buffer_version, alt_fieldlist, alt_printf_str, escape_type);
 
   delete alt_fieldlist;
   ats_free(alt_printf_str);

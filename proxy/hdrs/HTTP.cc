@@ -85,6 +85,7 @@ const char *HTTP_VALUE_CLOSE;
 const char *HTTP_VALUE_COMPRESS;
 const char *HTTP_VALUE_DEFLATE;
 const char *HTTP_VALUE_GZIP;
+const char *HTTP_VALUE_BROTLI;
 const char *HTTP_VALUE_IDENTITY;
 const char *HTTP_VALUE_KEEP_ALIVE;
 const char *HTTP_VALUE_MAX_AGE;
@@ -120,6 +121,7 @@ int HTTP_LEN_CLOSE;
 int HTTP_LEN_COMPRESS;
 int HTTP_LEN_DEFLATE;
 int HTTP_LEN_GZIP;
+int HTTP_LEN_BROTLI;
 int HTTP_LEN_IDENTITY;
 int HTTP_LEN_KEEP_ALIVE;
 int HTTP_LEN_MAX_AGE;
@@ -218,6 +220,7 @@ http_init()
     HTTP_VALUE_COMPRESS             = hdrtoken_string_to_wks("compress");
     HTTP_VALUE_DEFLATE              = hdrtoken_string_to_wks("deflate");
     HTTP_VALUE_GZIP                 = hdrtoken_string_to_wks("gzip");
+    HTTP_VALUE_BROTLI               = hdrtoken_string_to_wks("br");
     HTTP_VALUE_IDENTITY             = hdrtoken_string_to_wks("identity");
     HTTP_VALUE_KEEP_ALIVE           = hdrtoken_string_to_wks("keep-alive");
     HTTP_VALUE_MAX_AGE              = hdrtoken_string_to_wks("max-age");
@@ -242,6 +245,7 @@ http_init()
     HTTP_LEN_COMPRESS             = hdrtoken_wks_to_length(HTTP_VALUE_COMPRESS);
     HTTP_LEN_DEFLATE              = hdrtoken_wks_to_length(HTTP_VALUE_DEFLATE);
     HTTP_LEN_GZIP                 = hdrtoken_wks_to_length(HTTP_VALUE_GZIP);
+    HTTP_LEN_BROTLI               = hdrtoken_wks_to_length(HTTP_VALUE_BROTLI);
     HTTP_LEN_IDENTITY             = hdrtoken_wks_to_length(HTTP_VALUE_IDENTITY);
     HTTP_LEN_KEEP_ALIVE           = hdrtoken_wks_to_length(HTTP_VALUE_KEEP_ALIVE);
     HTTP_LEN_MAX_AGE              = hdrtoken_wks_to_length(HTTP_VALUE_MAX_AGE);
@@ -266,12 +270,12 @@ http_init()
   -------------------------------------------------------------------------*/
 
 HTTPHdrImpl *
-http_hdr_create(HdrHeap *heap, HTTPType polarity)
+http_hdr_create(HdrHeap *heap, HTTPType polarity, HTTPVersion version)
 {
   HTTPHdrImpl *hh;
 
   hh = (HTTPHdrImpl *)heap->allocate_obj(sizeof(HTTPHdrImpl), HDR_HEAP_OBJ_HTTP_HEADER);
-  http_hdr_init(heap, hh, polarity);
+  http_hdr_init(heap, hh, polarity, version);
   return (hh);
 }
 
@@ -279,7 +283,7 @@ http_hdr_create(HdrHeap *heap, HTTPType polarity)
   -------------------------------------------------------------------------*/
 
 void
-http_hdr_init(HdrHeap *heap, HTTPHdrImpl *hh, HTTPType polarity)
+http_hdr_init(HdrHeap *heap, HTTPHdrImpl *hh, HTTPType polarity, HTTPVersion version)
 {
   memset(&(hh->u), 0, sizeof(hh->u));
   hh->m_polarity    = polarity;
@@ -288,6 +292,31 @@ http_hdr_init(HdrHeap *heap, HTTPHdrImpl *hh, HTTPType polarity)
   if (polarity == HTTP_TYPE_REQUEST) {
     hh->u.req.m_url_impl       = url_create(heap);
     hh->u.req.m_method_wks_idx = -1;
+  }
+
+  if (version == HTTP_2_0 || version == HTTP_3_0) {
+    MIMEField *field;
+    switch (polarity) {
+    case HTTP_TYPE_REQUEST:
+      field = mime_field_create_named(heap, hh->m_fields_impl, PSEUDO_HEADER_METHOD.data(), PSEUDO_HEADER_METHOD.size());
+      mime_hdr_field_attach(hh->m_fields_impl, field, false, nullptr);
+
+      field = mime_field_create_named(heap, hh->m_fields_impl, PSEUDO_HEADER_SCHEME.data(), PSEUDO_HEADER_SCHEME.size());
+      mime_hdr_field_attach(hh->m_fields_impl, field, false, nullptr);
+
+      field = mime_field_create_named(heap, hh->m_fields_impl, PSEUDO_HEADER_AUTHORITY.data(), PSEUDO_HEADER_AUTHORITY.size());
+      mime_hdr_field_attach(hh->m_fields_impl, field, false, nullptr);
+
+      field = mime_field_create_named(heap, hh->m_fields_impl, PSEUDO_HEADER_PATH.data(), PSEUDO_HEADER_PATH.size());
+      mime_hdr_field_attach(hh->m_fields_impl, field, false, nullptr);
+      break;
+    case HTTP_TYPE_RESPONSE:
+      field = mime_field_create_named(heap, hh->m_fields_impl, PSEUDO_HEADER_STATUS.data(), PSEUDO_HEADER_STATUS.size());
+      mime_hdr_field_attach(hh->m_fields_impl, field, false, nullptr);
+      break;
+    default:
+      ink_abort("HTTP_TYPE_UNKNOWN");
+    }
   }
 }
 
@@ -344,7 +373,7 @@ http_hdr_clone(HTTPHdrImpl *s_hh, HdrHeap *s_heap, HdrHeap *d_heap)
   //      one single memcpy.  For this first optimization, we just
   //      copy each object separately.
 
-  d_hh = http_hdr_create(d_heap, s_hh->m_polarity);
+  d_hh = http_hdr_create(d_heap, s_hh->m_polarity, s_hh->m_version);
   http_hdr_copy_onto(s_hh, s_heap, d_hh, d_heap, ((s_heap != d_heap) ? true : false));
   return (d_hh);
 }
@@ -414,8 +443,8 @@ http_hdr_print(HdrHeap *heap, HTTPHdrImpl *hdr, char *buf, int bufsize, int *buf
 
       p = buf + *bufindex;
       memcpy(p, hdr->u.req.m_ptr_method, hdr->u.req.m_len_method);
-      p += hdr->u.req.m_len_method;
-      *p++ = ' ';
+      p         += hdr->u.req.m_len_method;
+      *p++      = ' ';
       *bufindex += hdr->u.req.m_len_method + 1;
 
       if (hdr->u.req.m_url_impl) {
@@ -424,8 +453,8 @@ http_hdr_print(HdrHeap *heap, HTTPHdrImpl *hdr, char *buf, int bufsize, int *buf
           if (hdr->u.req.m_method_wks_idx == HTTP_WKSIDX_CONNECT) {
             *bufindex -= 1; // remove trailing slash for CONNECT request
           }
-          p    = buf + *bufindex;
-          *p++ = ' ';
+          p         = buf + *bufindex;
+          *p++      = ' ';
           *bufindex += 1;
         } else {
           return 0;
@@ -440,9 +469,9 @@ http_hdr_print(HdrHeap *heap, HTTPHdrImpl *hdr, char *buf, int bufsize, int *buf
       }
 
       if (bufsize - *bufindex >= 2) {
-        p    = buf + *bufindex;
-        *p++ = '\r';
-        *p++ = '\n';
+        p         = buf + *bufindex;
+        *p++      = '\r';
+        *p++      = '\n';
         *bufindex += 2;
       } else {
         TRY(mime_mem_print("\r\n", 2, buf, bufsize, bufindex, dumpoffset));
@@ -473,8 +502,8 @@ http_hdr_print(HdrHeap *heap, HTTPHdrImpl *hdr, char *buf, int bufsize, int *buf
 
       p = buf + *bufindex;
       http_hdr_version_to_string(hdr->m_version, p);
-      p += 8; // overwrite '\0' with space
-      *p++ = ' ';
+      p         += 8; // overwrite '\0' with space
+      *p++      = ' ';
       *bufindex += 9;
 
       hdrstat = http_hdr_status_get(hdr);
@@ -488,7 +517,7 @@ http_hdr_print(HdrHeap *heap, HTTPHdrImpl *hdr, char *buf, int bufsize, int *buf
         ink_assert(tmplen <= 6);
         p += tmplen;
       }
-      *p++ = ' ';
+      *p++      = ' ';
       *bufindex += tmplen + 1;
 
       if (hdr->u.resp.m_ptr_reason) {
@@ -496,9 +525,9 @@ http_hdr_print(HdrHeap *heap, HTTPHdrImpl *hdr, char *buf, int bufsize, int *buf
       }
 
       if (bufsize - *bufindex >= 2) {
-        p    = buf + *bufindex;
-        *p++ = '\r';
-        *p++ = '\n';
+        p         = buf + *bufindex;
+        *p++      = '\r';
+        *p++      = '\n';
         *bufindex += 2;
       } else {
         TRY(mime_mem_print("\r\n", 2, buf, bufsize, bufindex, dumpoffset));
@@ -971,6 +1000,9 @@ http_parser_parse_req(HTTPParser *parser, HdrHeap *heap, HTTPHdrImpl *hh, const 
                                           false, max_hdr_field_size);
       // If we're done with the main parse do some validation
       if (ret == PARSE_RESULT_DONE) {
+        ret = validate_hdr_request_target(HTTP_WKSIDX_GET, url);
+      }
+      if (ret == PARSE_RESULT_DONE) {
         ret = validate_hdr_host(hh); // check HOST header
       }
       if (ret == PARSE_RESULT_DONE) {
@@ -1126,11 +1158,45 @@ http_parser_parse_req(HTTPParser *parser, HdrHeap *heap, HTTPHdrImpl *hh, const 
                                       max_hdr_field_size);
   // If we're done with the main parse do some validation
   if (ret == PARSE_RESULT_DONE) {
+    ret = validate_hdr_request_target(hh->u.req.m_method_wks_idx, hh->u.req.m_url_impl);
+  }
+  if (ret == PARSE_RESULT_DONE) {
     ret = validate_hdr_host(hh); // check HOST header
   }
   if (ret == PARSE_RESULT_DONE) {
     ret = validate_hdr_content_length(heap, hh);
   }
+  return ret;
+}
+
+ParseResult
+validate_hdr_request_target(int method_wk_idx, URLImpl *url)
+{
+  ParseResult ret = PARSE_RESULT_DONE;
+  int host_len;
+  url->get_host(&host_len);
+  int path_len;
+  const char *path = url->get_path(&path_len);
+  int scheme_len;
+  url->get_scheme(&scheme_len);
+
+  if (host_len == 0) {
+    if (path_len == 1 && path[0] == '*') { // asterisk-form
+      // Skip this check for now because URLImpl can't distinguish '*' and '/*'
+      // if (method_wk_idx != HTTP_WKSIDX_OPTIONS) {
+      //   ret = PARSE_RESULT_ERROR;
+      // }
+    } else { // origin-form
+      // Nothing to check here
+    }
+  } else if (scheme_len == 0 && host_len != 0) { // authority-form
+    if (method_wk_idx != HTTP_WKSIDX_CONNECT) {
+      ret = PARSE_RESULT_ERROR;
+    }
+  } else { // absolute-form
+    // Nothing to check here
+  }
+
   return ret;
 }
 
@@ -1474,7 +1540,7 @@ http_parse_version(const char *start, const char *end)
     min = 0;
 
     while ((start != end) && isdigit(*start)) {
-      maj = (maj * 10) + (*start - '0');
+      maj   = (maj * 10) + (*start - '0');
       start += 1;
     }
 
@@ -1483,7 +1549,7 @@ http_parse_version(const char *start, const char *end)
     }
 
     while ((start != end) && isdigit(*start)) {
-      min = (min * 10) + (*start - '0');
+      min   = (min * 10) + (*start - '0');
       start += 1;
     }
 
@@ -1553,7 +1619,7 @@ http_parse_qvalue(const char *&buf, int &len)
 
         n = 0.0;
         while (len > 0 && *buf && isdigit(*buf)) {
-          n = (n * 10) + (*buf++ - '0');
+          n   = (n * 10) + (*buf++ - '0');
           len -= 1;
         }
 
@@ -1563,8 +1629,8 @@ http_parse_qvalue(const char *&buf, int &len)
 
           f = 10;
           while (len > 0 && *buf && isdigit(*buf)) {
-            n += (*buf++ - '0') / static_cast<double>(f);
-            f *= 10;
+            n   += (*buf++ - '0') / static_cast<double>(f);
+            f   *= 10;
             len -= 1;
           }
         }
@@ -2002,7 +2068,7 @@ HTTPCacheAlt::copy_frag_offsets_from(HTTPCacheAlt *src)
   }
 }
 
-const int HTTP_ALT_MARSHAL_SIZE = HdrHeapMarshalBlocks{ts::round_up(sizeof(HTTPCacheAlt))};
+const int HTTP_ALT_MARSHAL_SIZE = HdrHeapMarshalBlocks{swoc::round_up(sizeof(HTTPCacheAlt))};
 
 void
 HTTPInfo::create()
@@ -2071,13 +2137,13 @@ HTTPInfo::marshal(char *buf, int len)
   marshal_alt->m_writeable     = 0;
   marshal_alt->m_unmarshal_len = -1;
   marshal_alt->m_ext_buffer    = nullptr;
-  buf += HTTP_ALT_MARSHAL_SIZE;
-  used += HTTP_ALT_MARSHAL_SIZE;
+  buf                          += HTTP_ALT_MARSHAL_SIZE;
+  used                         += HTTP_ALT_MARSHAL_SIZE;
 
   if (m_alt->m_frag_offset_count > HTTPCacheAlt::N_INTEGRAL_FRAG_OFFSETS) {
     marshal_alt->m_frag_offsets = static_cast<FragOffset *>(reinterpret_cast<void *>(used));
     memcpy(buf, m_alt->m_frag_offsets, m_alt->m_frag_offset_count * sizeof(FragOffset));
-    buf += m_alt->m_frag_offset_count * sizeof(FragOffset);
+    buf  += m_alt->m_frag_offset_count * sizeof(FragOffset);
     used += m_alt->m_frag_offset_count * sizeof(FragOffset);
   } else {
     marshal_alt->m_frag_offsets = nullptr;
@@ -2090,7 +2156,7 @@ HTTPInfo::marshal(char *buf, int len)
     tmp                               = m_alt->m_request_hdr.m_heap->marshal(buf, len - used);
     marshal_alt->m_request_hdr.m_heap = (HdrHeap *)static_cast<intptr_t>(used);
     ink_assert(((intptr_t)marshal_alt->m_request_hdr.m_heap) < len);
-    buf += tmp;
+    buf  += tmp;
     used += tmp;
   } else {
     marshal_alt->m_request_hdr.m_heap = nullptr;
@@ -2138,7 +2204,7 @@ HTTPInfo::unmarshal(char *buf, int len, RefCountObj *block_ref)
 
   if (alt->m_frag_offset_count > HTTPCacheAlt::N_INTEGRAL_FRAG_OFFSETS) {
     alt->m_frag_offsets = reinterpret_cast<FragOffset *>(buf + reinterpret_cast<intptr_t>(alt->m_frag_offsets));
-    len -= sizeof(FragOffset) * alt->m_frag_offset_count;
+    len                 -= sizeof(FragOffset) * alt->m_frag_offset_count;
     ink_assert(len >= 0);
   } else if (alt->m_frag_offset_count > 0) {
     alt->m_frag_offsets = alt->m_integral_frag_offsets;
@@ -2155,7 +2221,7 @@ HTTPInfo::unmarshal(char *buf, int len, RefCountObj *block_ref)
       ink_assert(!"HTTPInfo::request unmarshal failed");
       return -1;
     }
-    len -= tmp;
+    len                                    -= tmp;
     alt->m_request_hdr.m_heap              = heap;
     alt->m_request_hdr.m_http              = hh;
     alt->m_request_hdr.m_mime              = hh->m_fields_impl;
@@ -2236,7 +2302,7 @@ HTTPInfo::unmarshal_v24_1(char *buf, int len, RefCountObj *block_ref)
       ink_assert(!"HTTPInfo::request unmarshal failed");
       return -1;
     }
-    len -= tmp;
+    len                                    -= tmp;
     alt->m_request_hdr.m_heap              = heap;
     alt->m_request_hdr.m_http              = hh;
     alt->m_request_hdr.m_mime              = hh->m_fields_impl;

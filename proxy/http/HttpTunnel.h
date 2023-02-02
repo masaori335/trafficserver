@@ -33,7 +33,7 @@
 #pragma once
 
 #include "tscore/ink_platform.h"
-#include "P_EventSystem.h"
+#include "I_EventSystem.h"
 
 // Get rid of any previous definition first... /leif
 #ifdef MAX_PRODUCERS
@@ -45,16 +45,16 @@
 #define MAX_PRODUCERS 2
 #define MAX_CONSUMERS 4
 
-#define HTTP_TUNNEL_EVENT_DONE (HTTP_TUNNEL_EVENTS_START + 1)
-#define HTTP_TUNNEL_EVENT_PRECOMPLETE (HTTP_TUNNEL_EVENTS_START + 2)
+#define HTTP_TUNNEL_EVENT_DONE            (HTTP_TUNNEL_EVENTS_START + 1)
+#define HTTP_TUNNEL_EVENT_PRECOMPLETE     (HTTP_TUNNEL_EVENTS_START + 2)
 #define HTTP_TUNNEL_EVENT_CONSUMER_DETACH (HTTP_TUNNEL_EVENTS_START + 3)
-#define HTTP_TUNNEL_EVENT_ACTIVITY_CHECK (HTTP_TUNNEL_EVENTS_START + 4)
+#define HTTP_TUNNEL_EVENT_ACTIVITY_CHECK  (HTTP_TUNNEL_EVENTS_START + 4)
 
 #define HTTP_TUNNEL_STATIC_PRODUCER (VConnection *)!0
 
 // YTS Team, yamsat Plugin
 #define ALLOCATE_AND_WRITE_TO_BUF 1
-#define WRITE_TO_BUF 2
+#define WRITE_TO_BUF              2
 
 struct HttpTunnelProducer;
 class HttpSM;
@@ -518,7 +518,7 @@ HttpTunnel::append_message_to_producer_buffer(HttpTunnelProducer *p, const char 
   }
 
   p->read_buffer->write(msg, msg_len);
-  p->nbytes += msg_len;
+  p->nbytes     += msg_len;
   p->bytes_read += msg_len;
 }
 
@@ -546,12 +546,14 @@ HttpTunnel::has_consumer_besides_client() const
       continue;
     }
 
-    if (consumer.vc_type == HT_HTTP_CLIENT) {
-      res = false;
+    switch (consumer.vc_type) {
+    case HT_HTTP_CLIENT:
       continue;
-    } else {
-      res = true;
-      break;
+    case HT_HTTP_SERVER:
+      // ignore uploading data to servers
+      continue;
+    default:
+      return true;
     }
   }
 

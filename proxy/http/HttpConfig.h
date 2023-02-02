@@ -40,6 +40,8 @@
 #include <cctype>
 #include <string_view>
 
+#include <chrono>
+
 #include "tscore/ink_platform.h"
 #include "tscore/ink_inet.h"
 #include "tscore/ink_resolver.h"
@@ -48,7 +50,7 @@
 #include "tscore/BufferWriter.h"
 #include "HttpProxyAPIEnums.h"
 #include "ProxyConfig.h"
-#include "records/P_RecProcess.h"
+#include "records/I_RecProcess.h"
 #include "HttpConnectionCount.h"
 
 static const unsigned HTTP_STATUS_NUMBER = 600;
@@ -112,6 +114,8 @@ enum {
   http_purge_requests_stat,
   http_connect_requests_stat,
   http_extension_method_requests_stat,
+  http_proxy_loop_detected_stat,
+  http_proxy_mh_loop_detected_stat,
 
   http_completed_requests_stat,
   http_broken_server_connections_stat,
@@ -362,7 +366,7 @@ enum {
   http_origin_private,
   http_origin_close_private,
   http_origin_raw,
-
+  http_parent_count,
   http_stat_count
 };
 
@@ -379,9 +383,9 @@ enum CacheOpenWriteFailAction_t {
 extern RecRawStatBlock *http_rsb;
 
 /* Stats should only be accessed using these macros */
-#define HTTP_INCREMENT_DYN_STAT(x) RecIncrRawStat(http_rsb, this_ethread(), (int)x, 1)
-#define HTTP_DECREMENT_DYN_STAT(x) RecIncrRawStat(http_rsb, this_ethread(), (int)x, -1)
-#define HTTP_SUM_DYN_STAT(x, y) RecIncrRawStat(http_rsb, this_ethread(), (int)x, (int64_t)y)
+#define HTTP_INCREMENT_DYN_STAT(x)     RecIncrRawStat(http_rsb, this_ethread(), (int)x, 1)
+#define HTTP_DECREMENT_DYN_STAT(x)     RecIncrRawStat(http_rsb, this_ethread(), (int)x, -1)
+#define HTTP_SUM_DYN_STAT(x, y)        RecIncrRawStat(http_rsb, this_ethread(), (int)x, (int64_t)y)
 #define HTTP_SUM_GLOBAL_DYN_STAT(x, y) RecIncrGlobalRawStatSum(http_rsb, x, y)
 
 #define HTTP_CLEAR_DYN_STAT(x)          \
@@ -390,7 +394,7 @@ extern RecRawStatBlock *http_rsb;
     RecSetRawStatCount(http_rsb, x, 0); \
   } while (0);
 
-#define HTTP_READ_DYN_SUM(x, S) RecGetRawStatSum(http_rsb, (int)x, &S) // This aggregates threads too
+#define HTTP_READ_DYN_SUM(x, S)        RecGetRawStatSum(http_rsb, (int)x, &S) // This aggregates threads too
 #define HTTP_READ_GLOBAL_DYN_SUM(x, S) RecGetGlobalRawStatSum(http_rsb, (int)x, &S)
 
 /////////////////////////////////////////////////////////////
@@ -464,9 +468,13 @@ enum class Action {
 };
 
 static std::map<std::string, AddressClass> address_class_map = {
-  {"default", AddressClass::DEFAULT},     {"private", AddressClass::PRIVATE},     {"loopback", AddressClass::LOOPBACK},
-  {"multicast", AddressClass::MULTICAST}, {"linklocal", AddressClass::LINKLOCAL}, {"routable", AddressClass::ROUTABLE},
-  {"self", AddressClass::SELF},
+  {"default",   AddressClass::DEFAULT  },
+  {"private",   AddressClass::PRIVATE  },
+  {"loopback",  AddressClass::LOOPBACK },
+  {"multicast", AddressClass::MULTICAST},
+  {"linklocal", AddressClass::LINKLOCAL},
+  {"routable",  AddressClass::ROUTABLE },
+  {"self",      AddressClass::SELF     },
 };
 
 static std::map<std::string, Action> action_map = {
@@ -509,6 +517,7 @@ struct OverridableHttpConfigParams {
   MgmtByte attach_server_session_to_client    = 0;
   MgmtInt max_proxy_cycles                    = 0;
   MgmtInt tunnel_activity_check_period        = 0;
+  MgmtInt default_inactivity_timeout          = 24 * 60 * 60;
 
   MgmtByte forward_connect_method = 0;
 
@@ -601,6 +610,11 @@ struct OverridableHttpConfigParams {
   /////////////////////////////////////////////////
   MgmtByte allow_half_open = 1;
 
+  /////////////////////////////////////////////////
+  // Body factory
+  /////////////////////////////////////////////////
+  MgmtByte response_suppression_mode = 0; // proxy.config.body_factory.response_suppression_mode
+
   //////////////////////////////
   // server verification mode //
   //////////////////////////////
@@ -666,29 +680,29 @@ struct OverridableHttpConfigParams {
   MgmtInt connect_attempts_max_retries_dead_server = 3;
   MgmtInt connect_attempts_rr_retries              = 3;
   MgmtInt connect_attempts_timeout                 = 30;
-  MgmtInt post_connect_attempts_timeout            = 1800;
 
   MgmtInt connect_dead_policy = 2;
 
   ////////////////////////////////////
   // parent proxy connect attempts //
   ///////////////////////////////////
-  MgmtInt parent_connect_attempts     = 4;
-  MgmtInt parent_retry_time           = 300;
-  MgmtInt parent_fail_threshold       = 10;
-  MgmtInt per_parent_connect_attempts = 2;
-  MgmtInt parent_connect_timeout      = 30;
+  MgmtInt parent_connect_attempts          = 4;
+  MgmtInt parent_retry_time                = 300;
+  MgmtInt parent_fail_threshold            = 10;
+  MgmtInt per_parent_connect_attempts      = 2;
+  MgmtByte enable_parent_timeout_markdowns = 0;
+  MgmtByte disable_parent_markdowns        = 0;
 
-  MgmtInt down_server_timeout    = 300;
-  MgmtInt client_abort_threshold = 1000;
+  ts_seconds down_server_timeout{300};
 
   // open read failure retries.
   MgmtInt max_cache_open_read_retries = -1;
-  MgmtInt cache_open_read_retry_time  = 10; // time is in mseconds
+  MgmtInt cache_open_read_retry_time  = 10; // time in mseconds
   MgmtInt cache_generation_number     = -1;
 
   // open write failure retries.
-  MgmtInt max_cache_open_write_retries = 1;
+  MgmtInt max_cache_open_write_retries       = 1;
+  MgmtInt max_cache_open_write_retry_timeout = 0; // time in mseconds
 
   MgmtInt background_fill_active_timeout = 60;
 
@@ -726,6 +740,7 @@ struct OverridableHttpConfigParams {
   char *ssl_client_cert_filename        = nullptr;
   char *ssl_client_private_key_filename = nullptr;
   char *ssl_client_ca_cert_filename     = nullptr;
+  char *ssl_client_alpn_protocols       = nullptr;
 
   // Host Resolution order
   HostResData host_res_data;
@@ -817,7 +832,7 @@ public:
   MgmtByte referer_filter_enabled  = 0;
   MgmtByte referer_format_redirect = 0;
 
-  MgmtByte strict_uri_parsing = 0;
+  MgmtByte strict_uri_parsing = 2;
 
   MgmtByte reverse_proxy_enabled = 0;
   MgmtByte url_remap_required    = 1;
@@ -829,7 +844,6 @@ public:
 
   MgmtByte send_100_continue_response = 0;
   MgmtByte disallow_post_100_continue = 0;
-  MgmtByte keepalive_internal_vc      = 0;
 
   MgmtByte server_session_sharing_pool = TS_SERVER_SESSION_SHARING_POOL_THREAD;
 
@@ -847,13 +861,14 @@ public:
   MgmtInt http_request_line_max_size = 65535;
   MgmtInt http_hdr_field_max_size    = 131070;
 
-  MgmtByte http_host_sni_policy = 0;
+  MgmtByte http_host_sni_policy         = 0;
+  MgmtByte scheme_proto_mismatch_policy = 2;
 
   // noncopyable
   /////////////////////////////////////
   // operator = and copy constructor //
   /////////////////////////////////////
-  HttpConfigParams(const HttpConfigParams &) = delete;
+  HttpConfigParams(const HttpConfigParams &)            = delete;
   HttpConfigParams &operator=(const HttpConfigParams &) = delete;
 };
 
@@ -913,6 +928,7 @@ inline HttpConfigParams::~HttpConfigParams()
   ats_free(reverse_proxy_no_host_redirect);
   ats_free(redirect_actions_string);
   ats_free(oride.ssl_client_sni_policy);
+  ats_free(oride.ssl_client_alpn_protocols);
   ats_free(oride.host_res_data.conf_value);
 
   delete connect_ports;

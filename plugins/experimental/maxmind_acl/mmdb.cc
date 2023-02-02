@@ -61,12 +61,12 @@ Acl::init(char const *filename)
     // Get our root maxmind node
     maxmind = _config["maxmind"];
 #if 0
-      // Test junk
-      for (YAML::const_iterator it = maxmind.begin(); it != maxmind.end(); ++it) {
-        const std::string &name    = it->first.as<std::string>();
-        YAML::NodeType::value type = it->second.Type();
-        TSDebug(PLUGIN_NAME, "name: %s, value: %d", name.c_str(), type);
-      }
+    // Test junk
+    for (YAML::const_iterator it = maxmind.begin(); it != maxmind.end(); ++it) {
+      const std::string &name    = it->first.as<std::string>();
+      YAML::NodeType::value type = it->second.Type();
+      TSDebug(PLUGIN_NAME, "name: %s, value: %d", name.c_str(), type);
+    }
 #endif
   } catch (const YAML::Exception &e) {
     TSError("[%s] YAML::Exception %s when parsing YAML config file %s for maxmind", PLUGIN_NAME, e.what(), configloc.c_str());
@@ -95,7 +95,14 @@ Acl::init(char const *filename)
   allow_regex.clear();
   deny_regex.clear();
   _html.clear();
-  default_allow = false;
+  default_allow       = false;
+  _anonymous_blocking = false;
+  _anonymous_ip       = false;
+  _anonymous_vpn      = false;
+  _hosting_provider   = false;
+  _tor_exit_node      = false;
+  _residential_proxy  = false;
+  _public_proxy       = false;
 
   if (loadallow(maxmind["allow"])) {
     TSDebug(PLUGIN_NAME, "Loaded Allow ruleset");
@@ -113,12 +120,76 @@ Acl::init(char const *filename)
 
   loadhtml(maxmind["html"]);
 
+  _anonymous_blocking = loadanonymous(maxmind["anonymous"]);
+
   if (!status) {
     TSDebug(PLUGIN_NAME, "Failed to load any rulesets, none specified");
     status = false;
   }
 
   return status;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Parse the anonymous blocking settings
+bool
+Acl::loadanonymous(const YAML::Node &anonNode)
+{
+  if (!anonNode) {
+    TSDebug(PLUGIN_NAME, "No anonymous rules set");
+    return false;
+  }
+  if (anonNode.IsNull()) {
+    TSDebug(PLUGIN_NAME, "Anonymous rules are NULL");
+    return false;
+  }
+
+#if 0
+  // Test junk
+  for (YAML::const_iterator it = anonNode.begin(); it != anonNode.end(); ++it) {
+    const std::string &name    = it->first.as<std::string>();
+    YAML::NodeType::value type = it->second.Type();
+    TSDebug(PLUGIN_NAME, "name: %s, value: %d", name.c_str(), type);
+  }
+#endif
+
+  try {
+    if (anonNode["ip"].as<bool>(false)) {
+      TSDebug(PLUGIN_NAME, "saw ip true");
+      _anonymous_ip = true;
+    }
+
+    if (anonNode["vpn"].as<bool>(false)) {
+      TSDebug(PLUGIN_NAME, "saw vpn true");
+      _anonymous_vpn = true;
+    }
+
+    if (anonNode["hosting"].as<bool>(false)) {
+      TSDebug(PLUGIN_NAME, "saw hosting true");
+      _hosting_provider = true;
+    }
+
+    if (anonNode["public"].as<bool>(false)) {
+      TSDebug(PLUGIN_NAME, "saw public proxy true");
+      _public_proxy = true;
+    }
+
+    if (anonNode["tor"].as<bool>(false)) {
+      TSDebug(PLUGIN_NAME, "saw tor exit node true");
+      _tor_exit_node = true;
+    }
+
+    if (anonNode["residential"].as<bool>(false)) {
+      TSDebug(PLUGIN_NAME, "saw residential proxy true");
+      _residential_proxy = true;
+    }
+
+  } catch (const YAML::Exception &e) {
+    TSDebug(PLUGIN_NAME, "YAML::Exception %s when parsing YAML config file anonymous list", e.what());
+    return false;
+  }
+
+  return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -171,10 +242,10 @@ Acl::loaddeny(const YAML::Node &denyNode)
         if (ip.IsSequence()) {
           // Do IP Deny processing
           for (auto &&i : ip) {
-            IpAddr min, max;
-            ats_ip_range_parse(std::string_view{i.as<std::string>()}, min, max);
-            deny_ip_map.fill(min, max, nullptr);
-            TSDebug(PLUGIN_NAME, "loading ip: valid: %d, fam %d ", min.isValid(), min.family());
+            if (swoc::IPRange r; r.load(i.Scalar())) {
+              deny_ip_map.fill(r);
+              TSDebug(PLUGIN_NAME, "Denying ip fam %d ", r.family());
+            }
           }
         } else {
           TSDebug(PLUGIN_NAME, "Invalid IP deny list yaml");
@@ -252,10 +323,10 @@ Acl::loadallow(const YAML::Node &allowNode)
         if (ip.IsSequence()) {
           // Do IP Allow processing
           for (auto &&i : ip) {
-            IpAddr min, max;
-            ats_ip_range_parse(std::string_view{i.as<std::string>()}, min, max);
-            allow_ip_map.fill(min, max, nullptr);
-            TSDebug(PLUGIN_NAME, "loading ip: valid: %d, fam %d ", min.isValid(), min.family());
+            if (swoc::IPRange r; r.load(i.Scalar())) {
+              allow_ip_map.fill(r);
+              TSDebug(PLUGIN_NAME, "loading ip: valid: fam %d ", r.family());
+            }
           }
         } else {
           TSDebug(PLUGIN_NAME, "Invalid IP allow list yaml");
@@ -446,10 +517,22 @@ Acl::eval(TSRemapRequestInfo *rri, TSHttpTxn txnp)
 #endif
 
       MMDB_entry_data_s entry_data;
-      int path_len     = 0;
-      const char *path = nullptr;
+      std::string url;
       if (!allow_regex.empty() || !deny_regex.empty()) {
-        path = TSUrlPathGet(rri->requestBufp, rri->requestUrl, &path_len);
+        TSMBuffer mbuf;
+        TSMLoc ul;
+        TSReturnCode rc = TSHttpTxnPristineUrlGet(txnp, &mbuf, &ul);
+        if (rc != TS_SUCCESS) {
+          TSDebug(PLUGIN_NAME, "Failed call to TSHttpTxnPristineUrlGet()");
+          return false;
+        }
+        int host_len = 0, path_len = 0;
+        auto host = TSUrlHostGet(mbuf, ul, &host_len);
+        auto path = TSUrlPathGet(mbuf, ul, &path_len);
+        url.assign(host, host_len);
+        url.append("/");
+        url.append(path, path_len);
+        TSHandleMLocRelease(mbuf, TS_NULL_MLOC, ul);
       }
       // Test for country code
       if (!allow_country.empty() || !allow_regex.empty() || !deny_regex.empty()) {
@@ -459,11 +542,20 @@ Acl::eval(TSRemapRequestInfo *rri, TSHttpTxn txnp)
           return false;
         }
         if (entry_data.has_data) {
-          ret = eval_country(&entry_data, path, path_len);
+          ret = eval_country(&entry_data, url);
         }
       } else {
         // Country map is empty as well as regexes, use our default rejection
         ret = default_allow;
+      }
+
+      // We have mmdb data, check if we want anonymous blocking checked
+      // If blocked here, then block as well
+      if (_anonymous_blocking) {
+        if (!eval_anonymous(&result.entry)) {
+          TSDebug(PLUGIN_NAME, "Blocking Anonymous IP");
+          ret = false;
+        }
       }
     }
   } else {
@@ -499,10 +591,98 @@ Acl::eval(TSRemapRequestInfo *rri, TSHttpTxn txnp)
 
 ///////////////////////////////////////////////////////////////////////////////
 // Returns true if entry data contains an
+// allowable non-anonymous IP.
+// False otherwise
+bool
+Acl::eval_anonymous(MMDB_entry_s *entry)
+{
+  MMDB_entry_data_s entry_data;
+  int status;
+
+  // For each value we only care if it was successful and if there was data.
+  // We can have unsuccessful gets in the instance an IP is not one of the things
+  // we are asking for, so its not an error
+  if (_anonymous_ip) {
+    status = MMDB_get_value(entry, &entry_data, "is_anonymous", NULL);
+    if ((MMDB_SUCCESS == status) && (entry_data.has_data)) {
+      if (entry_data.type == MMDB_DATA_TYPE_BOOLEAN) {
+        if (entry_data.boolean == true) {
+          TSDebug(PLUGIN_NAME, "saw is_anonymous set to true bool");
+          return false;
+        }
+      }
+    }
+  }
+
+  if (_anonymous_vpn) {
+    status = MMDB_get_value(entry, &entry_data, "is_anonymous_vpn", NULL);
+    if ((MMDB_SUCCESS == status) && (entry_data.has_data)) {
+      if (entry_data.type == MMDB_DATA_TYPE_BOOLEAN) {
+        if (entry_data.boolean == true) {
+          TSDebug(PLUGIN_NAME, "saw is_anonymous vpn set to true bool");
+          return false;
+        }
+      }
+    }
+  }
+
+  if (_hosting_provider) {
+    status = MMDB_get_value(entry, &entry_data, "is_hosting_provider", NULL);
+    if ((MMDB_SUCCESS == status) && (entry_data.has_data)) {
+      if (entry_data.type == MMDB_DATA_TYPE_BOOLEAN) {
+        if (entry_data.boolean == true) {
+          TSDebug(PLUGIN_NAME, "saw is_hosting set to true bool");
+          return false;
+        }
+      }
+    }
+  }
+
+  if (_public_proxy) {
+    status = MMDB_get_value(entry, &entry_data, "is_public_proxy", NULL);
+    if ((MMDB_SUCCESS == status) && (entry_data.has_data)) {
+      if (entry_data.type == MMDB_DATA_TYPE_BOOLEAN) {
+        if (entry_data.boolean == true) {
+          TSDebug(PLUGIN_NAME, "saw public_proxy set to true bool");
+          return false;
+        }
+      }
+    }
+  }
+
+  if (_tor_exit_node) {
+    status = MMDB_get_value(entry, &entry_data, "is_tor_exit_node", NULL);
+    if ((MMDB_SUCCESS == status) && (entry_data.has_data)) {
+      if (entry_data.type == MMDB_DATA_TYPE_BOOLEAN) {
+        if (entry_data.boolean == true) {
+          TSDebug(PLUGIN_NAME, "saw is_tor_exit_node set to true bool");
+          return false;
+        }
+      }
+    }
+  }
+
+  if (_residential_proxy) {
+    status = MMDB_get_value(entry, &entry_data, "is_residential_proxy", NULL);
+    if ((MMDB_SUCCESS == status) && (entry_data.has_data)) {
+      if (entry_data.type == MMDB_DATA_TYPE_BOOLEAN) {
+        if (entry_data.boolean == true) {
+          TSDebug(PLUGIN_NAME, "saw is_residential set to true bool");
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Returns true if entry data contains an
 // allowable country code from our map.
 // False otherwise
 bool
-Acl::eval_country(MMDB_entry_data_s *entry_data, const char *path, int path_len)
+Acl::eval_country(MMDB_entry_data_s *entry_data, const std::string &url)
 {
   bool ret     = false;
   bool allow   = default_allow;
@@ -526,10 +706,11 @@ Acl::eval_country(MMDB_entry_data_s *entry_data, const char *path, int path_len)
     ret = true;
   }
 
-  if (nullptr != path && 0 != path_len) {
+  if (!url.empty()) {
+    TSDebug(PLUGIN_NAME, "saw url not empty: %s, %ld", url.c_str(), url.length());
     if (!allow_regex[output].empty()) {
       for (auto &i : allow_regex[output]) {
-        if (PCRE_ERROR_NOMATCH != pcre_exec(i._rex, i._extra, path, path_len, 0, PCRE_NOTEMPTY, nullptr, 0)) {
+        if (PCRE_ERROR_NOMATCH != pcre_exec(i._rex, i._extra, url.c_str(), url.length(), 0, PCRE_NOTEMPTY, nullptr, 0)) {
           TSDebug(PLUGIN_NAME, "Got a regex allow hit on regex: %s, country: %s", i._regex_s.c_str(), output);
           ret = true;
         }
@@ -537,7 +718,7 @@ Acl::eval_country(MMDB_entry_data_s *entry_data, const char *path, int path_len)
     }
     if (!deny_regex[output].empty()) {
       for (auto &i : deny_regex[output]) {
-        if (PCRE_ERROR_NOMATCH != pcre_exec(i._rex, i._extra, path, path_len, 0, PCRE_NOTEMPTY, nullptr, 0)) {
+        if (PCRE_ERROR_NOMATCH != pcre_exec(i._rex, i._extra, url.c_str(), url.length(), 0, PCRE_NOTEMPTY, nullptr, 0)) {
           TSDebug(PLUGIN_NAME, "Got a regex deny hit on regex: %s, country: %s", i._regex_s.c_str(), output);
           ret = false;
         }
@@ -568,12 +749,13 @@ Acl::eval_ip(const sockaddr *sock) const
   }
 #endif
 
-  if (allow_ip_map.contains(sock, nullptr)) {
+  swoc::IPAddr addr(sock);
+  if (allow_ip_map.contains(addr)) {
     // Allow map has this ip, we know we want to allow it
     return ALLOW_IP;
   }
 
-  if (deny_ip_map.contains(sock, nullptr)) {
+  if (deny_ip_map.contains(addr)) {
     // Deny map has this ip, explicitly deny
     return DENY_IP;
   }

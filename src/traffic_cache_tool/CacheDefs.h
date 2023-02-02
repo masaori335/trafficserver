@@ -28,7 +28,7 @@
 #include <list>
 
 #include "tscore/I_Version.h"
-#include "tscore/Scalar.h"
+#include "swoc/Scalar.h"
 #include "tscore/Regex.h"
 #include "tscore/Errata.h"
 #include "tscpp/util/TextView.h"
@@ -43,14 +43,14 @@ struct bytes {
 };
 } // namespace ts::tag
 
-using ts::round_down;
-using ts::round_up;
+using swoc::round_down;
+using swoc::round_up;
 
 namespace ts
 {
 /* INK_ALIGN() is only to be used to align on a power of 2 boundary */
 #define INK_ALIGN(size, boundary) (((size) + ((boundary)-1)) & ~((boundary)-1))
-#define ROUND_TO_STORE_BLOCK(_x) INK_ALIGN((_x), 8192)
+#define ROUND_TO_STORE_BLOCK(_x)  INK_ALIGN((_x), 8192)
 #define dir_clear(_e) \
   do {                \
     (_e)->w[0] = 0;   \
@@ -76,19 +76,19 @@ constexpr static int MAX_VOLUME_IDX          = 255;
 constexpr static int ENTRIES_PER_BUCKET      = 4;
 constexpr static int MAX_BUCKETS_PER_SEGMENT = (1 << 16) / ENTRIES_PER_BUCKET;
 
-typedef Scalar<1, off_t, ts::tag::bytes> Bytes;
-typedef Scalar<1024, off_t, ts::tag::bytes> Kilobytes;
-typedef Scalar<1024 * Kilobytes::SCALE, off_t, ts::tag::bytes> Megabytes;
-typedef Scalar<1024 * Megabytes::SCALE, off_t, ts::tag::bytes> Gigabytes;
-typedef Scalar<1024 * Gigabytes::SCALE, off_t, ts::tag::bytes> Terabytes;
+using Bytes     = swoc::Scalar<1, off_t, ts::tag::bytes>;
+using Kilobytes = swoc::Scalar<1024, off_t, ts::tag::bytes>;
+using Megabytes = swoc::Scalar<1024 * Kilobytes::SCALE, off_t, ts::tag::bytes>;
+using Gigabytes = swoc::Scalar<1024 * Megabytes::SCALE, off_t, ts::tag::bytes>;
+using Terabytes = swoc::Scalar<1024 * Gigabytes::SCALE, off_t, ts::tag::bytes>;
 
 // Units of allocation for stripes.
-typedef Scalar<128 * Megabytes::SCALE, int64_t, ts::tag::bytes> CacheStripeBlocks;
+using CacheStripeBlocks = swoc::Scalar<128 * Megabytes::SCALE, int64_t, ts::tag::bytes>;
 // Size measurement of cache storage.
 // Also size of meta data storage units.
-typedef Scalar<8 * Kilobytes::SCALE, int64_t, ts::tag::bytes> CacheStoreBlocks;
+using CacheStoreBlocks = swoc::Scalar<8 * Kilobytes::SCALE, int64_t, ts::tag::bytes>;
 // Size unit for content stored in cache.
-typedef Scalar<512, int64_t, ts::tag::bytes> CacheDataBlocks;
+using CacheDataBlocks = swoc::Scalar<512, int64_t, ts::tag::bytes>;
 
 /** A cache span is a representation of raw storage.
     It corresponds to a raw disk, disk partition, file, or directory.
@@ -177,9 +177,9 @@ struct Doc {
 #endif
   uint32_t hlen;         ///< Length of this header.
   uint32_t doc_type : 8; ///< Doc type - indicates the format of this structure and its content.
-  uint32_t v_major : 8;  ///< Major version number.
-  uint32_t v_minor : 8;  ///< Minor version number.
-  uint32_t unused : 8;   ///< Unused, forced to zero.
+  uint32_t v_major  : 8; ///< Major version number.
+  uint32_t v_minor  : 8; ///< Minor version number.
+  uint32_t unused   : 8; ///< Unused, forced to zero.
   uint32_t sync_serial;
   uint32_t write_serial;
   uint32_t pinned; // pinned until
@@ -190,7 +190,6 @@ struct Doc {
   uint32_t data_len();
   uint32_t prefix_len();
   int single_fragment();
-  int no_data_in_fragment();
   char *hdr();
   char *data();
 };
@@ -351,7 +350,7 @@ using ts::StripeMeta;
 using ts::CacheStripeDescriptor;
 using ts::Errata;
 using ts::CacheDirEntry;
-using ts::MemSpan;
+using swoc::MemSpan;
 using ts::Doc;
 
 constexpr int ESTIMATED_OBJECT_SIZE     = 8000;
@@ -369,13 +368,13 @@ constexpr int CACHE_BLOCK_SIZE          = (1 << CACHE_BLOCK_SHIFT); // 512, smal
 
 namespace ct
 {
-#define dir_big(_e) ((uint32_t)((((_e)->w[1]) >> 8) & 0x3))
+#define dir_big(_e)         ((uint32_t)((((_e)->w[1]) >> 8) & 0x3))
 #define dir_bit(_e, _w, _b) ((uint32_t)(((_e)->w[_w] >> (_b)) & 1))
-#define dir_size(_e) ((uint32_t)(((_e)->w[1]) >> 10))
+#define dir_size(_e)        ((uint32_t)(((_e)->w[1]) >> 10))
 #define dir_approx_size(_e) ((dir_size(_e) + 1) * DIR_BLOCK_SIZE(dir_big(_e)))
-#define dir_head(_e) dir_bit(_e, 2, 13)
-#define DIR_MASK_TAG(_t) ((_t) & ((1 << DIR_TAG_WIDTH) - 1))
-#define dir_tag(_e) ((uint32_t)((_e)->w[2] & ((1 << DIR_TAG_WIDTH) - 1)))
+#define dir_head(_e)        dir_bit(_e, 2, 13)
+#define DIR_MASK_TAG(_t)    ((_t) & ((1 << DIR_TAG_WIDTH) - 1))
+#define dir_tag(_e)         ((uint32_t)((_e)->w[2] & ((1 << DIR_TAG_WIDTH) - 1)))
 #define dir_offset(_e) \
   ((int64_t)(((uint64_t)(_e)->w[0]) | (((uint64_t)((_e)->w[1] & 0xFF)) << 16) | (((uint64_t)(_e)->w[4]) << 24)))
 
@@ -386,10 +385,10 @@ namespace ct
     (_e)->w[4] = (uint16_t)((_o) >> 24);                                    \
   } while (0)
 
-#define dir_next(_e) (_e)->w[3]
-#define dir_phase(_e) dir_bit(_e, 2, 12)
-#define DIR_BLOCK_SHIFT(_i) (3 * (_i))
-#define DIR_BLOCK_SIZE(_i) (CACHE_BLOCK_SIZE << DIR_BLOCK_SHIFT(_i))
+#define dir_next(_e)         (_e)->w[3]
+#define dir_phase(_e)        dir_bit(_e, 2, 12)
+#define DIR_BLOCK_SHIFT(_i)  (3 * (_i))
+#define DIR_BLOCK_SIZE(_i)   (CACHE_BLOCK_SIZE << DIR_BLOCK_SHIFT(_i))
 #define dir_set_prev(_e, _o) (_e)->w[2] = (uint16_t)(_o)
 #define dir_set_next(_e, _o) (_e)->w[3] = (uint16_t)(_o)
 

@@ -24,6 +24,8 @@
     limitations under the License.
  */
 
+#include <memory>
+
 #include "catch.hpp"
 
 #include "HPACK.h"
@@ -69,7 +71,7 @@ TEST_CASE("HPACK low level APIs", "[hpack]")
       HpackIndexingTable indexing_table(4096);
 
       for (const auto &i : indexed_test_case) {
-        ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);
+        std::unique_ptr<HTTPHdr> headers(new HTTPHdr);
         headers->create(HTTP_TYPE_REQUEST);
         MIMEField *field = mime_field_create(headers->m_heap, headers->m_http->m_fields_impl);
         MIMEFieldWrapper header(field, headers->m_heap, headers->m_http->m_fields_impl);
@@ -104,88 +106,70 @@ TEST_CASE("HPACK low level APIs", "[hpack]")
       {(char *)"custom-key", (char *)"custom-header", 0, HpackField::INDEXED_LITERAL,
        (uint8_t *)"\x40\x0a"
                   "custom-key\x0d"
-                  "custom-header",
-       26},
+                  "custom-header",                            26},
       {(char *)"custom-key", (char *)"custom-header", 0, HpackField::NOINDEX_LITERAL,
        (uint8_t *)"\x00\x0a"
                   "custom-key\x0d"
-                  "custom-header",
-       26},
+                  "custom-header",                            26},
       {(char *)"custom-key", (char *)"custom-header", 0, HpackField::NEVERINDEX_LITERAL,
        (uint8_t *)"\x10\x0a"
                   "custom-key\x0d"
-                  "custom-header",
-       26},
-      {(char *)":path", (char *)"/sample/path", 4, HpackField::INDEXED_LITERAL,
+                  "custom-header",                            26},
+      {(char *)":path",      (char *)"/sample/path",  4, HpackField::INDEXED_LITERAL,
        (uint8_t *)"\x44\x0c"
-                  "/sample/path",
-       14},
-      {(char *)":path", (char *)"/sample/path", 4, HpackField::NOINDEX_LITERAL,
+                  "/sample/path",                             14},
+      {(char *)":path",      (char *)"/sample/path",  4, HpackField::NOINDEX_LITERAL,
        (uint8_t *)"\x04\x0c"
-                  "/sample/path",
-       14},
-      {(char *)":path", (char *)"/sample/path", 4, HpackField::NEVERINDEX_LITERAL,
+                  "/sample/path",                             14},
+      {(char *)":path",      (char *)"/sample/path",  4, HpackField::NEVERINDEX_LITERAL,
        (uint8_t *)"\x14\x0c"
-                  "/sample/path",
-       14},
-      {(char *)"password", (char *)"secret", 0, HpackField::INDEXED_LITERAL,
+                  "/sample/path",                             14},
+      {(char *)"password",   (char *)"secret",        0, HpackField::INDEXED_LITERAL,
        (uint8_t *)"\x40\x08"
                   "password\x06"
-                  "secret",
-       17},
-      {(char *)"password", (char *)"secret", 0, HpackField::NOINDEX_LITERAL,
+                  "secret",                                   17},
+      {(char *)"password",   (char *)"secret",        0, HpackField::NOINDEX_LITERAL,
        (uint8_t *)"\x00\x08"
                   "password\x06"
-                  "secret",
-       17},
-      {(char *)"password", (char *)"secret", 0, HpackField::NEVERINDEX_LITERAL,
+                  "secret",                                   17},
+      {(char *)"password",   (char *)"secret",        0, HpackField::NEVERINDEX_LITERAL,
        (uint8_t *)"\x10\x08"
                   "password\x06"
-                  "secret",
-       17},
-      // with Huffman Coding
+                  "secret",                                   17},
+ // with Huffman Coding
       {(char *)"custom-key", (char *)"custom-header", 0, HpackField::INDEXED_LITERAL,
        (uint8_t *)"\x40"
                   "\x88\x25\xa8\x49\xe9\x5b\xa9\x7d\x7f"
-                  "\x89\x25\xa8\x49\xe9\x5a\x72\x8e\x42\xd9",
-       20},
+                  "\x89\x25\xa8\x49\xe9\x5a\x72\x8e\x42\xd9", 20},
       {(char *)"custom-key", (char *)"custom-header", 0, HpackField::NOINDEX_LITERAL,
        (uint8_t *)"\x00"
                   "\x88\x25\xa8\x49\xe9\x5b\xa9\x7d\x7f"
-                  "\x89\x25\xa8\x49\xe9\x5a\x72\x8e\x42\xd9",
-       20},
+                  "\x89\x25\xa8\x49\xe9\x5a\x72\x8e\x42\xd9", 20},
       {(char *)"custom-key", (char *)"custom-header", 0, HpackField::NEVERINDEX_LITERAL,
        (uint8_t *)"\x10"
                   "\x88\x25\xa8\x49\xe9\x5b\xa9\x7d\x7f"
-                  "\x89\x25\xa8\x49\xe9\x5a\x72\x8e\x42\xd9",
-       20},
-      {(char *)":path", (char *)"/sample/path", 4, HpackField::INDEXED_LITERAL,
+                  "\x89\x25\xa8\x49\xe9\x5a\x72\x8e\x42\xd9", 20},
+      {(char *)":path",      (char *)"/sample/path",  4, HpackField::INDEXED_LITERAL,
        (uint8_t *)"\x44"
-                  "\x89\x61\x03\xa6\xba\x0a\xc5\x63\x4c\xff",
-       11},
-      {(char *)":path", (char *)"/sample/path", 4, HpackField::NOINDEX_LITERAL,
+                  "\x89\x61\x03\xa6\xba\x0a\xc5\x63\x4c\xff", 11},
+      {(char *)":path",      (char *)"/sample/path",  4, HpackField::NOINDEX_LITERAL,
        (uint8_t *)"\x04"
-                  "\x89\x61\x03\xa6\xba\x0a\xc5\x63\x4c\xff",
-       11},
-      {(char *)":path", (char *)"/sample/path", 4, HpackField::NEVERINDEX_LITERAL,
+                  "\x89\x61\x03\xa6\xba\x0a\xc5\x63\x4c\xff", 11},
+      {(char *)":path",      (char *)"/sample/path",  4, HpackField::NEVERINDEX_LITERAL,
        (uint8_t *)"\x14"
-                  "\x89\x61\x03\xa6\xba\x0a\xc5\x63\x4c\xff",
-       11},
-      {(char *)"password", (char *)"secret", 0, HpackField::INDEXED_LITERAL,
+                  "\x89\x61\x03\xa6\xba\x0a\xc5\x63\x4c\xff", 11},
+      {(char *)"password",   (char *)"secret",        0, HpackField::INDEXED_LITERAL,
        (uint8_t *)"\x40"
                   "\x86\xac\x68\x47\x83\xd9\x27"
-                  "\x84\x41\x49\x61\x53",
-       13},
-      {(char *)"password", (char *)"secret", 0, HpackField::NOINDEX_LITERAL,
+                  "\x84\x41\x49\x61\x53",                     13},
+      {(char *)"password",   (char *)"secret",        0, HpackField::NOINDEX_LITERAL,
        (uint8_t *)"\x00"
                   "\x86\xac\x68\x47\x83\xd9\x27"
-                  "\x84\x41\x49\x61\x53",
-       13},
-      {(char *)"password", (char *)"secret", 0, HpackField::NEVERINDEX_LITERAL,
+                  "\x84\x41\x49\x61\x53",                     13},
+      {(char *)"password",   (char *)"secret",        0, HpackField::NEVERINDEX_LITERAL,
        (uint8_t *)"\x10"
                   "\x86\xac\x68\x47\x83\xd9\x27"
-                  "\x84\x41\x49\x61\x53",
-       13},
+                  "\x84\x41\x49\x61\x53",                     13},
     };
 
     SECTION("encoding")
@@ -222,7 +206,7 @@ TEST_CASE("HPACK low level APIs", "[hpack]")
         HpackIndexingTable indexing_table(4096);
 
         for (const auto &i : literal_test_case) {
-          ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);
+          std::unique_ptr<HTTPHdr> headers(new HTTPHdr);
           headers->create(HTTP_TYPE_REQUEST);
           MIMEField *field = mime_field_create(headers->m_heap, headers->m_http->m_fields_impl);
           MIMEFieldWrapper header(field, headers->m_heap, headers->m_http->m_fields_impl);
@@ -255,27 +239,27 @@ TEST_CASE("HPACK high level APIs", "[hpack]")
       char *raw_value;
     } raw_field_response_test_case[][MAX_TEST_FIELD_NUM] = {
       {
-        {(char *)":status", (char *)"302"},
-        {(char *)"cache-control", (char *)"private"},
-        {(char *)"date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
-        {(char *)"location", (char *)"https://www.example.com"},
-        {(char *)"", (char *)""} // End of this test case
+       {(char *)":status", (char *)"302"},
+       {(char *)"cache-control", (char *)"private"},
+       {(char *)"date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
+       {(char *)"location", (char *)"https://www.example.com"},
+       {(char *)"", (char *)""} // End of this test case
       },
       {
-        {(char *)":status", (char *)"307"},
-        {(char *)"cache-control", (char *)"private"},
-        {(char *)"date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
-        {(char *)"location", (char *)"https://www.example.com"},
-        {(char *)"", (char *)""} // End of this test case
+       {(char *)":status", (char *)"307"},
+       {(char *)"cache-control", (char *)"private"},
+       {(char *)"date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
+       {(char *)"location", (char *)"https://www.example.com"},
+       {(char *)"", (char *)""} // End of this test case
       },
       {
-        {(char *)":status", (char *)"200"},
-        {(char *)"cache-control", (char *)"private"},
-        {(char *)"date", (char *)"Mon, 21 Oct 2013 20:13:22 GMT"},
-        {(char *)"location", (char *)"https://www.example.com"},
-        {(char *)"content-encoding", (char *)"gzip"},
-        {(char *)"set-cookie", (char *)"foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1"},
-        {(char *)"", (char *)""} // End of this test case
+       {(char *)":status", (char *)"200"},
+       {(char *)"cache-control", (char *)"private"},
+       {(char *)"date", (char *)"Mon, 21 Oct 2013 20:13:22 GMT"},
+       {(char *)"location", (char *)"https://www.example.com"},
+       {(char *)"content-encoding", (char *)"gzip"},
+       {(char *)"set-cookie", (char *)"foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1"},
+       {(char *)"", (char *)""} // End of this test case
       },
     };
 
@@ -292,14 +276,12 @@ TEST_CASE("HPACK high level APIs", "[hpack]")
                   "\xe0\x82\xa6\x2d\x1b\xff"
                   "\x6e\x91"
                   "\x9d\x29\xad\x17\x18\x63\xc7\x8f\x0b\x97\xc8\xe9\xae\x82\xae\x43"
-                  "\xd3",
-       54},
+                  "\xd3",                                                 54},
       {(uint8_t *)"\x48\x83"
                   "\x64\x0e\xff"
                   "\xc1"
                   "\xc0"
-                  "\xbf",
-       8},
+                  "\xbf",                                                 8 },
       {(uint8_t *)"\x88"
                   "\xc1"
                   "\x61\x96"
@@ -311,8 +293,7 @@ TEST_CASE("HPACK high level APIs", "[hpack]")
                   "\x77\xad"
                   "\x94\xe7\x82\x1d\xd7\xf2\xe6\xc7\xb3\x35\xdf\xdf\xcd\x5b\x39\x60"
                   "\xd5\xaf\x27\x08\x7f\x36\x72\xc1\xab\x27\x0f\xb5\x29\x1f\x95\x87"
-                  "\x31\x60\x65\xc0\x03\xed\x4e\xe5\xb1\x06\x3d\x50\x07",
-       79},
+                  "\x31\x60\x65\xc0\x03\xed\x4e\xe5\xb1\x06\x3d\x50\x07", 79},
     };
 
     const static struct {
@@ -321,24 +302,24 @@ TEST_CASE("HPACK high level APIs", "[hpack]")
       char *value;
     } dynamic_table_response_test_case[][MAX_TEST_FIELD_NUM] = {
       {
-        {63, (char *)"location", (char *)"https://www.example.com"},
-        {65, (char *)"date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
-        {52, (char *)"cache-control", (char *)"private"},
-        {42, (char *)":status", (char *)"302"},
-        {0, (char *)"", (char *)""} // End of this test case
+       {63, (char *)"location", (char *)"https://www.example.com"},
+       {65, (char *)"date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
+       {52, (char *)"cache-control", (char *)"private"},
+       {42, (char *)":status", (char *)"302"},
+       {0, (char *)"", (char *)""} // End of this test case
       },
       {
-        {42, (char *)":status", (char *)"307"},
-        {63, (char *)"location", (char *)"https://www.example.com"},
-        {65, (char *)"date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
-        {52, (char *)"cache-control", (char *)"private"},
-        {0, (char *)"", (char *)""} // End of this test case
+       {42, (char *)":status", (char *)"307"},
+       {63, (char *)"location", (char *)"https://www.example.com"},
+       {65, (char *)"date", (char *)"Mon, 21 Oct 2013 20:13:21 GMT"},
+       {52, (char *)"cache-control", (char *)"private"},
+       {0, (char *)"", (char *)""} // End of this test case
       },
       {
-        {98, (char *)"set-cookie", (char *)"foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1"},
-        {52, (char *)"content-encoding", (char *)"gzip"},
-        {65, (char *)"date", (char *)"Mon, 21 Oct 2013 20:13:22 GMT"},
-        {0, (char *)"", (char *)""} // End of this test case
+       {98, (char *)"set-cookie", (char *)"foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1"},
+       {52, (char *)"content-encoding", (char *)"gzip"},
+       {65, (char *)"date", (char *)"Mon, 21 Oct 2013 20:13:22 GMT"},
+       {0, (char *)"", (char *)""} // End of this test case
       },
     };
 
@@ -347,7 +328,7 @@ TEST_CASE("HPACK high level APIs", "[hpack]")
     indexing_table.update_maximum_size(DYNAMIC_TABLE_SIZE_FOR_REGRESSION_TEST);
 
     for (unsigned int i = 0; i < sizeof(encoded_field_response_test_case) / sizeof(encoded_field_response_test_case[0]); i++) {
-      ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);
+      std::unique_ptr<HTTPHdr> headers(new HTTPHdr);
       headers->create(HTTP_TYPE_RESPONSE);
 
       for (unsigned int j = 0; j < sizeof(raw_field_response_test_case[i]) / sizeof(raw_field_response_test_case[i][0]); j++) {
@@ -365,7 +346,7 @@ TEST_CASE("HPACK high level APIs", "[hpack]")
 
       memset(buf, 0, BUFSIZE_FOR_REGRESSION_TEST);
       uint64_t buf_len = BUFSIZE_FOR_REGRESSION_TEST;
-      int64_t len      = hpack_encode_header_block(indexing_table, buf, buf_len, headers);
+      int64_t len      = hpack_encode_header_block(indexing_table, buf, buf_len, headers.get());
 
       REQUIRE(len > 0);
       REQUIRE(len == encoded_field_response_test_case[i].encoded_field_len);
@@ -403,18 +384,18 @@ TEST_CASE("HPACK high level APIs", "[hpack]")
       char *raw_value;
     } raw_field_request_test_case[][MAX_TEST_FIELD_NUM] = {
       {
-        {(char *)":method", (char *)"GET"},
-        {(char *)":scheme", (char *)"http"},
-        {(char *)":path", (char *)"/"},
-        {(char *)":authority", (char *)"www.example.com"},
-        {(char *)"", (char *)""} // End of this test case
+       {(char *)":method", (char *)"GET"},
+       {(char *)":scheme", (char *)"http"},
+       {(char *)":path", (char *)"/"},
+       {(char *)":authority", (char *)"www.example.com"},
+       {(char *)"", (char *)""} // End of this test case
       },
       {
-        {(char *)":method", (char *)"GET"},
-        {(char *)":scheme", (char *)"http"},
-        {(char *)":path", (char *)"/"},
-        {(char *)":authority", (char *)"www.example.com"},
-        {(char *)"", (char *)""} // End of this test case
+       {(char *)":method", (char *)"GET"},
+       {(char *)":scheme", (char *)"http"},
+       {(char *)":path", (char *)"/"},
+       {(char *)":authority", (char *)"www.example.com"},
+       {(char *)"", (char *)""} // End of this test case
       },
     };
 
@@ -433,8 +414,7 @@ TEST_CASE("HPACK high level APIs", "[hpack]")
                   "\x1/"
                   "\x40"
                   "\xa:authority"
-                  "\xfwww.example.com",
-       64},
+                  "\xfwww.example.com",                                   64},
       {(uint8_t *)"\x40"
                   "\x85\xb9\x49\x53\x39\xe4"
                   "\x83\xc5\x83\x7f"
@@ -446,17 +426,16 @@ TEST_CASE("HPACK high level APIs", "[hpack]")
                   "\x81\x63"
                   "\x40"
                   "\x88\xb8\x3b\x53\x39\xec\x32\x7d\x7f"
-                  "\x8c\xf1\xe3\xc2\xe5\xf2\x3a\x6b\xa0\xab\x90\xf4\xff",
-       53},
+                  "\x8c\xf1\xe3\xc2\xe5\xf2\x3a\x6b\xa0\xab\x90\xf4\xff", 53},
     };
 
     HpackIndexingTable indexing_table(4096);
 
     for (unsigned int i = 0; i < sizeof(encoded_field_request_test_case) / sizeof(encoded_field_request_test_case[0]); i++) {
-      ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);
+      std::unique_ptr<HTTPHdr> headers(new HTTPHdr);
       headers->create(HTTP_TYPE_REQUEST);
 
-      hpack_decode_header_block(indexing_table, headers, encoded_field_request_test_case[i].encoded_field,
+      hpack_decode_header_block(indexing_table, headers.get(), encoded_field_request_test_case[i].encoded_field,
                                 encoded_field_request_test_case[i].encoded_field_len, MAX_REQUEST_HEADER_SIZE, MAX_TABLE_SIZE);
 
       for (unsigned int j = 0; j < sizeof(raw_field_request_test_case[i]) / sizeof(raw_field_request_test_case[i][0]); j++) {
@@ -486,14 +465,15 @@ TEST_CASE("HPACK high level APIs", "[hpack]")
 
     // add entries in dynamic table
     {
-      ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);
+      std::unique_ptr<HTTPHdr> headers(new HTTPHdr);
       headers->create(HTTP_TYPE_REQUEST);
 
       // C.3.1.  First Request
       uint8_t data[] = {0x82, 0x86, 0x84, 0x41, 0x0f, 0x77, 0x77, 0x77, 0x2e, 0x65,
                         0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x2e, 0x63, 0x6f, 0x6d};
 
-      int64_t len = hpack_decode_header_block(indexing_table, headers, data, sizeof(data), MAX_REQUEST_HEADER_SIZE, MAX_TABLE_SIZE);
+      int64_t len =
+        hpack_decode_header_block(indexing_table, headers.get(), data, sizeof(data), MAX_REQUEST_HEADER_SIZE, MAX_TABLE_SIZE);
       CHECK(len == sizeof(data));
       CHECK(indexing_table.maximum_size() == 4096);
       CHECK(indexing_table.size() == 57);
@@ -501,12 +481,13 @@ TEST_CASE("HPACK high level APIs", "[hpack]")
 
     // clear all entries by setting a maximum size of 0
     {
-      ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);
+      std::unique_ptr<HTTPHdr> headers(new HTTPHdr);
       headers->create(HTTP_TYPE_REQUEST);
 
       uint8_t data[] = {0x20};
 
-      int64_t len = hpack_decode_header_block(indexing_table, headers, data, sizeof(data), MAX_REQUEST_HEADER_SIZE, MAX_TABLE_SIZE);
+      int64_t len =
+        hpack_decode_header_block(indexing_table, headers.get(), data, sizeof(data), MAX_REQUEST_HEADER_SIZE, MAX_TABLE_SIZE);
       CHECK(len == sizeof(data));
       CHECK(indexing_table.maximum_size() == 0);
       CHECK(indexing_table.size() == 0);
@@ -514,12 +495,13 @@ TEST_CASE("HPACK high level APIs", "[hpack]")
 
     // make the maximum size back to 4096
     {
-      ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);
+      std::unique_ptr<HTTPHdr> headers(new HTTPHdr);
       headers->create(HTTP_TYPE_REQUEST);
 
       uint8_t data[] = {0x3f, 0xe1, 0x1f};
 
-      int64_t len = hpack_decode_header_block(indexing_table, headers, data, sizeof(data), MAX_REQUEST_HEADER_SIZE, MAX_TABLE_SIZE);
+      int64_t len =
+        hpack_decode_header_block(indexing_table, headers.get(), data, sizeof(data), MAX_REQUEST_HEADER_SIZE, MAX_TABLE_SIZE);
       CHECK(len == sizeof(data));
       CHECK(indexing_table.maximum_size() == 4096);
       CHECK(indexing_table.size() == 0);
@@ -527,12 +509,13 @@ TEST_CASE("HPACK high level APIs", "[hpack]")
 
     // error with exceeding the limit (MAX_TABLE_SIZE)
     {
-      ats_scoped_obj<HTTPHdr> headers(new HTTPHdr);
+      std::unique_ptr<HTTPHdr> headers(new HTTPHdr);
       headers->create(HTTP_TYPE_REQUEST);
 
       uint8_t data[] = {0x3f, 0xe2, 0x1f};
 
-      int64_t len = hpack_decode_header_block(indexing_table, headers, data, sizeof(data), MAX_REQUEST_HEADER_SIZE, MAX_TABLE_SIZE);
+      int64_t len =
+        hpack_decode_header_block(indexing_table, headers.get(), data, sizeof(data), MAX_REQUEST_HEADER_SIZE, MAX_TABLE_SIZE);
       CHECK(len == HPACK_ERROR_COMPRESSION_ERROR);
     }
   }

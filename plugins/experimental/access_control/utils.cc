@@ -51,7 +51,7 @@ hexEncode(const char *in, size_t inLen, char *out, size_t outLen)
   char *dst          = out;
   char *dstEnd       = out + outLen;
 
-  while (src < srcEnd && dst < dstEnd && 2 == sprintf(dst, "%02x", static_cast<unsigned char>(*src))) {
+  while (src < srcEnd && dst < dstEnd && 2 == snprintf(dst, outLen, "%02x", static_cast<unsigned char>(*src))) {
     dst += 2;
     src++;
   }
@@ -98,7 +98,7 @@ hexDecode(const char *in, size_t inLen, char *out, size_t outLen)
 
   while (src < (srcEnd - 1) && dst < dstEnd) {
     *dst++ = hex2uchar(*src) << 4 | hex2uchar(*(src + 1));
-    src += 2;
+    src    += 2;
   }
   return dst - out;
 }
@@ -124,7 +124,7 @@ urlEncode(const char *in, size_t inLen, char *out, size_t outLen)
       *dst++ = '+';
     } else {
       *dst++ = '%';
-      sprintf(dst, "%02x", static_cast<unsigned char>(*src));
+      snprintf(dst, out + outLen - dst, "%02x", static_cast<unsigned char>(*src));
       dst += 2;
     }
     src++;
@@ -151,7 +151,7 @@ urlDecode(const char *in, size_t inLen, char *out, size_t outLen)
       if (src[1] && src[2]) {
         int u  = hex2uchar(*(src + 1)) << 4 | hex2uchar(*(src + 2));
         *dst++ = static_cast<char>(u);
-        src += 2;
+        src    += 2;
       }
     } else if (*src == '+') {
       *dst++ = ' ';
@@ -296,7 +296,7 @@ cryptoMessageDigestEqual(const char *md1, size_t md1Len, const char *md2, size_t
 size_t
 cryptoBase64EncodedSize(size_t decodedSize)
 {
-  return ATS_BASE64_ENCODE_DSTLEN(decodedSize);
+  return ats_base64_encode_dstlen(decodedSize);
 }
 
 /**
@@ -308,7 +308,7 @@ cryptoBase64EncodedSize(size_t decodedSize)
 size_t
 cryptoBase64DecodeSize(const char *encoded, size_t encodedLen)
 {
-  return ATS_BASE64_DECODE_DSTLEN(encodedLen);
+  return ats_base64_decode_dstlen(encodedLen);
 }
 
 /**

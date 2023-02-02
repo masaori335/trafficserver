@@ -53,6 +53,8 @@ QUIC::init()
 int
 QUIC::ssl_client_new_session(SSL *ssl, SSL_SESSION *session)
 {
+#if HAVE_QUICHE_H
+#else
   QUICTLS *qtls            = static_cast<QUICTLS *>(SSL_get_ex_data(ssl, QUIC::ssl_quic_tls_index));
   const char *session_file = qtls->session_file();
   auto file                = BIO_new_file(session_file, "w");
@@ -64,24 +66,8 @@ QUIC::ssl_client_new_session(SSL *ssl, SSL_SESSION *session)
 
   PEM_write_bio_SSL_SESSION(file, session);
   BIO_free(file);
+#endif
   return 0;
-}
-
-void
-QUIC::ssl_client_keylog_cb(const SSL *ssl, const char *line)
-{
-  QUICTLS *qtls           = static_cast<QUICTLS *>(SSL_get_ex_data(ssl, QUIC::ssl_quic_tls_index));
-  const char *keylog_file = qtls->keylog_file();
-  std::ofstream file(keylog_file, std::ios_base::app);
-
-  if (!file.is_open()) {
-    QUICGlobalDebug("could not open keylog file: %s", keylog_file);
-    return;
-  }
-
-  file.write(line, strlen(line));
-  file.put('\n');
-  file.flush();
 }
 
 void

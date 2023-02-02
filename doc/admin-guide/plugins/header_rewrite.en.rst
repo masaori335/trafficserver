@@ -374,6 +374,14 @@ string. Therefore the condition is treated as if it were ::
 which is true when the connection is not TLS. The arguments ``H2``, ``IPV4``, and ``IPV6`` work the
 same way.
 
+As a special matcher, the inbound IP addresses can be matched against a list of IP ranges, e.g.
+::
+
+   cond %{INBOUND:REMOTE-ADDR} {192.168.201.0/24,10.0.0.0/8}
+
+Note that this will not work against the non-IP based conditions, such as the protocol families,
+and the configuration parser will error out. The format here is very specific, in particular no
+white spaces are allowed between the ranges.
 
 IP
 ~~
@@ -400,6 +408,13 @@ actually as a value to an operator, e.g. ::
      set-header X-Server-IP %{IP:SERVER}
      set-header X-Outbound-IP %{IP:OUTBOUND}
 
+As a special matcher, the `IP` can be matched against a list of IP ranges, e.g.
+::
+
+   cond %{IP:CLIENT} {192.168.201.0/24,10.0.0.0/8}
+
+The format here is very specific, in particular no white spaces are allowed between the
+ranges.
 
 INTERNAL-TRANSACTION
 ~~~~~~~~~~~~~~~~~~~~
@@ -650,6 +665,15 @@ rm-cookie
 
 Removes the cookie ``<name>``.
 
+set-body
+~~~~~~~~
+::
+
+  set-body <text>
+
+Sets the body to ``<text>``. Can also be used to delete a body with ``""``. This is only useful when overriding the origin status, i.e.
+intercepting/pre-empting a request so that you can override the body from the body-factory with your own.
+
 set-config
 ~~~~~~~~~~
 ::
@@ -659,7 +683,7 @@ set-config
 Allows you to override the value of a |TS| configuration variable for the
 current connection. The variables specified by ``<name>`` must be overridable.
 For details on available |TS| configuration variables, consult the
-documentation for :file:`records.config`. You can read more about overridable
+documentation for :file:`records.yaml`. You can read more about overridable
 configuration variables in the developer's documentation for
 :ref:`ts-overridable-config`.
 
@@ -694,6 +718,9 @@ When invoked, this operator enables the internal transaction debugging flag
 the appropriate logs even when the debug tag has not been enabled. For
 additional information on |TS| debugging statements, refer to
 :ref:`developer-debug-tags` in the developer's documentation.
+
++**Note**: This operator is deprecated, use the ``set-http-cntl`` operator instead,
++with the ``TXN_DEBUG`` control.
 
 set-destination
 ~~~~~~~~~~~~~~~
@@ -786,6 +813,9 @@ When invoked, and when ``<value>`` is any of ``1``, ``true``, or ``TRUE``, this
 operator causes |TS| to abort further request remapping. Any other value and
 the operator will effectively be a no-op.
 
+**Note**: This operator is deprecated, use the ``set-http-cntl`` operator instead,
+with the ``SKIP_REMAP`` control.
+
 set-cookie
 ~~~~~~~~~~
 ::
@@ -794,6 +824,28 @@ set-cookie
 
 Replaces the value of cookie ``<name>`` with ``<value>``, creating the cookie
 if necessary.
+
+set-http-cntl
+~~~~~~~~~~~~~
+;;
+
+  set-http-cntl <controller> <flag>
+
+This operator lets you turn off (or on) the logging for a particular transaction.
+The ``<flag>`` is any of ``0``, ``off``, and ``false``, or ``1``, ``on`` and ``true``.
+The available controllers are:
+
+================ ====================================================================
+Controller       Description
+================ ====================================================================
+LOGGING          Turns off logging for the transction (default: ``on``)
+INTERCEPT_RETRY  Allow intercepts to be retried (default: ``off``)
+RESP_CACHEABLE   Force the response to be cacheable (default: ``off``)
+REQ_CACHEABLE    Force the request to be cacheable (default: ``off``)
+SERVER_NO_STORE  Don't allow the response to be written to cache (default: ``off``)
+TXN_DEBUG        Enable transaction debugging (default: ``off``)
+SKIP_REMAP       Don't require a remap match for the transaction (default: ``off``)
+================ ====================================================================
 
 Operator Flags
 --------------

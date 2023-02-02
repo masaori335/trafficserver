@@ -30,7 +30,7 @@ ParentSelectionStrategy::markParentDown(ParentResult *result, unsigned int fail_
   pRecord *pRec, *parents = result->rec->selection_strategy->getParents(result);
   int new_fail_count = 0;
 
-  //  Make sure that we are being called back with with a
+  //  Make sure that we are being called back with a
   //   result structure with a parent
   ink_assert(result->result == PARENT_SPECIFIED);
   if (result->result != PARENT_SPECIFIED) {
@@ -67,8 +67,8 @@ ParentSelectionStrategy::markParentDown(ParentResult *result, unsigned int fail_
       new_fail_count = pRec->failCount = 1;
     }
 
-    Note("Parent %s marked as down %s:%d", (result->retry) ? "retry" : "initially", pRec->hostname, pRec->port);
-
+    Note("Parent %s marked as down %s:%d for request %s", (result->retry) ? "retry" : "initially", pRec->hostname, pRec->port,
+         result->url);
   } else {
     int old_count = 0;
     now           = time(nullptr);
@@ -88,8 +88,8 @@ ParentSelectionStrategy::markParentDown(ParentResult *result, unsigned int fail_
   }
 
   if (new_fail_count > 0 && new_fail_count >= static_cast<int>(fail_threshold)) {
-    Note("Failure threshold met failcount:%d >= threshold:%d, http parent proxy %s:%d marked down", new_fail_count, fail_threshold,
-         pRec->hostname, pRec->port);
+    Note("Failure threshold met failcount:%d >= threshold:%d, http parent proxy %s:%d marked down with request: %s", new_fail_count,
+         fail_threshold, pRec->hostname, pRec->port, result->url);
     pRec->available = false;
     Debug("parent_select", "Parent %s:%d marked unavailable, pRec->available=%d", pRec->hostname, pRec->port,
           pRec->available.load());
@@ -102,7 +102,7 @@ ParentSelectionStrategy::markParentUp(ParentResult *result)
   pRecord *pRec, *parents = result->rec->selection_strategy->getParents(result);
   int num_parents = result->rec->selection_strategy->numParents(result);
 
-  //  Make sure that we are being called back with with a
+  //  Make sure that we are being called back with a
   //   result structure with a parent that is being retried
   ink_release_assert(result->retry == true);
   ink_assert(result->result == PARENT_SPECIFIED);
@@ -123,9 +123,8 @@ ParentSelectionStrategy::markParentUp(ParentResult *result)
   pRec->failedAt = static_cast<time_t>(0);
   int old_count  = pRec->failCount.exchange(0, std::memory_order_relaxed);
   // a retry succeeded, just reset retriers
-  pRec->retriers.clear();
 
   if (old_count > 0) {
-    Note("http parent proxy %s:%d restored", pRec->hostname, pRec->port);
+    Note("http parent proxy %s:%d restored with request %s", pRec->hostname, pRec->port, result->url);
   }
 }

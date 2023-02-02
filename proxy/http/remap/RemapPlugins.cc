@@ -53,7 +53,10 @@ RemapPlugins::run_plugin(RemapPluginInst *plugin)
     _s->os_response_plugin_inst = plugin;
   }
 
+  HttpTransact::milestone_start_api_time(_s);
   plugin_retcode = plugin->doRemap(reinterpret_cast<TSHttpTxn>(_s->state_machine), &rri);
+  HttpTransact::milestone_update_api_time(_s);
+
   // TODO: Deal with negative return codes here
   if (plugin_retcode < 0) {
     plugin_retcode = TSREMAP_NO_REMAP;
@@ -72,7 +75,7 @@ RemapPlugins::run_plugin(RemapPluginInst *plugin)
 
   @return 1 when you are done doing crap (otherwise, you get re-called
     with schedule_imm and i hope you have something more to do), else
-    0 if you have something more do do (this isn't strict and we check
+    0 if you have something more to do (this isn't strict and we check
     there actually *is* something to do).
 
 */
@@ -84,7 +87,10 @@ RemapPlugins::run_single_remap()
   TSRemapStatus plugin_retcode = TSREMAP_NO_REMAP;
   bool zret                    = true; // default - last iteration.
   Debug("url_rewrite", "running single remap rule id %d for the %d%s time", map->map_id, _cur,
-        _cur == 1 ? "st" : _cur == 2 ? "nd" : _cur == 3 ? "rd" : "th");
+        _cur == 1 ? "st" :
+        _cur == 2 ? "nd" :
+        _cur == 3 ? "rd" :
+                    "th");
 
   if (0 == _cur) {
     Debug("url_rewrite", "setting the remapped url by copying from mapping rule");
@@ -115,51 +121,4 @@ RemapPlugins::run_single_remap()
     }
   }
   return zret;
-}
-
-int
-RemapPlugins::run_remap(int event, Event *e)
-{
-  Debug("url_rewrite", "Inside RemapPlugins::run_remap with cur = %d", _cur);
-
-  ink_assert(action.continuation);
-  ink_assert(action.continuation);
-
-  /* make sure we weren't cancelled */
-  if (action.cancelled) {
-    mutex.clear();
-    pluginAllocator.free(this); // ugly
-    return EVENT_DONE;
-  }
-
-  switch (event) {
-  case EVENT_IMMEDIATE:
-    Debug("url_rewrite", "handling immediate event inside RemapPlugins::run_remap");
-    /**
-     * If @c run_single_remap returns @c true then we are done with this processor and we call back
-     * into the SM; otherwise, we call this function again immediately (which really isn't
-     * immediate) thru the eventProcessor, thus forcing another run of run_single_remap() which will
-     * then operate on _request_url, etc performing additional remaps (mainly another plugin run)
-     *
-     **/
-    if (run_single_remap()) {
-      action.continuation->handleEvent(EVENT_REMAP_COMPLETE, nullptr);
-      mutex.clear();
-      action.mutex.clear();
-      mutex        = nullptr;
-      action.mutex = nullptr;
-      // THREAD_FREE(this, pluginAllocator, t);
-      pluginAllocator.free(this); // ugly
-      return EVENT_DONE;
-    } else {
-      e->schedule_imm(event);
-      return EVENT_CONT;
-    }
-
-    break;
-  default:
-    ink_assert(!"unknown event type");
-    break;
-  };
-  return EVENT_DONE;
 }

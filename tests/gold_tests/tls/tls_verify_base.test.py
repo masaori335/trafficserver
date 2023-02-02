@@ -21,7 +21,7 @@ Test tls server certificate verification options
 '''
 
 # Define default ATS
-ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True)
+ts = Test.MakeATSProcess("ts", enable_tls=True)
 server_foo = Test.MakeOriginServer("server_foo",
                                    ssl=True,
                                    options={"--key": "{0}/signed-foo.key".format(Test.RunDirectory),
@@ -76,7 +76,8 @@ ts.Disk.records_config.update({
     'proxy.config.ssl.client.CA.cert.filename': 'signer.pem',
     'proxy.config.url_remap.pristine_host_hdr': 1,
     'proxy.config.exec_thread.autoconfig.scale': 1.0,
-    'proxy.config.ssl.client.sni_policy': 'host'
+    'proxy.config.ssl.client.sni_policy': 'host',
+    'proxy.config.ssl.client.verify.server.policy': 'PERMISSIVE'
 })
 
 ts.Disk.sni_yaml.AddLines([

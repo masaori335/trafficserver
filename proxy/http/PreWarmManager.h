@@ -25,23 +25,25 @@
 
 #include "PreWarmAlgorithm.h"
 
-#include "P_Net.h"
+#include "I_EventSystem.h"
 #include "I_NetVConnection.h"
-#include "P_SSLSNI.h"
-#include "P_HostDB.h"
+#include "I_HostDB.h"
 #include "YamlSNIConfig.h"
 #include "NetTimeout.h"
 #include "Milestones.h"
 
+#include "records/I_RecHttp.h"
 #include "records/DynamicStats.h"
 
 #include <map>
+#include <unordered_map>
 #include <memory>
 #include <queue>
 #include <string_view>
 
 class PreWarmSM;
 class PreWarmManager;
+struct SNIConfigParams;
 
 extern ClassAllocator<PreWarmSM> preWarmSMAllocator;
 extern PreWarmManager prewarmManager;
@@ -192,8 +194,8 @@ public:
   bool is_inactive_timeout_expired(ink_hrtime now);
 
   // HostDB inline completion functions
-  void process_hostdb_info(HostDBInfo *r);
-  void process_srv_info(HostDBInfo *r);
+  void process_hostdb_info(HostDBRecord *r);
+  void process_srv_info(HostDBRecord *r);
 
 private:
   enum class Milestone {

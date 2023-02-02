@@ -63,12 +63,12 @@
  */
 
 #pragma once
-
 #include <memory>
 #include <string>
 #include <iosfwd>
 #include <sstream>
 #include <deque>
+#include <system_error>
 #include "NumericType.h"
 #include "IntrusivePtr.h"
 
@@ -138,6 +138,9 @@ public:
   Errata(Message const &msg ///< Message to push
   );
 
+  /// Constructor with @a id and @a std::error_code
+  Errata(std::error_code const &ec ///< Standard error code.
+  );
   /// Move constructor.
   Errata(self &&that);
   /// Move constructor from @c Message.
@@ -191,7 +194,7 @@ public:
       to strings and concatenated to form the message text.
       @return A reference to this object.
   */
-  template <typename... Args> self &push(Id id, Code code, Args const &... args);
+  template <typename... Args> self &push(Id id, Code code, Args const &...args);
 
   /** Push a nested status.
       @a err becomes the top item.
@@ -400,7 +403,7 @@ struct Errata::Message {
   template <typename... Args>
   Message(Id id,     ///< Message Id.
           Code code, ///< Message Code.
-          Args const &... text);
+          Args const &...text);
 
   /// Reset to the message to default state.
   self &clear();
@@ -467,7 +470,7 @@ struct Errata::Message {
 
   static SuccessTest const DEFAULT_SUCCESS_TEST;
 
-  template <typename... Args> static std::string stringify(Args const &... items);
+  template <typename... Args> static std::string stringify(Args const &...items);
 
   Id m_id     = 0;            ///< Message ID.
   Code m_code = Default_Code; ///< Message code.
@@ -570,6 +573,11 @@ struct RvBase {
   RvBase(Errata const &s ///< Status to copy
   );
 
+  /** Construct with specific status.
+   */
+  RvBase(Errata &&s ///< Status to move
+  );
+
   //! Test the return value for success.
   bool isOK() const;
 
@@ -624,6 +632,7 @@ template <typename R> struct Rv : public RvBase {
      Errata const &s  ///< A pre-existing status object
   );
 
+  Rv(Errata &&errata);
   /** User conversion to the result type.
 
       This makes it easy to use the function normally or to pass the
@@ -731,7 +740,7 @@ inline Errata::Message::Message(std::string const &text) : m_text(text) {}
 inline Errata::Message::Message(Id id, std::string const &text) : m_id(id), m_text(text) {}
 inline Errata::Message::Message(Id id, Code code, std::string const &text) : m_id(id), m_code(code), m_text(text) {}
 template <typename... Args>
-Errata::Message::Message(Id id, Code code, Args const &... text) : m_id(id), m_code(code), m_text(stringify(text...))
+Errata::Message::Message(Id id, Code code, Args const &...text) : m_id(id), m_code(code), m_text(stringify(text...))
 {
 }
 
@@ -795,7 +804,7 @@ Errata::Message::set(Errata const &err)
 
 template <typename... Args>
 std::string
-Errata::Message::stringify(Args const &... items)
+Errata::Message::stringify(Args const &...items)
 {
   std::ostringstream s;
   (void)(int[]){0, ((s << items), 0)...};
@@ -814,6 +823,12 @@ inline Errata::Errata(Message const &msg)
 inline Errata::Errata(Message &&msg)
 {
   this->push(std::move(msg));
+}
+inline Errata::Errata(std::error_code const &ec)
+{
+  auto cond = ec.category().default_error_condition(ec.value());
+  this->push(cond.value(), // we use the classification from the error_condition.
+             ec.value(), ec.message());
 }
 
 inline Errata::operator bool() const
@@ -856,9 +871,19 @@ Errata::push(Id id, Code code, std::string const &text)
 
 template <typename... Args>
 auto
-Errata::push(Id id, Code code, Args const &... args) -> self &
+Errata::push(Id id, Code code, Args const &...args) -> self &
 {
   this->push(Message(id, code, args...));
+  return *this;
+}
+
+inline Errata &
+Errata::push(Errata const &err)
+{
+  for (auto const &e : err) {
+    this->push(e.m_id, e.m_code, e.m_text);
+    // e.m_errata??
+  }
   return *this;
 }
 
@@ -939,6 +964,7 @@ Errata::const_iterator::operator--()
 
 inline RvBase::RvBase() {}
 inline RvBase::RvBase(Errata const &errata) : _errata(errata) {}
+inline RvBase::RvBase(Errata &&errata) : _errata(std::move(errata)) {}
 inline bool
 RvBase::isOK() const
 {
@@ -958,6 +984,7 @@ RvBase::doNotLog()
 template <typename T> Rv<T>::Rv() : _result() {}
 template <typename T> Rv<T>::Rv(Result const &r) : _result(r) {}
 template <typename T> Rv<T>::Rv(Result const &r, Errata const &errata) : super(errata), _result(r) {}
+template <typename T> Rv<T>::Rv(Errata &&errata) : super(std::move(errata)) {}
 template <typename T> Rv<T>::operator Result const &() const
 {
   return _result;

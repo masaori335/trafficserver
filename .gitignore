@@ -18,9 +18,15 @@ Makefile.in
 
 .dirstamp
 
+# IDE generated files.
 .project
 .cproject
 .idea
+
+# clangd language server files.
+/compile_commands.json
+/.cache
+*.plist
 
 .diags.log.meta
 
@@ -38,13 +44,15 @@ build/ltsugar.m4
 build/ltversion.m4
 build/lt~obsolete.m4
 
+BUILD
+
 Makefile
 Makefile-pl
 config.cache
 config.status
 config.nice
 
-configs/records.config.default
+configs/records.yaml.default
 configs/storage.config.default
 
 doc/_build
@@ -59,6 +67,7 @@ src/traffic_cache_tool/traffic_cache_tool
 src/traffic_cop/traffic_cop
 src/traffic_crashlog/traffic_crashlog
 src/traffic_ctl/traffic_ctl
+src/traffic_ctl_jsonrpc/traffic_ctl
 src/traffic_layout/traffic_layout
 src/traffic_logcat/traffic_logcat
 src/traffic_logstats/traffic_logstats
@@ -78,6 +87,7 @@ src/tscore/ink_autoconf.h.in
 include/tscore/ink_config.h
 include/ts/apidefs.h
 src/tscore/CompileParseRules
+src/tscore/CompileParseRules.dSYM
 src/tscore/ParseRulesCType
 src/tscore/ParseRulesCTypeToLower
 src/tscore/ParseRulesCTypeToUpper
@@ -90,8 +100,8 @@ src/tscore/test_Regex
 src/tscore/test_X509HostnameValidator
 src/tscore/test_tscore
 src/tscpp/util/test_tscpputil
-lib/records/test_librecords
-lib/records/test_librecords_on_eventsystem
+src/records/test_librecords
+src/records/test_librecords_on_eventsystem
 lib/perl/lib/Apache/TS.pm
 
 iocore/net/test_certlookup
@@ -146,6 +156,7 @@ plugins/esi/vars_test
 
 plugins/experimental/uri_signing/test_uri_signing
 
+mgmt/rpc/overridable_txn_vars.cc
 mgmt/api/traffic_api_cli_remote
 mgmt/tools/traffic_mcast_snoop
 mgmt/tools/traffic_net_config
@@ -190,10 +201,12 @@ CTAGS
 tools/http_load/http_load
 tools/jtest/jtest
 tools/trafficserver.pc
+tools/escape_mapper/escape_mapper
 
 BUILDS
 DEBUG
 RELEASE
+cmake-build-*
 
 # lcov generated files.
 *.gcda
@@ -203,6 +216,8 @@ RELEASE
 tests/env-test/
 tests/proxy-verifier
 tests/Pipfile.lock
+tests/gold_tests/bigobj/check_ramp
+tests/gold_tests/bigobj/push_request
 tests/gold_tests/chunked_encoding/smuggle-client
 tests/gold_tests/tls/ssl-post
 

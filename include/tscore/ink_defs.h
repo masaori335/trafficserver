@@ -24,19 +24,15 @@
 #pragma once
 
 #include "tscore/ink_config.h"
+
 #include <stddef.h> // NOLINT(modernize-deprecated-headers)
-#include <sys/mman.h>
 
 #ifdef HAVE_STDINT_H
 #include <stdint.h> // NOLINT(modernize-deprecated-headers)
-#else
-// TODO: Add "standard" int types?
 #endif
 
 #ifdef HAVE_INTTYPES_H
 #include <inttypes.h> // NOLINT(modernize-deprecated-headers)
-#else
-// TODO: add PRI*64 stuff?
 #endif
 
 #ifndef INT64_MIN
@@ -61,11 +57,6 @@
 #endif
 #endif
 
-#if defined(darwin)
-#define RENTRENT_GETHOSTBYNAME
-#define RENTRENT_GETHOSTBYADDR
-#endif
-
 #define NUL '\0'
 
 // Determine the element count for an array.
@@ -80,14 +71,14 @@ countof(const T (&)[N])
 #define countof(x) ((unsigned)(sizeof(x) / sizeof((x)[0])))
 #endif
 
-#define SOCKOPT_ON ((char *)&on)
+#define SOCKOPT_ON  ((char *)&on)
 #define SOCKOPT_OFF ((char *)&off)
 
 #ifndef ABS
 #define ABS(x) (((x) < 0) ? (-(x)) : (x))
 #endif
 
-#define ATS_UNUSED __attribute__((unused))
+#define ATS_UNUSED         __attribute__((unused))
 #define ATS_WARN_IF_UNUSED __attribute__((warn_unused_result))
 #define ATS_UNUSED_RETURN(x) \
   if (x) {                   \
@@ -100,26 +91,15 @@ countof(const T (&)[N])
 #define unlikely(x) __builtin_expect(!!(x), 0)
 #endif
 
-#if TS_USE_HWLOC
-#include <hwloc.h>
-#endif
-
-#if defined(MAP_NORESERVE)
-#define MAP_SHARED_MAP_NORESERVE (MAP_SHARED | MAP_NORESERVE)
-#else
-#define MAP_SHARED_MAP_NORESERVE (MAP_SHARED)
-#endif
+#define MAX_ALPN_STRING 30
 
 /* Variables
  */
-extern int debug_level;
 extern int off;
 extern int on;
 
 /* Functions
  */
-int ink_sys_name_release(char *name, int namelen, char *release, int releaselen);
-int ink_number_of_processors();
 int ink_login_name_max();
 
 #ifdef __cplusplus
@@ -135,9 +115,4 @@ ROUNDUP(ArithmeticV value, ArithmeticM m)
   }
   return value;
 }
-#endif
-
-#if TS_USE_HWLOC
-// Get the hardware topology
-hwloc_topology_t ink_get_topology();
 #endif

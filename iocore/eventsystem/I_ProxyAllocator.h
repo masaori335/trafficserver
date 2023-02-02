@@ -50,7 +50,7 @@ struct ProxyAllocator {
 
 template <class CAlloc, typename... Args>
 typename CAlloc::Value_type *
-thread_alloc(CAlloc &a, ProxyAllocator &l, Args &&... args)
+thread_alloc(CAlloc &a, ProxyAllocator &l, Args &&...args)
 {
   if (!cmd_disable_pfreelist && l.freelist) {
     void *v    = l.freelist;
@@ -62,31 +62,31 @@ thread_alloc(CAlloc &a, ProxyAllocator &l, Args &&... args)
   return a.alloc(std::forward<Args>(args)...);
 }
 
-class Allocator;
-
 void *thread_alloc(Allocator &a, ProxyAllocator &l);
+
 void thread_freeup(Allocator &a, ProxyAllocator &l);
 
 #if 1
 
 // Potentially empty variable arguments -- non-standard GCC way
 //
-#define THREAD_ALLOC(_a, _t, ...) thread_alloc(::_a, _t->_a, ##__VA_ARGS__)
+#define THREAD_ALLOC(_a, _t, ...)      thread_alloc(::_a, _t->_a, ##__VA_ARGS__)
 #define THREAD_ALLOC_INIT(_a, _t, ...) thread_alloc(::_a, _t->_a, ##__VA_ARGS__)
 
 #else
 
 // Potentially empty variable arguments -- Standard C++20 way
 //
-#define THREAD_ALLOC(_a, _t, ...) thread_alloc(::_a, _t->_a __VA_OPT__(, ) __VA_ARGS__)
+#define THREAD_ALLOC(_a, _t, ...)      thread_alloc(::_a, _t->_a __VA_OPT__(, ) __VA_ARGS__)
 #define THREAD_ALLOC_INIT(_a, _t, ...) thread_alloc(::_a, _t->_a __VA_OPT__(, ) __VA_ARGS__)
 
 #endif
 
-#define THREAD_FREE(_p, _a, _t)                                                                    \
+#define THREAD_FREE(_p, _a, _tin)                                                                  \
   do {                                                                                             \
     ::_a.destroy_if_enabled(_p);                                                                   \
     if (!cmd_disable_pfreelist) {                                                                  \
+      Thread *_t      = (_tin);                                                                    \
       *(char **)_p    = (char *)_t->_a.freelist;                                                   \
       _t->_a.freelist = _p;                                                                        \
       _t->_a.allocated++;                                                                          \

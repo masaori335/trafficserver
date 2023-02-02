@@ -73,6 +73,11 @@ HttpBodyFactory::fabricate_with_old_api(const char *type, HttpTransact::State *c
   bool found_requested_template = false;
   bool plain_flag               = false;
 
+  *resulting_buffer_length = 0;
+
+  ink_strlcpy(content_language_out_buf, "en", content_language_buf_size);
+  ink_strlcpy(content_type_out_buf, "text/html", content_type_buf_size);
+
   ///////////////////////////////////////////////
   // if suppressing this response, return NULL //
   ///////////////////////////////////////////////
@@ -84,11 +89,6 @@ HttpBodyFactory::fabricate_with_old_api(const char *type, HttpTransact::State *c
   }
 
   lock();
-
-  *resulting_buffer_length = 0;
-
-  ink_strlcpy(content_language_out_buf, "en", content_language_buf_size);
-  ink_strlcpy(content_type_out_buf, "text/html", content_type_buf_size);
 
   ///////////////////////////////////////////////////////////////////
   // if logging turned on, buffer up the URL string for simplicity //
@@ -272,11 +272,6 @@ HttpBodyFactory::reconfigure()
   all_found      = all_found && (rec_err == REC_ERR_OKAY);
   Debug("body_factory", "enable_logging = %d (found = %" PRId64 ")", enable_logging, e);
 
-  rec_err                   = RecGetRecordInt("proxy.config.body_factory.response_suppression_mode", &e);
-  response_suppression_mode = ((rec_err == REC_ERR_OKAY) ? e : 0);
-  all_found                 = all_found && (rec_err == REC_ERR_OKAY);
-  Debug("body_factory", "response_suppression_mode = %d (found = %" PRId64 ")", response_suppression_mode, e);
-
   ats_scoped_str directory_of_template_sets;
 
   rec_err   = RecGetRecordString_Xmalloc("proxy.config.body_factory.template_sets_dir", &s);
@@ -285,7 +280,11 @@ HttpBodyFactory::reconfigure()
     directory_of_template_sets = Layout::get()->relative(s);
     if (access(directory_of_template_sets, R_OK) < 0) {
       Warning("Unable to access() directory '%s': %d, %s", (const char *)directory_of_template_sets, errno, strerror(errno));
-      Warning(" Please set 'proxy.config.body_factory.template_sets_dir' ");
+      if (TSSystemState::is_initializing()) {
+        Emergency(" Please set 'proxy.config.body_factory.template_sets_dir' ");
+      } else {
+        Warning(" Please set 'proxy.config.body_factory.template_sets_dir' ");
+      }
     }
   }
 
@@ -335,9 +334,9 @@ HttpBodyFactory::HttpBodyFactory()
   // set up management configuration-change callbacks //
   //////////////////////////////////////////////////////
 
-  static const char *config_record_names[] = {
-    "proxy.config.body_factory.enable_customizations", "proxy.config.body_factory.enable_logging",
-    "proxy.config.body_factory.template_sets_dir", "proxy.config.body_factory.response_suppression_mode", nullptr};
+  static const char *config_record_names[] = {"proxy.config.body_factory.enable_customizations",
+                                              "proxy.config.body_factory.enable_logging",
+                                              "proxy.config.body_factory.template_sets_dir", nullptr};
 
   no_registrations_failed = true;
   for (i = 0; config_record_names[i] != nullptr; i++) {
@@ -411,11 +410,11 @@ HttpBodyFactory::fabricate(StrList *acpt_language_list, StrList *acpt_charset_li
   HttpBodyTemplate *t   = nullptr;
   HttpBodySet *body_set = nullptr;
   if (pType != nullptr && 0 != *pType && 0 != strncmp(pType, "NONE", 4)) {
-    sprintf(template_base, "%s_%s", pType, type);
+    snprintf(template_base, sizeof(template_base), "%s_%s", pType, type);
     t = find_template(set, template_base, &body_set);
     // Check for default alternate.
     if (t == nullptr) {
-      sprintf(template_base, "%s_default", pType);
+      snprintf(template_base, sizeof(template_base), "%s_default", pType);
       t = find_template(set, template_base, &body_set);
     }
   }
@@ -677,11 +676,11 @@ HttpBodyFactory::is_response_suppressed(HttpTransact::State *context)
      return true;
      } else
    */
-  if (response_suppression_mode == 0) {
+  if (context->txn_conf->response_suppression_mode == 0) {
     return false;
-  } else if (response_suppression_mode == 1) {
+  } else if (context->txn_conf->response_suppression_mode == 1) {
     return true;
-  } else if (response_suppression_mode == 2) {
+  } else if (context->txn_conf->response_suppression_mode == 2) {
     return context->request_data.internal_txn;
   } else {
     return false;

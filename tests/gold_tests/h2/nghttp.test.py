@@ -40,7 +40,7 @@ post_body_file.close()
 # ----
 # Setup ATS
 # ----
-ts = Test.MakeATSProcess("ts", select_ports=True,
+ts = Test.MakeATSProcess("ts",
                          enable_tls=True, enable_cache=False)
 
 # add ssl materials like key, certificates for the server
@@ -90,4 +90,4 @@ tr.Processes.Default.Streams.stdout = "gold/nghttp_1_stdout.gold"
 tr.StillRunningAfter = httpbin
 tr.StillRunningAfter = ts
 
-ts.Streams.stderr = "gold/nghttp_ts_stderr.gold"
+ts.Disk.traffic_out.Content = "gold/nghttp_ts_stderr.gold"

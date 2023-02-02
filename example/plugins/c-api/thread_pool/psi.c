@@ -47,13 +47,13 @@
 #define NB_THREADS 3
 
 #define PSI_FILENAME_MAX_SIZE 512
-#define PSI_PATH_MAX_SIZE 256
-#define PSI_PATH "include"
+#define PSI_PATH_MAX_SIZE     256
+#define PSI_PATH              "include"
 
-#define PSI_START_TAG "<!--include="
+#define PSI_START_TAG     "<!--include="
 #define PSI_START_TAG_LEN 12
 
-#define PSI_END_TAG "-->"
+#define PSI_END_TAG     "-->"
 #define PSI_END_TAG_LEN 3
 
 #define MIME_FIELD_XPSI "X-Psi"
@@ -978,7 +978,7 @@ TSPluginInit(int argc ATS_UNUSED, const char *argv[] ATS_UNUSED)
 
   for (i = 0; i < NB_THREADS; i++) {
     char *thread_name = (char *)TSmalloc(64);
-    sprintf(thread_name, "Thread[%d]", i);
+    snprintf(thread_name, 64, "Thread[%d]", i);
     if (!TSThreadCreate(thread_loop, thread_name)) {
       TSError("[%s] Failed creating threads", PLUGIN_NAME);
       return;

@@ -20,6 +20,7 @@
 #include "strategy.h"
 #include "consistenthash.h"
 #include "util.h"
+#include "time.h"
 
 #include <cinttypes>
 #include <string>
@@ -44,6 +45,19 @@
 
 #include "consistenthash_config.h"
 
+namespace
+{
+std::mutex strategies_cache_mutex;
+std::map<std::string, strategies_map> strategies_cache;
+} // namespace
+
+void
+clearStrategiesCache(void)
+{
+  std::lock_guard<std::mutex> guard(strategies_cache_mutex);
+  strategies_cache.clear();
+}
+
 void loadConfigFile(const std::string &fileName, std::stringstream &doc, std::unordered_set<std::string> &include_once);
 
 // createStrategy creates and initializes a Consistent Hash strategy from the given YAML node.
@@ -52,14 +66,14 @@ TSNextHopSelectionStrategy *
 createStrategy(const std::string &name, const YAML::Node &node)
 {
   TSDebug(PLUGIN_NAME, "createStrategy %s calling.", name.c_str());
-  PLNextHopConsistentHash *st = new PLNextHopConsistentHash(name);
-  TSDebug(PLUGIN_NAME, "createStrategy %s newed %p.", name.c_str(), (void *)st);
-  if (!st->Init(node)) {
-    TSDebug(PLUGIN_NAME, "createStrategy %s init failed, returning nullptr.", name.c_str());
+  try {
+    PLNextHopConsistentHash *st = new PLNextHopConsistentHash(name, node);
+    TSDebug(PLUGIN_NAME, "createStrategy %s succeeded, returning object", name.c_str());
+    return st;
+  } catch (std::exception &ex) {
+    TSError("[%s] creating strategies '%s' threw '%s', returning nullptr", PLUGIN_NAME, name.c_str(), ex.what());
     return nullptr;
   }
-  TSDebug(PLUGIN_NAME, "createStrategy %s init succeeded, returning obj.", name.c_str());
-  return st;
 }
 
 // Caller takes ownership of the returned pointers in the map, and must call delete on them.
@@ -69,7 +83,15 @@ createStrategiesFromFile(const char *file)
 {
   TSDebug(PLUGIN_NAME, "createStrategiesFromFile plugin createStrategiesFromFile file '%s'", file);
 
-  //  return strategies_map(); // debug
+  {
+    std::lock_guard<std::mutex> guard(strategies_cache_mutex);
+    auto it = strategies_cache.find(file);
+    if (it != strategies_cache.end()) {
+      TSDebug(PLUGIN_NAME, "createStrategiesFromFile file '%s' in cache from previous remap, using cache", file);
+      return it->second;
+    }
+  }
+  TSDebug(PLUGIN_NAME, "createStrategiesFromFile file '%s' not in cache, loading file", file);
 
   YAML::Node config;
   YAML::Node strategies;
@@ -133,6 +155,12 @@ createStrategiesFromFile(const char *file)
       TSDebug(PLUGIN_NAME, "createStrategiesFromFile filename %s got strategy %s emplaced.", basename, name.c_str());
     }
     TSDebug(PLUGIN_NAME, "createStrategiesFromFile filename %s returning strategies created.", basename);
+
+    {
+      std::lock_guard<std::mutex> guard(strategies_cache_mutex);
+      strategies_cache[file] = strategiesMap;
+    }
+
     return strategiesMap;
   } catch (std::exception &ex) {
     TSError("[%s] creating strategies from file %s threw '%s'.", PLUGIN_NAME, file, ex.what());
@@ -143,7 +171,7 @@ createStrategiesFromFile(const char *file)
 
 /*
  * loads the contents of a file into a std::stringstream document.  If the file has a '#include file'
- * directive, that 'file' is read into the document beginning at the the point where the
+ * directive, that 'file' is read into the document beginning at the point where the
  * '#include' was found. This allows the 'strategy' and 'hosts' yaml files to be separate.  The
  * 'strategy' yaml file would then normally have the '#include hosts.yml' in it's beginning.
  */
@@ -201,6 +229,7 @@ loadConfigFile(const std::string &fileName, std::stringstream &doc, std::unorder
         }
       }
     }
+    closedir(dir);
   } else {
     std::ifstream file(fileName);
     if (file.is_open()) {

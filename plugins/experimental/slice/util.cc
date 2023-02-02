@@ -17,6 +17,8 @@
  */
 
 #include "util.h"
+#include "prefetch.h"
+#include "HttpHeader.h"
 
 #include "Config.h"
 #include "Data.h"
@@ -77,12 +79,23 @@ request_block(TSCont contp, Data *const data)
   // reuse the incoming client header, just change the range
   HttpHeader header(data->m_req_hdrmgr.m_buffer, data->m_req_hdrmgr.m_lochdr);
 
-  // add/set sub range key and add slicer tag
-  bool const rangestat = header.setKeyVal(TS_MIME_FIELD_RANGE, TS_MIME_LEN_RANGE, rangestr, rangelen);
+  // if configured, remove range header from head requests
+  if (data->m_config->m_head_req && data->m_config->m_head_strip_range) {
+    header.removeKey(TS_MIME_FIELD_RANGE, TS_MIME_LEN_RANGE);
+  } else {
+    // add/set sub range key and add slicer tag
+    bool const rangestat = header.setKeyVal(TS_MIME_FIELD_RANGE, TS_MIME_LEN_RANGE, rangestr, rangelen);
 
-  if (!rangestat) {
-    ERROR_LOG("Error trying to set range request header %s", rangestr);
-    return false;
+    if (!rangestat) {
+      ERROR_LOG("Error trying to set range request header %s", rangestr);
+      return false;
+    }
+  }
+
+  header.removeKey(SLICE_CRR_HEADER.data(), SLICE_CRR_HEADER.size());
+  if (data->m_config->m_prefetchcount > 0 && data->m_req_range.m_beg >= 0 &&
+      data->m_blocknum == data->m_req_range.firstBlockFor(data->m_config->m_blockbytes)) {
+    header.setKeyVal(SLICE_CRR_HEADER.data(), SLICE_CRR_HEADER.size(), SLICE_CRR_VAL.data(), SLICE_CRR_VAL.size());
   }
 
   // create virtual connection back into ATS
@@ -110,6 +123,22 @@ request_block(TSCont contp, Data *const data)
     DEBUG_LOG("Headers\n%s", headerstr.c_str());
   }
 
+  // if prefetch config set, schedule next block requests in background
+  if (data->m_prefetchable && data->m_config->m_prefetchcount > 0) {
+    int nextblocknum = data->m_blocknum + 1;
+    if (data->m_blocknum > data->m_req_range.firstBlockFor(data->m_config->m_blockbytes) + 1) {
+      nextblocknum = data->m_blocknum + data->m_config->m_prefetchcount;
+    }
+    for (int i = nextblocknum; i <= data->m_blocknum + data->m_config->m_prefetchcount; i++) {
+      if (data->m_req_range.blockIsInside(data->m_config->m_blockbytes, i)) {
+        if (BgBlockFetch::schedule(data, i)) {
+          DEBUG_LOG("Background fetch requested");
+        } else {
+          DEBUG_LOG("Background fetch not requested");
+        }
+      }
+    }
+  }
   // get ready for data back from the server
   data->m_upstream.setupVioRead(contp, INT64_MAX);
 
@@ -125,14 +154,16 @@ request_block(TSCont contp, Data *const data)
   case BlockState::Pending:
     data->m_blockstate = BlockState::Active;
     break;
-  case BlockState::PendingInt:
-    data->m_blockstate = BlockState::ActiveInt;
-    header.removeKey(X_CRR_IMS_HEADER.data(), X_CRR_IMS_HEADER.size());
-    break;
-  case BlockState::PendingRef:
-    data->m_blockstate = BlockState::ActiveRef;
-    header.removeKey(X_CRR_IMS_HEADER.data(), X_CRR_IMS_HEADER.size());
-    break;
+  case BlockState::PendingInt: {
+    data->m_blockstate       = BlockState::ActiveInt;
+    Config const *const conf = data->m_config;
+    header.removeKey(conf->m_crr_ims_header.c_str(), conf->m_crr_ims_header.size());
+  } break;
+  case BlockState::PendingRef: {
+    data->m_blockstate       = BlockState::ActiveRef;
+    Config const *const conf = data->m_config;
+    header.removeKey(conf->m_crr_ims_header.c_str(), conf->m_crr_ims_header.size());
+  } break;
   default:
     ERROR_LOG("Invalid blockstate");
     return false;

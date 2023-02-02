@@ -48,11 +48,11 @@ UrlRewrite *rewrite_table                             = nullptr;
 thread_local PluginThreadContext *pluginThreadContext = nullptr;
 
 // Tokens for the Callback function
-#define FILE_CHANGED 0
-#define REVERSE_CHANGED 1
-#define TSNAME_CHANGED 2
-#define TRANS_CHANGED 4
-#define URL_REMAP_MODE_CHANGED 8
+#define FILE_CHANGED                  0
+#define REVERSE_CHANGED               1
+#define TSNAME_CHANGED                2
+#define TRANS_CHANGED                 4
+#define URL_REMAP_MODE_CHANGED        8
 #define HTTP_DEFAULT_REDIRECT_CHANGED 9
 
 //
@@ -67,7 +67,7 @@ init_reverse_proxy()
 
   Note("%s loading ...", ts::filename::REMAP);
   if (!rewrite_table->load()) {
-    Warning("%s failed to load", ts::filename::REMAP);
+    Emergency("%s failed to load", ts::filename::REMAP);
   } else {
     Note("%s finished loading", ts::filename::REMAP);
   }

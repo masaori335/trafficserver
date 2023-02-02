@@ -1,12 +1,12 @@
 Integrating ATS with ModSecurity V3 using LuaJIT and FFI
 ====
 
-Opensource WAF for [Apache Traffic Server](http://trafficserver.apache.org/).
+Open source WAF for [Apache Traffic Server](http://trafficserver.apache.org/).
 
-Requirement
+Tested with the following
 ====
- - ModSecurity v3.0.4
- - ATS 8.0.8
+ - ModSecurity v3.0.6
+ - ATS 9.1.1
 
 How to Use
 ====
@@ -30,7 +30,7 @@ Contents/Rules inside example.conf
 
 Working with CRS
 ====
- - Go to [here](https://github.com/SpiderLabs/owasp-modsecurity-crs) and get release v3.2.0
+ - Go [here](https://github.com/coreruleset/coreruleset) and download release v3.3.2
  - Uncompress the contents and copy `crs-setup.conf.example` to `/usr/local/var/modsecurity` and rename it to `crs-setup.conf`
  - Copy all files in `rules` directory to `/usr/local/var/modsecurity/rules`
  - Copy `owasp.conf` in this repository to `/usr/local/var/modsecurity`
@@ -63,7 +63,7 @@ SecDebugLogLevel 9
 TODOs/Limitations
 ====
  - No support for `REQUEST_BODY` examination (We need to buffer the request body for examination first before we send to origin.)
- - No support for `RESPONSE BODY` examination (We need to uncompress the contents first if they are gzipped. And that will be expensive operation for proxy)
+ - No support for `RESPONSE_BODY` examination (We need to uncompress the contents first if they are gzipped. And that will be expensive operation for proxy). See https://github.com/SpiderLabs/ModSecurity/issues/2494 for reference
  - How does this work with the lua engine inside ModSecurity V3?
  - Unit Test using busted framework
  - More functional testing needed

@@ -29,7 +29,7 @@ traffic_logcat_traffic_logcat_CPPFLAGS = \
 	-I$(abs_top_srcdir)/proxy/shared \
 	-I$(abs_top_srcdir)/mgmt \
 	-I$(abs_top_srcdir)/mgmt/utils \
-	$(TS_INCLUDES)
+	@SWOC_INCLUDES@ $(TS_INCLUDES)
 
 traffic_logcat_traffic_logcat_LDFLAGS = \
 	$(AM_LDFLAGS) \
@@ -44,12 +44,12 @@ traffic_logcat_traffic_logcat_LDADD = \
 	$(top_builddir)/proxy/shared/libdiagsconfig.a \
 	$(top_builddir)/proxy/shared/libUglyLogStubs.a \
 	$(top_builddir)/mgmt/libmgmt_p.la \
-	$(top_builddir)/lib/records/librecords_p.a \
+	$(top_builddir)/src/records/librecords_p.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/src/tscore/libtscore.la \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la
 
 traffic_logcat_traffic_logcat_LDADD += \
-	@HWLOC_LIBS@ \
+	@SWOC_LIBS@ @HWLOC_LIBS@ \
 	@YAMLCPP_LIBS@ \
 	@LIBPROFILER@ -lm

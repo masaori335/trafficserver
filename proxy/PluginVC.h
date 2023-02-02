@@ -36,7 +36,8 @@
 #pragma once
 
 #include "Plugin.h"
-#include "P_Net.h"
+#include "I_Net.h"
+#include "I_NetVConnection.h"
 #include "tscore/ink_atomic.h"
 
 class PluginVCCore;
@@ -149,8 +150,8 @@ public:
   int main_handler(int event, void *data);
 
 private:
-  void process_read_side(bool);
-  void process_write_side(bool);
+  void process_read_side();
+  void process_write_side();
   void process_close();
   void process_timeout(Event **e, int event_to_send);
 
@@ -252,12 +253,6 @@ private:
 
   Continuation *connect_to = nullptr;
   bool connected           = false;
-
-  MIOBuffer *p_to_a_buffer      = nullptr;
-  IOBufferReader *p_to_a_reader = nullptr;
-
-  MIOBuffer *a_to_p_buffer      = nullptr;
-  IOBufferReader *a_to_p_reader = nullptr;
 
   IpEndpoint passive_addr_struct;
   IpEndpoint active_addr_struct;

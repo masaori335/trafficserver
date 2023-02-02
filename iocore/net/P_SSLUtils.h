@@ -34,8 +34,9 @@
 #include "records/I_RecCore.h"
 #include "P_SSLCertLookup.h"
 
-#include <set>
 #include <map>
+#include <set>
+#include <memory>
 
 struct SSLConfigParams;
 class SSLNetVConnection;
@@ -50,6 +51,8 @@ typedef uint16_t ssl_curve_id;
 
 // Return the SSL Curve ID associated to the specified SSL connection
 ssl_curve_id SSLGetCurveNID(SSL *ssl);
+
+SSL_SESSION *SSLSessionDup(SSL_SESSION *sess);
 
 enum class SSLCertContextType;
 
@@ -78,8 +81,7 @@ public:
   virtual SSL_CTX *default_server_ssl_ctx();
 
   virtual std::vector<SSLLoadingContext> init_server_ssl_ctx(CertLoadData const &data,
-                                                             const SSLMultiCertConfigParams *sslMultCertSettings,
-                                                             std::set<std::string> &names);
+                                                             const SSLMultiCertConfigParams *sslMultCertSettings);
 
   static bool load_certs(SSL_CTX *ctx, const std::vector<std::string> &cert_names_list,
                          const std::vector<std::string> &key_names_list, CertLoadData const &data, const SSLConfigParams *params,
@@ -122,6 +124,9 @@ private:
   virtual bool _set_info_callback(SSL_CTX *ctx);
   virtual bool _set_npn_callback(SSL_CTX *ctx);
   virtual bool _set_alpn_callback(SSL_CTX *ctx);
+  virtual bool _set_keylog_callback(SSL_CTX *ctx);
+  virtual bool _enable_ktls(SSL_CTX *ctx);
+  virtual bool _enable_early_data(SSL_CTX *ctx);
 };
 
 // Create a new SSL server context fully configured (cert and keys are optional).
@@ -165,45 +170,23 @@ namespace ssl
 {
 namespace detail
 {
-  struct SCOPED_X509_TRAITS {
-    typedef X509 *value_type;
-    static value_type
-    initValue()
+  struct X509Deleter {
+    void
+    operator()(X509 *p)
     {
-      return nullptr;
-    }
-    static bool
-    isValid(value_type x)
-    {
-      return x != nullptr;
-    }
-    static void
-    destroy(value_type x)
-    {
-      X509_free(x);
+      X509_free(p);
     }
   };
 
-  struct SCOPED_BIO_TRAITS {
-    typedef BIO *value_type;
-    static value_type
-    initValue()
+  struct BIODeleter {
+    void
+    operator()(BIO *p)
     {
-      return nullptr;
-    }
-    static bool
-    isValid(value_type x)
-    {
-      return x != nullptr;
-    }
-    static void
-    destroy(value_type x)
-    {
-      BIO_free(x);
+      BIO_free(p);
     }
   };
-  /* namespace ssl */ // namespace detail
-} /* namespace detail */
+
+} // namespace detail
 } // namespace ssl
 
 struct ats_wildcard_matcher {
@@ -225,5 +208,5 @@ private:
   DFA regex;
 };
 
-typedef ats_scoped_resource<ssl::detail::SCOPED_X509_TRAITS> scoped_X509;
-typedef ats_scoped_resource<ssl::detail::SCOPED_BIO_TRAITS> scoped_BIO;
+using scoped_X509 = std::unique_ptr<X509, ssl::detail::X509Deleter>;
+using scoped_BIO  = std::unique_ptr<BIO, ssl::detail::BIODeleter>;

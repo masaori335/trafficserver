@@ -40,7 +40,7 @@ Enabling Logs
 By default, |TS| creates both error and event log files and
 records system information in system log files. You can disable event
 logging and/or error logging by setting the configuration variable
-:ts:cv:`proxy.config.log.logging_enabled` in :file:`records.config`
+:ts:cv:`proxy.config.log.logging_enabled` in :file:`records.yaml`
 to one of the following values:
 
 ===== =========================================================================
@@ -82,8 +82,7 @@ specifies where these messages are logged. A typical location is
 ``/var/log/messages`` (Linux).
 
 The :manpage:`syslog(8)` process works on a system-wide basis, so it serves as
-the single repository for messages from all |TS| processes (including
-:program:`traffic_server` and :program:`traffic_manager`).
+the single repository for messages from |TS| process (:program:`traffic_server`).
 
 System information logs observe a static format. Each log entry in the log
 contains information about the date and time the error was logged, the hostname
@@ -157,3 +156,20 @@ aforementioned aggregate functions and the specification of an interval, as so:
 The interval itself is given with *n* as the number of seconds for each period
 of aggregation. There is no default value.
 
+Logging Performance
+-------------------
+
+In normal operations, log entries are strictly ordered in the output file.
+This serialization of entries comes at a cost as multiple threads potentially
+contend for log access.  For binary logs or when order does not matter, ATS supports
+faster logging where each thread can buffer its own entries.  In this mode, log
+parsers will need to expect out of order entries, but ATS can log much larger
+transaction rates. Consider adding fields to the log format that include the timestamp so
+entries can be reordered if necessary (see :ref:`admin-logging-fields-time`)
+
+.. code:: yaml
+
+   formats:
+   - name: mysummary
+     format: '%<operator(field)> , %<operator(field)>'
+     fast: true

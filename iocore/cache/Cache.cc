@@ -83,6 +83,7 @@ int cache_config_read_while_writer             = 0;
 int cache_config_mutex_retry_delay             = 2;
 int cache_read_while_writer_retry_delay        = 50;
 int cache_config_read_while_writer_max_retries = 10;
+int cache_config_dir_enable_hugepages          = 0;
 
 // Globals
 
@@ -452,8 +453,11 @@ CacheVC::set_http_info(CacheHTTPInfo *ainfo)
   }
 
   MIMEField *field = ainfo->m_alt->m_response_hdr.field_find(MIME_FIELD_CONTENT_LENGTH, MIME_LEN_CONTENT_LENGTH);
-  if (field && !field->value_get_int64()) {
+  if ((field && !field->value_get_int64()) || ainfo->m_alt->m_response_hdr.status_get() == HTTP_STATUS_NO_CONTENT) {
     f.allow_empty_doc = 1;
+    // Set the object size here to zero in case this is a cache replace where the new object
+    // length is zero but the old object was not.
+    ainfo->object_size_set(0);
   } else {
     f.allow_empty_doc = 0;
   }
@@ -941,14 +945,14 @@ CacheProcessor::cacheInitialized()
             CACHE_VOL_SUM_DYN_STAT(cache_ram_cache_bytes_total_stat, (int64_t)gvol[i]->dirlen());
           }
           vol_total_cache_bytes = gvol[i]->len - gvol[i]->dirlen();
-          total_cache_bytes += vol_total_cache_bytes;
+          total_cache_bytes     += vol_total_cache_bytes;
           Debug("cache_init", "CacheProcessor::cacheInitialized - total_cache_bytes = %" PRId64 " = %" PRId64 "Mb",
                 total_cache_bytes, total_cache_bytes / (1024 * 1024));
 
           CACHE_VOL_SUM_DYN_STAT(cache_bytes_total_stat, vol_total_cache_bytes);
 
           vol_total_direntries = gvol[i]->buckets * gvol[i]->segments * DIR_DEPTH;
-          total_direntries += vol_total_direntries;
+          total_direntries     += vol_total_direntries;
           CACHE_VOL_SUM_DYN_STAT(cache_direntries_total_stat, vol_total_direntries);
 
           vol_used_direntries = dir_entries_used(gvol[i]);
@@ -991,13 +995,14 @@ CacheProcessor::cacheInitialized()
           Debug("cache_init", "CacheProcessor::cacheInitialized[%d] - ram_cache_bytes = %" PRId64 " = %" PRId64 "Mb", i,
                 ram_cache_bytes, ram_cache_bytes / (1024 * 1024));
           vol_total_cache_bytes = gvol[i]->len - gvol[i]->dirlen();
-          total_cache_bytes += vol_total_cache_bytes;
+          total_cache_bytes     += vol_total_cache_bytes;
           CACHE_VOL_SUM_DYN_STAT(cache_bytes_total_stat, vol_total_cache_bytes);
+          CACHE_VOL_SUM_DYN_STAT(cache_stripes_stat, 1); // Count the cache stripes
           Debug("cache_init", "CacheProcessor::cacheInitialized - total_cache_bytes = %" PRId64 " = %" PRId64 "Mb",
                 total_cache_bytes, total_cache_bytes / (1024 * 1024));
 
           vol_total_direntries = gvol[i]->buckets * gvol[i]->segments * DIR_DEPTH;
-          total_direntries += vol_total_direntries;
+          total_direntries     += vol_total_direntries;
           CACHE_VOL_SUM_DYN_STAT(cache_direntries_total_stat, vol_total_direntries);
 
           vol_used_direntries = dir_entries_used(gvol[i]);
@@ -1070,15 +1075,6 @@ CacheProcessor::dir_check(bool afix)
   return 0;
 }
 
-int
-CacheProcessor::db_check(bool afix)
-{
-  for (int i = 0; i < gnvol; i++) {
-    gvol[i]->db_check(afix);
-  }
-  return 0;
-}
-
 Action *
 CacheProcessor::lookup(Continuation *cont, const CacheKey *key, CacheFragType frag_type, const char *hostname, int host_len)
 {
@@ -1130,24 +1126,6 @@ CacheProcessor::IsCacheReady(CacheFragType type)
     return false;
   }
   return static_cast<bool>(cache_ready & (1 << type));
-}
-
-int
-Vol::db_check(bool /* fix ATS_UNUSED */)
-{
-  char tt[256];
-  printf("    Data for [%s]\n", hash_text.get());
-  printf("        Length:          %" PRIu64 "\n", static_cast<uint64_t>(len));
-  printf("        Write Position:  %" PRIu64 "\n", static_cast<uint64_t>(header->write_pos - skip));
-  printf("        Phase:           %d\n", static_cast<int>(!!header->phase));
-  ink_ctime_r(&header->create_time, tt);
-  tt[strlen(tt) - 1] = 0;
-  printf("        Create Time:     %s\n", tt);
-  printf("        Sync Serial:     %u\n", static_cast<unsigned int>(header->sync_serial));
-  printf("        Write Serial:    %u\n", static_cast<unsigned int>(header->write_serial));
-  printf("\n");
-
-  return 0;
 }
 
 static void
@@ -1277,7 +1255,7 @@ Vol::init(char *s, off_t blocks, off_t dir_skip, bool clear)
         (long long)this->len, (double)dirlen() / (double)this->len * 100.0);
 
   raw_dir = nullptr;
-  if (ats_hugepage_enabled()) {
+  if (ats_hugepage_enabled() && cache_config_dir_enable_hugepages) {
     raw_dir = static_cast<char *>(ats_alloc_hugepage(this->dirlen()));
   }
   if (raw_dir == nullptr) {
@@ -1434,7 +1412,7 @@ Vol::handle_recover_from_data(int event, void * /* data ATS_UNUSED */)
 {
   uint32_t got_len         = 0;
   uint32_t max_sync_serial = header->sync_serial;
-  char *s, *e;
+  char *s, *e = nullptr;
   if (event == EVENT_IMMEDIATE) {
     if (header->sync_serial == 0) {
       io.aiocb.aio_buf = nullptr;
@@ -1484,15 +1462,15 @@ Vol::handle_recover_from_data(int event, void * /* data ATS_UNUSED */)
       }
       ink_assert(done == to_check);
 
-      got_len = io.aiocb.aio_nbytes - done;
+      got_len     = io.aiocb.aio_nbytes - done;
       recover_pos += io.aiocb.aio_nbytes;
-      s = static_cast<char *>(io.aiocb.aio_buf) + done;
-      e = s + got_len;
+      s           = static_cast<char *>(io.aiocb.aio_buf) + done;
+      e           = s + got_len;
     } else {
-      got_len = io.aiocb.aio_nbytes;
+      got_len     = io.aiocb.aio_nbytes;
       recover_pos += io.aiocb.aio_nbytes;
-      s = static_cast<char *>(io.aiocb.aio_buf);
-      e = s + got_len;
+      s           = static_cast<char *>(io.aiocb.aio_buf);
+      e           = s + got_len;
     }
   }
   // examine what we got
@@ -1548,7 +1526,7 @@ Vol::handle_recover_from_data(int event, void * /* data ATS_UNUSED */)
           // case 2
           if (doc->sync_serial > last_sync_serial && doc->sync_serial <= header->sync_serial + 1) {
             last_sync_serial = doc->sync_serial;
-            s += round_to_approx_size(doc->len);
+            s                += round_to_approx_size(doc->len);
             continue;
           }
           // case 3 - we have already recovered some data and
@@ -1583,7 +1561,7 @@ Vol::handle_recover_from_data(int event, void * /* data ATS_UNUSED */)
       }
       // doc->magic == DOC_MAGIC && doc->sync_serial == last_sync_serial
       last_write_serial = doc->write_serial;
-      s += round_to_approx_size(doc->len);
+      s                 += round_to_approx_size(doc->len);
     }
 
     /* if (s > e) then we gone through RECOVERY_SIZE; we need to
@@ -1825,7 +1803,7 @@ build_vol_hash_table(CacheHostRecord *cp)
     }
     mapping[map] = i;
     p[map++]     = cp->vols[i];
-    total += (cp->vols[i]->len >> STORE_BLOCK_SHIFT);
+    total        += (cp->vols[i]->len >> STORE_BLOCK_SHIFT);
   }
 
   num_vols -= bad_vols;
@@ -1851,11 +1829,11 @@ build_vol_hash_table(CacheHostRecord *cp)
 
   // estimate allocation
   for (int i = 0; i < num_vols; i++) {
-    forvol[i] = (VOL_HASH_TABLE_SIZE * (p[i]->len >> STORE_BLOCK_SHIFT)) / total;
-    used += forvol[i];
+    forvol[i]         = (VOL_HASH_TABLE_SIZE * (p[i]->len >> STORE_BLOCK_SHIFT)) / total;
+    used              += forvol[i];
     rtable_entries[i] = p[i]->len / VOL_HASH_ALLOC_SIZE;
-    rtable_size += rtable_entries[i];
-    gotvol[i] = 0;
+    rtable_size       += rtable_entries[i];
+    gotvol[i]         = 0;
   }
   // spread around the excess
   int extra = VOL_HASH_TABLE_SIZE - used;
@@ -1948,8 +1926,8 @@ CacheProcessor::mark_storage_offline(CacheDisk *d, ///< Target disk
 
   for (p = 0; p < gnvol; p++) {
     if (d->fd == gvol[p]->fd) {
-      total_dir_delete += gvol[p]->buckets * gvol[p]->segments * DIR_DEPTH;
-      used_dir_delete += dir_entries_used(gvol[p]);
+      total_dir_delete   += gvol[p]->buckets * gvol[p]->segments * DIR_DEPTH;
+      used_dir_delete    += dir_entries_used(gvol[p]);
       total_bytes_delete += gvol[p]->len - gvol[p]->dirlen();
     }
   }
@@ -1972,13 +1950,16 @@ CacheProcessor::mark_storage_offline(CacheDisk *d, ///< Target disk
     Warning("All storage devices offline, cache disabled");
     CacheProcessor::cache_ready = 0;
   } else { // check cache types specifically
-    if (theCache && !theCache->hosttable->gen_host_rec.vol_hash_table) {
-      unsigned int caches_ready = 0;
-      caches_ready              = caches_ready | (1 << CACHE_FRAG_TYPE_HTTP);
-      caches_ready              = caches_ready | (1 << CACHE_FRAG_TYPE_NONE);
-      caches_ready              = ~caches_ready;
-      CacheProcessor::cache_ready &= caches_ready;
-      Warning("all volumes for http cache are corrupt, http cache disabled");
+    if (theCache) {
+      ReplaceablePtr<CacheHostTable>::ScopedReader hosttable(&theCache->hosttable);
+      if (!hosttable->gen_host_rec.vol_hash_table) {
+        unsigned int caches_ready   = 0;
+        caches_ready                = caches_ready | (1 << CACHE_FRAG_TYPE_HTTP);
+        caches_ready                = caches_ready | (1 << CACHE_FRAG_TYPE_NONE);
+        caches_ready                = ~caches_ready;
+        CacheProcessor::cache_ready &= caches_ready;
+        Warning("all volumes for http cache are corrupt, http cache disabled");
+      }
     }
   }
 
@@ -2017,12 +1998,10 @@ AIO_Callback_handler::handle_disk_failure(int /* event ATS_UNUSED */, void *data
       if (!DISK_BAD(d)) {
         snprintf(message, sizeof(message), "Error accessing Disk %s [%d/%d]", d->path, d->num_errors, cache_config_max_disk_errors);
         Warning("%s", message);
-        RecSignalManager(REC_SIGNAL_CACHE_WARNING, message);
       } else if (!DISK_BAD_SIGNALLED(d)) {
         snprintf(message, sizeof(message), "too many errors accessing disk %s [%d/%d]: declaring disk bad", d->path, d->num_errors,
                  cache_config_max_disk_errors);
         Warning("%s", message);
-        RecSignalManager(REC_SIGNAL_CACHE_ERROR, message);
         cacheProcessor.mark_storage_offline(d); // take it out of service
       }
       break;
@@ -2047,9 +2026,13 @@ Cache::open_done()
     return 0;
   }
 
-  hosttable = new CacheHostTable(this, scheme);
-  hosttable->register_config_callback(&hosttable);
+  {
+    CacheHostTable *hosttable_raw = new CacheHostTable(this, scheme);
+    hosttable.reset(hosttable_raw);
+    hosttable_raw->register_config_callback(&hosttable);
+  }
 
+  ReplaceablePtr<CacheHostTable>::ScopedReader hosttable(&this->hosttable);
   if (hosttable->gen_host_rec.num_cachevols == 0) {
     ready = CACHE_INIT_FAILED;
   } else {
@@ -2521,8 +2504,8 @@ cplist_init()
       while (p) {
         if (p->vol_number == dp[j]->vol_number) {
           ink_assert(p->scheme == (int)dp[j]->dpb_queue.head->b->type);
-          p->size += dp[j]->size;
-          p->num_vols += dp[j]->num_volblocks;
+          p->size         += dp[j]->size;
+          p->num_vols     += dp[j]->num_volblocks;
           p->disk_vols[i] = dp[j];
           break;
         }
@@ -2686,7 +2669,7 @@ fillExclusiveDisks(CacheVol *cp)
           cp->disk_vols[i] = gdisks[i]->get_diskvol(volume_number);
         }
         size_diff -= dpb->len;
-        cp->size += dpb->len;
+        cp->size  += dpb->len;
         cp->num_vols++;
       } else {
         Debug("cache_init", "create_volume failed");
@@ -2706,6 +2689,7 @@ cplist_reconfigure()
   int volume_number;
   off_t size_in_blocks;
   ConfigVol *config_vol;
+  int assignedVol = 0; // Number of assigned volumes
 
   gnvol = 0;
   if (config_volumes.num_volumes == 0) {
@@ -2737,13 +2721,12 @@ cplist_reconfigure()
       }
 
       ink_assert(gdisks[i]->header->num_volumes == 1);
-      DiskVol **dp = gdisks[i]->disk_vols;
-      gnvol += dp[0]->num_volblocks;
-      cp->size += dp[0]->size;
-      cp->num_vols += dp[0]->num_volblocks;
+      DiskVol **dp     = gdisks[i]->disk_vols;
+      gnvol            += dp[0]->num_volblocks;
+      cp->size         += dp[0]->size;
+      cp->num_vols     += dp[0]->num_volblocks;
       cp->disk_vols[i] = dp[0];
     }
-
   } else {
     for (int i = 0; i < gndisks; i++) {
       if (gdisks[i]->header->num_volumes == 1 && gdisks[i]->disk_vols[0]->vol_number == 0) {
@@ -2764,6 +2747,8 @@ cplist_reconfigure()
       // in such a way forced volumes will not impact volume percentage calculations.
       if (-1 == gdisks[i]->forced_volume_num) {
         tot_space_in_blks += (gdisks[i]->num_usable_blocks / blocks_per_vol) * blocks_per_vol;
+      } else {
+        ++assignedVol;
       }
     }
 
@@ -2845,7 +2830,7 @@ cplist_reconfigure()
         cp_list.enqueue(new_cp);
         cp_list_len++;
         config_vol->cachep = new_cp;
-        gnvol += new_cp->num_vols;
+        gnvol              += new_cp->num_vols;
         continue;
       }
       //    else
@@ -2886,7 +2871,6 @@ cplist_reconfigure()
       }
 
       int64_t size_to_alloc = size_in_blocks - cp->size;
-      int disk_full         = 0;
       for (int i = 0; (i < gndisks) && size_to_alloc; i++) {
         int disk_no = sorted_vols[i];
         ink_assert(cp->disk_vols[sorted_vols[gndisks - 1]]);
@@ -2898,7 +2882,7 @@ cplist_reconfigure()
            them equal */
         int64_t size_diff = (cp->disk_vols[disk_no]) ? largest_vol - cp->disk_vols[disk_no]->size : largest_vol;
         size_diff         = (size_diff < size_to_alloc) ? size_diff : size_to_alloc;
-        /* if size_diff == 0, then then the disks have volumes of the
+        /* if size_diff == 0, then the disks have volumes of the
            same sizes, so we don't need to balance the disks */
         if (size_diff == 0) {
           break;
@@ -2912,16 +2896,12 @@ cplist_reconfigure()
               cp->disk_vols[disk_no] = gdisks[disk_no]->get_diskvol(volume_number);
             }
             size_diff -= dpb->len;
-            cp->size += dpb->len;
+            cp->size  += dpb->len;
             cp->num_vols++;
           } else {
             break;
           }
         } while ((size_diff > 0));
-
-        if (!dpb) {
-          disk_full++;
-        }
 
         size_to_alloc = size_in_blocks - cp->size;
       }
@@ -2936,6 +2916,9 @@ cplist_reconfigure()
       gnvol += cp->num_vols;
     }
   }
+
+  GLOBAL_CACHE_SET_DYN_STAT(cache_stripes_stat, gnvol + assignedVol);
+
   return 0;
 }
 
@@ -2961,9 +2944,9 @@ create_volume(int volume_number, off_t size_in_blocks, int scheme, CacheVol *cp)
   int i = curr_vol;
   while (size_in_blocks > 0) {
     if (gdisks[i]->free_space >= (sp[i] + blocks_per_vol)) {
-      sp[i] += blocks_per_vol;
+      sp[i]          += blocks_per_vol;
       size_in_blocks -= blocks_per_vol;
-      full_disks = 0;
+      full_disks     = 0;
     } else {
       full_disks += 1;
       if (full_disks == gndisks) {
@@ -3008,9 +2991,10 @@ create_volume(int volume_number, off_t size_in_blocks, int scheme, CacheVol *cp)
 void
 rebuild_host_table(Cache *cache)
 {
-  build_vol_hash_table(&cache->hosttable->gen_host_rec);
-  if (cache->hosttable->m_numEntries != 0) {
-    CacheHostMatcher *hm   = cache->hosttable->getHostMatcher();
+  ReplaceablePtr<CacheHostTable>::ScopedWriter hosttable(&cache->hosttable);
+  build_vol_hash_table(&hosttable->gen_host_rec);
+  if (hosttable->m_numEntries != 0) {
+    CacheHostMatcher *hm   = hosttable->getHostMatcher();
     CacheHostRecord *h_rec = hm->getDataArray();
     int h_rec_len          = hm->getNumElements();
     int i;
@@ -3024,9 +3008,11 @@ rebuild_host_table(Cache *cache)
 Vol *
 Cache::key_to_vol(const CacheKey *key, const char *hostname, int host_len)
 {
-  uint32_t h                 = (key->slice32(2) >> DIR_TAG_WIDTH) % VOL_HASH_TABLE_SIZE;
-  unsigned short *hash_table = hosttable->gen_host_rec.vol_hash_table;
-  CacheHostRecord *host_rec  = &hosttable->gen_host_rec;
+  ReplaceablePtr<CacheHostTable>::ScopedReader hosttable(&this->hosttable);
+
+  uint32_t h                      = (key->slice32(2) >> DIR_TAG_WIDTH) % VOL_HASH_TABLE_SIZE;
+  unsigned short *hash_table      = hosttable->gen_host_rec.vol_hash_table;
+  const CacheHostRecord *host_rec = &hosttable->gen_host_rec;
 
   if (hosttable->m_numEntries > 0 && host_len) {
     CacheHostResult res;
@@ -3073,6 +3059,7 @@ register_cache_stats(RecRawStatBlock *rsb, const char *prefix)
   reg_int("bytes_used", cache_bytes_used_stat, rsb, prefix, cache_stats_bytes_used_cb);
 
   REG_INT("bytes_total", cache_bytes_total_stat);
+  REG_INT("stripes", cache_stripes_stat);
   REG_INT("ram_cache.total_bytes", cache_ram_cache_bytes_total_stat);
   REG_INT("ram_cache.bytes_used", cache_ram_cache_bytes_stat);
   REG_INT("ram_cache.hits", cache_ram_cache_hits_stat);
@@ -3085,6 +3072,8 @@ register_cache_stats(RecRawStatBlock *rsb, const char *prefix)
   REG_INT("read.active", cache_read_active_stat);
   REG_INT("read.success", cache_read_success_stat);
   REG_INT("read.failure", cache_read_failure_stat);
+  REG_INT("read.seek.failure", cache_read_seek_fail_stat);
+  REG_INT("read.invalid", cache_read_invalid_stat);
   REG_INT("write.active", cache_write_active_stat);
   REG_INT("write.success", cache_write_success_stat);
   REG_INT("write.failure", cache_write_failure_stat);
@@ -3170,6 +3159,9 @@ ink_cache_init(ts::ModuleVersion v)
   REC_EstablishStaticConfigInt32(cache_config_dir_sync_frequency, "proxy.config.cache.dir.sync_frequency");
   Debug("cache_init", "proxy.config.cache.dir.sync_frequency = %d", cache_config_dir_sync_frequency);
 
+  REC_EstablishStaticConfigInt32(cache_config_dir_enable_hugepages, "proxy.config.cache.dir.enable_hugepages");
+  Debug("cache_init", "proxy.config.cache.dir.enable_hugepages = %d", cache_config_dir_enable_hugepages);
+
   REC_EstablishStaticConfigInt32(cache_config_select_alternate, "proxy.config.cache.select_alternate");
   Debug("cache_init", "proxy.config.cache.select_alternate = %d", cache_config_select_alternate);
 
@@ -3246,7 +3238,7 @@ CacheProcessor::open_write(Continuation *cont, int expected_size, const HttpCach
 }
 
 //----------------------------------------------------------------------------
-// Note: this should not be called from from the cluster processor, or bad
+// Note: this should not be called from the cluster processor, or bad
 // recursion could occur. This is merely a convenience wrapper.
 Action *
 CacheProcessor::remove(Continuation *cont, const HttpCacheKey *key, CacheFragType frag_type)

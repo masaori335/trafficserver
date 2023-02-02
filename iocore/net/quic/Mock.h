@@ -27,16 +27,27 @@
 
 #include "QUICApplication.h"
 #include "QUICStreamManager.h"
+#if HAVE_QUICHE_H
+#include "QUICStreamManager_quiche.h"
+#else
+#include "QUICStreamManager_native.h"
+#endif
 #include "QUICLossDetector.h"
 #include "QUICPacketProtectionKeyInfo.h"
 #include "QUICPinger.h"
 #include "QUICPadder.h"
 #include "QUICEvents.h"
 #include "QUICPacketProtectionKeyInfo.h"
+#include "QUICPathManager.h"
 #include "QUICPinger.h"
 #include "QUICPadder.h"
 #include "QUICHandshakeProtocol.h"
 #include "QUICStreamAdapter.h"
+#if HAVE_QUICHE_H
+#include "QUICStream_quiche.h"
+#else
+#include "QUICStream_native.h"
+#endif
 
 class MockQUICContext;
 
@@ -46,25 +57,25 @@ std::string_view negotiated_application_name_sv = "h3-29"sv;
 class MockQUICLDConfig : public QUICLDConfig
 {
   uint32_t
-  packet_threshold() const
+  packet_threshold() const override
   {
     return 3;
   }
 
   float
-  time_threshold() const
+  time_threshold() const override
   {
     return 1.25;
   }
 
   ink_hrtime
-  granularity() const
+  granularity() const override
   {
     return HRTIME_MSECONDS(1);
   }
 
   ink_hrtime
-  initial_rtt() const
+  initial_rtt() const override
   {
     return HRTIME_MSECONDS(100);
   }
@@ -79,25 +90,25 @@ class MockQUICCCConfig : public QUICCCConfig
   }
 
   uint32_t
-  initial_window() const
+  initial_window() const override
   {
     return 10;
   }
 
   uint32_t
-  minimum_window() const
+  minimum_window() const override
   {
     return 2;
   }
 
   float
-  loss_reduction_factor() const
+  loss_reduction_factor() const override
   {
     return 0.5;
   }
 
   uint32_t
-  persistent_congestion_threshold() const
+  persistent_congestion_threshold() const override
   {
     return 2;
   }
@@ -108,22 +119,22 @@ class MockQUICPathManager : public QUICPathManager
 public:
   virtual ~MockQUICPathManager() {}
   virtual const QUICPath &
-  get_current_path()
+  get_current_path() override
   {
     return _path;
   }
   virtual const QUICPath &
-  get_verified_path()
+  get_verified_path() override
   {
     return _path;
   }
   virtual void
-  open_new_path(const QUICPath &path, ink_hrtime timeout_in)
+  open_new_path(const QUICPath &path, ink_hrtime timeout_in) override
   {
     return;
   }
   virtual void
-  set_trusted_path(const QUICPath &path)
+  set_trusted_path(const QUICPath &path) override
   {
     return;
   }
@@ -238,12 +249,13 @@ class MockQUICConnectionInfoProvider : public QUICConnectionInfoProvider
   }
 };
 
-class MockQUICStreamManager : public QUICStreamManager
+class MockQUICStreamManager : public QUICStreamManagerImpl
 {
 public:
-  MockQUICStreamManager(QUICContext *context) : QUICStreamManager(context, nullptr) {}
+  MockQUICStreamManager(QUICContext *context) : QUICStreamManagerImpl(context, nullptr) {}
 
   // Override
+#ifndef HAVE_QUICHE_H
   virtual QUICConnectionErrorUPtr
   handle_frame(QUICEncryptionLevel level, const QUICFrame &f) override
   {
@@ -252,6 +264,7 @@ public:
 
     return nullptr;
   }
+#endif
 
   // for Test
   int
@@ -288,58 +301,58 @@ class MockNetVConnection : public NetVConnection
 public:
   MockNetVConnection(NetVConnectionContext_t context = NET_VCONNECTION_OUT) : NetVConnection() { netvc_context = context; }
   VIO *
-  do_io_read(Continuation *c, int64_t nbytes, MIOBuffer *buf)
+  do_io_read(Continuation *c, int64_t nbytes, MIOBuffer *buf) override
   {
     return nullptr;
   };
   VIO *
-  do_io_write(Continuation *c, int64_t nbytes, IOBufferReader *buf, bool owner = false)
+  do_io_write(Continuation *c, int64_t nbytes, IOBufferReader *buf, bool owner = false) override
   {
     return nullptr;
   };
-  void do_io_close(int lerrno = -1){};
-  void do_io_shutdown(ShutdownHowTo_t howto){};
-  void reenable(VIO *vio){};
-  void reenable_re(VIO *vio){};
-  void set_active_timeout(ink_hrtime timeout_in){};
-  void set_inactivity_timeout(ink_hrtime timeout_in){};
-  void cancel_active_timeout(){};
-  void cancel_inactivity_timeout(){};
-  void add_to_keep_alive_queue(){};
-  void remove_from_keep_alive_queue(){};
+  void do_io_close(int lerrno = -1) override{};
+  void do_io_shutdown(ShutdownHowTo_t howto) override{};
+  void reenable(VIO *vio) override{};
+  void reenable_re(VIO *vio) override{};
+  void set_active_timeout(ink_hrtime timeout_in) override{};
+  void set_inactivity_timeout(ink_hrtime timeout_in) override{};
+  void cancel_active_timeout() override{};
+  void cancel_inactivity_timeout() override{};
+  void add_to_keep_alive_queue() override{};
+  void remove_from_keep_alive_queue() override{};
   bool
-  add_to_active_queue()
+  add_to_active_queue() override
   {
     return true;
   };
   ink_hrtime
-  get_active_timeout()
+  get_active_timeout() override
   {
     return 0;
   }
   ink_hrtime
-  get_inactivity_timeout()
+  get_inactivity_timeout() override
   {
     return 0;
   }
   void
-  apply_options()
+  apply_options() override
   {
   }
   SOCKET
-  get_socket() { return 0; }
+  get_socket() override { return 0; }
   int
   set_tcp_init_cwnd(int init_cwnd)
   {
     return 0;
   }
   int
-  set_tcp_congestion_control(int side)
+  set_tcp_congestion_control(int side) override
   {
     return 0;
   }
-  void set_local_addr(){};
-  void set_remote_addr(){};
+  void set_local_addr() override{};
+  void set_remote_addr() override{};
 
   NetVConnectionContext_t
   get_context() const
@@ -621,7 +634,8 @@ public:
     return EVP_GCM_TLS_TAG_LEN;
   }
 
-  const size_t *encryption_iv_len(QUICKeyPhase) const override
+  const size_t *
+  encryption_iv_len(QUICKeyPhase) const override
   {
     static size_t dummy = 12;
     return &dummy;
@@ -650,6 +664,7 @@ public:
   {
     return _config;
   }
+#ifndef HAVE_QUICHE_H
   virtual QUICRTTProvider *
   rtt_provider() const override
   {
@@ -679,6 +694,7 @@ public:
   {
     return _path_manager.get();
   }
+#endif
 
 private:
   QUICConfig::scoped_config _config;
@@ -698,7 +714,10 @@ public:
       _padder(NetVConnectionContext_t::NET_VCONNECTION_UNSET)
   {
   }
-  void rcv_frame(std::shared_ptr<const QUICFrame>) {}
+  void
+  rcv_frame(std::shared_ptr<const QUICFrame>)
+  {
+  }
 
   void
   on_packet_sent(QUICPacketUPtr packet)
@@ -727,14 +746,14 @@ public:
   write_to_stream(const uint8_t *buf, size_t len)
   {
     this->_total_sending_data_len += len;
-    this->_sending_data_len += len;
+    this->_sending_data_len       += len;
   }
 
   int64_t
   write(QUICOffset offset, const uint8_t *data, uint64_t data_length, bool fin) override
   {
     this->_total_receiving_data_len += data_length;
-    this->_receiving_data_len += data_length;
+    this->_receiving_data_len       += data_length;
     return data_length;
   }
   bool
@@ -774,7 +793,7 @@ protected:
   Ptr<IOBufferBlock>
   _read(size_t len) override
   {
-    this->_sending_data_len -= len;
+    this->_sending_data_len  -= len;
     Ptr<IOBufferBlock> block = make_ptr<IOBufferBlock>(new_IOBufferBlock());
     block->alloc(iobuffer_size_to_index(len, BUFFER_SIZE_INDEX_32K));
     block->fill(len);
@@ -1069,7 +1088,7 @@ public:
 
   QUICFrame *
   generate_frame(uint8_t *buf, QUICEncryptionLevel level, uint64_t connection_credit, uint16_t maximum_frame_size,
-                 size_t current_packet_size, uint32_t seq_num) override
+                 size_t current_packet_size, uint32_t seq_num, QUICFrameGenerator *owner) override
   {
     QUICFrame *frame              = QUICFrameFactory::create_ping_frame(buf, 0, this);
     QUICFrameInformationUPtr info = QUICFrameInformationUPtr(quicFrameInformationAllocator.alloc());

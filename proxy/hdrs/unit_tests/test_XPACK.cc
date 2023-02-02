@@ -38,7 +38,11 @@ TEST_CASE("XPACK_Integer", "[xpack]")
     uint8_t *encoded_field;
     int encoded_field_len;
     int prefix;
-  } integer_test_case[] = {{10, (uint8_t *)"\x0a", 1, 5}, {1337, (uint8_t *)"\x1F\x9A\x0A", 3, 5}, {42, (uint8_t *)R"(*)", 1, 8}};
+  } integer_test_case[] = {
+    {10,   (uint8_t *)"\x0a",         1, 5},
+    {1337, (uint8_t *)"\x1F\x9A\x0A", 3, 5},
+    {42,   (uint8_t *)R"(*)",         1, 8}
+  };
 
   SECTION("Encoding")
   {
@@ -73,22 +77,23 @@ TEST_CASE("XPACK_String", "[xpack]")
     uint32_t raw_string_len;
     uint8_t *encoded_field;
     int encoded_field_len;
-  } string_test_case[] = {{(char *)"", 0,
-                           (uint8_t *)"\x0"
-                                      "",
-                           1},
-                          {(char *)"custom-key", 10,
-                           (uint8_t *)"\xA"
-                                      "custom-key",
-                           11},
-                          {(char *)"", 0,
-                           (uint8_t *)"\x80"
-                                      "",
-                           1},
-                          {(char *)"custom-key", 10,
-                           (uint8_t *)"\x88"
-                                      "\x25\xa8\x49\xe9\x5b\xa9\x7d\x7f",
-                           9}};
+  } string_test_case[] = {
+    {(char *)"",                        0,
+     (uint8_t *)"\x0"
+                "",                                                                                     1 },
+    {(char *)"custom-key",              10,
+     (uint8_t *)"\xA"
+                "custom-key",                                                                           11},
+    {(char *)"",                        0,
+     (uint8_t *)"\x80"
+                "",                                                                                     1 },
+    {(char *)"custom-key",              10,
+     (uint8_t *)"\x88"
+                "\x25\xa8\x49\xe9\x5b\xa9\x7d\x7f",                                                     9 },
+    {(char *)"cw Times New Roman_σ=1", 23,
+     (uint8_t *)"\x95"
+                "\x27\x85\x37\x9a\x92\xa1\x4d\x25\xf0\xa6\xd3\xd2\x3a\xa2\xff\xff\xf6\xff\xff\x44\x01", 22},
+  };
 
   SECTION("Encoding")
   {

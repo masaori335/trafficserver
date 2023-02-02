@@ -23,10 +23,11 @@
 
 #pragma once
 
+#include <cstddef>
+
 #include "tscore/ink_assert.h"
 #include "tscore/ink_platform.h"
-#include "P_HostDB.h"
-#include "P_Net.h"
+#include "I_HostDB.h"
 #include "HttpConfig.h"
 #include "HTTP.h"
 #include "HttpTransactCache.h"
@@ -44,11 +45,13 @@
 #include "ProxySession.h"
 #include "MgmtDefs.h"
 
+#define HTTP_OUR_VIA_MAX_LENGTH 1024 // 512-bytes for hostname+via string, 512-bytes for the debug info
+
 #define HTTP_RELEASE_ASSERT(X) ink_release_assert(X)
 
 #define DUMP_HEADER(T, H, I, S)                                 \
   {                                                             \
-    if (diags->on(T)) {                                         \
+    if (is_debug_tag_set(T)) {                                  \
       fprintf(stderr, "+++++++++ %s +++++++++\n", S);           \
       fprintf(stderr, "-- State Machine Id: %" PRId64 "\n", I); \
       char b[4096];                                             \
@@ -57,10 +60,10 @@
       offset = 0;                                               \
       if ((H)->valid()) {                                       \
         do {                                                    \
-          used = 0;                                             \
-          tmp  = offset;                                        \
-          done = (H)->print(b, 4095, &used, &tmp);              \
-          offset += used;                                       \
+          used    = 0;                                          \
+          tmp     = offset;                                     \
+          done    = (H)->print(b, 4095, &used, &tmp);           \
+          offset  += used;                                      \
           b[used] = '\0';                                       \
           fprintf(stderr, "%s", b);                             \
         } while (!done);                                        \
@@ -214,7 +217,7 @@ const int32_t HTTP_UNDEFINED_CL = -1;
 //
 //////////////////////////////////////////////////////////////////////////////
 #define SET_VIA_STRING(I, S) s->via_string[I] = S;
-#define GET_VIA_STRING(I) (s->via_string[I])
+#define GET_VIA_STRING(I)    (s->via_string[I])
 
 class HttpTransact
 {
@@ -280,14 +283,6 @@ public:
     HTTP_TRANSACT_MAGIC_ALIVE     = 0x00001234,
     HTTP_TRANSACT_MAGIC_DEAD      = 0xDEAD1234,
     HTTP_TRANSACT_MAGIC_SEPARATOR = 0x12345678
-  };
-
-  enum LookingUp_t {
-    ORIGIN_SERVER,
-    UNDEFINED_LOOKUP,
-    PARENT_PROXY,
-    INCOMING_ROUTER,
-    HOST_NONE,
   };
 
   enum ProxyMode_t {
@@ -574,56 +569,66 @@ public:
   };
 
   typedef struct _CurrentInfo {
-    ProxyMode_t mode                           = UNDEFINED_MODE;
-    LookingUp_t request_to                     = UNDEFINED_LOOKUP;
-    ConnectionAttributes *server               = nullptr;
-    ink_time_t now                             = 0;
-    ServerState_t state                        = STATE_UNDEFINED;
-    unsigned attempts                          = 0;
+    ProxyMode_t mode                             = UNDEFINED_MODE;
+    ResolveInfo::UpstreamResolveStyle request_to = ResolveInfo::UNDEFINED_LOOKUP;
+    ConnectionAttributes *server                 = nullptr;
+    ink_time_t now                               = 0;
+    ServerState_t state                          = STATE_UNDEFINED;
+    class Attempts
+    {
+    public:
+      Attempts()                 = default;
+      Attempts(Attempts const &) = delete;
+
+      unsigned
+      get() const
+      {
+        return _v;
+      }
+
+      void
+      maximize(MgmtInt configured_connect_attempts_max_retries)
+      {
+        ink_assert(_v <= configured_connect_attempts_max_retries);
+        if (_v < configured_connect_attempts_max_retries) {
+          ink_assert(0 == _saved_v);
+          _saved_v = _v;
+          _v       = configured_connect_attempts_max_retries;
+        }
+      }
+
+      void
+      clear()
+      {
+        _v       = 0;
+        _saved_v = 0;
+      }
+
+      void
+      increment(MgmtInt configured_connect_attempts_max_retries)
+      {
+        ++_v;
+        ink_assert(_v <= configured_connect_attempts_max_retries);
+      }
+
+      unsigned
+      saved() const
+      {
+        return _saved_v ? _saved_v : _v;
+      }
+
+    private:
+      unsigned _v{0}, _saved_v{0};
+    };
+    Attempts attempts;
     unsigned simple_retry_attempts             = 0;
     unsigned unavailable_server_retry_attempts = 0;
     ParentRetry_t retry_type                   = PARENT_RETRY_NONE;
 
-    _CurrentInfo() {}
+    _CurrentInfo()                     = default;
+    _CurrentInfo(_CurrentInfo const &) = delete;
+
   } CurrentInfo;
-
-  typedef struct _DNSLookupInfo {
-    /** Origin server address source selection.
-
-        If config says to use CTA (client target addr) state is
-        OS_ADDR_TRY_CLIENT, otherwise it remains the default. If the
-        connect fails then we switch to a USE. We go to USE_HOSTDB if
-        (1) the HostDB lookup is successful and (2) some address other
-        than the CTA is available to try. Otherwise we keep retrying
-        on the CTA (USE_CLIENT) up to the max retry value.  In essence
-        we try to treat the CTA as if it were another RR value in the
-        HostDB record.
-     */
-    enum class OS_Addr {
-      OS_ADDR_TRY_DEFAULT, ///< Initial state, use what config says.
-      OS_ADDR_TRY_HOSTDB,  ///< Try HostDB data.
-      OS_ADDR_TRY_CLIENT,  ///< Try client target addr.
-      OS_ADDR_USE_HOSTDB,  ///< Force use of HostDB target address.
-      OS_ADDR_USE_CLIENT   ///< Use client target addr, no fallback.
-    };
-
-    OS_Addr os_addr_style = OS_Addr::OS_ADDR_TRY_DEFAULT;
-
-    bool lookup_success         = false;
-    char *lookup_name           = nullptr;
-    char srv_hostname[MAXDNAME] = {0};
-    LookingUp_t looking_up      = UNDEFINED_LOOKUP;
-    bool srv_lookup_success     = false;
-    short srv_port              = 0;
-    HostDBApplicationInfo srv_app;
-
-    /*** Set to true by default.  If use_client_target_address is set
-     * to 1, this value will be set to false if the client address is
-     * not in the DNS pool */
-    bool lookup_validated = true;
-
-    _DNSLookupInfo() {}
-  } DNSLookupInfo;
 
   // Conversion handling for DNS host resolution type.
   static const MgmtConverter HOST_RES_CONV;
@@ -672,7 +677,7 @@ public:
 
     HttpConfigParams *http_config_param = nullptr;
     CacheLookupInfo cache_info;
-    DNSLookupInfo dns_info;
+    ResolveInfo dns_info;
     RedirectInfo redirect_info;
     OutboundConnTrack::TxnState outbound_conn_track_state;
     HTTPVersion updated_server_version    = HTTP_INVALID;
@@ -719,13 +724,16 @@ public:
     int64_t internal_msg_buffer_size                = 0;       // out
     int64_t internal_msg_buffer_fast_allocator_size = -1;
 
-    int scheme               = -1;     // out
-    int next_hop_scheme      = scheme; // out
-    int orig_scheme          = scheme; // pre-mapped scheme
-    int method               = 0;
+    int scheme          = -1;     // out
+    int next_hop_scheme = scheme; // out
+    int orig_scheme     = scheme; // pre-mapped scheme
+    int method          = 0;
+
+    /// The errno associated with a failed connect attempt.
+    ///
+    /// This is used for logging and (in some code paths) for determing HTTP
+    /// response reason phrases.
     int cause_of_death_errno = -UNKNOWN_INTERNAL_ERROR; // in
-    Ptr<HostDBInfo> hostdb_entry;                       // Pointer to the entry we are referencing in hostdb-- to keep our ref
-    HostDBInfo host_db_info;                            // in
 
     ink_time_t client_request_time    = UNDEFINED_TIME; // internal
     ink_time_t request_sent_time      = UNDEFINED_TIME; // internal
@@ -733,8 +741,6 @@ public:
     ink_time_t plugin_set_expire_time = UNDEFINED_TIME;
 
     char via_string[MAX_VIA_INDICES + 1];
-
-    int64_t state_machine_id = 0;
 
     // new ACL filtering result (calculated immediately after remap)
     bool client_connection_enabled = true;
@@ -774,7 +780,6 @@ public:
     bool api_server_request_body_set              = false;
     bool api_req_cacheable                        = false;
     bool api_resp_cacheable                       = false;
-    bool api_server_addr_set                      = false;
     UpdateCachedObject_t api_update_cached_object = UPDATE_CACHED_OBJECT_NONE;
     StateMachineAction_t saved_update_next_action = SM_ACTION_UNDEFINED;
     CacheAction_t saved_update_cache_action       = CACHE_DO_UNDEFINED;
@@ -822,6 +827,7 @@ public:
     init()
     {
       parent_params = ParentConfig::acquire();
+      new (&dns_info) decltype(dns_info); // reset to default state.
     }
 
     // Constructor
@@ -848,7 +854,8 @@ public:
       via_string[VIA_DETAIL_SERVER_DESCRIPTOR] = VIA_DETAIL_SERVER_DESCRIPTOR_STRING;
       via_string[MAX_VIA_INDICES]              = '\0';
 
-      memset((void *)&host_db_info, 0, sizeof(host_db_info));
+      //      memset(user_args, 0, sizeof(user_args));
+      //      memset((void *)&host_db_info, 0, sizeof(host_db_info));
     }
 
     void
@@ -878,7 +885,7 @@ public:
       url_map.clear();
       arena.reset();
       unmapped_url.clear();
-      hostdb_entry.clear();
+      dns_info.~ResolveInfo();
       outbound_conn_track_state.clear();
 
       delete[] ranges;
@@ -886,6 +893,8 @@ public:
       range_setup = RANGE_NONE;
       return;
     }
+
+    int64_t state_machine_id() const;
 
     // Little helper function to setup the per-transaction configuration copy
     void
@@ -916,12 +925,25 @@ public:
     void
     set_connect_fail(int e)
     {
-      if (e == EIO || this->current.server->connect_result == EIO) {
+      if (e == EUSERS) {
+        // EUSERS is used when the number of connections exceeds the configured
+        // limit. Since this is not a network connectivity issue with the
+        // server, we should not mark it as such. Otherwise we will incorrectly
+        // mark the server as down.
+        this->current.server->connect_result = 0;
+      } else if (e == EIO || this->current.server->connect_result == EIO) {
         this->current.server->connect_result = e;
       }
       if (e != EIO) {
         this->cause_of_death_errno = e;
       }
+      Debug("http", "Setting upstream connection failure %d to %d", e, this->current.server->connect_result);
+    }
+
+    MgmtInt
+    configured_connect_attempts_max_retries() const
+    {
+      return txn_conf->connect_attempts_max_retries;
     }
 
   private:
@@ -953,7 +975,6 @@ public:
 
   static void CallOSDNSLookup(State *s);
   static void OSDNSLookup(State *s);
-  static void ReDNSRoundRobin(State *s);
   static void PPDNSLookup(State *s);
   static void PPDNSLookupAPICall(State *s);
   static void OriginServerRawOpen(State *s);
@@ -1071,6 +1092,8 @@ public:
                                          int64_t origin_server_request_body_size, int origin_server_response_header_size,
                                          int64_t origin_server_response_body_size, int pushed_response_header_size,
                                          int64_t pushed_response_body_size, const TransactionMilestones &milestones);
+  static void milestone_start_api_time(State *s);
+  static void milestone_update_api_time(State *s);
   static void histogram_request_document_size(State *s, int64_t size);
   static void histogram_response_document_size(State *s, int64_t size);
   static void user_agent_connection_speed(State *s, ink_hrtime transfer_time, int64_t nbytes);

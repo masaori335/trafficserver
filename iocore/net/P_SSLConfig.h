@@ -30,6 +30,8 @@
  ****************************************************************************/
 #pragma once
 
+#include <atomic>
+
 #include <openssl/rand.h>
 
 #include "tscore/ink_inet.h"
@@ -101,10 +103,17 @@ struct SSLConfigParams : public ConfigInfo {
   long ssl_ctx_options;
   long ssl_client_ctx_options;
 
+  unsigned char alpn_protocols_array[MAX_ALPN_STRING];
+  int alpn_protocols_array_size = 0;
+
   char *server_tls13_cipher_suites;
   char *client_tls13_cipher_suites;
   char *server_groups_list;
   char *client_groups_list;
+
+  char *keylog_file;
+
+  static bool ssl_ktls_enabled;
 
   static uint32_t server_max_early_data;
   static uint32_t server_recv_max_early_data;
@@ -120,6 +129,7 @@ struct SSLConfigParams : public ConfigInfo {
   static int ssl_ocsp_update_period;
   static int ssl_handshake_timeout_in;
   char *ssl_ocsp_response_path_only;
+  static char *ssl_ocsp_user_agent;
 
   static int origin_session_cache;
   static size_t origin_session_cache_size;
@@ -162,6 +172,11 @@ struct SSLConfigParams : public ConfigInfo {
   void cleanup();
   void reset();
   void SSLConfigInit(IpMap *global);
+
+private:
+  // c_str() of string passed to in-progess call to updateCTX().
+  //
+  mutable std::atomic<char const *> secret_for_updateCTX{nullptr};
 };
 
 /////////////////////////////////////////////////////////////
@@ -207,9 +222,9 @@ private:
 struct SSLTicketParams : public ConfigInfo {
   ssl_ticket_key_block *default_global_keyblock = nullptr;
   time_t load_time                              = 0;
-  char *ticket_key_filename;
+  char *ticket_key_filename                     = nullptr;
   bool LoadTicket(bool &nochange);
-  void LoadTicketData(char *ticket_data, int ticket_data_len);
+  bool LoadTicketData(char *ticket_data, int ticket_data_len);
   void cleanup();
 
   ~SSLTicketParams() override { cleanup(); }

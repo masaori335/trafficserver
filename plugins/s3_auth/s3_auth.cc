@@ -23,6 +23,7 @@
 #include <ctime>
 #include <cstring>
 #include <getopt.h>
+#include <ios>
 #include <sys/time.h>
 
 #include <cstdio>
@@ -45,7 +46,9 @@
 
 #include <ts/ts.h>
 #include <ts/remap.h>
+#include <tscpp/util/TsSharedMutex.h>
 #include "tscore/ink_config.h"
+#include "tscpp/util/TextView.h"
 
 #include "aws_auth_v4.h"
 
@@ -485,11 +488,22 @@ public:
     if (_conf_rld_act != nullptr && !TSActionDone(_conf_rld_act)) {
       TSActionCancel(_conf_rld_act);
     }
-    _conf_rld_act = TSContScheduleOnPool(_conf_rld, delay * 1000, TS_THREAD_POOL_NET);
+    _conf_rld_act = TSContScheduleOnPool(_conf_rld, delay * 1000, TS_THREAD_POOL_TASK);
   }
 
-  std::shared_mutex reload_mutex;
-  std::atomic_bool reload_waiting = false;
+  /**
+     Clear _conf_rld_act if the event handler is handling the action
+   */
+  void
+  check_current_action(void *edata)
+  {
+    // Following what's TSContScheduleOnPool does before returning TSAction
+    if (_conf_rld_act == ((TSAction)((uintptr_t)edata | 0x1))) {
+      _conf_rld_act = nullptr;
+    }
+  }
+
+  ts::shared_mutex reload_mutex;
 
 private:
   char *_secret            = nullptr;
@@ -523,61 +537,51 @@ S3Config::parse_config(const std::string &config_fname)
     TSError("[%s] called without a config file, this is broken", PLUGIN_NAME);
     return false;
   } else {
-    char line[512]; // These are long lines ...
-    FILE *file = fopen(config_fname.c_str(), "r");
+    std::ifstream file;
+    file.open(config_fname, std::ios_base::in);
 
-    if (nullptr == file) {
+    if (!file.is_open()) {
       TSError("[%s] unable to open %s", PLUGIN_NAME, config_fname.c_str());
       return false;
     }
 
-    while (fgets(line, sizeof(line), file) != nullptr) {
-      char *pos1, *pos2;
+    for (std::string buf; std::getline(file, buf);) {
+      ts::TextView line{buf};
 
-      // Skip leading white spaces
-      pos1 = line;
-      while (*pos1 && isspace(*pos1)) {
-        ++pos1;
-      }
-      if (!*pos1 || ('#' == *pos1)) {
-        continue;
-      }
+      // Skip leading/trailing white spaces
+      ts::TextView key_val = line.trim_if(&isspace);
 
-      // Skip trailing white spaces
-      pos2 = pos1;
-      pos1 = pos2 + strlen(pos2) - 1;
-      while ((pos1 > pos2) && isspace(*pos1)) {
-        *(pos1--) = '\0';
-      }
-      if (pos1 == pos2) {
+      // Skip empty or comment lines
+      if (key_val.empty() || ('#' == key_val[0])) {
         continue;
       }
 
       // Identify the keys (and values if appropriate)
-      if (0 == strncasecmp(pos2, "secret_key=", 11)) {
-        set_secret(pos2 + 11);
-      } else if (0 == strncasecmp(pos2, "access_key=", 11)) {
-        set_keyid(pos2 + 11);
-      } else if (0 == strncasecmp(pos2, "session_token=", 14)) {
-        set_token(pos2 + 14);
-      } else if (0 == strncasecmp(pos2, "version=", 8)) {
-        set_version(pos2 + 8);
-      } else if (0 == strncasecmp(pos2, "virtual_host", 12)) {
+      std::string key_str{key_val.take_prefix_at('=').trim_if(&isspace)};
+      std::string val_str{key_val.trim_if(&isspace)};
+
+      if (key_str == "secret_key") {
+        set_secret(val_str.c_str());
+      } else if (key_str == "access_key") {
+        set_keyid(val_str.c_str());
+      } else if (key_str == "session_token") {
+        set_token(val_str.c_str());
+      } else if (key_str == "version") {
+        set_version(val_str.c_str());
+      } else if (key_str == "virtual_host") {
         set_virt_host();
-      } else if (0 == strncasecmp(pos2, "v4-include-headers=", 19)) {
-        set_include_headers(pos2 + 19);
-      } else if (0 == strncasecmp(pos2, "v4-exclude-headers=", 19)) {
-        set_exclude_headers(pos2 + 19);
-      } else if (0 == strncasecmp(pos2, "v4-region-map=", 14)) {
-        set_region_map(pos2 + 14);
-      } else if (0 == strncasecmp(pos2, "expiration=", 11)) {
-        set_expiration(pos2 + 11);
+      } else if (key_str == "v4-include-headers") {
+        set_include_headers(val_str.c_str());
+      } else if (key_str == "v4-exclude-headers") {
+        set_exclude_headers(val_str.c_str());
+      } else if (key_str == "v4-region-map") {
+        set_region_map(val_str.c_str());
+      } else if (key_str == "expiration") {
+        set_expiration(val_str.c_str());
       } else {
-        // ToDo: warnings?
+        TSWarning("[%s] unknown config key: %s", PLUGIN_NAME, key_str.c_str());
       }
     }
-
-    fclose(file);
   }
 
   return true;
@@ -1002,10 +1006,6 @@ event_handler(TSCont cont, TSEvent event, void *edata)
     switch (event) {
     case TS_EVENT_HTTP_SEND_REQUEST_HDR:
       if (request.initialize()) {
-        while (s3->reload_waiting) {
-          std::this_thread::yield();
-        }
-
         std::shared_lock lock(s3->reload_mutex);
         status = request.authorize(s3);
       }
@@ -1058,12 +1058,11 @@ config_reloader(TSCont cont, TSEvent event, void *edata)
     return TS_ERROR;
   }
 
-  s3->reload_waiting = true;
   {
     std::unique_lock lock(s3->reload_mutex);
     s3->copy_changes_from(file_config);
+    s3->check_current_action(edata);
   }
-  s3->reload_waiting = false;
 
   if (s3->expiration() == 0) {
     TSDebug(PLUGIN_NAME, "disabling auto config reload");
@@ -1116,16 +1115,16 @@ TSReturnCode
 TSRemapNewInstance(int argc, char *argv[], void **ih, char * /* errbuf ATS_UNUSED */, int /* errbuf_size ATS_UNUSED */)
 {
   static const struct option longopt[] = {
-    {const_cast<char *>("access_key"), required_argument, nullptr, 'a'},
-    {const_cast<char *>("config"), required_argument, nullptr, 'c'},
-    {const_cast<char *>("secret_key"), required_argument, nullptr, 's'},
-    {const_cast<char *>("version"), required_argument, nullptr, 'v'},
-    {const_cast<char *>("virtual_host"), no_argument, nullptr, 'h'},
-    {const_cast<char *>("v4-include-headers"), required_argument, nullptr, 'i'},
-    {const_cast<char *>("v4-exclude-headers"), required_argument, nullptr, 'e'},
-    {const_cast<char *>("v4-region-map"), required_argument, nullptr, 'm'},
-    {const_cast<char *>("session_token"), required_argument, nullptr, 't'},
-    {nullptr, no_argument, nullptr, '\0'},
+    {const_cast<char *>("access_key"),         required_argument, nullptr, 'a' },
+    {const_cast<char *>("config"),             required_argument, nullptr, 'c' },
+    {const_cast<char *>("secret_key"),         required_argument, nullptr, 's' },
+    {const_cast<char *>("version"),            required_argument, nullptr, 'v' },
+    {const_cast<char *>("virtual_host"),       no_argument,       nullptr, 'h' },
+    {const_cast<char *>("v4-include-headers"), required_argument, nullptr, 'i' },
+    {const_cast<char *>("v4-exclude-headers"), required_argument, nullptr, 'e' },
+    {const_cast<char *>("v4-region-map"),      required_argument, nullptr, 'm' },
+    {const_cast<char *>("session_token"),      required_argument, nullptr, 't' },
+    {nullptr,                                  no_argument,       nullptr, '\0'},
   };
 
   S3Config *s3          = new S3Config(true); // true == this config gets the continuation

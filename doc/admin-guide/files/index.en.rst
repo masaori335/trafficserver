@@ -31,7 +31,7 @@ Configuration Files
    logging.yaml.en
    parent.config.en
    plugin.config.en
-   records.config.en
+   records.yaml.en
    remap.config.en
    splitdns.config.en
    ssl_multicert.config.en
@@ -39,6 +39,7 @@ Configuration Files
    storage.config.en
    strategies.yaml.en
    volume.config.en
+   jsonrpc.yaml.en
 
 :doc:`cache.config.en`
    Defines if, how, and for what durations |TS| caches objects, based on
@@ -62,7 +63,7 @@ Configuration Files
    Control runtime loadable plugins available to |TS|, as well as their
    configurations.
 
-:doc:`records.config.en`
+:doc:`records.yaml.en`
    Contains many configuration variables affecting |TS| operation.
 
 :doc:`remap.config.en`
@@ -86,6 +87,9 @@ Configuration Files
 
 :doc:`volume.config.en`
     Defines cache space usage by individual protocols.
+
+:doc:`jsonrpc.yaml.en`
+    Defines some of the configurable arguments of the jsonrpc endpoint.
 
 .. note::
 

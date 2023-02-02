@@ -135,7 +135,7 @@ HttpTransactHeaders::insert_supported_methods_in_response(HTTPHdr *response, int
     if (is_supported) {
       ++num_methods_supported;
       method_output_lengths[i] = hdrtoken_wks_to_length(method_wks);
-      bytes += method_output_lengths[i];
+      bytes                    += method_output_lengths[i];
       if (num_methods_supported > 1) {
         bytes += 2; // +2 if need leading ", "
       }
@@ -226,7 +226,7 @@ HttpTransactHeaders::copy_header_fields(HTTPHdr *src_hdr, HTTPHdr *new_hdr, bool
   //         serving it to a client that can not handle it
   //      2) Transfer encoding is copied.  If the transfer encoding
   //         is changed for example by dechunking, the transfer encoding
-  //         should be modified when when the decision is made to dechunk it
+  //         should be modified when the decision is made to dechunk it
 
   for (auto &field : *new_hdr) {
     if (field.m_wks_idx == -1) {
@@ -421,11 +421,16 @@ HttpTransactHeaders::calculate_document_age(ink_time_t request_time, ink_time_t 
 }
 
 bool
-HttpTransactHeaders::does_server_allow_response_to_be_stored(HTTPHdr *resp)
+HttpTransactHeaders::does_server_allow_response_to_be_stored(HTTPHdr *resp, bool ignore_no_store_and_no_cache_directives)
 {
-  uint32_t cc_mask = (MIME_COOKED_MASK_CC_NO_STORE | MIME_COOKED_MASK_CC_PRIVATE);
+  uint32_t cc_mask = MIME_COOKED_MASK_CC_PRIVATE | (ignore_no_store_and_no_cache_directives ? 0 : MIME_COOKED_MASK_CC_NO_STORE);
 
-  if ((resp->get_cooked_cc_mask() & cc_mask) || (resp->get_cooked_pragma_no_cache())) {
+  // According to https://www.rfc-editor.org/rfc/rfc7234#section-5.4
+  // ... When the Cache-Control header field is also present and
+  // understood in a request, Pragma is ignored.
+  if (!ignore_no_store_and_no_cache_directives && resp->get_cooked_cc_mask() == 0 && resp->get_cooked_pragma_no_cache()) {
+    return false;
+  } else if (resp->get_cooked_cc_mask() & cc_mask) {
     return false;
   } else {
     return true;
@@ -776,7 +781,7 @@ HttpTransactHeaders::insert_via_header_in_request(HttpTransact::State *s, HTTPHd
 
   *via_string++ = '[';
   memcpy(via_string, Machine::instance()->uuid.getString(), TS_UUID_STRING_LEN);
-  via_string += TS_UUID_STRING_LEN;
+  via_string    += TS_UUID_STRING_LEN;
   *via_string++ = ']';
   *via_string++ = ' ';
   *via_string++ = '(';
@@ -837,7 +842,7 @@ HttpTransactHeaders::insert_hsts_header_in_response(HttpTransact::State *s, HTTP
 void
 HttpTransactHeaders::insert_via_header_in_response(HttpTransact::State *s, HTTPHdr *header)
 {
-  char new_via_string[1024]; // 512-bytes for hostname+via string, 512-bytes for the debug info
+  char new_via_string[HTTP_OUR_VIA_MAX_LENGTH];
   char *via_string = new_via_string;
   char *via_limit  = via_string + sizeof(new_via_string);
 
@@ -862,7 +867,7 @@ HttpTransactHeaders::insert_via_header_in_response(HttpTransact::State *s, HTTPH
     write_hdr_protocol_stack(via_string, via_limit - via_string, ProtocolStackDetail::Standard, proto_buf.data(), n_proto);
   *via_string++ = ' ';
 
-  via_string += nstrcpy(via_string, s->http_config_param->proxy_hostname);
+  via_string    += nstrcpy(via_string, s->http_config_param->proxy_hostname);
   *via_string++ = ' ';
   *via_string++ = '(';
 
@@ -960,18 +965,27 @@ HttpTransactHeaders::add_forwarded_field_to_request(HttpTransact::State *s, HTTP
 
     ts::LocalBufferWriter<1024> hdr;
 
-    if (optSet[HttpForwarded::FOR] and ats_is_ip(&s->client_info.src_addr.sa)) {
+    IpEndpoint src_addr = s->client_info.src_addr;
+    if (s->state_machine->ua_txn && s->state_machine->ua_txn->get_netvc()) {
+      const ProxyProtocol &pp = s->state_machine->ua_txn->get_netvc()->get_proxy_protocol_info();
+
+      if (pp.version != ProxyProtocolVersion::UNDEFINED) {
+        src_addr = pp.src_addr;
+      }
+    }
+
+    if (optSet[HttpForwarded::FOR] and ats_is_ip(&src_addr.sa)) {
       // NOTE:  The logic within this if statement assumes that hdr is empty at this point.
 
       hdr << "for=";
 
-      bool is_ipv6 = ats_is_ip6(&s->client_info.src_addr.sa);
+      bool is_ipv6 = ats_is_ip6(&src_addr.sa);
 
       if (is_ipv6) {
         hdr << "\"[";
       }
 
-      if (ats_ip_ntop(&s->client_info.src_addr.sa, hdr.auxBuffer(), hdr.remaining()) == nullptr) {
+      if (ats_ip_ntop(&src_addr.sa, hdr.auxBuffer(), hdr.remaining()) == nullptr) {
         Debug("http_trans", "[add_forwarded_field_to_outgoing_request] ats_ip_ntop() call failed");
         return;
       }

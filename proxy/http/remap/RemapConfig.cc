@@ -46,7 +46,7 @@ load_remap_file_func load_remap_file_cb = nullptr;
   Returns the length of the URL.
 
   Will replace the terminator with a '/' if this is a full URL and
-  there are no '/' in it after the the host.  This ensures that class
+  there are no '/' in it after the host.  This ensures that class
   URL parses the URL correctly.
 
 */
@@ -148,7 +148,7 @@ is_inkeylist(const char *key, ...)
   va_start(ap, key);
 
   const char *str = va_arg(ap, const char *);
-  for (unsigned idx = 1; str; idx++) {
+  while (str) {
     if (!strcasecmp(key, str)) {
       va_end(ap);
       return true;
@@ -375,26 +375,26 @@ struct remap_directive {
 
 static const remap_directive directives[] = {
 
-  {".definefilter", parse_define_directive},
-  {".deffilter", parse_define_directive},
-  {".defflt", parse_define_directive},
+  {".definefilter",     parse_define_directive    },
+  {".deffilter",        parse_define_directive    },
+  {".defflt",           parse_define_directive    },
 
-  {".deletefilter", parse_delete_directive},
-  {".delfilter", parse_delete_directive},
-  {".delflt", parse_delete_directive},
+  {".deletefilter",     parse_delete_directive    },
+  {".delfilter",        parse_delete_directive    },
+  {".delflt",           parse_delete_directive    },
 
-  {".usefilter", parse_activate_directive},
-  {".activefilter", parse_activate_directive},
-  {".activatefilter", parse_activate_directive},
-  {".useflt", parse_activate_directive},
+  {".usefilter",        parse_activate_directive  },
+  {".activefilter",     parse_activate_directive  },
+  {".activatefilter",   parse_activate_directive  },
+  {".useflt",           parse_activate_directive  },
 
-  {".unusefilter", parse_deactivate_directive},
+  {".unusefilter",      parse_deactivate_directive},
   {".deactivatefilter", parse_deactivate_directive},
-  {".unactivefilter", parse_deactivate_directive},
-  {".deuseflt", parse_deactivate_directive},
-  {".unuseflt", parse_deactivate_directive},
+  {".unactivefilter",   parse_deactivate_directive},
+  {".deuseflt",         parse_deactivate_directive},
+  {".unuseflt",         parse_deactivate_directive},
 
-  {".include", parse_include_directive},
+  {".include",          parse_include_directive   },
 };
 
 const char *
@@ -746,7 +746,7 @@ remap_load_plugin(const char **argv, int argc, url_mapping *mp, char *errbuf, in
   ink_assert((unsigned)argc < countof(new_argv));
 
   if (jump_to_argc != 0) {
-    argc -= jump_to_argc;
+    argc  -= jump_to_argc;
     int i = 0;
     while (argv[i + jump_to_argc]) {
       new_argv[i] = argv[i + jump_to_argc];
@@ -899,11 +899,10 @@ process_regex_mapping_config(const char *from_host_lower, url_mapping *new_mappi
   return true;
 
 lFail:
-  if (reg_map->to_url_host_template) {
-    ats_free(reg_map->to_url_host_template);
-    reg_map->to_url_host_template     = nullptr;
-    reg_map->to_url_host_template_len = 0;
-  }
+  ats_free(reg_map->to_url_host_template);
+  reg_map->to_url_host_template     = nullptr;
+  reg_map->to_url_host_template_len = 0;
+
   return false;
 }
 
@@ -915,7 +914,6 @@ remap_parse_config_bti(const char *path, BUILD_TABLE_INFO *bti)
   const char *errStr;
 
   Tokenizer whiteTok(" \t");
-  bool alarm_already = false;
 
   // Vars to parse line in file
   char *tok_state, *cur_line, *cur_line_tmp;
@@ -945,6 +943,9 @@ remap_parse_config_bti(const char *path, BUILD_TABLE_INFO *bti)
 
   std::error_code ec;
   std::string content{ts::file::load(ts::file::path{path}, ec)};
+  if (ec.value() == ENOENT) { // a missing file is ok - treat as empty, no rules.
+    return true;
+  }
   if (ec.value()) {
     Warning("Failed to open remapping configuration file %s - %s", path, strerror(ec.value()));
     return false;
@@ -1077,7 +1078,7 @@ remap_parse_config_bti(const char *path, BUILD_TABLE_INFO *bti)
     //   the beginning of the string
     if ((tmp = (map_from_start = map_from)) != nullptr && length > 2 && tmp[length - 1] == '/' && tmp[length - 2] == '/') {
       new_mapping->unique = true;
-      length -= 2;
+      length              -= 2;
     }
 
     new_mapping->fromURL.create(nullptr);
@@ -1151,7 +1152,7 @@ remap_parse_config_bti(const char *path, BUILD_TABLE_INFO *bti)
             if (refinfo_error) {
               snprintf(errStrBuf, sizeof(errStrBuf), "%s Incorrect Referer regular expression \"%s\" at line %d - %s", modulePrefix,
                        bti->paramv[j - 1], cln + 1, refinfo_error_buf);
-              SignalError(errStrBuf, alarm_already);
+              Error("%s", errStrBuf);
               delete ri;
               ri = nullptr;
             }
@@ -1333,7 +1334,7 @@ remap_parse_config_bti(const char *path, BUILD_TABLE_INFO *bti)
   MAP_ERROR:
 
     snprintf(errBuf, sizeof(errBuf), "%s failed to add remap rule at %s line %d: %s", modulePrefix, path, cln + 1, errStr);
-    SignalError(errBuf, alarm_already);
+    Error("%s", errBuf);
 
     delete reg_map;
     delete new_mapping;

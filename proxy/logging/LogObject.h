@@ -45,9 +45,9 @@
   consist of a list of LogObjects.
   -------------------------------------------------------------------------*/
 
-#define LOG_FILE_ASCII_OBJECT_FILENAME_EXTENSION ".log"
+#define LOG_FILE_ASCII_OBJECT_FILENAME_EXTENSION  ".log"
 #define LOG_FILE_BINARY_OBJECT_FILENAME_EXTENSION ".blog"
-#define LOG_FILE_PIPE_OBJECT_FILENAME_EXTENSION ".pipe"
+#define LOG_FILE_PIPE_OBJECT_FILENAME_EXTENSION   ".pipe"
 
 #define FLUSH_ARRAY_SIZE (512 * 4)
 
@@ -96,11 +96,10 @@ public:
   LogObject(LogConfig *cfg, const LogFormat *format, const char *log_dir, const char *basename, LogFileFormat file_format,
             const char *header, Log::RollingEnabledValues rolling_enabled, int flush_threads, int rolling_interval_sec = 0,
             int rolling_offset_hr = 0, int rolling_size_mb = 0, bool auto_created = false, int rolling_max_count = 0,
-            int rolling_min_count = 0, bool reopen_after_rolling = false, int pipe_buffer_size = 0);
+            int rolling_min_count = 0, bool reopen_after_rolling = false, int pipe_buffer_size = 0, bool m_fast = false);
   ~LogObject() override;
 
   void add_filter(LogFilter *filter, bool copy = true);
-  void set_filter_list(const LogFilterList &list, bool copy = true);
 
   inline void
   set_fmt_timestamps()
@@ -123,16 +122,6 @@ public:
   int va_log(LogAccess *lad, const char *fmt, va_list ap);
 
   unsigned roll_files(long time_now = 0);
-
-  inline int
-  add_to_flush_queue(LogBuffer *buffer)
-  {
-    int idx = m_buffer_manager_idx++ % m_flush_threads;
-
-    m_buffer_manager[idx].add_to_flush_queue(buffer);
-
-    return idx;
-  }
 
   inline size_t
   preproc_buffers(int idx = -1)
@@ -250,6 +239,8 @@ public:
     _checkout_write(nullptr, 0);
   }
 
+  void flush_buffer(LogBuffer *);
+
   bool operator==(LogObject &rhs);
 
 public:
@@ -287,6 +278,7 @@ private:
   LogBufferManager *m_buffer_manager;
 
   int m_pipe_buffer_size;
+  bool m_fast; // use fast buffering (thread local logbuffers)
 
   void generate_filenames(const char *log_dir, const char *basename, LogFileFormat file_format);
   void _setup_rolling(LogConfig *cfg, Log::RollingEnabledValues rolling_enabled, int rolling_interval_sec, int rolling_offset_hr,
@@ -296,7 +288,7 @@ private:
   LogBuffer *_checkout_write(size_t *write_offset, size_t write_size);
 
   // noncopyable
-  LogObject(const LogObject &) = delete;
+  LogObject(const LogObject &)            = delete;
   LogObject &operator=(const LogObject &) = delete;
 
 private:
@@ -313,7 +305,7 @@ class TextLogObject : public LogObject
 public:
   TextLogObject(const char *name, const char *log_dir, bool timestamps, const char *header,
                 Log::RollingEnabledValues rolling_enabled, int flush_threads, int rolling_interval_sec, int rolling_offset_hr,
-                int rolling_size_mb, int rolling_max_count, int rolling_min_count, bool reopen_after_rolling);
+                int rolling_size_mb, int rolling_max_count, int rolling_min_count, bool reopen_after_rolling, bool fast = false);
 
   int write(const char *format, ...) TS_PRINTFLIKE(2, 3);
   int va_write(const char *format, va_list ap);

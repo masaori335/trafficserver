@@ -26,6 +26,7 @@
 #include <bitset>
 
 #include <tscpp/util/PostScript.h>
+#include <tscpp/api/Cleanup.h>
 
 #include <ts/ts.h>
 #include <ts/remap.h>
@@ -39,6 +40,12 @@ Regression testing code for TS API.  Not comprehensive, hopefully will be built 
 namespace
 {
 char PIName[] = PINAME;
+
+atscppapi::TSDbgCtlUniqPtr dbg_ctl_guard{TSDbgCtlCreate(PIName)};
+TSDbgCtl const * const dbg_ctl{dbg_ctl_guard.get()};
+
+atscppapi::TSDbgCtlUniqPtr off_dbg_ctl_guard{TSDbgCtlCreate("yada-yada-yada")};
+TSDbgCtl const * const off_dbg_ctl{off_dbg_ctl_guard.get()};
 
 // NOTE:  It's important to flush this after writing so that a gold test using this plugin can examine the log before TS
 // terminates.
@@ -172,7 +179,11 @@ transactionContFunc(TSCont, TSEvent event, void *eventData)
 {
   logFile << "Transaction: event=" << TSHttpEventNameLookup(event) << std::endl;
 
-  TSDebug(PIName, "Transaction: event=%s(%d) eventData=%p", TSHttpEventNameLookup(event), event, eventData);
+  TSDbg(dbg_ctl, "Transaction: event=%s(%d) eventData=%p", TSHttpEventNameLookup(event), event, eventData);
+
+  TSDebug(PIName, "Should not see this, enabled set to 3");
+
+  TSDbg(off_dbg_ctl, "Should not see this, tag does not match regular expression");
 
   switch (event) {
   case TS_EVENT_HTTP_READ_REQUEST_HDR: {
@@ -205,7 +216,7 @@ globalContFunc(TSCont, TSEvent event, void *eventData)
 {
   logFile << "Global: event=" << TSHttpEventNameLookup(event) << std::endl;
 
-  TSDebug(PIName, "Global: event=%s(%d) eventData=%p", TSHttpEventNameLookup(event), event, eventData);
+  TSDbg(dbg_ctl, "Global: event=%s(%d) eventData=%p", TSHttpEventNameLookup(event), event, eventData);
 
   switch (event) {
   case TS_EVENT_HTTP_TXN_START: {
@@ -247,7 +258,7 @@ globalContFunc(TSCont, TSEvent event, void *eventData)
 TSReturnCode
 TSRemapInit(TSRemapInterface *api_info, char *errbuf, int errbuf_size)
 {
-  TSDebug(PIName, "TSRemapInit()");
+  TSDbg(dbg_ctl, "TSRemapInit()");
 
   TSReleaseAssert(api_info && errbuf && errbuf_size);
 

@@ -19,7 +19,7 @@
 AM_CPPFLAGS += \
 	-I$(abs_top_srcdir)/include \
 	-I$(abs_top_srcdir)/lib \
-	$(TS_INCLUDES)
+	$(TS_INCLUDES) @SWOC_INCLUDES@
 
 TESTS = $(check_PROGRAMS)
 
@@ -72,11 +72,12 @@ libinkevent_a_SOURCES = \
 
 check_PROGRAMS = test_IOBuffer \
 	test_EventSystem \
-	test_MIOBufferWriter
+	test_MIOBufferWriter \
+	benchmark_ProxyAllocator
 
 test_LD_FLAGS = \
 	@AM_LDFLAGS@ \
-	@OPENSSL_LDFLAGS@
+	@OPENSSL_LDFLAGS@ @SWOC_LDFLAGS@ @YAMLCPP_LDFLAGS@
 
 test_CPP_FLAGS = \
 	$(AM_CPPFLAGS) \
@@ -88,17 +89,17 @@ test_CPP_FLAGS = \
 	-I$(abs_top_srcdir)/mgmt \
 	-I$(abs_top_srcdir)/mgmt/utils \
 	-I$(abs_top_srcdir)/tests/include \
-	@OPENSSL_INCLUDES@
+	@OPENSSL_INCLUDES@ @SWOC_INCLUDES@
 
 test_LD_ADD = \
 	libinkevent.a \
-	$(top_builddir)/lib/records/librecords_p.a \
+	$(top_builddir)/src/records/librecords_p.a \
 	$(top_builddir)/mgmt/libmgmt_p.la \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/src/tscore/libtscore.la \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/proxy/shared/libUglyLogStubs.a \
-	@HWLOC_LIBS@
+	@HWLOC_LIBS@ @SWOC_LIBS@ @YAMLCPP_LIBS@
 
 test_EventSystem_SOURCES = unit_tests/test_EventSystem.cc
 test_EventSystem_CPPFLAGS = $(test_CPP_FLAGS)
@@ -113,6 +114,11 @@ test_IOBuffer_LDADD = $(test_LD_ADD)
 test_MIOBufferWriter_SOURCES = unit_tests/test_MIOBufferWriter.cc
 test_MIOBufferWriter_CPPFLAGS = $(test_CPP_FLAGS)
 test_MIOBufferWriter_LDFLAGS = $(test_LD_FLAGS)
+
+benchmark_ProxyAllocator_SOURCES = unit_tests/benchmark_ProxyAllocator.cc
+benchmark_ProxyAllocator_CPPFLAGS = $(test_CPP_FLAGS)
+benchmark_ProxyAllocator_LDFLAGS = $(test_LD_FLAGS)
+benchmark_ProxyAllocator_LDADD = $(test_LD_ADD)
 
 include $(top_srcdir)/build/tidy.mk
 

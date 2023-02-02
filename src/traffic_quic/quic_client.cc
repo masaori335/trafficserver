@@ -29,6 +29,7 @@
 
 #include "Http3Transaction.h"
 #include "P_QUICNetVConnection.h"
+#include "quic/QUICStreamManager.h"
 
 // OpenSSL protocol-lists format (vector of 8-bit length-prefixed, byte strings)
 // https://www.openssl.org/docs/manmaster/man3/SSL_CTX_set_alpn_protos.html
@@ -141,7 +142,7 @@ QUICClient::state_http_server_open(int event, void *data)
 //
 // Http09ClientApp
 //
-#define Http09ClientAppDebug(fmt, ...) Debug("quic_client_app", "[%s] " fmt, this->_qc->cids().data(), ##__VA_ARGS__)
+#define Http09ClientAppDebug(fmt, ...)  Debug("quic_client_app", "[%s] " fmt, this->_qc->cids().data(), ##__VA_ARGS__)
 #define Http09ClientAppVDebug(fmt, ...) Debug("v_quic_client_app", "[%s] " fmt, this->_qc->cids().data(), ##__VA_ARGS__)
 
 Http09ClientApp::Http09ClientApp(QUICNetVConnection *qvc, const QUICClientConfig *config) : QUICApplication(qvc), _config(config)

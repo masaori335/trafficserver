@@ -28,10 +28,10 @@
 #include <netinet/in.h>
 #include "tscore/BufferWriter.h"
 #include "tscore/bwf_std_format.h"
-#include "tscpp/util/MemSpan.h"
+#include "swoc/MemSpan.h"
 #include "tscore/ink_config.h"
 #if TS_ENABLE_FIPS == 0
-#include "tscore/INK_MD5.h"
+#include "tscore/MD5.h"
 #endif
 #include "tscore/CryptoHash.h"
 
@@ -182,22 +182,22 @@ TEST_CASE("BWFormat numerics", "[bwprint][bwformat]")
   bw.print("{}", char_ptr);
   REQUIRE(bw.view() == "good");
 
-  ts::MemSpan span{ptr, 0x200};
+  swoc::MemSpan span{ptr, 0x200};
   bw.reduce(0);
   bw.print("{}", span);
   REQUIRE(bw.view() == "0x200@0xbadd0956");
 
   bw.reduce(0);
-  bw.print("{:x}", ts::MemSpan(char_ptr, 4));
+  bw.print("{:x}", swoc::MemSpan(char_ptr, 4));
   REQUIRE(bw.view() == "676f6f64");
   bw.reduce(0);
-  bw.print("{:#x}", ts::MemSpan(char_ptr, 4));
+  bw.print("{:#x}", swoc::MemSpan(char_ptr, 4));
   REQUIRE(bw.view() == "0x676f6f64");
   bw.reduce(0);
-  bw.print("{:x}", ts::MemSpan<void>(char_ptr, 4));
+  bw.print("{:x}", swoc::MemSpan<void>(char_ptr, 4));
   REQUIRE(bw.view() == "676f6f64");
   bw.reduce(0);
-  bw.print("{:#x}", ts::MemSpan<void>(char_ptr, 4));
+  bw.print("{:#x}", swoc::MemSpan<void>(char_ptr, 4));
   REQUIRE(bw.view() == "0x676f6f64");
 
   std::string_view sv{"abc123"};
@@ -284,9 +284,11 @@ TEST_CASE("bwstring", "[bwprint][bwstring]")
 
   ts::bwprint(s, fmt, 99999, text);
   REQUIRE(s == "99999 -- e99a18c428cb38d5f260853678922e03");
+  REQUIRE(strlen(s.c_str()) == text.size() + 9);
 
   ts::bwprint(s, "{} .. |{:,20}|", 32767, text);
   REQUIRE(s == "32767 .. |e99a18c428cb38d5f260|");
+  REQUIRE(strlen(s.c_str()) == 31);
 
   ts::LocalBufferWriter<128> bw;
   char buff[128];

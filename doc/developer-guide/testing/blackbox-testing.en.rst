@@ -86,7 +86,7 @@ TrafficServer
 
 For TrafficServer, we have defined the following functions and objects in ``tests/gold_tests/autest-site/trafficserver.test.ext``:
 
-- ``MakeATSProcess(obj, name, command='traffic_server', select_ports=True, enable_tls=False)``
+- ``MakeATSProcess(obj, name, command='traffic_server', enable_tls=False)``
 
   - name - A name for this instance of ATS
   - command - optional argument defining what process to use. Defaults to ``traffic_server``
@@ -236,8 +236,10 @@ Condition Testing
 
         - TS_HAS_LIBZ
         - TS_HAS_LZMA
+        - TS_HAS_PIPE_BUFFER_SIZE_CONFIG
         - TS_HAS_JEMALLOC
         - TS_HAS_TCMALLOC
+        - TS_HAS_MIMALLOC
         - TS_HAS_IN6_IS_ADDR_UNSPECIFIED
         - TS_HAS_BACKTRACE
         - TS_HAS_PROFILER
@@ -252,6 +254,7 @@ Condition Testing
         - TS_HAS_IP_TOS
         - TS_USE_HWLOC
         - TS_USE_SET_RBIO
+        - TS_USE_TLS13
         - TS_USE_QUIC
         - TS_USE_LINUX_NATIVE_AIO
         - TS_HAS_SO_PEERCRED

@@ -25,7 +25,7 @@ Test different combinations of TLS handshake hooks to ensure they are applied co
 
 Test.SkipUnless(Condition.HasOpenSSLVersion("1.1.1"))
 
-ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=True)
+ts = Test.MakeATSProcess("ts", enable_tls=True)
 server = Test.MakeOriginServer("server", ssl=True)
 request_header = {"headers": "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n", "timestamp": "1469733493.993", "body": ""}
 # desired response form the origin server
@@ -104,11 +104,11 @@ tr3.Processes.Default.Command = "curl --tls-max 1.2 -k --cert ./server.pem --key
 tr3.Processes.Default.ReturnCode = 35
 tr3.Processes.Default.Streams.all = Testers.ContainsExpression("error", "Curl attempt should have failed")
 
-ts.Streams.All += Testers.ContainsExpression(
+ts.Disk.traffic_out.Content += Testers.ContainsExpression(
     "Client verify callback 0 [\da-fx]+? - event is good good HS", "verify callback happens 2 times")
-ts.Streams.All += Testers.ContainsExpression(
+ts.Disk.traffic_out.Content += Testers.ContainsExpression(
     "Client verify callback 1 [\da-fx]+? - event is good good HS", "verify callback happens 2 times")
-ts.Streams.All += Testers.ContainsExpression(
+ts.Disk.traffic_out.Content += Testers.ContainsExpression(
     "Client verify callback 0 [\da-fx]+? - event is good error HS", "verify callback happens 2 times")
-ts.Streams.All += Testers.ContainsExpression(
+ts.Disk.traffic_out.Content += Testers.ContainsExpression(
     "Client verify callback 1 [\da-fx]+? - event is good error HS", "verify callback happens 2 times")

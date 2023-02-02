@@ -23,9 +23,9 @@
 
 #include "P_Cache.h"
 
-#define UINT_WRAP_LTE(_x, _y) (((_y) - (_x)) < INT_MAX) // exploit overflow
-#define UINT_WRAP_GTE(_x, _y) (((_x) - (_y)) < INT_MAX) // exploit overflow
-#define UINT_WRAP_LT(_x, _y) (((_x) - (_y)) >= INT_MAX) // exploit overflow
+#define UINT_WRAP_LTE(_x, _y) (((_y) - (_x)) < INT_MAX)  // exploit overflow
+#define UINT_WRAP_GTE(_x, _y) (((_x) - (_y)) < INT_MAX)  // exploit overflow
+#define UINT_WRAP_LT(_x, _y)  (((_x) - (_y)) >= INT_MAX) // exploit overflow
 
 // Given a key, finds the index of the alternate which matches
 // used to get the alternate which is actually present in the document
@@ -226,9 +226,9 @@ CacheVC::handleWrite(int event, Event * /* e ATS_UNUSED */)
 
   set_agg_write_in_progress();
   POP_HANDLER;
-  agg_len = vol->round_to_approx_size(write_len + header_len + frag_len + sizeof(Doc));
+  agg_len            = vol->round_to_approx_size(write_len + header_len + frag_len + sizeof(Doc));
   vol->agg_todo_size += agg_len;
-  bool agg_error = (agg_len > AGG_SIZE || header_len + sizeof(Doc) > MAX_FRAG_SIZE ||
+  bool agg_error     = (agg_len > AGG_SIZE || header_len + sizeof(Doc) > MAX_FRAG_SIZE ||
                     (!f.readers && (vol->agg_todo_size > cache_config_agg_write_backlog + AGG_SIZE) && write_len));
 #ifdef CACHE_AGG_FAIL_RATE
   agg_error = agg_error || ((uint32_t)mutex->thread_holding->generator.random() < (uint32_t)(UINT_MAX * CACHE_AGG_FAIL_RATE));
@@ -240,7 +240,7 @@ CacheVC::handleWrite(int event, Event * /* e ATS_UNUSED */)
     CACHE_INCREMENT_DYN_STAT(cache_write_backlog_failure_stat);
     CACHE_INCREMENT_DYN_STAT(base_stat + CACHE_STAT_FAILURE);
     vol->agg_todo_size -= agg_len;
-    io.aio_result = AIO_SOFT_FAILURE;
+    io.aio_result      = AIO_SOFT_FAILURE;
     if (event == EVENT_CALL) {
       return EVENT_RETURN;
     }
@@ -266,7 +266,7 @@ iobufferblock_memcpy(char *p, int len, IOBufferBlock *ab, int offset)
     char *start   = b->_start;
     char *end     = b->_end;
     int max_bytes = end - start;
-    max_bytes -= offset;
+    max_bytes     -= offset;
     if (max_bytes <= 0) {
       offset = -max_bytes;
       b      = b->next.get();
@@ -277,8 +277,8 @@ iobufferblock_memcpy(char *p, int len, IOBufferBlock *ab, int offset)
       bytes = max_bytes;
     }
     ::memcpy(p, start + offset, bytes);
-    p += bytes;
-    len -= bytes;
+    p      += bytes;
+    len    -= bytes;
     b      = b->next.get();
     offset = 0;
   }
@@ -288,6 +288,13 @@ iobufferblock_memcpy(char *p, int len, IOBufferBlock *ab, int offset)
 EvacuationBlock *
 Vol::force_evacuate_head(Dir *evac_dir, int pinned)
 {
+  auto bucket = dir_evac_bucket(evac_dir);
+  if (!evac_bucket_valid(bucket)) {
+    DDebug("cache_evac", "dir_evac_bucket out of bounds, skipping evacuate: %" PRId64 "(%d), %d, %d", bucket, evacuate_size,
+           (int)dir_offset(evac_dir), (int)dir_phase(evac_dir));
+    return nullptr;
+  }
+
   // build an evacuation block for the object
   EvacuationBlock *b = evacuation_block_exists(evac_dir, this);
   // if we have already started evacuating this document, its too late
@@ -300,7 +307,7 @@ Vol::force_evacuate_head(Dir *evac_dir, int pinned)
     b      = new_EvacuationBlock(mutex->thread_holding);
     b->dir = *evac_dir;
     DDebug("cache_evac", "force: %d, %d", (int)dir_offset(evac_dir), (int)dir_phase(evac_dir));
-    evacuate[dir_evac_bucket(evac_dir)].push(b);
+    evacuate[bucket].push(b);
   }
   b->f.pinned        = pinned;
   b->f.evacuate_head = 1;
@@ -362,7 +369,7 @@ Vol::aggWriteDone(int event, Event *e)
   }
   if (io.ok()) {
     header->last_write_pos = header->write_pos;
-    header->write_pos += io.aiocb.aio_nbytes;
+    header->write_pos      += io.aiocb.aio_nbytes;
     ink_assert(header->write_pos >= start);
     DDebug("cache_agg", "Dir %s, Write: %" PRIu64 ", last Write: %" PRIu64 "", hash_text.get(), header->write_pos,
            header->last_write_pos);
@@ -458,7 +465,7 @@ CacheVC::evacuateReadHead(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */
     }
     alternate_tmp = vector.get(alternate_index);
     doc_len       = alternate_tmp->object_size_get();
-    Debug("cache_evac", "evacuateReadHead http earliest %X first: %X len: %" PRId64, first_key.slice32(0), earliest_key.slice32(0),
+    Debug("cache_evac", "evacuateReadHead http earliest %X first: %X len: %" PRId64, earliest_key.slice32(0), first_key.slice32(0),
           doc_len);
   } else {
     // non-http document
@@ -468,8 +475,8 @@ CacheVC::evacuateReadHead(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */
       goto Ldone;
     }
     doc_len = doc->total_len;
-    DDebug("cache_evac", "evacuateReadHead non-http earliest %X first: %X len: %" PRId64, first_key.slice32(0),
-           earliest_key.slice32(0), doc_len);
+    DDebug("cache_evac", "evacuateReadHead non-http earliest %X first: %X len: %" PRId64, earliest_key.slice32(0),
+           first_key.slice32(0), doc_len);
   }
   if (doc_len == total_len) {
     // the whole document has been evacuated. Insert the directory
@@ -500,7 +507,7 @@ CacheVC::evacuateDocDone(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
          (int)dir_phase(&overwrite_dir), (int)dir_offset(&dir), (int)dir_phase(&dir));
   int i = dir_evac_bucket(&overwrite_dir);
   // nasty beeping race condition, need to have the EvacuationBlock here
-  EvacuationBlock *b = vol->evacuate[i].head;
+  EvacuationBlock *b = vol->evac_bucket_valid(i) ? vol->evacuate[i].head : nullptr;
   for (; b; b = b->link.next) {
     if (dir_offset(&b->dir) == dir_offset(&overwrite_dir)) {
       // If the document is single fragment (although not tied to the vector),
@@ -526,7 +533,7 @@ CacheVC::evacuateDocDone(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
           Dir dir_tmp;
           dir_lookaside_probe(&evac->earliest_key, vol, &dir_tmp, &eblock);
           if (eblock) {
-            CacheVC *earliest_evac = eblock->earliest_evacuator;
+            CacheVC *earliest_evac   = eblock->earliest_evacuator;
             earliest_evac->total_len += doc->data_len();
             if (earliest_evac->total_len == earliest_evac->doc_len) {
               dir_lookaside_fixup(&evac->earliest_key, vol);
@@ -562,7 +569,7 @@ CacheVC::evacuateDocDone(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
           DDebug("cache_evac", "evacuating earliest: %X %d", (int)doc->key.slice32(0), (int)dir_offset(&overwrite_dir));
           ink_assert(dir_compare_tag(&overwrite_dir, &doc->key));
           ink_assert(b->earliest_evacuator == this);
-          total_len += doc->data_len();
+          total_len    += doc->data_len();
           first_key    = doc->first_key;
           earliest_dir = dir;
           if (dir_probe(&first_key, vol, &dir, &last_collision) > 0) {
@@ -626,7 +633,7 @@ Vol::evacuateWrite(CacheVC *evacuator, int event, Event *e)
   // push to front of aggregation write list, so it is written first
 
   evacuator->agg_len = round_to_approx_size((reinterpret_cast<Doc *>(evacuator->buf->data()))->len);
-  agg_todo_size += evacuator->agg_len;
+  agg_todo_size      += evacuator->agg_len;
   /* insert the evacuator after all the other evacuators */
   CacheVC *cur   = static_cast<CacheVC *>(agg.head);
   CacheVC *after = nullptr;
@@ -651,6 +658,7 @@ Vol::evacuateDocReadDone(int event, Event *e)
   Doc *doc = reinterpret_cast<Doc *>(doc_evacuator->buf->data());
   CacheKey next_key;
   EvacuationBlock *b = nullptr;
+  auto bucket        = dir_evac_bucket(&doc_evacuator->overwrite_dir);
   if (doc->magic != DOC_MAGIC) {
     Debug("cache_evac", "DOC magic: %X %d", (int)dir_tag(&doc_evacuator->overwrite_dir),
           (int)dir_offset(&doc_evacuator->overwrite_dir));
@@ -660,7 +668,9 @@ Vol::evacuateDocReadDone(int event, Event *e)
   DDebug("cache_evac", "evacuateDocReadDone %X offset %d", (int)doc->key.slice32(0),
          (int)dir_offset(&doc_evacuator->overwrite_dir));
 
-  b = evacuate[dir_evac_bucket(&doc_evacuator->overwrite_dir)].head;
+  if (evac_bucket_valid(bucket)) {
+    b = evacuate[bucket].head;
+  }
   while (b) {
     if (dir_offset(&b->dir) == dir_offset(&doc_evacuator->overwrite_dir)) {
       break;
@@ -928,7 +938,7 @@ agg_copy(char *p, CacheVC *vc)
 inline void
 Vol::evacuate_cleanup_blocks(int i)
 {
-  EvacuationBlock *b = evacuate[i].head;
+  EvacuationBlock *b = evac_bucket_valid(i) ? evacuate[i].head : nullptr;
   while (b) {
     if (b->f.done && ((header->phase != dir_phase(&b->dir) && header->write_pos > this->vol_offset(&b->dir)) ||
                       (header->phase == dir_phase(&b->dir) && header->write_pos <= this->vol_offset(&b->dir)))) {
@@ -1033,8 +1043,8 @@ Lagain:
     int wrotelen = agg_copy(agg_buffer + agg_buf_pos, c);
     ink_assert(writelen == wrotelen);
     agg_todo_size -= writelen;
-    agg_buf_pos += writelen;
-    CacheVC *n = (CacheVC *)c->link.next;
+    agg_buf_pos   += writelen;
+    CacheVC *n    = (CacheVC *)c->link.next;
     agg.dequeue();
     if (c->f.sync && c->f.use_first_key) {
       CacheVC *last = sync.tail;
@@ -1441,11 +1451,11 @@ Lagain:
   int64_t avail       = total_avail;
   int64_t towrite     = avail + length;
   if (towrite > ntodo) {
-    avail -= (towrite - ntodo);
+    avail   -= (towrite - ntodo);
     towrite = ntodo;
   }
   if (towrite > static_cast<int>(MAX_FRAG_SIZE)) {
-    avail -= (towrite - MAX_FRAG_SIZE);
+    avail   -= (towrite - MAX_FRAG_SIZE);
     towrite = MAX_FRAG_SIZE;
   }
   if (!blocks && towrite) {
@@ -1672,7 +1682,7 @@ CacheVC::openWriteStartBegin(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED
   }
 }
 
-// main entry point for writing of of non-http documents
+// main entry point for writing of non-http documents
 Action *
 Cache::open_write(Continuation *cont, const CacheKey *key, CacheFragType frag_type, int options, time_t apin_in_cache,
                   const char *hostname, int host_len)

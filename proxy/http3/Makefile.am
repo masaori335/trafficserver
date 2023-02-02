@@ -22,16 +22,15 @@ AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/include \
   -I$(abs_top_srcdir)/proxy/api/ts \
   -I$(abs_top_srcdir)/lib \
-  -I$(abs_top_srcdir)/lib/records \
+  -I$(abs_top_srcdir)/src/records \
   -I$(abs_top_srcdir)/mgmt \
   -I$(abs_top_srcdir)/mgmt/utils \
   -I$(abs_top_srcdir)/proxy \
   -I$(abs_top_srcdir)/proxy/http \
-  -I$(abs_top_srcdir)/proxy/http2 \
   -I$(abs_top_srcdir)/proxy/hdrs \
   -I$(abs_top_srcdir)/proxy/shared \
   -I$(abs_top_srcdir)/proxy/http/remap \
-  $(TS_INCLUDES) \
+  $(TS_INCLUDES) @SWOC_INCLUDES@ \
 	@YAMLCPP_INCLUDES@
 
 noinst_LIBRARIES = libhttp3.a
@@ -71,20 +70,20 @@ test_CPPFLAGS = \
 
 test_LDADD = \
   $(top_builddir)/iocore/net/quic/libquic.a \
+  $(top_builddir)/iocore/net/TLSKeyLogger.o \
   $(top_builddir)/iocore/eventsystem/libinkevent.a \
-  $(top_builddir)/lib/records/librecords_p.a \
+  $(top_builddir)/src/records/librecords_p.a \
   $(top_builddir)/mgmt/libmgmt_p.la \
   $(top_builddir)/src/tscore/libtscore.la \
   $(top_builddir)/src/tscpp/util/libtscpputil.la \
-  $(top_builddir)/proxy/http2/libhttp2.a \
   $(top_builddir)/proxy/hdrs/libhdrs.a \
   $(top_builddir)/proxy/shared/libUglyLogStubs.a \
   @LIBPCRE@ \
   @OPENSSL_LIBS@ \
-  @HWLOC_LIBS@
+  @HWLOC_LIBS@ @SWOC_LIBS@
 
 test_libhttp3_CPPFLAGS = $(test_CPPFLAGS)
-test_libhttp3_LDFLAGS = @AM_LDFLAGS@
+test_libhttp3_LDFLAGS = @AM_LDFLAGS@ @YAMLCPP_LDFLAGS@
 test_libhttp3_LDADD = $(test_LDADD)
 test_libhttp3_SOURCES = \
   ./test/main.cc \
@@ -93,7 +92,7 @@ test_libhttp3_SOURCES = \
   ./Http3Frame.cc
 
 test_qpack_CPPFLAGS = $(test_CPPFLAGS)
-test_qpack_LDFLAGS = @AM_LDFLAGS@
+test_qpack_LDFLAGS = @AM_LDFLAGS@ @YAMLCPP_LDFLAGS@
 test_qpack_LDADD = $(test_LDADD)
 test_qpack_SOURCES = \
   ./test/main_qpack.cc \

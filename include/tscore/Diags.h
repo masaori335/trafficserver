@@ -56,24 +56,38 @@
 #endif
 #endif
 
-extern Diags *diags;
+class DiagsPtr
+{
+public:
+  friend Diags *diags();
+  static void set(Diags *new_ptr);
+
+private:
+  static Diags *_diags_ptr;
+};
+
+inline Diags *
+diags()
+{
+  return DiagsPtr::_diags_ptr;
+}
 
 // Note that the log functions being implemented as a macro has the advantage
 // that the pre-compiler expands this in place such that the call to
 // MakeSourceLocation happens at the call site for the function.
-#define DiagsError(level, ...)                              \
-  do {                                                      \
-    static const SourceLocation loc = MakeSourceLocation(); \
-    static LogMessage log_message;                          \
-    log_message.message(level, loc, __VA_ARGS__);           \
-  } while (0)
+#define DiagsError(LEVEL, ...)                                          \
+  do {                                                                  \
+    static const SourceLocation DiagsError_loc = MakeSourceLocation();  \
+    static LogMessage DiagsError_log_message;                           \
+    DiagsError_log_message.message(LEVEL, DiagsError_loc, __VA_ARGS__); \
+  } while (false)
 
-#define Status(...) DiagsError(DL_Status, __VA_ARGS__)       // Log information
-#define Note(...) DiagsError(DL_Note, __VA_ARGS__)           // Log significant information
-#define Warning(...) DiagsError(DL_Warning, __VA_ARGS__)     // Log concerning information
-#define Error(...) DiagsError(DL_Error, __VA_ARGS__)         // Log operational failure, fail CI
-#define Fatal(...) DiagsError(DL_Fatal, __VA_ARGS__)         // Log recoverable crash, fail CI, exit & allow restart
-#define Alert(...) DiagsError(DL_Alert, __VA_ARGS__)         // Log recoverable crash, fail CI, exit & restart, Ops attention
+#define Status(...)    DiagsError(DL_Status, __VA_ARGS__)    // Log information
+#define Note(...)      DiagsError(DL_Note, __VA_ARGS__)      // Log significant information
+#define Warning(...)   DiagsError(DL_Warning, __VA_ARGS__)   // Log concerning information
+#define Error(...)     DiagsError(DL_Error, __VA_ARGS__)     // Log operational failure, fail CI
+#define Fatal(...)     DiagsError(DL_Fatal, __VA_ARGS__)     // Log recoverable crash, fail CI, exit & allow restart
+#define Alert(...)     DiagsError(DL_Alert, __VA_ARGS__)     // Log recoverable crash, fail CI, exit & restart, Ops attention
 #define Emergency(...) DiagsError(DL_Emergency, __VA_ARGS__) // Log unrecoverable crash, fail CI, exit, Ops attention
 
 /** Apply throttling to a log site.
@@ -87,17 +101,17 @@ extern Diags *diags;
  * present, but the set of possibly slightly different logs will still be
  * suppressed against a configurable interval as a whole.
  */
-#define SiteThrottledDiagsError(level, ...)                 \
-  do {                                                      \
-    static const SourceLocation loc = MakeSourceLocation(); \
-    static LogMessage log_message{IS_THROTTLED};            \
-    log_message.message(level, loc, __VA_ARGS__);           \
-  } while (0)
+#define SiteThrottledDiagsError(LEVEL, ...)                      \
+  do {                                                           \
+    static const SourceLocation STDE_loc = MakeSourceLocation(); \
+    static LogMessage STDE_log_message{IS_THROTTLED};            \
+    STDE_log_message.message(LEVEL, STDE_loc, __VA_ARGS__);      \
+  } while (false)
 
-#define SiteThrottledStatus(...) SiteThrottledDiagsError(DL_Status, __VA_ARGS__)   // Log information
-#define SiteThrottledNote(...) SiteThrottledDiagsError(DL_Note, __VA_ARGS__)       // Log significant information
+#define SiteThrottledStatus(...)  SiteThrottledDiagsError(DL_Status, __VA_ARGS__)  // Log information
+#define SiteThrottledNote(...)    SiteThrottledDiagsError(DL_Note, __VA_ARGS__)    // Log significant information
 #define SiteThrottledWarning(...) SiteThrottledDiagsError(DL_Warning, __VA_ARGS__) // Log concerning information
-#define SiteThrottledError(...) SiteThrottledDiagsError(DL_Error, __VA_ARGS__)     // Log operational failure, fail CI
+#define SiteThrottledError(...)   SiteThrottledDiagsError(DL_Error, __VA_ARGS__)   // Log operational failure, fail CI
 #define SiteThrottledFatal(...) \
   SiteThrottledDiagsError(DL_Fatal, __VA_ARGS__) // Log recoverable crash, fail CI, exit & allow restart
 #define SiteThrottledAlert(...) \
@@ -105,92 +119,146 @@ extern Diags *diags;
 #define SiteThrottledEmergency(...) \
   SiteThrottledDiagsError(DL_Emergency, __VA_ARGS__) // Log unrecoverable crash, fail CI, exit, Ops attention
 
-#define DiagsErrorV(level, fmt, ap)                         \
-  do {                                                      \
-    static const SourceLocation loc = MakeSourceLocation(); \
-    static LogMessage log_message;                          \
-    log_message.message_va(level, loc, fmt, ap);            \
-  } while (0)
+#define DiagsErrorV(LEVEL, FMT, AP)                                      \
+  do {                                                                   \
+    static const SourceLocation DiagsErrorV_loc = MakeSourceLocation();  \
+    static LogMessage DiagsErrorV_log_message;                           \
+    DiagsErrorV_log_message.message_va(LEVEL, DiagsErrorV_loc, FMT, AP); \
+  } while (false)
 
-#define StatusV(fmt, ap) DiagsErrorV(DL_Status, fmt, ap)
-#define NoteV(fmt, ap) DiagsErrorV(DL_Note, fmt, ap)
-#define WarningV(fmt, ap) DiagsErrorV(DL_Warning, fmt, ap)
-#define ErrorV(fmt, ap) DiagsErrorV(DL_Error, fmt, ap)
-#define FatalV(fmt, ap) DiagsErrorV(DL_Fatal, fmt, ap)
-#define AlertV(fmt, ap) DiagsErrorV(DL_Alert, fmt, ap)
+#define StatusV(fmt, ap)    DiagsErrorV(DL_Status, fmt, ap)
+#define NoteV(fmt, ap)      DiagsErrorV(DL_Note, fmt, ap)
+#define WarningV(fmt, ap)   DiagsErrorV(DL_Warning, fmt, ap)
+#define ErrorV(fmt, ap)     DiagsErrorV(DL_Error, fmt, ap)
+#define FatalV(fmt, ap)     DiagsErrorV(DL_Fatal, fmt, ap)
+#define AlertV(fmt, ap)     DiagsErrorV(DL_Alert, fmt, ap)
 #define EmergencyV(fmt, ap) DiagsErrorV(DL_Emergency, fmt, ap)
 
 /** See the comment above SiteThrottledDiagsError for an explanation of how the
  * SiteThrottled functions behave. */
-#define SiteThrottledDiagsErrorV(level, fmt, ap)            \
-  do {                                                      \
-    static const SourceLocation loc = MakeSourceLocation(); \
-    static LogMessage log_message{IS_THROTTLED};            \
-    log_message.message_va(level, loc, fmt, ap);            \
-  } while (0)
+#define SiteThrottledDiagsErrorV(LEVEL, FMT, AP)                  \
+  do {                                                            \
+    static const SourceLocation STDEV_loc = MakeSourceLocation(); \
+    static LogMessage STDEV_log_message{IS_THROTTLED};            \
+    STDEV_log_message.message_va(LEVEL, STDEV_loc, FMT, AP);      \
+  } while (false)
 
-#define SiteThrottledStatusV(fmt, ap) SiteThrottledDiagsErrorV(DL_Status, fmt, ap)
-#define SiteThrottledNoteV(fmt, ap) SiteThrottledDiagsErrorV(DL_Note, fmt, ap)
-#define SiteThrottledWarningV(fmt, ap) SiteThrottledDiagsErrorV(DL_Warning, fmt, ap)
-#define SiteThrottledErrorV(fmt, ap) SiteThrottledDiagsErrorV(DL_Error, fmt, ap)
-#define SiteThrottledFatalV(fmt, ap) SiteThrottledDiagsErrorV(DL_Fatal, fmt, ap)
-#define SiteThrottledAlertV(fmt, ap) SiteThrottledDiagsErrorV(DL_Alert, fmt, ap)
+#define SiteThrottledStatusV(fmt, ap)    SiteThrottledDiagsErrorV(DL_Status, fmt, ap)
+#define SiteThrottledNoteV(fmt, ap)      SiteThrottledDiagsErrorV(DL_Note, fmt, ap)
+#define SiteThrottledWarningV(fmt, ap)   SiteThrottledDiagsErrorV(DL_Warning, fmt, ap)
+#define SiteThrottledErrorV(fmt, ap)     SiteThrottledDiagsErrorV(DL_Error, fmt, ap)
+#define SiteThrottledFatalV(fmt, ap)     SiteThrottledDiagsErrorV(DL_Fatal, fmt, ap)
+#define SiteThrottledAlertV(fmt, ap)     SiteThrottledDiagsErrorV(DL_Alert, fmt, ap)
 #define SiteThrottledEmergencyV(fmt, ap) SiteThrottledDiagsErrorV(DL_Emergency, fmt, ap)
 
 #if TS_USE_DIAGS
 
 /// A Diag version of the above.
-#define Diag(tag, ...)                                        \
-  do {                                                        \
-    if (unlikely(diags->on())) {                              \
-      static const SourceLocation loc = MakeSourceLocation(); \
-      static LogMessage log_message;                          \
-      log_message.diag(tag, loc, __VA_ARGS__);                \
-    }                                                         \
-  } while (0)
+#define Diag(TAG, ...)                                             \
+  do {                                                             \
+    if (unlikely(diags()->on())) {                                 \
+      static const SourceLocation Diag_loc = MakeSourceLocation(); \
+      static LogMessage Diag_log_message;                          \
+      Diag_log_message.diag(TAG, Diag_loc, __VA_ARGS__);           \
+    }                                                              \
+  } while (false)
 
-/// A Debug version of the above.
-#define Debug(tag, ...)                                       \
-  do {                                                        \
-    if (unlikely(diags->on())) {                              \
-      static const SourceLocation loc = MakeSourceLocation(); \
-      static LogMessage log_message;                          \
-      log_message.debug(tag, loc, __VA_ARGS__);               \
-    }                                                         \
-  } while (0)
+inline bool
+is_dbg_ctl_enabled(DbgCtl const &ctl)
+{
+  return unlikely(diags()->on()) && ctl.ptr()->on;
+}
 
-/** Same as Debug above, but this allows a positive override of the tag
- * mechanism by a flag boolean.
- *
- * @param[in] flag True if the message should be logged regardless of tag
- * configuration, false if the logging of the message should respsect the tag
- * configuration.
- */
-#define SpecificDebug(flag, tag, ...)                                                                       \
-  do {                                                                                                      \
-    if (unlikely(diags->on())) {                                                                            \
-      static const SourceLocation loc = MakeSourceLocation();                                               \
-      static LogMessage log_message;                                                                        \
-      flag ? log_message.print(tag, DL_Debug, loc, __VA_ARGS__) : log_message.debug(tag, loc, __VA_ARGS__); \
-    }                                                                                                       \
-  } while (0)
+// printf-line debug output.  First parameter must be DbgCtl instance. Assumes debug control is enabled, and
+// debug output globablly enabled.
+//
+#define DbgPrint(CTL, ...)                                                             \
+  do {                                                                                 \
+    static const SourceLocation DbgPrintf_loc = MakeSourceLocation();                  \
+    static LogMessage DbgPrintf_log_message;                                           \
+    DbgPrintf_log_message.print(CTL.ptr()->tag, DL_Debug, DbgPrintf_loc, __VA_ARGS__); \
+  } while (false)
 
-#define is_debug_tag_set(_t) unlikely(diags->on(_t, DiagsTagType_Debug))
-#define is_action_tag_set(_t) unlikely(diags->on(_t, DiagsTagType_Action))
-#define debug_tag_assert(_t, _a) (is_debug_tag_set(_t) ? (ink_release_assert(_a), 0) : 0)
+// printf-like debug output.  First parameter must be an instance of DbgCtl.
+//
+#define Dbg(CTL, ...)                               \
+  do {                                              \
+    if (unlikely(diags()->on()) && CTL.ptr()->on) { \
+      DbgPrint(CTL, __VA_ARGS__);                   \
+    }                                               \
+  } while (false)
+
+// A BufferWriter version of Debug().
+#define Debug_bw(tag__, fmt, ...)                                                        \
+  do {                                                                                   \
+    if (unlikely(diags()->on())) {                                                       \
+      static DbgCtl Debug_bw_ctl(tag__);                                                 \
+      if (Debug_bw_ctl.ptr()->on) {                                                      \
+        DbgPrint(Debug_bw_ctl, "%s", ts::bwprint(ts::bw_dbg, fmt, __VA_ARGS__).c_str()); \
+      }                                                                                  \
+    }                                                                                    \
+  } while (false)
+
+// printf-like debug output.  First parameter must be tag (C-string literal, or otherwise
+// a constexpr returning char const pointer to null-terminated C-string).
+//
+#define Debug(TAG, ...)                   \
+  do {                                    \
+    if (unlikely(diags()->on())) {        \
+      static DbgCtl Debug_ctl(TAG);       \
+      if (Debug_ctl.ptr()->on) {          \
+        DbgPrint(Debug_ctl, __VA_ARGS__); \
+      }                                   \
+    }                                     \
+  } while (false)
+
+// Same as Dbg above, but this allows a positive override of the DbgCtl, if flag is true.
+//
+#define SpecificDbg(FLAG, CTL, ...) \
+  do {                              \
+    if (unlikely(diags()->on())) {  \
+      if (FLAG || CTL.ptr()->on) {  \
+        DbgPrint(CTL, __VA_ARGS__); \
+      }                             \
+    }                               \
+  } while (false)
+
+// For better performance, use this instead of diags()->on(tag) when the tag parameter is a C-string literal.
+//
+#define is_debug_tag_set(TAG)                 \
+  (unlikely(diags()->on()) && ([]() -> bool { \
+     static DbgCtl idts_ctl(TAG);             \
+     return idts_ctl.ptr()->on != 0;          \
+   }()))
+
+#define SpecificDebug(FLAG, TAG, ...)               \
+  do {                                              \
+    {                                               \
+      static DbgCtl SpecificDebug_ctl(TAG);         \
+      if (unlikely(diags()->on())) {                \
+        if (FLAG || SpecificDebug_ctl.ptr()->on) {  \
+          DbgPrint(SpecificDebug_ctl, __VA_ARGS__); \
+        }                                           \
+      }                                             \
+    }                                               \
+  } while (false)
+
+#define is_action_tag_set(_t)     unlikely(diags()->on(_t, DiagsTagType_Action))
+#define debug_tag_assert(_t, _a)  (is_debug_tag_set(_t) ? (ink_release_assert(_a), 0) : 0)
 #define action_tag_assert(_t, _a) (is_action_tag_set(_t) ? (ink_release_assert(_a), 0) : 0)
-#define is_diags_on(_t) unlikely(diags->on(_t))
+#define is_diags_on(_t)           is_debug_tag_set(_t) // Deprecated.
 
 #else // TS_USE_DIAGS
 
-#define Diag(tag, fmt, ...)
-#define Debug(tag, fmt, ...)
-#define SpecificDebug(flag, tag, ...)
+#define Diag(...)
+#define Dbg(...)
+#define Debug(...)
+#define SpecificDbg(...)
 
-#define is_debug_tag_set(_t) 0
-#define is_action_tag_set(_t) 0
+#define is_debug_tag_set(_t)      0
+#define is_action_tag_set(_t)     0
 #define debug_tag_assert(_t, _a)  /**/
 #define action_tag_assert(_t, _a) /**/
-#define is_diags_on(_t) 0
+#define is_diags_on(_t)           0
 
 #endif // TS_USE_DIAGS

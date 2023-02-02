@@ -34,10 +34,10 @@
 using namespace std::literals;
 
 constexpr static uint8_t QUIC_VERSION_1_SALT[] = {
-  0xaf, 0xbf, 0xec, 0x28, 0x99, 0x93, 0xd2, 0x4c, 0x9e, 0x97, 0x86, 0xf1, 0x9c, 0x61, 0x11, 0xe0, 0x43, 0x90, 0xa8, 0x99,
+  0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a,
 };
-constexpr static uint8_t QUIC_VERSION_1_D27_SALT[] = {
-  0xc3, 0xee, 0xf7, 0x12, 0xc7, 0x2e, 0xbb, 0x5a, 0x11, 0xa7, 0xd2, 0x43, 0x2b, 0xb4, 0x63, 0x65, 0xbe, 0xf9, 0xf5, 0x02,
+constexpr static uint8_t QUIC_VERSION_1_D29_SALT[] = {
+  0xaf, 0xbf, 0xec, 0x28, 0x99, 0x93, 0xd2, 0x4c, 0x9e, 0x97, 0x86, 0xf1, 0x9c, 0x61, 0x11, 0xe0, 0x43, 0x90, 0xa8, 0x99,
 };
 constexpr static std::string_view LABEL_FOR_CLIENT_INITIAL_SECRET("client in"sv);
 constexpr static std::string_view LABEL_FOR_SERVER_INITIAL_SECRET("server in"sv);
@@ -49,7 +49,7 @@ void
 QUICKeyGenerator::generate(QUICVersion version, uint8_t *hp_key, uint8_t *pp_key, uint8_t *iv, size_t *iv_len, QUICConnectionId cid)
 {
   const EVP_CIPHER *cipher = this->_get_cipher_for_initial();
-  const EVP_MD *md         = EVP_sha256();
+  const char *md           = "SHA256";
   uint8_t secret[512];
   size_t secret_len = sizeof(secret);
   QUICHKDF hkdf(md);
@@ -57,7 +57,7 @@ QUICKeyGenerator::generate(QUICVersion version, uint8_t *hp_key, uint8_t *pp_key
   switch (this->_ctx) {
   case Context::CLIENT:
     this->_generate_initial_secret(version, secret, &secret_len, hkdf, cid, LABEL_FOR_CLIENT_INITIAL_SECRET.data(),
-                                   LABEL_FOR_CLIENT_INITIAL_SECRET.length(), EVP_MD_size(md));
+                                   LABEL_FOR_CLIENT_INITIAL_SECRET.length(), EVP_MD_size(EVP_get_digestbyname(md)));
     if (is_debug_tag_set("vv_quic_crypto")) {
       uint8_t print_buf[1024 + 1];
       QUICDebug::to_hex(print_buf, secret, secret_len);
@@ -67,7 +67,7 @@ QUICKeyGenerator::generate(QUICVersion version, uint8_t *hp_key, uint8_t *pp_key
     break;
   case Context::SERVER:
     this->_generate_initial_secret(version, secret, &secret_len, hkdf, cid, LABEL_FOR_SERVER_INITIAL_SECRET.data(),
-                                   LABEL_FOR_SERVER_INITIAL_SECRET.length(), EVP_MD_size(md));
+                                   LABEL_FOR_SERVER_INITIAL_SECRET.length(), EVP_MD_size(EVP_get_digestbyname(md)));
     if (is_debug_tag_set("vv_quic_crypto")) {
       uint8_t print_buf[1024 + 1];
       QUICDebug::to_hex(print_buf, secret, secret_len);
@@ -117,13 +117,13 @@ QUICKeyGenerator::_generate_initial_secret(QUICVersion version, uint8_t *out, si
   // TODO: do not extract initial secret twice
   QUICTypeUtil::write_QUICConnectionId(cid, client_connection_id, &cid_len);
   switch (version) {
-  case 0xff00001d: // Draft-29
+  case 0x00000001: // Version 1
     salt     = QUIC_VERSION_1_SALT;
     salt_len = sizeof(QUIC_VERSION_1_SALT);
     break;
-  case 0xff00001b: // Draft-27
-    salt     = QUIC_VERSION_1_D27_SALT;
-    salt_len = sizeof(QUIC_VERSION_1_D27_SALT);
+  case 0xff00001d: // Draft-29
+    salt     = QUIC_VERSION_1_D29_SALT;
+    salt_len = sizeof(QUIC_VERSION_1_D29_SALT);
     break;
   default:
     salt     = QUIC_VERSION_1_SALT;

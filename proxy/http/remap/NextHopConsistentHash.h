@@ -25,6 +25,7 @@
 
 #include <map>
 #include <vector>
+#include "tscore/HashSip.h"
 #include "NextHopSelectionStrategy.h"
 
 enum NHHashKeyType {
@@ -40,14 +41,16 @@ class NextHopConsistentHash : public NextHopSelectionStrategy
 {
   std::vector<std::shared_ptr<ATSConsistentHash>> rings;
 
-  uint64_t getHashKey(uint64_t sm_id, HttpRequestData *hrdata, ATSHash64 *h);
+  uint64_t getHashKey(uint64_t sm_id, const HttpRequestData &hrdata, ATSHash64 *h);
 
 public:
   NHHashKeyType hash_key = NH_PATH_HASH_KEY;
 
   NextHopConsistentHash() = delete;
-  NextHopConsistentHash(const std::string_view name, const NHPolicyType &policy) : NextHopSelectionStrategy(name, policy) {}
+  NextHopConsistentHash(const std::string_view name, const NHPolicyType &policy, ts::Yaml::Map &n);
   ~NextHopConsistentHash();
-  bool Init(ts::Yaml::Map &n);
+
   void findNextHop(TSHttpTxn txnp, void *ih = nullptr, time_t now = 0) override;
+  std::shared_ptr<HostRecord> chashLookup(const std::shared_ptr<ATSConsistentHash> &ring, uint32_t cur_ring, ParentResult &result,
+                                          HttpRequestData &request_info, bool *wrapped, uint64_t sm_id);
 };

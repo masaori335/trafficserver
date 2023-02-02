@@ -26,7 +26,8 @@
 class ChancePolicy : public PromotionPolicy
 {
 public:
-  bool doPromote(TSHttpTxn /* txnp ATS_UNUSED */) override
+  bool
+  doPromote(TSHttpTxn /* txnp ATS_UNUSED */) override
   {
     TSDebug(PLUGIN_NAME, "ChancePolicy::doPromote(%f)", getSample());
     incrementStat(_promoted_id, 1);
@@ -51,13 +52,13 @@ public:
   {
     std::string_view remap_identifier                 = remap_id;
     const std::tuple<std::string_view, int *> stats[] = {
-      {"cache_hits", &_cache_hits_id},
-      {"promoted", &_promoted_id},
+      {"cache_hits",     &_cache_hits_id    },
+      {"promoted",       &_promoted_id      },
       {"total_requests", &_total_requests_id},
     };
 
     if (nullptr == remap_id) {
-      TSError("[%s] no remap identifier specified for for stats, no stats will be used", PLUGIN_NAME);
+      TSError("[%s] no remap identifier specified for stats, no stats will be used", PLUGIN_NAME);
       return false;
     }
 

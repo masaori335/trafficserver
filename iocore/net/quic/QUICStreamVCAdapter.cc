@@ -24,7 +24,7 @@
 #include "I_VConnection.h"
 #include "QUICStreamVCAdapter.h"
 
-QUICStreamVCAdapter::QUICStreamVCAdapter(QUICStream &stream) : QUICStreamAdapter(stream), VConnection(new_ProxyMutex())
+QUICStreamVCAdapter::QUICStreamVCAdapter(QUICStream &stream) : VConnection(new_ProxyMutex()), QUICStreamAdapter(stream)
 {
   SET_HANDLER(&QUICStreamVCAdapter::state_stream_open);
 }
@@ -72,8 +72,8 @@ QUICStreamVCAdapter::_read(size_t len)
     block                  = make_ptr<IOBufferBlock>(reader->get_current_block()->clone());
     if (block->size()) {
       block->consume(reader->start_offset);
-      block->_end = std::min(block->start() + len, block->_buf_end);
-      this->_write_vio.ndone += len;
+      block->_end            = std::min(block->start() + len, block->_buf_end);
+      this->_write_vio.ndone += block->size();
     }
     reader->consume(block->size());
   }
@@ -234,14 +234,16 @@ QUICStreamVCAdapter::do_io_close(int lerrno)
   SET_HANDLER(&QUICStreamVCAdapter::state_stream_closed);
 
   this->_read_vio.buffer.clear();
-  this->_read_vio.nbytes = 0;
-  this->_read_vio.op     = VIO::NONE;
-  this->_read_vio.cont   = nullptr;
+  this->_read_vio.nbytes    = 0;
+  this->_read_vio.op        = VIO::NONE;
+  this->_read_vio.cont      = nullptr;
+  this->_read_vio.vc_server = nullptr;
 
   this->_write_vio.buffer.clear();
-  this->_write_vio.nbytes = 0;
-  this->_write_vio.op     = VIO::NONE;
-  this->_write_vio.cont   = nullptr;
+  this->_write_vio.nbytes    = 0;
+  this->_write_vio.op        = VIO::NONE;
+  this->_write_vio.cont      = nullptr;
+  this->_write_vio.vc_server = nullptr;
 }
 
 void

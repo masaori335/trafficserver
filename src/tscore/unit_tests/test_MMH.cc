@@ -23,6 +23,7 @@
 
 #include "tscore/MMH.h"
 #include "tscore/ink_memory.h"
+#include "tscore/Random.h"
 #include <catch.hpp>
 
 #define TEST_COLLISIONS 10000000
@@ -71,11 +72,11 @@ TEST_CASE("MMH", "[libts][MMH]")
   ink_code_MMH((unsigned char *)sc4, strlen(sc4), h.hash);
   printf("%X %X %X %X\n", h.h[0], h.h[1], h.h[2], h.h[3]);
 
-  srand48(time(nullptr));
+  ts::Random::seed(time(nullptr));
   for (int xx = 0; xx < TEST_COLLISIONS; xx++) {
     char xs[256];
-    xf[xx] = drand48();
-    sprintf(xs, "http://@npdev/%16.14f/4000;?", xf[xx]);
+    xf[xx] = ts::Random::drandom();
+    snprintf(xs, sizeof(xs), "http://@npdev/%16.14f/4000;?", xf[xx]);
     ink_code_MMH((unsigned char *)xs, strlen(xs), (unsigned char *)&xxh[xx]);
   }
   qsort(xxh, TEST_COLLISIONS, 16, xxcompar);
@@ -92,15 +93,15 @@ TEST_CASE("MMH", "[libts][MMH]")
   int l                  = sizeof(MMH_x);
   unsigned char *s1      = (unsigned char *)ats_malloc(l + sizeof(uint32_t));
   unsigned char *free_s1 = s1;
-  s1 += 1;
+  s1                     += 1;
   memcpy(s1, s, l);
   unsigned char *s2      = (unsigned char *)ats_malloc(l + sizeof(uint32_t));
   unsigned char *free_s2 = s2;
-  s2 += 2;
+  s2                     += 2;
   memcpy(s2, s, l);
   unsigned char *s3      = (unsigned char *)ats_malloc(l + sizeof(uint32_t));
   unsigned char *free_s3 = s3;
-  s3 += 3;
+  s3                     += 3;
   memcpy(s3, s, l);
 
   printf("test alignment\n");

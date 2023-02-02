@@ -71,11 +71,20 @@ include experimental/geoip_acl/Makefile.inc
 include experimental/header_freq/Makefile.inc
 include experimental/parent_select/Makefile.inc
 include experimental/hook-trace/Makefile.inc
+include experimental/http_stats/Makefile.inc
 include experimental/icap/Makefile.inc
 include experimental/inliner/Makefile.inc
 
 if HAS_MAXMINDDB
 include experimental/maxmind_acl/Makefile.inc
+endif
+
+if HAS_OTEL
+include experimental/otel_tracer/Makefile.inc
+endif
+
+if HAS_WAMR
+include experimental/wasm/Makefile.inc
 endif
 
 include experimental/memcache/Makefile.inc
@@ -107,6 +116,10 @@ if BUILD_SSL_SESSION_REUSE_PLUGIN
 include experimental/ssl_session_reuse/Makefile.inc
 endif
 
+if BUILD_STEK_SHARE_PLUGIN
+include experimental/stek_share/Makefile.inc
+endif
+
 if HAS_KYOTOCABINET
 include experimental/cache_key_genid/Makefile.inc
 endif
@@ -114,10 +127,6 @@ endif
 if BUILD_IMAGE_MAGICK_PLUGINS
 include experimental/webp_transform/Makefile.inc
 include experimental/magick/Makefile.inc
-endif
-
-if HAS_MYSQL
-include experimental/mysql_remap/Makefile.inc
 endif
 
 endif

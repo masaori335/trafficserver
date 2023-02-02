@@ -125,12 +125,8 @@ QUICTLS::_msg_cb(int write_p, int version, int content_type, const void *buf, si
 }
 
 QUICTLS::QUICTLS(QUICPacketProtectionKeyInfo &pp_key_info, SSL_CTX *ssl_ctx, NetVConnectionContext_t nvc_ctx,
-                 const NetVCOptions &netvc_options, const char *session_file, const char *keylog_file)
-  : QUICHandshakeProtocol(pp_key_info),
-    _session_file(session_file),
-    _keylog_file(keylog_file),
-    _ssl(SSL_new(ssl_ctx)),
-    _netvc_context(nvc_ctx)
+                 const NetVCOptions &netvc_options, const char *session_file)
+  : QUICHandshakeProtocol(pp_key_info), _session_file(session_file), _ssl(SSL_new(ssl_ctx)), _netvc_context(nvc_ctx)
 {
   ink_assert(this->_netvc_context != NET_VCONNECTION_UNSET);
 
@@ -316,7 +312,7 @@ QUICTLS::_pass_quic_data_to_ssl_impl(const QUICHandshakeMsgs &in)
   }
 }
 
-const EVP_MD *
+const char *
 QUICTLS::_get_handshake_digest() const
 {
   switch (SSL_CIPHER_get_id(SSL_get_current_cipher(this->_ssl))) {
@@ -324,9 +320,9 @@ QUICTLS::_get_handshake_digest() const
   case TLS1_3_CK_CHACHA20_POLY1305_SHA256:
   case TLS1_3_CK_AES_128_CCM_SHA256:
   case TLS1_3_CK_AES_128_CCM_8_SHA256:
-    return EVP_sha256();
+    return "SHA256";
   case TLS1_3_CK_AES_256_GCM_SHA384:
-    return EVP_sha384();
+    return "SHA384";
   default:
     ink_assert(false);
     return nullptr;

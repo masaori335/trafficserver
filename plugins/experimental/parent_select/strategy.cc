@@ -47,27 +47,22 @@
 //
 
 // ring mode strings
-constexpr std::string_view alternate_rings = "alternate_ring";
-constexpr std::string_view exhaust_rings   = "exhaust_ring";
+const std::string_view alternate_rings = "alternate_ring";
+const std::string_view exhaust_rings   = "exhaust_ring";
+const std::string_view peering_rings   = "peering_ring";
 
 // health check strings
-constexpr std::string_view active_health_check  = "active";
-constexpr std::string_view passive_health_check = "passive";
+const std::string_view active_health_check  = "active";
+const std::string_view passive_health_check = "passive";
 
-PLNextHopSelectionStrategy::PLNextHopSelectionStrategy(const std::string_view &name)
+PLNextHopSelectionStrategy::PLNextHopSelectionStrategy(const std::string_view &name, const YAML::Node &n) : strategy_name(name)
 {
-  strategy_name = name;
-}
-
-//
-// parse out the data for this strategy.
-//
-bool
-PLNextHopSelectionStrategy::Init(const YAML::Node &n)
-{
-  PL_NH_Debug(PL_NH_DEBUG_TAG, "calling Init()");
+  PL_NH_Debug(PL_NH_DEBUG_TAG, "PLNextHopSelectionStrategy constructor calling");
+  std::string self_host;
+  bool self_host_used = false;
 
   try {
+    // scheme is optional, and strategies with no scheme will match hosts with no scheme
     if (n["scheme"]) {
       auto scheme_val = n["scheme"].Scalar();
       if (scheme_val == "http") {
@@ -75,9 +70,7 @@ PLNextHopSelectionStrategy::Init(const YAML::Node &n)
       } else if (scheme_val == "https") {
         scheme = PL_NH_SCHEME_HTTPS;
       } else {
-        scheme = PL_NH_SCHEME_NONE;
-        PL_NH_Note("Invalid 'scheme' value, '%s', for the strategy named '%s', setting to PL_NH_SCHEME_NONE", scheme_val.c_str(),
-                   strategy_name.c_str());
+        PL_NH_Note("Invalid scheme '%s' for strategy '%s', setting to NONE", scheme_val.c_str(), strategy_name.c_str());
       }
     }
 
@@ -96,6 +89,10 @@ PLNextHopSelectionStrategy::Init(const YAML::Node &n)
       ignore_self_detect = n["ignore_self_detect"].as<bool>();
     }
 
+    if (n["cache_peer_result"]) {
+      cache_peer_result = n["cache_peer_result"].as<bool>();
+    }
+
     // failover node.
     YAML::Node failover_node;
     if (n["failover"]) {
@@ -106,6 +103,13 @@ PLNextHopSelectionStrategy::Init(const YAML::Node &n)
           ring_mode = PL_NH_ALTERNATE_RING;
         } else if (ring_mode_val == exhaust_rings) {
           ring_mode = PL_NH_EXHAUST_RING;
+        } else if (ring_mode_val == peering_rings) {
+          ring_mode            = PL_NH_PEERING_RING;
+          YAML::Node self_node = failover_node["self"];
+          if (self_node) {
+            self_host = self_node.Scalar();
+            PL_NH_Debug(PL_NH_DEBUG_TAG, "%s is self", self_host.c_str());
+          }
         } else {
           ring_mode = PL_NH_ALTERNATE_RING;
           PL_NH_Note("Invalid 'ring_mode' value, '%s', for the strategy named '%s', using default '%s'.", ring_mode_val.c_str(),
@@ -114,6 +118,10 @@ PLNextHopSelectionStrategy::Init(const YAML::Node &n)
       }
       if (failover_node["max_simple_retries"]) {
         max_simple_retries = failover_node["max_simple_retries"].as<int>();
+      }
+
+      if (failover_node["max_unavailable_retries"]) {
+        max_unavailable_retries = failover_node["max_unavailable_retries"].as<int>();
       }
 
       YAML::Node resp_codes_node;
@@ -134,6 +142,24 @@ PLNextHopSelectionStrategy::Init(const YAML::Node &n)
             }
           }
           resp_codes.sort();
+        }
+      }
+      YAML::Node markdown_codes_node;
+      if (failover_node["markdown_codes"]) {
+        markdown_codes_node = failover_node["markdown_codes"];
+        if (markdown_codes_node.Type() != YAML::NodeType::Sequence) {
+          PL_NH_Error("Error in the markdown_codes definition for the strategy named '%s', skipping markdown_codes.",
+                      strategy_name.c_str());
+        } else {
+          for (auto &&k : markdown_codes_node) {
+            auto code = k.as<int>();
+            if (code > 300 && code < 599) {
+              markdown_codes.add(code);
+            } else {
+              PL_NH_Note("Skipping invalid markdown response code '%d' for the strategy named '%s'.", code, strategy_name.c_str());
+            }
+          }
+          markdown_codes.sort();
         }
       }
       YAML::Node health_check_node;
@@ -190,9 +216,16 @@ PLNextHopSelectionStrategy::Init(const YAML::Node &n)
               std::shared_ptr<PLHostRecord> host_rec = std::make_shared<PLHostRecord>(hosts_list[hst].as<PLHostRecord>());
               host_rec->group_index                  = grp;
               host_rec->host_index                   = hst;
-              if (TSHostnameIsSelf(host_rec->hostname.c_str(), host_rec->hostname.size()) == TS_SUCCESS) {
+              if (self_host == host_rec->hostname ||
+                  TSHostnameIsSelf(host_rec->hostname.c_str(), host_rec->hostname.size()) == TS_SUCCESS) {
+                if (ring_mode == PL_NH_PEERING_RING && grp != 0) {
+                  throw std::invalid_argument("self host (" + self_host +
+                                              ") can only appear in first host group for peering ring mode");
+                }
                 TSHostStatusSet(host_rec->hostname.c_str(), host_rec->hostname.size(), TSHostStatus::TS_HOST_STATUS_DOWN, 0,
                                 static_cast<unsigned int>(TS_HOST_STATUS_SELF_DETECT));
+                host_rec->self = true;
+                self_host_used = true;
               }
               hosts_inner.push_back(std::move(host_rec));
               num_parents++;
@@ -203,13 +236,13 @@ PLNextHopSelectionStrategy::Init(const YAML::Node &n)
         }
       }
     }
+    if (!self_host.empty() && !self_host_used) {
+      throw std::invalid_argument("self host (" + self_host + ") does not appear in the first (peer) group");
+    }
   } catch (std::exception &ex) {
-    PL_NH_Note("Error parsing the strategy named '%s' due to '%s', this strategy will be ignored.", strategy_name.c_str(),
-               ex.what());
-    return false;
+    throw std::invalid_argument("Error parsing strategy named '" + strategy_name + "' due to '" + ex.what() +
+                                "', this strategy will be ignored.");
   }
-
-  return true;
 }
 
 bool
@@ -223,8 +256,10 @@ PLNextHopSelectionStrategy::nextHopExists(TSHttpTxn txnp)
     for (auto &hh : host_groups[gg]) {
       PLHostRecord *p = hh.get();
       if (p->available) {
-        PL_NH_Debug(PL_NH_DEBUG_TAG, "[%" PRIu64 "] found available next hop %.*s", sm_id, int(p->hostname.size()),
-                    p->hostname.c_str());
+        PL_NH_Debug(PL_NH_DEBUG_TAG,
+                    "[%" PRIu64 "] found available next hop %.*s (this is NOT necessarily the parent which will be selected, just "
+                    "the first available parent found)",
+                    sm_id, int(p->hostname.size()), p->hostname.c_str());
         return true;
       }
     }
@@ -235,20 +270,21 @@ PLNextHopSelectionStrategy::nextHopExists(TSHttpTxn txnp)
 bool
 PLNextHopSelectionStrategy::codeIsFailure(TSHttpStatus response_code)
 {
-  return this->resp_codes.contains(response_code);
+  return this->resp_codes.contains(response_code) || this->markdown_codes.contains(response_code);
 }
 
 bool
 PLNextHopSelectionStrategy::responseIsRetryable(unsigned int current_retry_attempts, TSHttpStatus response_code)
 {
-  return this->codeIsFailure(response_code) && current_retry_attempts < this->max_simple_retries &&
-         current_retry_attempts < this->num_parents;
+  return (current_retry_attempts < this->num_parents) &&
+         ((this->resp_codes.contains(response_code) && current_retry_attempts < this->max_simple_retries) ||
+          (this->markdown_codes.contains(response_code) && current_retry_attempts < this->max_unavailable_retries));
 }
 
 bool
 PLNextHopSelectionStrategy::onFailureMarkParentDown(TSHttpStatus response_code)
 {
-  return static_cast<int>(response_code) >= 500 && static_cast<int>(response_code) <= 599;
+  return this->markdown_codes.contains(response_code);
 }
 
 bool
@@ -328,17 +364,25 @@ template <> struct convert<PLNHProtocol> {
   static bool
   decode(const Node &node, PLNHProtocol &nh)
   {
+    // scheme is optional, and strategies with no scheme will match hosts with no scheme
     if (node["scheme"]) {
-      if (node["scheme"].Scalar() == "http") {
+      const auto scheme_val = node["scheme"].Scalar();
+      if (scheme_val == "http") {
         nh.scheme = PL_NH_SCHEME_HTTP;
-      } else if (node["scheme"].Scalar() == "https") {
+      } else if (scheme_val == "https") {
         nh.scheme = PL_NH_SCHEME_HTTPS;
       } else {
-        nh.scheme = PL_NH_SCHEME_NONE;
+        PL_NH_Note("Invalid scheme '%s' for protocol, setting to NONE", scheme_val.c_str());
       }
     }
     if (node["port"]) {
       nh.port = node["port"].as<int>();
+      if (nh.port <= 0 || nh.port > 65535) {
+        throw YAML::ParserException(node["port"].Mark(), "port number must be in (inclusive) range 1 - 65,536");
+      }
+    } else {
+      throw YAML::ParserException(node["port"].Mark(),
+                                  "no port is defined, a port number must be defined within (inclusive) range 1 - 65,536");
     }
     if (node["health_check_url"]) {
       nh.health_check_url = node["health_check_url"].Scalar();

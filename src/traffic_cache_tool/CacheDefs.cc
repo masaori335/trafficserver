@@ -542,10 +542,8 @@ Stripe::walk_bucket_chain(int s)
     CacheDirEntry *p = nullptr;
     auto *dir_b      = dir_bucket(b, seg);
     CacheDirEntry *e = dir_b;
-    int len          = 0;
 
     while (e) {
-      len++;
       int i = dir_to_offset(e, seg);
       if (b_bitset.test(i)) {
         std::cout << "bit already set in "
@@ -651,7 +649,7 @@ dir_bucket_loop_check(CacheDirEntry *start_dir, CacheDirEntry *seg)
 
   while (p2) {
     // p1 moves by one entry per iteration
-    assert(p1);
+    ink_assert(p1);
     p1 = next_dir(p1, seg);
     // p2 moves by two entries per iteration
     p2 = next_dir(p2, seg);
@@ -764,7 +762,7 @@ Stripe::dir_check()
           ++seg_empty;
           --seg_buckets_in_use;
           // this should only happen on the first dir in a bucket
-          assert(nullptr == next_dir(e, seg));
+          ink_assert(nullptr == next_dir(e, seg));
           break;
         } else {
           int e_idx = e - seg;
@@ -811,14 +809,14 @@ Stripe::dir_check()
       ++hist[std::min(h, SEGMENT_HISTOGRAM_WIDTH)];
       seg_chain_max = std::max(seg_chain_max, h);
     }
-    int fl_size = dir_freelist_length(s);
-    in_use += seg_in_use;
-    empty += seg_empty;
-    stale += seg_stale;
-    free += fl_size;
-    buckets_in_use += seg_buckets_in_use;
+    int fl_size      = dir_freelist_length(s);
+    in_use           += seg_in_use;
+    empty            += seg_empty;
+    stale            += seg_stale;
+    free             += fl_size;
+    buckets_in_use   += seg_buckets_in_use;
     max_chain_length = std::max(max_chain_length, seg_chain_max);
-    bytes_in_use += seg_bytes_in_use;
+    bytes_in_use     += seg_bytes_in_use;
 
     printf("  - Segment-%d | Entries: used=%d stale=%d free=%d disk-bytes=%d Buckets: used=%d empty=%d max=%d avg=%.2f dups=%d\n",
            s, seg_in_use, seg_stale, fl_size, seg_bytes_in_use, seg_buckets_in_use, seg_empty, seg_chain_max,
@@ -859,7 +857,7 @@ Stripe::dir_check()
         // The size markings are redundant. Low values (less than DIR_SHIFT_WIDTH) for larger
         // base block sizes should never be used. Such entries should use the next smaller base block size.
         if (b > 0 && s < 1 << DIR_BLOCK_SHIFT(1)) {
-          assert(frag_demographics[s][b] == 0);
+          ink_assert(frag_demographics[s][b] == 0);
           continue;
         }
         printf(" %8d[%2d:%1d]:%06d", (s + 1) * block_size, s, b, frag_demographics[s][b]);
@@ -915,8 +913,8 @@ Stripe::loadMeta()
     delta              = Bytes(data.rebind<char>().data() - stripe_buff2);
     _meta[A][HEAD]     = *meta;
     _meta_pos[A][HEAD] = round_down(pos + Bytes(delta));
-    pos += round_up(SBSIZE);
-    _directory._skip = Bytes(SBSIZE); // first guess, updated in @c updateLiveData when the header length is computed.
+    pos                += round_up(SBSIZE);
+    _directory._skip   = Bytes(SBSIZE); // first guess, updated in @c updateLiveData when the header length is computed.
     // Search for Footer A. Nothing for it except to grub through the disk.
     // The searched data is cached so it's available for directory parsing later if needed.
     while (pos < limit) {
@@ -959,7 +957,7 @@ Stripe::loadMeta()
 
       // Footer B must be at the same relative offset to Header B as Footer A -> Header A.
       pos += delta;
-      n = Bytes(pread(fd, stripe_buff, ts::CacheStoreBlocks::SCALE, pos));
+      n   = Bytes(pread(fd, stripe_buff, ts::CacheStoreBlocks::SCALE, pos));
       data.assign(stripe_buff, n);
       meta = static_cast<StripeMeta *>(data.data());
       if (this->validateMeta(meta)) {

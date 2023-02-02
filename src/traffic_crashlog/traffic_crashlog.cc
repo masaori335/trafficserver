@@ -44,15 +44,16 @@ extern char __pid_size_static_assert[sizeof(pid_t) == sizeof(int) ? 0 : -1];
 
 static AppVersionInfo appVersionInfo;
 static const ArgumentDescription argument_descriptions[] = {
-  {"target", '-', "Target process ID", "I", &target_pid, nullptr, nullptr},
-  {"host", '-', "Host triplet for the process being logged", "S*", &host_triplet, nullptr, nullptr},
-  {"wait", '-', "Stop until signalled at startup", "F", &wait_mode, nullptr, nullptr},
-  {"syslog", '-', "Syslog after writing a crash log", "F", &syslog_mode, nullptr, nullptr},
-  {"debug", '-', "Enable debugging mode", "F", &debug_mode, nullptr, nullptr},
-  {"user", '-', "Username used to set privileges", "S*", &user, nullptr, nullptr},
+  {"target", '-', "Target process ID",                         "I",  &target_pid,   nullptr, nullptr},
+  {"host",   '-', "Host triplet for the process being logged", "S*", &host_triplet, nullptr, nullptr},
+  {"wait",   '-', "Stop until signalled at startup",           "F",  &wait_mode,    nullptr, nullptr},
+  {"syslog", '-', "Syslog after writing a crash log",          "F",  &syslog_mode,  nullptr, nullptr},
+  {"debug",  '-', "Enable debugging mode",                     "F",  &debug_mode,   nullptr, nullptr},
+  {"user",   '-', "Username used to set privileges",           "S*", &user,         nullptr, nullptr},
   HELP_ARGUMENT_DESCRIPTION(),
   VERSION_ARGUMENT_DESCRIPTION(),
-  RUNROOT_ARGUMENT_DESCRIPTION()};
+  RUNROOT_ARGUMENT_DESCRIPTION()
+};
 
 static struct tm
 timestamp()
@@ -134,11 +135,10 @@ main(int /* argc ATS_UNUSED */, const char **argv)
 {
   FILE *fp;
   char *logname;
-  TSMgmtError mgmterr;
   crashlog_target target;
   pid_t parent = getppid();
 
-  diags = new Diags("traffic_crashlog", "" /* tags */, "" /* actions */, new BaseLogFile("stderr"));
+  DiagsPtr::set(new Diags("traffic_crashlog", "" /* tags */, "" /* actions */, new BaseLogFile("stderr")));
 
   appVersionInfo.setup(PACKAGE_NAME, "traffic_crashlog", PACKAGE_VERSION, __DATE__, __TIME__, BUILD_MACHINE, BUILD_PERSON, "");
 
@@ -182,25 +182,18 @@ main(int /* argc ATS_UNUSED */, const char **argv)
     }
 
     openlog(appVersionInfo.AppStr, LOG_PID | LOG_NDELAY | LOG_NOWAIT, facility);
-    diags->config.outputs[DL_Debug].to_syslog     = true;
-    diags->config.outputs[DL_Status].to_syslog    = true;
-    diags->config.outputs[DL_Note].to_syslog      = true;
-    diags->config.outputs[DL_Warning].to_syslog   = true;
-    diags->config.outputs[DL_Error].to_syslog     = true;
-    diags->config.outputs[DL_Fatal].to_syslog     = true;
-    diags->config.outputs[DL_Alert].to_syslog     = true;
-    diags->config.outputs[DL_Emergency].to_syslog = true;
+    diags()->config.outputs[DL_Debug].to_syslog     = true;
+    diags()->config.outputs[DL_Status].to_syslog    = true;
+    diags()->config.outputs[DL_Note].to_syslog      = true;
+    diags()->config.outputs[DL_Warning].to_syslog   = true;
+    diags()->config.outputs[DL_Error].to_syslog     = true;
+    diags()->config.outputs[DL_Fatal].to_syslog     = true;
+    diags()->config.outputs[DL_Alert].to_syslog     = true;
+    diags()->config.outputs[DL_Emergency].to_syslog = true;
   }
 
   Note("crashlog started, target=%ld, debug=%s syslog=%s, uid=%ld euid=%ld", static_cast<long>(target_pid),
        debug_mode ? "true" : "false", syslog_mode ? "true" : "false", (long)getuid(), (long)geteuid());
-
-  mgmterr = TSInit(nullptr, (TSInitOptionT)(TS_MGMT_OPT_NO_EVENTS | TS_MGMT_OPT_NO_SOCK_TESTS));
-  if (mgmterr != TS_ERR_OKAY) {
-    char *msg = TSGetErrorMessage(mgmterr);
-    Warning("failed to initialize management API: %s", msg);
-    TSfree(msg);
-  }
 
   ink_zero(target);
   target.pid       = static_cast<pid_t>(target_pid);
@@ -247,9 +240,6 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   crashlog_write_registers(fp, target);
 
   fprintf(fp, "\n");
-  crashlog_write_backtrace(fp, target);
-
-  fprintf(fp, "\n");
   crashlog_write_procstatus(fp, target);
 
   fprintf(fp, "\n");
@@ -257,9 +247,6 @@ main(int /* argc ATS_UNUSED */, const char **argv)
 
   fprintf(fp, "\n");
   crashlog_write_regions(fp, target);
-
-  fprintf(fp, "\n");
-  crashlog_write_records(fp, target);
 
   Error("wrote crash log to %s", logname);
 

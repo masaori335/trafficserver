@@ -28,6 +28,7 @@
 
 #include "HTTP.h"
 #include "P_CacheHttp.h"
+#include "P_CacheHosting.h"
 
 struct EvacuationBlock;
 
@@ -99,6 +100,7 @@ struct EvacuationBlock;
 enum {
   cache_bytes_used_stat,
   cache_bytes_total_stat,
+  cache_stripes_stat,
   cache_ram_cache_bytes_stat,
   cache_ram_cache_bytes_total_stat,
   cache_direntries_total_stat,
@@ -113,6 +115,8 @@ enum {
   cache_read_active_stat,
   cache_read_success_stat,
   cache_read_failure_stat,
+  cache_read_seek_fail_stat,
+  cache_read_invalid_stat,
   cache_write_active_stat,
   cache_write_success_stat,
   cache_write_failure_stat,
@@ -206,6 +210,7 @@ extern RecRawStatBlock *cache_rsb;
 
 // Configuration
 extern int cache_config_dir_sync_frequency;
+extern int cache_config_dir_enable_hugepages;
 extern int cache_config_http_max_alts;
 extern int cache_config_log_alternate_eviction;
 extern int cache_config_permit_pinning;
@@ -357,9 +362,6 @@ struct CacheVC : public CacheVConnection {
 
   int removeEvent(int event, Event *e);
 
-  int linkWrite(int event, Event *e);
-  int derefRead(int event, Event *e);
-
   int scanVol(int event, Event *e);
   int scanObject(int event, Event *e);
   int scanUpdateDone(int event, Event *e);
@@ -402,7 +404,7 @@ struct CacheVC : public CacheVConnection {
   time_t get_pin_in_cache() override;
 
 // offsets from the base stat
-#define CACHE_STAT_ACTIVE 0
+#define CACHE_STAT_ACTIVE  0
 #define CACHE_STAT_SUCCESS 1
 #define CACHE_STAT_FAILURE 2
 
@@ -489,27 +491,27 @@ struct CacheVC : public CacheVConnection {
   union {
     uint32_t flags;
     struct {
-      unsigned int use_first_key : 1;
-      unsigned int overwrite : 1;      // overwrite first_key Dir if it exists
-      unsigned int close_complete : 1; // WRITE_COMPLETE is final
-      unsigned int sync : 1;           // write to be committed to durable storage before WRITE_COMPLETE
-      unsigned int evacuator : 1;
-      unsigned int single_fragment : 1;
-      unsigned int evac_vector : 1;
-      unsigned int lookup : 1;
-      unsigned int update : 1;
-      unsigned int remove : 1;
-      unsigned int remove_aborted_writers : 1;
-      unsigned int open_read_timeout : 1; // UNUSED
-      unsigned int data_done : 1;
+      unsigned int use_first_key           : 1;
+      unsigned int overwrite               : 1; // overwrite first_key Dir if it exists
+      unsigned int close_complete          : 1; // WRITE_COMPLETE is final
+      unsigned int sync                    : 1; // write to be committed to durable storage before WRITE_COMPLETE
+      unsigned int evacuator               : 1;
+      unsigned int single_fragment         : 1;
+      unsigned int evac_vector             : 1;
+      unsigned int lookup                  : 1;
+      unsigned int update                  : 1;
+      unsigned int remove                  : 1;
+      unsigned int remove_aborted_writers  : 1;
+      unsigned int open_read_timeout       : 1; // UNUSED
+      unsigned int data_done               : 1;
       unsigned int read_from_writer_called : 1;
-      unsigned int not_from_ram_cache : 1; // entire object was from ram cache
-      unsigned int rewrite_resident_alt : 1;
-      unsigned int readers : 1;
-      unsigned int doc_from_ram_cache : 1;
-      unsigned int hit_evacuate : 1;
-      unsigned int compressed_in_ram : 1; // compressed state in ram cache
-      unsigned int allow_empty_doc : 1;   // used for cache empty http document
+      unsigned int not_from_ram_cache      : 1; // entire object was from ram cache
+      unsigned int rewrite_resident_alt    : 1;
+      unsigned int readers                 : 1;
+      unsigned int doc_from_ram_cache      : 1;
+      unsigned int hit_evacuate            : 1;
+      unsigned int compressed_in_ram       : 1; // compressed state in ram cache
+      unsigned int allow_empty_doc         : 1; // used for cache empty http document
     } f;
   };
   // BTF optimization used to skip reading stuff in cache partition that doesn't contain any
@@ -614,9 +616,9 @@ free_CacheVC(CacheVC *cont)
   cont->blocks.clear();
   cont->writer_buf.clear();
   cont->alternate_index = CACHE_ALT_INDEX_DEFAULT;
-  if (cont->scan_vol_map) {
-    ats_free(cont->scan_vol_map);
-  }
+
+  ats_free(cont->scan_vol_map);
+
   memset((char *)&cont->vio, 0, cont->size_to_init);
 #ifdef CACHE_STAT_PAGES
   ink_assert(!cont->stat_link.next && !cont->stat_link.prev);
@@ -969,7 +971,7 @@ int64_t cache_bytes_total();
 
 #ifdef DEBUG
 #define CACHE_DEBUG_INCREMENT_DYN_STAT(_x) CACHE_INCREMENT_DYN_STAT(_x)
-#define CACHE_DEBUG_SUM_DYN_STAT(_x, _y) CACHE_SUM_DYN_STAT(_x, _y)
+#define CACHE_DEBUG_SUM_DYN_STAT(_x, _y)   CACHE_SUM_DYN_STAT(_x, _y)
 #else
 #define CACHE_DEBUG_INCREMENT_DYN_STAT(_x)
 #define CACHE_DEBUG_SUM_DYN_STAT(_x, _y)
@@ -985,9 +987,10 @@ struct Cache {
   int total_nvol            = 0;
   int ready                 = CACHE_INITIALIZING;
   int64_t cache_size        = 0; // in store block size
-  CacheHostTable *hosttable = nullptr;
   int total_initialized_vol = 0;
   CacheType scheme          = CACHE_NONE_TYPE;
+
+  ReplaceablePtr<CacheHostTable> hosttable;
 
   int open(bool reconfigure, bool fix);
   int close();
@@ -1007,10 +1010,6 @@ struct Cache {
                      int host_len = 0);
   static void generate_key(CryptoHash *hash, CacheURL *url);
   static void generate_key(HttpCacheKey *hash, CacheURL *url, cache_generation_t generation = -1);
-
-  Action *link(Continuation *cont, const CacheKey *from, const CacheKey *to, CacheFragType type, const char *hostname,
-               int host_len);
-  Action *deref(Continuation *cont, const CacheKey *key, CacheFragType type, const char *hostname, int host_len);
 
   void vol_initialized(bool result);
 

@@ -61,7 +61,7 @@ load_tunnel_alpn(std::vector<int> &dst, const YAML::Node &node)
 } // namespace
 
 ts::Errata
-YamlSNIConfig::loader(const char *cfgFilename)
+YamlSNIConfig::loader(const std::string &cfgFilename)
 {
   try {
     YAML::Node config = YAML::LoadFile(cfgFilename);
@@ -117,13 +117,20 @@ YamlSNIConfig::Item::EnableProtocol(YamlSNIConfig::TLSProtocol proto)
 
 VerifyClient::~VerifyClient() {}
 
-TsEnumDescriptor LEVEL_DESCRIPTOR         = {{{"NONE", 0}, {"MODERATE", 1}, {"STRICT", 2}}};
-TsEnumDescriptor POLICY_DESCRIPTOR        = {{{"DISABLED", 0}, {"PERMISSIVE", 1}, {"ENFORCED", 2}}};
-TsEnumDescriptor PROPERTIES_DESCRIPTOR    = {{{"NONE", 0}, {"SIGNATURE", 0x1}, {"NAME", 0x2}, {"ALL", 0x3}}};
-TsEnumDescriptor TLS_PROTOCOLS_DESCRIPTOR = {{{"TLSv1", 0}, {"TLSv1_1", 1}, {"TLSv1_2", 2}, {"TLSv1_3", 3}}};
+TsEnumDescriptor LEVEL_DESCRIPTOR = {
+  {{"NONE", 0}, {"MODERATE", 1}, {"STRICT", 2}}
+};
+TsEnumDescriptor POLICY_DESCRIPTOR = {
+  {{"DISABLED", 0}, {"PERMISSIVE", 1}, {"ENFORCED", 2}}
+};
+TsEnumDescriptor PROPERTIES_DESCRIPTOR = {
+  {{"NONE", 0}, {"SIGNATURE", 0x1}, {"NAME", 0x2}, {"ALL", 0x3}}
+};
+TsEnumDescriptor TLS_PROTOCOLS_DESCRIPTOR = {
+  {{"TLSv1", 0}, {"TLSv1_1", 1}, {"TLSv1_2", 2}, {"TLSv1_3", 3}}
+};
 
 std::set<std::string> valid_sni_config_keys = {TS_fqdn,
-                                               TS_disable_h2,
                                                TS_verify_client,
                                                TS_verify_client_ca_certs,
                                                TS_tunnel_route,
@@ -143,6 +150,7 @@ std::set<std::string> valid_sni_config_keys = {TS_fqdn,
                                                TS_client_key,
                                                TS_client_sni_policy,
                                                TS_http2,
+                                               TS_http2_buffer_water_mark,
                                                TS_ip_allow,
 #if TS_USE_HELLO_CB || defined(OPENSSL_IS_BORINGSSL)
                                                TS_valid_tls_versions_in,
@@ -158,7 +166,7 @@ template <> struct convert<YamlSNIConfig::Item> {
     for (const auto &elem : node) {
       if (std::none_of(valid_sni_config_keys.begin(), valid_sni_config_keys.end(),
                        [&elem](const std::string &s) { return s == elem.first.as<std::string>(); })) {
-        throw YAML::ParserException(elem.first.Mark(), "unsupported key " + elem.first.as<std::string>());
+        Warning("unsupported key '%s' in SNI config", elem.first.as<std::string>().c_str());
       }
     }
 
@@ -167,11 +175,11 @@ template <> struct convert<YamlSNIConfig::Item> {
     } else {
       return false; // servername must be present
     }
-    if (node[TS_disable_h2]) {
-      item.offer_h2 = false;
-    }
     if (node[TS_http2]) {
       item.offer_h2 = node[TS_http2].as<bool>();
+    }
+    if (node[TS_http2_buffer_water_mark]) {
+      item.http2_buffer_water_mark = node[TS_http2_buffer_water_mark].as<int>();
     }
 
     // enum

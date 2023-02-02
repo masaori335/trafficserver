@@ -41,6 +41,9 @@
 #include "ink_mutex.h"
 #include "Regex.h"
 #include "SourceLocation.h"
+#include "DbgCtl.h"
+
+#include "tscpp/util/ts_diag_levels.h"
 
 #define DIAGS_MAGIC 0x12345678
 #define BYTES_IN_MB 1000000
@@ -58,19 +61,6 @@ struct DiagsModeOutput {
   bool to_diagslog;
 };
 
-enum DiagsLevel { // do not renumber --- used as array index
-  DL_Diag = 0,    // process does not die
-  DL_Debug,       // process does not die
-  DL_Status,      // process does not die
-  DL_Note,        // process does not die
-  DL_Warning,     // process does not die
-  DL_Error,       // process does not die
-  DL_Fatal,       // causes process termination
-  DL_Alert,       // causes process termination
-  DL_Emergency,   // causes process termination, exits with UNRECOVERABLE_EXIT
-  DL_Undefined    // must be last, used for size!
-};
-
 enum StdStream { STDOUT = 0, STDERR };
 
 enum RollingEnabledValues { NO_ROLLING = 0, ROLL_ON_TIME, ROLL_ON_SIZE, ROLL_ON_TIME_OR_SIZE, INVALID_ROLLING_VALUE };
@@ -85,10 +75,21 @@ enum DiagsShowLocation { SHOW_LOCATION_NONE = 0, SHOW_LOCATION_DEBUG, SHOW_LOCAT
 //   cleanup process state
 typedef void (*DiagsCleanupFunc)();
 
-struct DiagsConfigState {
-  // this is static to eliminate many loads from the critical path
-  static int enabled[2];                     // one debug, one action
+class DiagsConfigState
+{
+public:
+  static int
+  enabled(DiagsTagType dtt)
+  {
+    return _enabled[dtt];
+  }
+
+  static void enabled(DiagsTagType dtt, int new_value);
+
   DiagsModeOutput outputs[DiagsLevel_Count]; // where each level prints
+
+private:
+  static int _enabled[2]; // one debug, one action
 };
 
 //////////////////////////////////////////////////////////////////////////////
@@ -102,7 +103,7 @@ struct DiagsConfigState {
 //      * debugging tags to selectively enable & disable diagnostics
 //      * action tags to selectively enable & disable code paths
 //      * configurable output to stdout, stderr, syslog, error logs
-//      * traffic_manager interface supporting on-the-fly reconfiguration
+//      * interface to supporting on-the-fly reconfiguration
 //
 //////////////////////////////////////////////////////////////////////////////
 
@@ -138,22 +139,51 @@ public:
     return this->debug_client_ip == test_ip;
   }
 
+  // It seems to make a big difference to performance (due to the caching of the enabled flag) to call this
+  // function first before doing anything else for debug output.  This includes entering blocks with static
+  // DbgCtl instances, or other static variables with non-const initialization.  Static variables with
+  // non-const initialization inside a function have a hidden flag that is checked every time the containing
+  // block is entered, to see if the variable has been initialized or not.
+  //
   bool
   on(DiagsTagType mode = DiagsTagType_Debug) const
   {
-    return ((config.enabled[mode] == 1) || (config.enabled[mode] == 2 && this->get_override()));
+    return (config.enabled(mode) & 1) || (config.enabled(mode) == 2 && this->get_override());
   }
 
   bool
+  on_for_TSDebug() const
+  {
+    return (config.enabled(DiagsTagType_Debug) == 1) || (config.enabled(DiagsTagType_Debug) == 2 && this->get_override());
+  }
+
+  // is_debug_tag_set() is the faster alternative to this for debug mode, when the tag is a literal C-string
+  // (or otherwise is a constexpr returning char const *).
+  //
+  bool
   on(const char *tag, DiagsTagType mode = DiagsTagType_Debug) const
   {
-    return this->on(mode) && tag_activated(tag, mode);
+    return unlikely(this->on(mode)) && tag_activated(tag, mode);
+  }
+
+  bool
+  on_for_TSDebug(const char *tag) const
+  {
+    return unlikely(this->on_for_TSDebug()) && tag_activated(tag, DiagsTagType_Debug);
+  }
+
+  bool
+  on(DbgCtl const &ctl) const
+  {
+    return unlikely(this->on(DiagsTagType_Debug)) && ctl.ptr()->on;
   }
 
   /////////////////////////////////////
   // low-level tag inquiry functions //
   /////////////////////////////////////
 
+  // This does regex match against the tag.
+  //
   bool tag_activated(const char *tag, DiagsTagType mode = DiagsTagType_Debug) const;
 
   /////////////////////////////

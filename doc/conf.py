@@ -38,6 +38,10 @@ import sys
 import os
 from datetime import date
 from sphinx import version_info
+# Import man_pages from manpages.py to get the list of manpages to generate in
+# separate files. Default is to put everything in apachetrafficserver.1
+# For these reasons, despite what linting tools might say, this import is required.
+from manpages import man_pages
 
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
@@ -45,7 +49,13 @@ from sphinx import version_info
 sys.path.insert(0, os.path.abspath('ext'))
 sys.path.insert(0, os.path.abspath('.'))
 
+
+# Allow for us to add our override CSS file (new with Sphinx 1.x)
+def setup(app):
+    app.add_css_file('override.css')
+
 # -- General configuration -----------------------------------------------------
+
 
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
@@ -57,6 +67,7 @@ extensions = [
     'sphinx.ext.coverage',
     'sphinx.ext.viewcode',
     'sphinxcontrib.plantuml',
+    'sphinxcontrib.jquery',
     'traffic-server',
 ]
 
@@ -131,7 +142,7 @@ if os.environ.get('READTHEDOCS') == 'True':
     print("done")
 else:
     # On RedHat-based distributions, install the python-sphinx_rtd_theme package
-    # to get an end result tht looks more like readthedoc.org.
+    # to get an end result that looks more like readthedoc.org.
     try:
         import sphinx_rtd_theme
         html_theme = 'sphinx_rtd_theme'
@@ -275,22 +286,6 @@ html_favicon = 'static/images/favicon.ico'
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['static']
-
-# Include a stylesheet that overrides default table styling, to provide
-# content wrapping.
-html_context = {
-    'css_files': [
-        '_static/override.css'
-    ]
-}
-if os.environ.get('READTHEDOCS', None) == 'True':
-    html_context = {
-        'css_files': [
-            'https://media.readthedocs.org/css/sphinx_rtd_theme.css',
-            'https://media.readthedocs.org/css/readthedocs-doc-embed.css',
-            '_static/override.css'
-        ]
-    }
 
 # If not '', a 'Last updated on:' timestamp is inserted at every page bottom,
 # using the given strftime format.

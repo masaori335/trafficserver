@@ -22,10 +22,10 @@ Test tls origin session reuse
 '''
 
 # Define default ATS
-ts1 = Test.MakeATSProcess("ts1", select_ports=True, enable_tls=True)
-ts2 = Test.MakeATSProcess("ts2", select_ports=True, enable_tls=True)
-ts3 = Test.MakeATSProcess("ts3", select_ports=True, enable_tls=True)
-ts4 = Test.MakeATSProcess("ts4", select_ports=True, enable_tls=True)
+ts1 = Test.MakeATSProcess("ts1", enable_tls=True)
+ts2 = Test.MakeATSProcess("ts2", enable_tls=True)
+ts3 = Test.MakeATSProcess("ts3", enable_tls=True)
+ts4 = Test.MakeATSProcess("ts4", enable_tls=True)
 server = Test.MakeOriginServer("server")
 
 # Add info the origin server responses
@@ -83,14 +83,14 @@ ts1.Disk.records_config.update({
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts1.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts1.Variables.SSLDir),
     'proxy.config.exec_thread.autoconfig.scale': 1.0,
-    'proxy.config.ssl.session_cache': 2,
+    'proxy.config.ssl.session_cache.value': 2,
     'proxy.config.ssl.session_cache.size': 4096,
     'proxy.config.ssl.session_cache.num_buckets': 256,
     'proxy.config.ssl.session_cache.skip_cache_on_bucket_contention': 0,
     'proxy.config.ssl.session_cache.timeout': 0,
     'proxy.config.ssl.session_cache.auto_clear': 1,
     'proxy.config.ssl.server.session_ticket.enable': 1,
-    'proxy.config.ssl.origin_session_cache': 1,
+    'proxy.config.ssl.origin_session_cache.enabled': 1,
     'proxy.config.ssl.origin_session_cache.size': 1,
     'proxy.config.ssl.client.verify.server.policy': 'PERMISSIVE',
 })
@@ -101,14 +101,14 @@ ts2.Disk.records_config.update({
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts2.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts2.Variables.SSLDir),
     'proxy.config.exec_thread.autoconfig.scale': 1.0,
-    'proxy.config.ssl.session_cache': 2,
+    'proxy.config.ssl.session_cache.value': 2,
     'proxy.config.ssl.session_cache.size': 4096,
     'proxy.config.ssl.session_cache.num_buckets': 256,
     'proxy.config.ssl.session_cache.skip_cache_on_bucket_contention': 0,
     'proxy.config.ssl.session_cache.timeout': 0,
     'proxy.config.ssl.session_cache.auto_clear': 1,
     'proxy.config.ssl.server.session_ticket.enable': 1,
-    'proxy.config.ssl.origin_session_cache': 1,
+    'proxy.config.ssl.origin_session_cache.enabled': 1,
     'proxy.config.ssl.origin_session_cache.size': 1,
     'proxy.config.ssl.client.verify.server.policy': 'PERMISSIVE',
 })
@@ -117,14 +117,14 @@ ts3.Disk.records_config.update({
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts3.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts3.Variables.SSLDir),
     'proxy.config.exec_thread.autoconfig.scale': 1.0,
-    'proxy.config.ssl.session_cache': 2,
+    'proxy.config.ssl.session_cache.value': 2,
     'proxy.config.ssl.session_cache.size': 4096,
     'proxy.config.ssl.session_cache.num_buckets': 256,
     'proxy.config.ssl.session_cache.skip_cache_on_bucket_contention': 0,
     'proxy.config.ssl.session_cache.timeout': 0,
     'proxy.config.ssl.session_cache.auto_clear': 1,
     'proxy.config.ssl.server.session_ticket.enable': 1,
-    'proxy.config.ssl.origin_session_cache': 1,
+    'proxy.config.ssl.origin_session_cache.enabled': 1,
     'proxy.config.ssl.origin_session_cache.size': 1,
     'proxy.config.ssl.client.verify.server.policy': 'PERMISSIVE',
 })
@@ -135,14 +135,14 @@ ts4.Disk.records_config.update({
     'proxy.config.ssl.server.cert.path': '{0}'.format(ts4.Variables.SSLDir),
     'proxy.config.ssl.server.private_key.path': '{0}'.format(ts4.Variables.SSLDir),
     'proxy.config.exec_thread.autoconfig.scale': 1.0,
-    'proxy.config.ssl.session_cache': 2,
+    'proxy.config.ssl.session_cache.value': 2,
     'proxy.config.ssl.session_cache.size': 4096,
     'proxy.config.ssl.session_cache.num_buckets': 256,
     'proxy.config.ssl.session_cache.skip_cache_on_bucket_contention': 0,
     'proxy.config.ssl.session_cache.timeout': 0,
     'proxy.config.ssl.session_cache.auto_clear': 1,
     'proxy.config.ssl.server.session_ticket.enable': 1,
-    'proxy.config.ssl.origin_session_cache': 0,
+    'proxy.config.ssl.origin_session_cache.enabled': 0,
     'proxy.config.ssl.origin_session_cache.size': 1,
     'proxy.config.ssl.client.verify.server.policy': 'PERMISSIVE',
 })
@@ -155,8 +155,8 @@ tr.Processes.Default.StartBefore(server)
 tr.Processes.Default.StartBefore(ts1)
 tr.Processes.Default.StartBefore(ts2)
 tr.Processes.Default.Streams.All = Testers.ContainsExpression('curl test', 'Making sure the basics still work')
-ts2.Streams.All = Testers.ContainsExpression('new session to origin', '')
-ts2.Streams.All += Testers.ContainsExpression('reused session to origin', '')
+ts2.Disk.traffic_out.Content = Testers.ContainsExpression('new session to origin', '')
+ts2.Disk.traffic_out.Content += Testers.ContainsExpression('reused session to origin', '')
 tr.StillRunningAfter = server
 tr.StillRunningAfter += ts1
 tr.StillRunningAfter += ts2
@@ -166,9 +166,9 @@ tr.Processes.Default.Command = 'curl https://127.0.0.1:{0}/remove_oldest -k && c
     ts2.Variables.ssl_port)
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.Streams.All = Testers.ContainsExpression('curl test', 'Making sure the basics still work')
-ts2.Streams.All = Testers.ContainsExpression('remove oldest session', '')
-ts2.Streams.All += Testers.ContainsExpression('new session to origin', '')
-ts2.Streams.All += Testers.ContainsExpression('reused session to origin', '')
+ts2.Disk.traffic_out.Content = Testers.ContainsExpression('remove oldest session', '')
+ts2.Disk.traffic_out.Content += Testers.ContainsExpression('new session to origin', '')
+ts2.Disk.traffic_out.Content += Testers.ContainsExpression('reused session to origin', '')
 tr.StillRunningAfter = server
 
 tr = Test.AddTestRun('disable origin session reuse, reuse should fail')
@@ -177,5 +177,5 @@ tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(ts3)
 tr.Processes.Default.StartBefore(ts4)
 tr.Processes.Default.Streams.All = Testers.ContainsExpression('curl test', 'Making sure the basics still work')
-ts4.Streams.All = Testers.ContainsExpression('new session to origin', '')
-ts4.Streams.All += Testers.ExcludesExpression('reused session to origin', '')
+ts4.Disk.traffic_out.Content = Testers.ContainsExpression('new session to origin', '')
+ts4.Disk.traffic_out.Content += Testers.ExcludesExpression('reused session to origin', '')

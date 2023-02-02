@@ -26,14 +26,14 @@
 #include "tscore/SourceLocation.h"
 #include "tscore/ink_memory.h"
 
-#define NO_REENTRANT 99999
-#define NO_EVENT NO_REENTRANT
+#define NO_REENTRANT         99999
+#define NO_EVENT             NO_REENTRANT
 #define HISTORY_DEFAULT_SIZE 65
 
 struct HistoryEntry {
   SourceLocation location;
-  unsigned short event = 0;
-  short reentrancy     = 0;
+  unsigned short event;
+  short reentrancy;
 };
 
 template <unsigned Count> class History

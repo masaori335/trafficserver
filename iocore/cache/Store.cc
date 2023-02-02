@@ -303,7 +303,6 @@ Result
 Store::read_config()
 {
   int n_dsstore   = 0;
-  int ln          = 0;
   int i           = 0;
   const char *err = nullptr;
   Span *sd = nullptr, *cur = nullptr;
@@ -326,10 +325,6 @@ Store::read_config()
   while ((len = ink_file_fd_readline(fd, sizeof(line), line)) > 0) {
     const char *path;
     const char *seed = nullptr;
-    // update lines
-
-    ++ln;
-
     // Because the SimpleTokenizer is a bit too simple, we have to normalize whitespace.
     for (char *spot = line, *limit = line + len; spot < limit; ++spot) {
       if (ParseRules::is_space(*spot)) {
@@ -386,7 +381,6 @@ Store::read_config()
     Debug("cache_init", "Store::read_config - ns = new Span; ns->init(\"%s\",%" PRId64 "), forced volume=%d%s%s", pp.c_str(), size,
           volume_num, seed ? " id=" : "", seed ? seed : "");
     if ((err = ns->init(pp.c_str(), size))) {
-      RecSignalWarning(REC_SIGNAL_SYSTEM_ERROR, "could not initialize storage \"%s\" [%s]", pp.c_str(), err);
       Debug("cache_init", "Store::read_config - could not initialize storage \"%s\" [%s]", pp.c_str(), err);
       delete ns;
       continue;
@@ -454,7 +448,7 @@ Span::init(const char *path, int64_t size)
   span_error_t serr;
   ink_device_geometry geometry;
 
-  ats_scoped_fd fd(socketManager.open(path, O_RDONLY));
+  ats_scoped_fd fd(SocketManager::open(path, O_RDONLY));
   if (fd < 0) {
     serr = make_span_error(errno);
     Warning("unable to open '%s': %s", path, strerror(errno));
@@ -619,8 +613,8 @@ try_alloc(Store &target, Span *source, unsigned int start_blocks, bool one_only 
         source->offset += a;
       }
       source->blocks -= a;
-      ds = d;
-      blocks -= a;
+      ds             = d;
+      blocks         -= a;
       if (one_only) {
         break;
       }
@@ -781,7 +775,7 @@ Store::clear(char *filename, bool clear_dirs)
         return -1;
       }
       for (int b = 0; d->blocks; b++) {
-        if (socketManager.pwrite(fd, z, STORE_BLOCK_SIZE, d->offset + (b * STORE_BLOCK_SIZE)) < 0) {
+        if (SocketManager::pwrite(fd, z, STORE_BLOCK_SIZE, d->offset + (b * STORE_BLOCK_SIZE)) < 0) {
           close(fd);
           return -1;
         }

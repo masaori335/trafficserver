@@ -37,6 +37,12 @@
 #include "P_Net.h"
 #include "P_UDPNet.h"
 
+#include "netinet/udp.h"
+#ifndef UDP_SEGMENT
+// This is needed because old glibc may not have the constant even if Kernel supports it.
+#define UDP_SEGMENT 103
+#endif
+
 using UDPNetContHandler = int (UDPNetHandler::*)(int, void *);
 
 ClassAllocator<UDPPacketInternal> udpPacketAllocator("udpPacketAllocator");
@@ -63,9 +69,12 @@ sockaddr_in6 G_bwGrapherLoc;
 void
 initialize_thread_for_udp_net(EThread *thread)
 {
+  int enable_gso;
+  REC_ReadConfigInteger(enable_gso, "proxy.config.udp.enable_gso");
+
   UDPNetHandler *nh = get_UDPNetHandler(thread);
 
-  new (reinterpret_cast<ink_dummy_for_new *>(nh)) UDPNetHandler;
+  new (reinterpret_cast<ink_dummy_for_new *>(nh)) UDPNetHandler(enable_gso);
   new (reinterpret_cast<ink_dummy_for_new *>(get_UDPPollCont(thread))) PollCont(thread->mutex);
   // The UDPNetHandler cannot be accessed across EThreads.
   // Because the UDPNetHandler should be called back immediately after UDPPollCont.
@@ -102,6 +111,13 @@ initialize_thread_for_udp_net(EThread *thread)
 #endif
 }
 
+EventType
+UDPNetProcessorInternal::register_event_type()
+{
+  ET_UDP = eventProcessor.register_event_type("ET_UDP");
+  return ET_UDP;
+}
+
 int
 UDPNetProcessorInternal::start(int n_upd_threads, size_t stacksize)
 {
@@ -112,7 +128,6 @@ UDPNetProcessorInternal::start(int n_upd_threads, size_t stacksize)
   pollCont_offset      = eventProcessor.allocate(sizeof(PollCont));
   udpNetHandler_offset = eventProcessor.allocate(sizeof(UDPNetHandler));
 
-  ET_UDP = eventProcessor.register_event_type("ET_UDP");
   eventProcessor.schedule_spawn(&initialize_thread_for_udp_net, ET_UDP);
   eventProcessor.spawn_event_threads(ET_UDP, n_upd_threads, stacksize);
 
@@ -178,7 +193,7 @@ UDPNetProcessorInternal::udp_read_from_net(UDPNetHandler *nh, UDPConnection *xuc
     msg.msg_controllen = sizeof(cbuf);
 
     // receive data by recvmsg
-    r = socketManager.recvmsg(uc->getFd(), &msg, 0);
+    r = SocketManager::recvmsg(uc->getFd(), &msg, 0);
     if (r <= 0) {
       // error
       break;
@@ -196,7 +211,7 @@ UDPNetProcessorInternal::udp_read_from_net(UDPNetHandler *nh, UDPConnection *xuc
       if (saved > buffer_size) {
         b->fill(buffer_size);
         saved -= buffer_size;
-        b = b->next.get();
+        b     = b->next.get();
       } else {
         b->fill(saved);
         saved      = 0;
@@ -457,7 +472,7 @@ UDPReadContinuation::readPollEvent(int event_, Event *e)
   c = completionUtil::getContinuation(event);
   // do read
   socklen_t tmp_fromlen = *fromaddrlen;
-  int rlen              = socketManager.recvfrom(fd, readbuf->end(), readlen, 0, ats_ip_sa_cast(fromaddr), &tmp_fromlen);
+  int rlen              = SocketManager::recvfrom(fd, readbuf->end(), readlen, 0, ats_ip_sa_cast(fromaddr), &tmp_fromlen);
 
   completionUtil::setThread(event, e->ethread);
   // call back user with their event
@@ -505,7 +520,7 @@ UDPReadContinuation::readPollEvent(int event_, Event *e)
  *   *actual_len = recvfrom(fd,addr,buf->end(),len)
  *   if successful then
  *      buf->fill(*actual_len);
- *	    return ACTION_RESULT_DONE
+ *      return ACTION_RESULT_DONE
  *   else if nothing read
  *      *actual_len is 0
  *      create "UDP read continuation" C with 'cont's lock
@@ -525,7 +540,7 @@ UDPNetProcessor::recvfrom_re(Continuation *cont, void *token, int fd, struct soc
 
   completionUtil::setContinuation(event, cont);
   completionUtil::setHandle(event, token);
-  actual = socketManager.recvfrom(fd, buf->end(), len, 0, fromaddr, fromaddrlen);
+  actual = SocketManager::recvfrom(fd, buf->end(), len, 0, fromaddr, fromaddrlen);
 
   if (actual > 0) {
     completionUtil::setThread(event, this_ethread());
@@ -534,7 +549,7 @@ UDPNetProcessor::recvfrom_re(Continuation *cont, void *token, int fd, struct soc
     cont->handleEvent(NET_EVENT_DATAGRAM_READ_COMPLETE, event);
     completionUtil::destroy(event);
     return ACTION_RESULT_DONE;
-  } else if (actual == 0 || (actual < 0 && actual == -EAGAIN)) {
+  } else if (actual == 0 || actual == -EAGAIN) {
     UDPReadContinuation *c = udpReadContAllocator.alloc();
     c->init_token(event);
     c->init_read(fd, buf, len, fromaddr, fromaddrlen);
@@ -568,7 +583,7 @@ UDPNetProcessor::sendmsg_re(Continuation *cont, void *token, int fd, struct msgh
   completionUtil::setContinuation(event, cont);
   completionUtil::setHandle(event, token);
 
-  actual = socketManager.sendmsg(fd, msg, 0);
+  actual = SocketManager::sendmsg(fd, msg, 0);
   if (actual >= 0) {
     completionUtil::setThread(event, this_ethread());
     completionUtil::setInfo(event, fd, msg, actual, errno);
@@ -601,7 +616,7 @@ UDPNetProcessor::sendto_re(Continuation *cont, void *token, int fd, struct socka
 {
   (void)token;
   ink_assert(buf->read_avail() >= len);
-  int nbytes_sent = socketManager.sendto(fd, buf->start(), len, 0, toaddr, toaddrlen);
+  int nbytes_sent = SocketManager::sendto(fd, buf->start(), len, 0, toaddr, toaddrlen);
 
   if (nbytes_sent >= 0) {
     ink_assert(nbytes_sent == len);
@@ -637,12 +652,12 @@ UDPNetProcessor::CreateUDPSocket(int *resfd, sockaddr const *remote_addr, Action
     // No local address specified, so use family option if possible.
     int family = ats_is_ip(opt.ip_family) ? opt.ip_family : AF_INET;
     local_addr.setToAnyAddr(family);
-    is_any_address    = true;
-    local_addr.port() = htons(opt.local_port);
+    is_any_address                  = true;
+    local_addr.network_order_port() = htons(opt.local_port);
   }
 
   *resfd = -1;
-  if ((res = socketManager.socket(remote_addr->sa_family, SOCK_DGRAM, 0)) < 0) {
+  if ((res = SocketManager::socket(remote_addr->sa_family, SOCK_DGRAM, 0)) < 0) {
     goto HardError;
   }
 
@@ -652,12 +667,12 @@ UDPNetProcessor::CreateUDPSocket(int *resfd, sockaddr const *remote_addr, Action
   }
 
   if (opt.socket_recv_bufsize > 0) {
-    if (unlikely(socketManager.set_rcvbuf_size(fd, opt.socket_recv_bufsize))) {
+    if (unlikely(SocketManager::set_rcvbuf_size(fd, opt.socket_recv_bufsize))) {
       Debug("udpnet", "set_dnsbuf_size(%d) failed", opt.socket_recv_bufsize);
     }
   }
   if (opt.socket_send_bufsize > 0) {
-    if (unlikely(socketManager.set_sndbuf_size(fd, opt.socket_send_bufsize))) {
+    if (unlikely(SocketManager::set_sndbuf_size(fd, opt.socket_send_bufsize))) {
       Debug("udpnet", "set_dnsbuf_size(%d) failed", opt.socket_send_bufsize);
     }
   }
@@ -698,8 +713,8 @@ UDPNetProcessor::CreateUDPSocket(int *resfd, sockaddr const *remote_addr, Action
     }
   }
 
-  if (local_addr.port() || !is_any_address) {
-    if (-1 == socketManager.ink_bind(fd, &local_addr.sa, ats_ip_size(&local_addr.sa))) {
+  if (local_addr.network_order_port() || !is_any_address) {
+    if (-1 == SocketManager::ink_bind(fd, &local_addr.sa, ats_ip_size(&local_addr.sa))) {
       char buff[INET6_ADDRPORTSTRLEN];
       Debug("udpnet", "ink bind failed on %s", ats_ip_nptop(local_addr, buff, sizeof(buff)));
       goto SoftError;
@@ -719,7 +734,7 @@ UDPNetProcessor::CreateUDPSocket(int *resfd, sockaddr const *remote_addr, Action
 SoftError:
   Debug("udpnet", "creating a udp socket port = %d---soft failure", ats_ip_port_host_order(local_addr));
   if (fd != -1) {
-    socketManager.close(fd);
+    SocketManager::close(fd);
   }
   *resfd  = -1;
   *status = nullptr;
@@ -727,7 +742,7 @@ SoftError:
 HardError:
   Debug("udpnet", "creating a udp socket port = %d---hard failure", ats_ip_port_host_order(local_addr));
   if (fd != -1) {
-    socketManager.close(fd);
+    SocketManager::close(fd);
   }
   *resfd  = -1;
   *status = ACTION_IO_ERROR;
@@ -746,7 +761,7 @@ UDPNetProcessor::UDPBind(Continuation *cont, sockaddr const *addr, int fd, int s
   bool need_bind     = true;
 
   if (fd == -1) {
-    if ((res = socketManager.socket(addr->sa_family, SOCK_DGRAM, 0)) < 0) {
+    if ((res = SocketManager::socket(addr->sa_family, SOCK_DGRAM, 0)) < 0) {
       goto Lerror;
     }
     fd = res;
@@ -806,18 +821,30 @@ UDPNetProcessor::UDPBind(Continuation *cont, sockaddr const *addr, int fd, int s
     goto Lerror;
   }
 
-  if (need_bind && (socketManager.ink_bind(fd, addr, ats_ip_size(addr)) < 0)) {
+  if (safe_setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, SOCKOPT_ON, sizeof(int)) < 0) {
+    Debug("udpnet", "setsockopt for SO_REUSEPORT failed");
+    goto Lerror;
+  }
+
+#ifdef SO_REUSEPORT_LB
+  if (safe_setsockopt(fd, SOL_SOCKET, SO_REUSEPORT_LB, SOCKOPT_ON, sizeof(int)) < 0) {
+    Debug("udpnet", "setsockopt for SO_REUSEPORT_LB failed");
+    goto Lerror;
+  }
+#endif
+
+  if (need_bind && (SocketManager::ink_bind(fd, addr, ats_ip_size(addr)) < 0)) {
     Debug("udpnet", "ink_bind failed");
     goto Lerror;
   }
 
   if (recv_bufsize) {
-    if (unlikely(socketManager.set_rcvbuf_size(fd, recv_bufsize))) {
+    if (unlikely(SocketManager::set_rcvbuf_size(fd, recv_bufsize))) {
       Debug("udpnet", "set_dnsbuf_size(%d) failed", recv_bufsize);
     }
   }
   if (send_bufsize) {
-    if (unlikely(socketManager.set_sndbuf_size(fd, send_bufsize))) {
+    if (unlikely(SocketManager::set_sndbuf_size(fd, send_bufsize))) {
       Debug("udpnet", "set_dnsbuf_size(%d) failed", send_bufsize);
     }
   }
@@ -828,7 +855,7 @@ UDPNetProcessor::UDPBind(Continuation *cont, sockaddr const *addr, int fd, int s
 
   Debug("udpnet", "UDPNetProcessor::UDPBind: %p fd=%d", n, fd);
   n->setBinding(&myaddr.sa);
-  n->bindToThread(cont);
+  n->bindToThread(cont, cont->getThreadAffinity());
 
   pc = get_UDPPollCont(n->ethread);
   pd = pc->pollDescriptor;
@@ -839,7 +866,7 @@ UDPNetProcessor::UDPBind(Continuation *cont, sockaddr const *addr, int fd, int s
   return ACTION_RESULT_DONE;
 Lerror:
   if (fd != NO_FD) {
-    socketManager.close(fd);
+    SocketManager::close(fd);
   }
   Debug("udpnet", "Error: %s (%d)", strerror(errno), errno);
 
@@ -848,7 +875,16 @@ Lerror:
 }
 
 // send out all packets that need to be sent out as of time=now
-UDPQueue::UDPQueue() {}
+#ifdef SOL_UDP
+UDPQueue::UDPQueue(bool enable_gso) : use_udp_gso(enable_gso) {}
+#else
+UDPQueue::UDPQueue(bool enable_gso)
+{
+  if (enable_gso) {
+    Warning("Attempted to use UDP GSO per configuration, but it is unavailable");
+  }
+}
+#endif
 
 UDPQueue::~UDPQueue() {}
 
@@ -909,13 +945,23 @@ UDPQueue::SendPackets()
   ink_hrtime now                    = Thread::get_hrtime_updated();
   ink_hrtime send_threshold_time    = now + SLOT_TIME;
   int32_t bytesThisSlot = INT_MAX, bytesUsed = 0;
-  int32_t bytesThisPipe, sentOne;
+  int32_t bytesThisPipe;
   int64_t pktLen;
 
   bytesThisSlot = INT_MAX;
 
+#ifdef UIO_MAXIOV
+  constexpr int N_MAX_PACKETS = UIO_MAXIOV; // The limit comes from sendmmsg
+#else
+  constexpr int N_MAX_PACKETS = 1024;
+#endif
+  UDPPacketInternal *packets[N_MAX_PACKETS];
+  int nsent;
+  int npackets;
+
 sendPackets:
-  sentOne       = false;
+  nsent         = 0;
+  npackets      = 0;
   bytesThisPipe = bytesThisSlot;
 
   while ((bytesThisPipe > 0) && (pipeInfo.firstPacket(send_threshold_time))) {
@@ -929,21 +975,25 @@ sendPackets:
       goto next_pkt;
     }
 
-    SendUDPPacket(p, pktLen);
-    bytesUsed += pktLen;
-    bytesThisPipe -= pktLen;
+    bytesUsed           += pktLen;
+    bytesThisPipe       -= pktLen;
+    packets[npackets++] = p;
   next_pkt:
-    sentOne = true;
-    p->free();
-
-    if (bytesThisPipe < 0) {
+    if (bytesThisPipe < 0 && npackets == N_MAX_PACKETS) {
       break;
     }
   }
 
+  if (npackets > 0) {
+    nsent = SendMultipleUDPPackets(packets, npackets);
+  }
+  for (int i = 0; i < nsent; ++i) {
+    packets[i]->free();
+  }
+
   bytesThisSlot -= bytesUsed;
 
-  if ((bytesThisSlot > 0) && sentOne) {
+  if ((bytesThisSlot > 0) && nsent) {
     // redistribute the slack...
     now = Thread::get_hrtime_updated();
     if (pipeInfo.firstPacket(now) == nullptr) {
@@ -959,52 +1009,132 @@ sendPackets:
 }
 
 void
-UDPQueue::SendUDPPacket(UDPPacketInternal *p, int32_t /* pktLen ATS_UNUSED */)
+UDPQueue::SendUDPPacket(UDPPacketInternal *p)
 {
   struct msghdr msg;
   struct iovec iov[32];
-  int real_len = 0;
-  int n, count, iov_len = 0;
+  int n, count = 0;
 
   p->conn->lastSentPktStartTime = p->delivery_time;
   Debug("udp-send", "Sending %p", p);
 
-#if !defined(solaris)
   msg.msg_control    = nullptr;
   msg.msg_controllen = 0;
   msg.msg_flags      = 0;
-#endif
-  msg.msg_name    = reinterpret_cast<caddr_t>(&p->to.sa);
-  msg.msg_namelen = ats_ip_size(p->to);
-  iov_len         = 0;
+  msg.msg_name       = reinterpret_cast<caddr_t>(&p->to.sa);
+  msg.msg_namelen    = ats_ip_size(p->to);
 
-  for (IOBufferBlock *b = p->chain.get(); b != nullptr; b = b->next.get()) {
-    iov[iov_len].iov_base = static_cast<caddr_t>(b->start());
-    iov[iov_len].iov_len  = b->size();
-    real_len += iov[iov_len].iov_len;
-    iov_len++;
-  }
-  msg.msg_iov    = iov;
-  msg.msg_iovlen = iov_len;
+  if (p->segment_size > 0) {
+    ink_assert(p->chain->next == nullptr);
+    msg.msg_iov    = iov;
+    msg.msg_iovlen = 1;
+#ifdef SOL_UDP
+    if (use_udp_gso) {
+      iov[0].iov_base = p->chain.get()->start();
+      iov[0].iov_len  = p->chain.get()->size();
 
-  count = 0;
-  while (true) {
-    // stupid Linux problem: sendmsg can return EAGAIN
-    n = ::sendmsg(p->conn->getFd(), &msg, 0);
-    if ((n >= 0) || ((n < 0) && (errno != EAGAIN))) {
-      // send succeeded or some random error happened.
-      if (n < 0) {
-        Debug("udp-send", "Error: %s (%d)", strerror(errno), errno);
+      union udp_segment_hdr {
+        char buf[CMSG_SPACE(sizeof(uint16_t))];
+        struct cmsghdr align;
+      } u;
+      msg.msg_control    = u.buf;
+      msg.msg_controllen = sizeof(u.buf);
+
+      struct cmsghdr *cm           = CMSG_FIRSTHDR(&msg);
+      cm->cmsg_level               = SOL_UDP;
+      cm->cmsg_type                = UDP_SEGMENT;
+      cm->cmsg_len                 = CMSG_LEN(sizeof(uint16_t));
+      *((uint16_t *)CMSG_DATA(cm)) = p->segment_size;
+
+      count = 0;
+      while (true) {
+        // stupid Linux problem: sendmsg can return EAGAIN
+        n = ::sendmsg(p->conn->getFd(), &msg, 0);
+        if (n >= 0) {
+          break;
+        }
+        if (errno == EIO && use_udp_gso) {
+          Warning("Disabling UDP GSO due to an error");
+          use_udp_gso = false;
+          SendUDPPacket(p);
+          return;
+        }
+        if (errno == EAGAIN) {
+          ++count;
+          if ((g_udp_numSendRetries > 0) && (count >= g_udp_numSendRetries)) {
+            // tried too many times; give up
+            Debug("udpnet", "Send failed: too many retries");
+            return;
+          }
+        } else {
+          Debug("udp-send", "Error: %s (%d)", strerror(errno), errno);
+          return;
+        }
       }
+    } else {
+#endif
+      // Send segments seprately if UDP_SEGMENT is not supported
+      int offset = 0;
+      while (offset < p->chain.get()->size()) {
+        iov[0].iov_base = p->chain.get()->start() + offset;
+        iov[0].iov_len = std::min(static_cast<long>(p->segment_size), p->chain.get()->end() - static_cast<char *>(iov[0].iov_base));
 
-      break;
+        count = 0;
+        while (true) {
+          // stupid Linux problem: sendmsg can return EAGAIN
+          n = ::sendmsg(p->conn->getFd(), &msg, 0);
+          if (n >= 0) {
+            break;
+          }
+          if (errno == EAGAIN) {
+            ++count;
+            if ((g_udp_numSendRetries > 0) && (count >= g_udp_numSendRetries)) {
+              // tried too many times; give up
+              Debug("udpnet", "Send failed: too many retries");
+              return;
+            }
+          } else {
+            Debug("udp-send", "Error: %s (%d)", strerror(errno), errno);
+            return;
+          }
+        }
+
+        offset += iov[0].iov_len;
+      }
+      ink_assert(offset == p->chain.get()->size());
+#ifdef SOL_UDP
+    } // use_udp_segment
+#endif
+  } else {
+    // Nothing is special
+    int iov_len = 0;
+    for (IOBufferBlock *b = p->chain.get(); b != nullptr; b = b->next.get()) {
+      iov[iov_len].iov_base = static_cast<caddr_t>(b->start());
+      iov[iov_len].iov_len  = b->size();
+      iov_len++;
     }
-    if (errno == EAGAIN) {
-      ++count;
-      if ((g_udp_numSendRetries > 0) && (count >= g_udp_numSendRetries)) {
-        // tried too many times; give up
-        Debug("udpnet", "Send failed: too many retries");
+    msg.msg_iov    = iov;
+    msg.msg_iovlen = iov_len;
+
+    count = 0;
+    while (true) {
+      // stupid Linux problem: sendmsg can return EAGAIN
+      n = ::sendmsg(p->conn->getFd(), &msg, 0);
+      if ((n >= 0) || (errno != EAGAIN)) {
+        // send succeeded or some random error happened.
+        if (n < 0) {
+          Debug("udp-send", "Error: %s (%d)", strerror(errno), errno);
+        }
+
         break;
+      }
+      if (errno == EAGAIN) {
+        ++count;
+        if ((g_udp_numSendRetries > 0) && (count >= g_udp_numSendRetries)) {
+          // tried too many times; give up
+          Debug("udpnet", "Send failed: too many retries");
+          break;
+        }
       }
     }
   }
@@ -1015,6 +1145,161 @@ UDPQueue::send(UDPPacket *p)
 {
   // XXX: maybe fastpath for immediate send?
   outQueue.push((UDPPacketInternal *)p);
+}
+
+int
+UDPQueue::SendMultipleUDPPackets(UDPPacketInternal **p, uint16_t n)
+{
+#ifdef HAVE_SENDMMSG
+  struct mmsghdr *msgvec;
+  int msgvec_size;
+
+#ifdef SOL_UDP
+  union udp_segment_hdr {
+    char buf[CMSG_SPACE(sizeof(uint16_t))];
+    struct cmsghdr align;
+  };
+  if (use_udp_gso) {
+    msgvec_size = sizeof(struct mmsghdr) * n;
+  } else {
+    msgvec_size = sizeof(struct mmsghdr) * n * 64;
+  }
+#else
+  msgvec_size = sizeof(struct mmsghdr) * n * 64;
+#endif
+  msgvec = static_cast<struct mmsghdr *>(alloca(msgvec_size));
+  memset(msgvec, 0, msgvec_size);
+
+  int vlen = 0;
+  int fd   = p[0]->conn->getFd();
+  for (int i = 0; i < n; ++i) {
+    UDPPacketInternal *packet;
+    struct msghdr *msg;
+    struct iovec *iov;
+    int iov_len;
+
+    packet                             = p[i];
+    packet->conn->lastSentPktStartTime = packet->delivery_time;
+    ink_assert(packet->conn->getFd() == fd);
+    if (packet->segment_size > 0) {
+      // Presumes one big super buffer is given
+      ink_assert(packet->chain->next == nullptr);
+#ifdef SOL_UDP
+      if (use_udp_gso) {
+        msg              = &msgvec[vlen].msg_hdr;
+        msg->msg_name    = reinterpret_cast<caddr_t>(&packet->to.sa);
+        msg->msg_namelen = ats_ip_size(packet->to);
+
+        union udp_segment_hdr *u;
+        u                   = static_cast<union udp_segment_hdr *>(alloca(sizeof(union udp_segment_hdr)));
+        msg->msg_control    = u->buf;
+        msg->msg_controllen = sizeof(u->buf);
+        iov                 = static_cast<struct iovec *>(alloca(sizeof(struct iovec)));
+        iov_len             = 1;
+        iov->iov_base       = packet->chain.get()->start();
+        iov->iov_len        = packet->chain.get()->size();
+        msg->msg_iov        = iov;
+        msg->msg_iovlen     = iov_len;
+
+        struct cmsghdr *cm           = CMSG_FIRSTHDR(msg);
+        cm->cmsg_level               = SOL_UDP;
+        cm->cmsg_type                = UDP_SEGMENT;
+        cm->cmsg_len                 = CMSG_LEN(sizeof(uint16_t));
+        *((uint16_t *)CMSG_DATA(cm)) = packet->segment_size;
+        vlen++;
+      } else {
+#endif
+        // UDP_SEGMENT is unavailable
+        // Send the given data as multiple messages
+        int offset = 0;
+        while (offset < packet->chain.get()->size()) {
+          msg              = &msgvec[vlen].msg_hdr;
+          msg->msg_name    = reinterpret_cast<caddr_t>(&packet->to.sa);
+          msg->msg_namelen = ats_ip_size(packet->to);
+          iov              = static_cast<struct iovec *>(alloca(sizeof(struct iovec)));
+          iov_len          = 1;
+          iov->iov_base    = packet->chain.get()->start() + offset;
+          iov->iov_len =
+            std::min(packet->segment_size, static_cast<uint16_t>(packet->chain.get()->end() - static_cast<char *>(iov->iov_base)));
+          msg->msg_iov    = iov;
+          msg->msg_iovlen = iov_len;
+          offset          += iov->iov_len;
+          vlen++;
+        }
+        ink_assert(offset == packet->chain.get()->size());
+#ifdef SOL_UDP
+      } // use_udp_gso
+#endif
+    } else {
+      // Nothing is special
+      msg              = &msgvec[vlen].msg_hdr;
+      msg->msg_name    = reinterpret_cast<caddr_t>(&packet->to.sa);
+      msg->msg_namelen = ats_ip_size(packet->to);
+      iov              = static_cast<struct iovec *>(alloca(sizeof(struct iovec) * 64));
+      iov_len          = 0;
+      for (IOBufferBlock *b = packet->chain.get(); b != nullptr; b = b->next.get()) {
+        iov[iov_len].iov_base = static_cast<caddr_t>(b->start());
+        iov[iov_len].iov_len  = b->size();
+        iov_len++;
+      }
+      msg->msg_iov    = iov;
+      msg->msg_iovlen = iov_len;
+      vlen++;
+    }
+  }
+
+  if (vlen == 0) {
+    return 0;
+  }
+
+  int res = ::sendmmsg(fd, msgvec, vlen, 0);
+  if (res < 0) {
+#ifdef SOL_UDP
+    if (use_udp_gso && errno == EIO) {
+      Warning("Disabling UDP GSO due to an error");
+      Debug("udp-send", "Disabling UDP GSO due to an error");
+      use_udp_gso = false;
+      return SendMultipleUDPPackets(p, n);
+    } else {
+      Debug("udp-send", "udp_gso=%d res=%d errno=%d", use_udp_gso, res, errno);
+      return res;
+    }
+#else
+    Debug("udp-send", "res=%d errno=%d", res, errno);
+    return res;
+#endif
+  }
+
+  if (res > 0) {
+#ifdef SOL_UDP
+    if (use_udp_gso) {
+      Debug("udp-send", "Sent %d messages by processing %d UDPPackets (GSO)", res, n);
+    } else {
+#endif
+      int i    = 0;
+      int nmsg = res;
+      for (i = 0; i < n && res > 0; ++i) {
+        if (p[i]->segment_size == 0) {
+          res -= 1;
+        } else {
+          res -= (p[i]->chain.get()->size() / p[i]->segment_size) + ((p[i]->chain.get()->size() % p[i]->segment_size) != 0);
+        }
+      }
+      Debug("udp-send", "Sent %d messages by processing %d UDPPackets", nmsg, i);
+      res = i;
+#ifdef SOL_UDP
+    }
+#endif
+  }
+
+  return res;
+#else
+  // sendmmsg is unavailable
+  for (int i = 0; i < n; ++i) {
+    SendUDPPacket(p[i]);
+  }
+  return n;
+#endif
 }
 
 #undef LINK
@@ -1033,18 +1318,18 @@ net_signal_hook_callback(EThread *thread)
 #endif
 }
 
-UDPNetHandler::UDPNetHandler()
+UDPNetHandler::UDPNetHandler(bool enable_gso) : udpOutQueue(enable_gso)
 {
   nextCheck = Thread::get_hrtime_updated() + HRTIME_MSECONDS(1000);
   lastCheck = 0;
-  SET_HANDLER((UDPNetContHandler)&UDPNetHandler::startNetEvent);
+  SET_HANDLER(&UDPNetHandler::startNetEvent);
 }
 
 int
 UDPNetHandler::startNetEvent(int event, Event *e)
 {
   (void)event;
-  SET_HANDLER((UDPNetContHandler)&UDPNetHandler::mainNetEvent);
+  SET_HANDLER(&UDPNetHandler::mainNetEvent);
   trigger_event = e;
   e->schedule_every(-HRTIME_MSECONDS(UDP_NH_PERIOD));
   return EVENT_CONT;

@@ -28,12 +28,13 @@
 #include <cstring>
 #include "HttpConfig.h"
 #include "HTTP.h"
-#include "ProcessManager.h"
 #include "ProxyConfig.h"
 #include "P_Net.h"
 #include "records/P_RecUtils.h"
 #include <records/I_RecHttp.h>
 #include "HttpSessionManager.h"
+
+extern void HostDB_Config_Init();
 
 #define HttpEstablishStaticConfigStringAlloc(_ix, _n) \
   REC_EstablishStaticConfigStringAlloc(_ix, _n);      \
@@ -112,10 +113,15 @@ http_config_enum_read(const char *name, const ConfigEnumPair<T> (&list)[N], Mgmt
 ////////////////////////////////////////////////////////////////
 /// Session sharing match types.
 static const ConfigEnumPair<TSServerSessionSharingMatchType> SessionSharingMatchStrings[] = {
-  {TS_SERVER_SESSION_SHARING_MATCH_NONE, "none"}, {TS_SERVER_SESSION_SHARING_MATCH_IP, "ip"},
-  {TS_SERVER_SESSION_SHARING_MATCH_HOST, "host"}, {TS_SERVER_SESSION_SHARING_MATCH_HOST, "hostsni"},
-  {TS_SERVER_SESSION_SHARING_MATCH_BOTH, "both"}, {TS_SERVER_SESSION_SHARING_MATCH_HOSTONLY, "hostonly"},
-  {TS_SERVER_SESSION_SHARING_MATCH_SNI, "sni"},   {TS_SERVER_SESSION_SHARING_MATCH_CERT, "cert"}};
+  {TS_SERVER_SESSION_SHARING_MATCH_NONE,     "none"    },
+  {TS_SERVER_SESSION_SHARING_MATCH_IP,       "ip"      },
+  {TS_SERVER_SESSION_SHARING_MATCH_HOST,     "host"    },
+  {TS_SERVER_SESSION_SHARING_MATCH_HOST,     "hostsni" },
+  {TS_SERVER_SESSION_SHARING_MATCH_BOTH,     "both"    },
+  {TS_SERVER_SESSION_SHARING_MATCH_HOSTONLY, "hostonly"},
+  {TS_SERVER_SESSION_SHARING_MATCH_SNI,      "sni"     },
+  {TS_SERVER_SESSION_SHARING_MATCH_CERT,     "cert"    }
+};
 
 bool
 HttpConfig::load_server_session_sharing_match(const char *key, MgmtByte &mask)
@@ -166,7 +172,8 @@ http_config_enum_mask_read(const char *name, MgmtByte &value)
 static const ConfigEnumPair<TSServerSessionSharingPoolType> SessionSharingPoolStrings[] = {
   {TS_SERVER_SESSION_SHARING_POOL_GLOBAL, "global"},
   {TS_SERVER_SESSION_SHARING_POOL_THREAD, "thread"},
-  {TS_SERVER_SESSION_SHARING_POOL_HYBRID, "hybrid"}};
+  {TS_SERVER_SESSION_SHARING_POOL_HYBRID, "hybrid"}
+};
 
 int HttpConfig::m_id = 0;
 HttpConfigParams HttpConfig::m_master;
@@ -494,6 +501,12 @@ register_stat_callbacks()
 
   RecRegisterRawStat(http_rsb, RECT_PROCESS, "proxy.process.http.extension_method_requests", RECD_COUNTER, RECP_PERSISTENT,
                      (int)http_extension_method_requests_stat, RecRawStatSyncCount);
+
+  RecRegisterRawStat(http_rsb, RECT_PROCESS, "proxy.process.http.http_proxy_loop_detected", RECD_COUNTER, RECP_PERSISTENT,
+                     (int)http_proxy_loop_detected_stat, RecRawStatSyncCount);
+
+  RecRegisterRawStat(http_rsb, RECT_PROCESS, "proxy.process.http.http_proxy_mh_loop_detected", RECD_COUNTER, RECP_PERSISTENT,
+                     (int)http_proxy_mh_loop_detected_stat, RecRawStatSyncCount);
 
   RecRegisterRawStat(http_rsb, RECT_PROCESS, "proxy.process.http.broken_server_connections", RECD_COUNTER, RECP_PERSISTENT,
                      (int)http_broken_server_connections_stat, RecRawStatSyncCount);
@@ -1066,6 +1079,10 @@ register_stat_callbacks()
 
   RecRegisterRawStat(http_rsb, RECT_PROCESS, "proxy.process.http.dead_server.no_requests", RECD_COUNTER, RECP_PERSISTENT,
                      (int)http_dead_server_no_requests, RecRawStatSyncSum);
+
+  // Current transaction stats parent counter
+  RecRegisterRawStat(http_rsb, RECT_PROCESS, "proxy.process.http_parent_count", RECD_COUNTER, RECP_PERSISTENT,
+                     (int)http_parent_count, RecRawStatSyncCount);
 }
 
 static bool
@@ -1153,6 +1170,8 @@ HttpConfig::startup()
   HttpEstablishStaticConfigLongLong(c.oride.max_proxy_cycles, "proxy.config.http.max_proxy_cycles");
 
   HttpEstablishStaticConfigLongLong(c.oride.tunnel_activity_check_period, "proxy.config.tunnel.activity_check_period");
+
+  HttpEstablishStaticConfigLongLong(c.oride.default_inactivity_timeout, "proxy.config.net.default_inactivity_timeout");
 
   HttpEstablishStaticConfigLongLong(c.http_request_line_max_size, "proxy.config.http.request_line_max_size");
   HttpEstablishStaticConfigLongLong(c.http_hdr_field_max_size, "proxy.config.http.header_field_max_size");
@@ -1242,14 +1261,15 @@ HttpConfig::startup()
 
   HttpEstablishStaticConfigLongLong(c.oride.connect_attempts_rr_retries, "proxy.config.http.connect_attempts_rr_retries");
   HttpEstablishStaticConfigLongLong(c.oride.connect_attempts_timeout, "proxy.config.http.connect_attempts_timeout");
-  HttpEstablishStaticConfigLongLong(c.oride.post_connect_attempts_timeout, "proxy.config.http.post_connect_attempts_timeout");
   HttpEstablishStaticConfigLongLong(c.oride.parent_connect_attempts, "proxy.config.http.parent_proxy.total_connect_attempts");
   HttpEstablishStaticConfigLongLong(c.oride.parent_retry_time, "proxy.config.http.parent_proxy.retry_time");
   HttpEstablishStaticConfigLongLong(c.oride.parent_fail_threshold, "proxy.config.http.parent_proxy.fail_threshold");
   HttpEstablishStaticConfigLongLong(c.oride.per_parent_connect_attempts,
                                     "proxy.config.http.parent_proxy.per_parent_connect_attempts");
-  HttpEstablishStaticConfigLongLong(c.oride.parent_connect_timeout, "proxy.config.http.parent_proxy.connect_attempts_timeout");
   HttpEstablishStaticConfigByte(c.oride.parent_failures_update_hostdb, "proxy.config.http.parent_proxy.mark_down_hostdb");
+  HttpEstablishStaticConfigByte(c.oride.enable_parent_timeout_markdowns,
+                                "proxy.config.http.parent_proxy.enable_parent_timeout_markdowns");
+  HttpEstablishStaticConfigByte(c.oride.disable_parent_markdowns, "proxy.config.http.parent_proxy.disable_parent_markdowns");
 
   HttpEstablishStaticConfigLongLong(c.oride.sock_recv_buffer_size_out, "proxy.config.net.sock_recv_buffer_size_out");
   HttpEstablishStaticConfigLongLong(c.oride.sock_send_buffer_size_out, "proxy.config.net.sock_send_buffer_size_out");
@@ -1296,6 +1316,9 @@ HttpConfig::startup()
 
   HttpEstablishStaticConfigByte(c.oride.allow_half_open, "proxy.config.http.allow_half_open");
 
+  // Body factory
+  HttpEstablishStaticConfigByte(c.oride.response_suppression_mode, "proxy.config.body_factory.response_suppression_mode");
+
   // open read failure retries
   HttpEstablishStaticConfigLongLong(c.oride.max_cache_open_read_retries, "proxy.config.http.cache.max_open_read_retries");
   HttpEstablishStaticConfigLongLong(c.oride.cache_open_read_retry_time, "proxy.config.http.cache.open_read_retry_time");
@@ -1303,6 +1326,8 @@ HttpConfig::startup()
 
   // open write failure retries
   HttpEstablishStaticConfigLongLong(c.oride.max_cache_open_write_retries, "proxy.config.http.cache.max_open_write_retries");
+  HttpEstablishStaticConfigLongLong(c.oride.max_cache_open_write_retry_timeout,
+                                    "proxy.config.http.cache.max_open_write_retry_timeout");
 
   HttpEstablishStaticConfigByte(c.oride.cache_http, "proxy.config.http.cache.http");
   HttpEstablishStaticConfigByte(c.oride.cache_ignore_client_no_cache, "proxy.config.http.cache.ignore_client_no_cache");
@@ -1322,8 +1347,6 @@ HttpConfig::startup()
 
   HttpEstablishStaticConfigByte(c.send_100_continue_response, "proxy.config.http.send_100_continue_response");
   HttpEstablishStaticConfigByte(c.disallow_post_100_continue, "proxy.config.http.disallow_post_100_continue");
-
-  HttpEstablishStaticConfigByte(c.keepalive_internal_vc, "proxy.config.http.keepalive_internal_vc");
 
   HttpEstablishStaticConfigByte(c.oride.cache_open_write_fail_action, "proxy.config.http.cache.open_write_fail_action");
 
@@ -1358,7 +1381,7 @@ HttpConfig::startup()
   HttpEstablishStaticConfigByte(c.referer_filter_enabled, "proxy.config.http.referer_filter");
   HttpEstablishStaticConfigByte(c.referer_format_redirect, "proxy.config.http.referer_format_redirect");
 
-  HttpEstablishStaticConfigLongLong(c.oride.down_server_timeout, "proxy.config.http.down_server.cache_time");
+  HostDB_Config_Init();
 
   // Negative caching and revalidation
   HttpEstablishStaticConfigByte(c.oride.negative_caching_enabled, "proxy.config.http.negative_caching_enabled");
@@ -1384,13 +1407,13 @@ HttpConfig::startup()
   HttpEstablishStaticConfigLongLong(c.max_payload_iobuf_index, "proxy.config.payload.io.max_buffer_index");
   HttpEstablishStaticConfigLongLong(c.max_msg_iobuf_index, "proxy.config.msg.io.max_buffer_index");
 
-  //##############################################################################
-  //#
-  //# Redirection
-  //#
-  //# See RecordsConfig definition.
-  //#
-  //##############################################################################
+  // ##############################################################################
+  // #
+  // # Redirection
+  // #
+  // # See RecordsConfig definition.
+  // #
+  // ##############################################################################
   HttpEstablishStaticConfigByte(c.oride.redirect_use_orig_cache_key, "proxy.config.http.redirect_use_orig_cache_key");
   HttpEstablishStaticConfigByte(c.redirection_host_no_port, "proxy.config.http.redirect_host_no_port");
   HttpEstablishStaticConfigLongLong(c.oride.number_of_redirections, "proxy.config.http.number_of_redirections");
@@ -1399,6 +1422,8 @@ HttpConfig::startup()
   HttpEstablishStaticConfigByte(c.http_host_sni_policy, "proxy.config.http.host_sni_policy");
 
   HttpEstablishStaticConfigStringAlloc(c.oride.ssl_client_sni_policy, "proxy.config.ssl.client.sni_policy");
+  HttpEstablishStaticConfigStringAlloc(c.oride.ssl_client_alpn_protocols, "proxy.config.ssl.client.alpn_protocols");
+  HttpEstablishStaticConfigByte(c.scheme_proto_mismatch_policy, "proxy.config.ssl.client.scheme_proto_mismatch_policy");
 
   OutboundConnTrack::config_init(&c.global_outbound_conntrack, &c.oride.outbound_conntrack);
 
@@ -1443,22 +1468,15 @@ HttpConfig::reconfigure()
   params->disable_ssl_parenting        = INT_TO_BOOL(m_master.disable_ssl_parenting);
   params->oride.forward_connect_method = INT_TO_BOOL(m_master.oride.forward_connect_method);
 
-  params->server_max_connections    = m_master.server_max_connections;
-  params->max_websocket_connections = m_master.max_websocket_connections;
-  params->oride.outbound_conntrack  = m_master.oride.outbound_conntrack;
-  params->global_outbound_conntrack = m_master.global_outbound_conntrack;
-
-  // If queuing for outbound connection tracking is enabled without enabling max connections, it is meaningless, so we'll warn
-  if (params->global_outbound_conntrack.queue_size > 0 &&
-      !(params->oride.outbound_conntrack.max > 0 || params->oride.outbound_conntrack.min > 0)) {
-    Warning("'%s' is set, but neither '%s' nor '%s' are "
-            "set, please correct your %s",
-            OutboundConnTrack::CONFIG_VAR_QUEUE_SIZE.data(), OutboundConnTrack::CONFIG_VAR_MAX.data(),
-            OutboundConnTrack::CONFIG_VAR_MIN.data(), ts::filename::RECORDS);
-  }
+  params->server_max_connections                = m_master.server_max_connections;
+  params->max_websocket_connections             = m_master.max_websocket_connections;
+  params->oride.outbound_conntrack              = m_master.oride.outbound_conntrack;
+  params->global_outbound_conntrack             = m_master.global_outbound_conntrack;
   params->oride.attach_server_session_to_client = m_master.oride.attach_server_session_to_client;
   params->oride.max_proxy_cycles                = m_master.oride.max_proxy_cycles;
   params->oride.tunnel_activity_check_period    = m_master.oride.tunnel_activity_check_period;
+
+  params->oride.default_inactivity_timeout = m_master.oride.default_inactivity_timeout;
 
   params->http_request_line_max_size = m_master.http_request_line_max_size;
   params->http_hdr_field_max_size    = m_master.http_hdr_field_max_size;
@@ -1532,16 +1550,16 @@ HttpConfig::reconfigure()
             "will never redispatch to another server",
             m_master.oride.connect_attempts_rr_retries, params->oride.connect_attempts_max_retries);
   }
-  params->oride.connect_attempts_rr_retries   = m_master.oride.connect_attempts_rr_retries;
-  params->oride.connect_attempts_timeout      = m_master.oride.connect_attempts_timeout;
-  params->oride.connect_dead_policy           = m_master.oride.connect_dead_policy;
-  params->oride.post_connect_attempts_timeout = m_master.oride.post_connect_attempts_timeout;
-  params->oride.parent_connect_attempts       = m_master.oride.parent_connect_attempts;
-  params->oride.parent_retry_time             = m_master.oride.parent_retry_time;
-  params->oride.parent_fail_threshold         = m_master.oride.parent_fail_threshold;
-  params->oride.per_parent_connect_attempts   = m_master.oride.per_parent_connect_attempts;
-  params->oride.parent_connect_timeout        = m_master.oride.parent_connect_timeout;
-  params->oride.parent_failures_update_hostdb = m_master.oride.parent_failures_update_hostdb;
+  params->oride.connect_attempts_rr_retries     = m_master.oride.connect_attempts_rr_retries;
+  params->oride.connect_attempts_timeout        = m_master.oride.connect_attempts_timeout;
+  params->oride.connect_dead_policy             = m_master.oride.connect_dead_policy;
+  params->oride.parent_connect_attempts         = m_master.oride.parent_connect_attempts;
+  params->oride.parent_retry_time               = m_master.oride.parent_retry_time;
+  params->oride.parent_fail_threshold           = m_master.oride.parent_fail_threshold;
+  params->oride.per_parent_connect_attempts     = m_master.oride.per_parent_connect_attempts;
+  params->oride.parent_failures_update_hostdb   = m_master.oride.parent_failures_update_hostdb;
+  params->oride.enable_parent_timeout_markdowns = m_master.oride.enable_parent_timeout_markdowns;
+  params->oride.disable_parent_markdowns        = m_master.oride.disable_parent_markdowns;
 
   params->oride.sock_recv_buffer_size_out = m_master.oride.sock_recv_buffer_size_out;
   params->oride.sock_send_buffer_size_out = m_master.oride.sock_send_buffer_size_out;
@@ -1595,6 +1613,8 @@ HttpConfig::reconfigure()
 
   params->oride.allow_half_open = m_master.oride.allow_half_open;
 
+  params->oride.response_suppression_mode = m_master.oride.response_suppression_mode;
+
   // open read failure retries
   params->oride.max_cache_open_read_retries = m_master.oride.max_cache_open_read_retries;
   params->oride.cache_open_read_retry_time  = m_master.oride.cache_open_read_retry_time;
@@ -1620,7 +1640,6 @@ HttpConfig::reconfigure()
 
   params->send_100_continue_response = INT_TO_BOOL(m_master.send_100_continue_response);
   params->disallow_post_100_continue = INT_TO_BOOL(m_master.disallow_post_100_continue);
-  params->keepalive_internal_vc      = INT_TO_BOOL(m_master.keepalive_internal_vc);
 
   params->oride.cache_open_write_fail_action = m_master.oride.cache_open_write_fail_action;
   if (params->oride.cache_open_write_fail_action == CACHE_WL_FAIL_ACTION_READ_RETRY) {
@@ -1686,8 +1705,10 @@ HttpConfig::reconfigure()
   params->redirect_actions_string           = ats_strdup(m_master.redirect_actions_string);
   params->redirect_actions_map = parse_redirect_actions(params->redirect_actions_string, params->redirect_actions_self_action);
   params->http_host_sni_policy = m_master.http_host_sni_policy;
+  params->scheme_proto_mismatch_policy = m_master.scheme_proto_mismatch_policy;
 
-  params->oride.ssl_client_sni_policy = ats_strdup(m_master.oride.ssl_client_sni_policy);
+  params->oride.ssl_client_sni_policy     = ats_strdup(m_master.oride.ssl_client_sni_policy);
+  params->oride.ssl_client_alpn_protocols = ats_strdup(m_master.oride.ssl_client_alpn_protocols);
 
   params->negative_caching_list = m_master.negative_caching_list;
 
@@ -1926,8 +1947,8 @@ HttpConfig::parse_redirect_actions(char *input_string, RedirectEnabled::Action &
   // SELF
   // We must store the self address class separately instead of adding the addresses to our map.
   // The addresses Trafficserver will use depend on configurations that are loaded here, so they are not available yet.
-  action = configMapping.find(AddressClass::SELF) != configMapping.end() ? configMapping[AddressClass::SELF] :
-                                                                           configMapping[AddressClass::DEFAULT];
+  action      = configMapping.find(AddressClass::SELF) != configMapping.end() ? configMapping[AddressClass::SELF] :
+                                                                                configMapping[AddressClass::DEFAULT];
   self_action = action;
 
   // IpMap::fill only marks things that are not already marked.

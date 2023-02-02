@@ -23,6 +23,7 @@
 
 #include <iostream>
 #include <regex>
+#include <cstring>
 #include <set>
 #include <sstream>
 #include <getopt.h>
@@ -80,7 +81,9 @@ TSPluginInit(int argc, const char *argv[])
   const char *fallback = nullptr;
 
   // Read options from plugin.config
-  static const struct option longopts[] = {{"fallback", required_argument, nullptr, 'f'}};
+  static const struct option longopts[] = {
+    {"fallback", required_argument, nullptr, 'f'}
+  };
 
   int opt = 0;
 

@@ -44,15 +44,15 @@
 //   }
 
 // status values
-#define REGRESSION_TEST_PASSED 1
+#define REGRESSION_TEST_PASSED     1
 #define REGRESSION_TEST_INPROGRESS 0 // initial value
-#define REGRESSION_TEST_FAILED -1
-#define REGRESSION_TEST_NOT_RUN -2
+#define REGRESSION_TEST_FAILED     -1
+#define REGRESSION_TEST_NOT_RUN    -2
 
 // regression types
-#define REGRESSION_TEST_NONE 0
-#define REGRESSION_TEST_QUICK 1
-#define REGRESSION_TEST_NIGHTLY 2
+#define REGRESSION_TEST_NONE     0
+#define REGRESSION_TEST_QUICK    1
+#define REGRESSION_TEST_NIGHTLY  2
 #define REGRESSION_TEST_EXTENDED 3
 
 // regression options
@@ -101,3 +101,5 @@ struct RegressionTest {
 int rprintf(RegressionTest *t, const char *format, ...);
 int rperf(RegressionTest *t, const char *tag, double val);
 const char *regression_status_string(int status);
+
+void tell_diags_regression_testing_is_on();

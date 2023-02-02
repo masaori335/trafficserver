@@ -23,13 +23,13 @@
 
 #pragma once
 
-#include "P_EventSystem.h"
+#include "I_EventSystem.h"
 #include "URL.h"
-#include "P_Net.h"
+#include "I_Net.h"
 #include "HTTP.h"
 #include "tscore/List.h"
 #include "ProxyConfig.h"
-#include "P_Cache.h"
+#include "I_Cache.h"
 #include "I_Tasks.h"
 #include "Plugin.h"
 
@@ -117,6 +117,12 @@ public:
   APIHook *next() const;
   APIHook *prev() const;
   LINK(APIHook, m_link);
+
+  // This is like invoke(), but allows for blocking on continuation mutexes.  It is a hack, calling it can block
+  // the calling thread.  Hooks that require this should be reimplemented, modeled on the hook handling in HttpSM.cc .
+  // That is, try to lock the mutex, and reschedule the contination if the mutex cannot be locked.
+  //
+  int blocking_invoke(int event, void *edata) const;
 };
 
 /// A collection of API hooks.

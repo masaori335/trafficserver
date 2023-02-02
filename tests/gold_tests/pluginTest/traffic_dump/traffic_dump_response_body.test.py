@@ -18,6 +18,7 @@ Verify traffic_dump response body functionality.
 #  limitations under the License.
 
 import os
+import sys
 
 Test.Summary = '''
 Verify traffic_dump response body functionality.
@@ -49,7 +50,7 @@ ts.Disk.records_config.update({
     'proxy.config.ssl.CA.cert.filename': f'{ts.Variables.SSLDir}/signer.pem',
     'proxy.config.exec_thread.autoconfig.scale': 1.0,
     'proxy.config.http.host_sni_policy': 2,
-    'proxy.config.ssl.TLSv1_3': 0,
+    'proxy.config.ssl.TLSv1_3.enabled': 0,
     'proxy.config.ssl.client.verify.server.policy': 'PERMISSIVE',
 })
 
@@ -78,7 +79,7 @@ ts.Disk.File(ts_dump_2, exists=True)
 ts_dump_3 = os.path.join(replay_dir, "127", "0000000000000003")
 ts.Disk.File(ts_dump_3, exists=True)
 
-ts.Streams.stderr = Testers.ContainsExpression(
+ts.Disk.traffic_out.Content = Testers.ContainsExpression(
     "Dumping body bytes: true",
     "Verify that dumping body bytes is enabled.")
 
@@ -99,7 +100,7 @@ tr.StillRunningAfter = ts
 # Common verification variables.
 verify_replay = "verify_replay.py"
 schema = os.path.join(Test.Variables.AtsTestToolsDir, 'lib', 'replay_schema.json')
-verify_command_prefix = f'python3 {verify_replay} {schema}'
+verify_command_prefix = f'{sys.executable} {verify_replay} {schema}'
 
 #
 # Verify a response without a body is dumped correctly.

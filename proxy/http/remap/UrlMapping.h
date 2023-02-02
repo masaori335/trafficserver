@@ -64,10 +64,8 @@ public:
   ~redirect_tag_str()
   {
     type = 0;
-    if (chunk_str) {
-      ats_free(chunk_str);
-      chunk_str = nullptr;
-    }
+    ats_free(chunk_str);
+    chunk_str = nullptr;
   }
 
   redirect_tag_str *next = nullptr;
@@ -220,7 +218,7 @@ public:
   }
 
   // noncopyable, non-assignable
-  UrlMappingContainer(const UrlMappingContainer &orig) = delete;
+  UrlMappingContainer(const UrlMappingContainer &orig)           = delete;
   UrlMappingContainer &operator=(const UrlMappingContainer &rhs) = delete;
 
 private:

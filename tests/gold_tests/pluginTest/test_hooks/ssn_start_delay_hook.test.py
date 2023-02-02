@@ -30,7 +30,7 @@ request_header = {
 response_header = {"headers": "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n", "timestamp": "1469733493.993", "body": ""}
 server.addResponse("sessionlog.json", request_header, response_header)
 
-ts = Test.MakeATSProcess("ts", select_ports=True, enable_tls=False)
+ts = Test.MakeATSProcess("ts")
 
 ts.Disk.records_config.update({
     'proxy.config.diags.debug.tags': 'test',
@@ -57,4 +57,4 @@ tr.Processes.Default.Command = (
 tr.Processes.Default.ReturnCode = 0
 
 # Look at the debug output from the plugin
-ts.Streams.All = "ssn_delay.gold"
+ts.Disk.traffic_out.Content = "ssn_delay.gold"

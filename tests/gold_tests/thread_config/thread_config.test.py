@@ -16,13 +16,14 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import sys
 
 Test.Summary = 'Test that Trafficserver starts with different thread configurations.'
 Test.ContinueOnFail = True
 
 ts = Test.MakeATSProcess('ts-1_exec-0_accept-1_task-1_aio')
 ts.Disk.records_config.update({
-    'proxy.config.exec_thread.autoconfig': 0,
+    'proxy.config.exec_thread.autoconfig.enabled': 0,
     'proxy.config.exec_thread.autoconfig.scale': 1.5,
     'proxy.config.exec_thread.limit': 1,
     'proxy.config.accept_threads': 0,
@@ -33,13 +34,14 @@ ts.Disk.records_config.update({
 ts.Setup.CopyAs('check_threads.py', Test.RunDirectory)
 
 tr = Test.AddTestRun()
-tr.Processes.Default.Command = 'python3 check_threads.py -p {0} -e {1} -a {2} -t {3} -c {4}'.format(ts.Env['TS_ROOT'], 1, 0, 1, 1)
+TS_ROOT = ts.Env['TS_ROOT']
+tr.Processes.Default.Command = f'{sys.executable} check_threads.py -p {TS_ROOT} -e 1 -a 0 -t 1 -c 1'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(ts)
 
 ts = Test.MakeATSProcess('ts-1_exec-1_accept-2_task-8_aio')
 ts.Disk.records_config.update({
-    'proxy.config.exec_thread.autoconfig': 0,
+    'proxy.config.exec_thread.autoconfig.enabled': 0,
     'proxy.config.exec_thread.autoconfig.scale': 1.5,
     'proxy.config.exec_thread.limit': 1,
     'proxy.config.accept_threads': 1,
@@ -49,13 +51,14 @@ ts.Disk.records_config.update({
     'proxy.config.diags.debug.tags': 'iocore_thread_start|iocore_net_accept_start'})
 
 tr = Test.AddTestRun()
-tr.Processes.Default.Command = 'python3 check_threads.py -p {0} -e {1} -a {2} -t {3} -c {4}'.format(ts.Env['TS_ROOT'], 1, 1, 2, 8)
+TS_ROOT = ts.Env['TS_ROOT']
+tr.Processes.Default.Command = f'{sys.executable} check_threads.py -p {TS_ROOT} -e 1 -a 1 -t 2 -c 8'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(ts)
 
 ts = Test.MakeATSProcess('ts-1_exec-10_accept-10_task-32_aio')
 ts.Disk.records_config.update({
-    'proxy.config.exec_thread.autoconfig': 0,
+    'proxy.config.exec_thread.autoconfig.enabled': 0,
     'proxy.config.exec_thread.autoconfig.scale': 1.5,
     'proxy.config.exec_thread.limit': 1,
     'proxy.config.accept_threads': 10,
@@ -65,14 +68,14 @@ ts.Disk.records_config.update({
     'proxy.config.diags.debug.tags': 'iocore_thread_start|iocore_net_accept_start'})
 
 tr = Test.AddTestRun()
-tr.Processes.Default.Command = 'python3 check_threads.py -p {0} -e {1} -a {2} -t {3} -c {4}'.format(
-    ts.Env['TS_ROOT'], 1, 10, 10, 32)
+TS_ROOT = ts.Env['TS_ROOT']
+tr.Processes.Default.Command = f'{sys.executable} check_threads.py -p {TS_ROOT} -e 1 -a 10 -t 10 -c 32'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(ts)
 
 ts = Test.MakeATSProcess('ts-2_exec-0_accept-1_task-1_aio')
 ts.Disk.records_config.update({
-    'proxy.config.exec_thread.autoconfig': 0,
+    'proxy.config.exec_thread.autoconfig.enabled': 0,
     'proxy.config.exec_thread.autoconfig.scale': 1.5,
     'proxy.config.exec_thread.limit': 2,
     'proxy.config.accept_threads': 0,
@@ -82,13 +85,14 @@ ts.Disk.records_config.update({
     'proxy.config.diags.debug.tags': 'iocore_thread_start|iocore_net_accept_start'})
 
 tr = Test.AddTestRun()
-tr.Processes.Default.Command = 'python3 check_threads.py -p {0} -e {1} -a {2} -t {3} -c {4}'.format(ts.Env['TS_ROOT'], 2, 0, 1, 1)
+TS_ROOT = ts.Env['TS_ROOT']
+tr.Processes.Default.Command = f'{sys.executable} check_threads.py -p {TS_ROOT} -e 2 -a 0 -t 1 -c 1'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(ts)
 
 ts = Test.MakeATSProcess('ts-2_exec-1_accept-2_task-8_aio')
 ts.Disk.records_config.update({
-    'proxy.config.exec_thread.autoconfig': 0,
+    'proxy.config.exec_thread.autoconfig.enabled': 0,
     'proxy.config.exec_thread.autoconfig.scale': 1.5,
     'proxy.config.exec_thread.limit': 2,
     'proxy.config.accept_threads': 1,
@@ -98,13 +102,14 @@ ts.Disk.records_config.update({
     'proxy.config.diags.debug.tags': 'iocore_thread_start|iocore_net_accept_start'})
 
 tr = Test.AddTestRun()
-tr.Processes.Default.Command = 'python3 check_threads.py -p {0} -e {1} -a {2} -t {3} -c {4}'.format(ts.Env['TS_ROOT'], 2, 1, 2, 8)
+TS_ROOT = ts.Env['TS_ROOT']
+tr.Processes.Default.Command = f'{sys.executable} check_threads.py -p {TS_ROOT} -e 2 -a 1 -t 2 -c 8'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(ts)
 
 ts = Test.MakeATSProcess('ts-2_exec-10_accept-10_task-32_aio')
 ts.Disk.records_config.update({
-    'proxy.config.exec_thread.autoconfig': 0,
+    'proxy.config.exec_thread.autoconfig.enabled': 0,
     'proxy.config.exec_thread.autoconfig.scale': 1.5,
     'proxy.config.exec_thread.limit': 2,
     'proxy.config.accept_threads': 10,
@@ -114,14 +119,14 @@ ts.Disk.records_config.update({
     'proxy.config.diags.debug.tags': 'iocore_thread_start|iocore_net_accept_start'})
 
 tr = Test.AddTestRun()
-tr.Processes.Default.Command = 'python3 check_threads.py -p {0} -e {1} -a {2} -t {3} -c {4}'.format(
-    ts.Env['TS_ROOT'], 2, 10, 10, 32)
+TS_ROOT = ts.Env['TS_ROOT']
+tr.Processes.Default.Command = f'{sys.executable} check_threads.py -p {TS_ROOT} -e 2 -a 10 -t 10 -c 32'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(ts)
 
 ts = Test.MakeATSProcess('ts-32_exec-0_accept-1_task-1_aio')
 ts.Disk.records_config.update({
-    'proxy.config.exec_thread.autoconfig': 0,
+    'proxy.config.exec_thread.autoconfig.enabled': 0,
     'proxy.config.exec_thread.autoconfig.scale': 1.5,
     'proxy.config.exec_thread.limit': 32,
     'proxy.config.accept_threads': 0,
@@ -131,13 +136,14 @@ ts.Disk.records_config.update({
     'proxy.config.diags.debug.tags': 'iocore_thread_start|iocore_net_accept_start'})
 
 tr = Test.AddTestRun()
-tr.Processes.Default.Command = 'python3 check_threads.py -p {0} -e {1} -a {2} -t {3} -c {4}'.format(ts.Env['TS_ROOT'], 32, 0, 1, 1)
+TS_ROOT = ts.Env['TS_ROOT']
+tr.Processes.Default.Command = f'{sys.executable} check_threads.py -p {TS_ROOT} -e 32 -a 0 -t 1 -c 1'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(ts)
 
 ts = Test.MakeATSProcess('ts-32_exec-1_accept-2_task-8_aio')
 ts.Disk.records_config.update({
-    'proxy.config.exec_thread.autoconfig': 0,
+    'proxy.config.exec_thread.autoconfig.enabled': 0,
     'proxy.config.exec_thread.autoconfig.scale': 1.5,
     'proxy.config.exec_thread.limit': 32,
     'proxy.config.accept_threads': 1,
@@ -147,13 +153,14 @@ ts.Disk.records_config.update({
     'proxy.config.diags.debug.tags': 'iocore_thread_start|iocore_net_accept_start'})
 
 tr = Test.AddTestRun()
-tr.Processes.Default.Command = 'python3 check_threads.py -p {0} -e {1} -a {2} -t {3} -c {4}'.format(ts.Env['TS_ROOT'], 32, 1, 2, 8)
+TS_ROOT = ts.Env['TS_ROOT']
+tr.Processes.Default.Command = f'{sys.executable} check_threads.py -p {TS_ROOT} -e 32 -a 1 -t 2 -c 8'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(ts)
 
 ts = Test.MakeATSProcess('ts-32_exec-10_accept-10_task-32_aio')
 ts.Disk.records_config.update({
-    'proxy.config.exec_thread.autoconfig': 0,
+    'proxy.config.exec_thread.autoconfig.enabled': 0,
     'proxy.config.exec_thread.autoconfig.scale': 1.5,
     'proxy.config.exec_thread.limit': 32,
     'proxy.config.accept_threads': 10,
@@ -163,14 +170,14 @@ ts.Disk.records_config.update({
     'proxy.config.diags.debug.tags': 'iocore_thread_start|iocore_net_accept_start'})
 
 tr = Test.AddTestRun()
-tr.Processes.Default.Command = 'python3 check_threads.py -p {0} -e {1} -a {2} -t {3} -c {4}'.format(
-    ts.Env['TS_ROOT'], 32, 10, 10, 32)
+TS_ROOT = ts.Env['TS_ROOT']
+tr.Processes.Default.Command = f'{sys.executable} check_threads.py -p {TS_ROOT} -e 32 -a 10 -t 10 -c 32'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(ts)
 
 ts = Test.MakeATSProcess('ts-100_exec-0_accept-1_task-1_aio')
 ts.Disk.records_config.update({
-    'proxy.config.exec_thread.autoconfig': 0,
+    'proxy.config.exec_thread.autoconfig.enabled': 0,
     'proxy.config.exec_thread.autoconfig.scale': 1.5,
     'proxy.config.exec_thread.limit': 100,
     'proxy.config.accept_threads': 0,
@@ -180,13 +187,14 @@ ts.Disk.records_config.update({
     'proxy.config.diags.debug.tags': 'iocore_thread_start|iocore_net_accept_start'})
 
 tr = Test.AddTestRun()
-tr.Processes.Default.Command = 'python3 check_threads.py -p {0} -e {1} -a {2} -t {3} -c {4}'.format(ts.Env['TS_ROOT'], 100, 0, 1, 1)
+TS_ROOT = ts.Env['TS_ROOT']
+tr.Processes.Default.Command = f'{sys.executable} check_threads.py -p {TS_ROOT} -e 100 -a 0 -t 1 -c 1'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(ts)
 
 ts = Test.MakeATSProcess('ts-100_exec-1_accept-2_task-8_aio')
 ts.Disk.records_config.update({
-    'proxy.config.exec_thread.autoconfig': 0,
+    'proxy.config.exec_thread.autoconfig.enabled': 0,
     'proxy.config.exec_thread.autoconfig.scale': 1.5,
     'proxy.config.exec_thread.limit': 100,
     'proxy.config.accept_threads': 1,
@@ -196,13 +204,14 @@ ts.Disk.records_config.update({
     'proxy.config.diags.debug.tags': 'iocore_thread_start|iocore_net_accept_start'})
 
 tr = Test.AddTestRun()
-tr.Processes.Default.Command = 'python3 check_threads.py -p {0} -e {1} -a {2} -t {3} -c {4}'.format(ts.Env['TS_ROOT'], 100, 1, 2, 8)
+TS_ROOT = ts.Env['TS_ROOT']
+tr.Processes.Default.Command = f'{sys.executable} check_threads.py -p {TS_ROOT} -e 100 -a 1 -t 2 -c 8'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(ts)
 
 ts = Test.MakeATSProcess('ts-100_exec-10_accept-10_task-32_aio')
 ts.Disk.records_config.update({
-    'proxy.config.exec_thread.autoconfig': 0,
+    'proxy.config.exec_thread.autoconfig.enabled': 0,
     'proxy.config.exec_thread.autoconfig.scale': 1.5,
     'proxy.config.exec_thread.limit': 100,
     'proxy.config.accept_threads': 10,
@@ -212,7 +221,7 @@ ts.Disk.records_config.update({
     'proxy.config.diags.debug.tags': 'iocore_thread_start|iocore_net_accept_start'})
 
 tr = Test.AddTestRun()
-tr.Processes.Default.Command = 'python3 check_threads.py -p {0} -e {1} -a {2} -t {3} -c {4}'.format(
-    ts.Env['TS_ROOT'], 100, 10, 10, 32)
+TS_ROOT = ts.Env['TS_ROOT']
+tr.Processes.Default.Command = f'{sys.executable} check_threads.py -p {TS_ROOT} -e 100 -a 10 -t 10 -c 32'
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.StartBefore(ts)

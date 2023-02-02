@@ -97,7 +97,7 @@ CacheDisk::open(char *s, off_t blocks, off_t askip, int ahw_sector_size, int fil
     }
   }
 
-  //
+  // read disk header
   SET_HANDLER(&CacheDisk::openStart);
   io.aiocb.aio_offset = skip;
   io.aiocb.aio_buf    = reinterpret_cast<char *>(header);
@@ -165,6 +165,10 @@ CacheDisk::openStart(int event, void * /* data ATS_UNUSED */)
 
   if (io.aiocb.aio_nbytes != static_cast<size_t>(io.aio_result)) {
     Warning("could not read disk header for disk %s: declaring disk bad", path);
+
+    // the header could have random values by the AIO read error
+    memset(header, 0, header_len);
+
     incrErrors(&io);
     SET_DISK_BAD(this);
     SET_HANDLER(&CacheDisk::openDone);
@@ -285,11 +289,11 @@ CacheDisk::create_volume(int number, off_t size_in_blocks, int scheme)
     /* allocate in 128 megabyte chunks. The Remaining space should
        be thrown away */
     size_in_blocks = (p->len - (p->len % blocks_per_vol));
-    wasted_space += p->len % blocks_per_vol;
+    wasted_space   += p->len % blocks_per_vol;
   }
 
   free_blocks->dpb_queue.remove(q);
-  free_space -= p->len;
+  free_space        -= p->len;
   free_blocks->size -= p->len;
 
   size_t new_size = p->len - size_in_blocks;
@@ -297,14 +301,14 @@ CacheDisk::create_volume(int number, off_t size_in_blocks, int scheme)
     /* create a new volume */
     DiskVolBlock *dpb = &header->vol_info[header->num_diskvol_blks];
     *dpb              = *p;
-    dpb->len -= size_in_blocks;
-    dpb->offset += (size_in_blocks * STORE_BLOCK_SIZE);
+    dpb->len          -= size_in_blocks;
+    dpb->offset       += (size_in_blocks * STORE_BLOCK_SIZE);
 
     DiskVolBlockQueue *new_q = new DiskVolBlockQueue();
     new_q->b                 = dpb;
     free_blocks->dpb_queue.enqueue(new_q);
     free_blocks->size += dpb->len;
-    free_space += dpb->len;
+    free_space        += dpb->len;
     header->num_diskvol_blks++;
   } else {
     header->num_free--;
@@ -349,7 +353,7 @@ CacheDisk::delete_volume(int number)
         DiskVolBlock *p = q->b;
         p->type         = CACHE_NONE_TYPE;
         p->free         = 1;
-        free_space += p->len;
+        free_space      += p->len;
         header->num_free++;
         header->num_used--;
         DiskVolBlockQueue *temp_q = q->link.next;
@@ -358,7 +362,7 @@ CacheDisk::delete_volume(int number)
         q = temp_q;
       }
       free_blocks->num_volblocks += disk_vols[i]->num_volblocks;
-      free_blocks->size += disk_vols[i]->size;
+      free_blocks->size          += disk_vols[i]->size;
 
       delete disk_vols[i];
 

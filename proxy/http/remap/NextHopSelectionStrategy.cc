@@ -41,32 +41,17 @@ constexpr std::string_view passive_health_check = "passive";
 constexpr const char *policy_strings[] = {"NH_UNDEFINED", "NH_FIRST_LIVE", "NH_RR_STRICT",
                                           "NH_RR_IP",     "NH_RR_LATCHED", "NH_CONSISTENT_HASH"};
 
-NextHopSelectionStrategy::NextHopSelectionStrategy(const std::string_view &name, const NHPolicyType &policy)
+NextHopSelectionStrategy::NextHopSelectionStrategy(const std::string_view &name, const NHPolicyType &policy, ts::Yaml::Map &n)
+  : strategy_name(name), policy_type(policy)
 {
-  int _max_retriers = 0;
-  strategy_name     = name;
-  policy_type       = policy;
-  NH_GetConfig(_max_retriers, "proxy.config.http.parent_proxy.max_trans_retries");
+  NH_Debug(NH_DEBUG_TAG, "NextHopSelectionStrategy calling constructor");
+  NH_Debug(NH_DEBUG_TAG, "Using a selection strategy of type %s", policy_strings[policy]);
 
-  // config settings may not be available when running unit tests.
-  // so use the max_retriers default setting.
-  if (_max_retriers > 0) {
-    max_retriers = _max_retriers;
-  }
-  NH_Debug(NH_DEBUG_TAG, "Using a selection strategy of type %s, max_retriers: %d", policy_strings[policy], max_retriers);
-}
-
-//
-// parse out the data for this strategy.
-//
-bool
-NextHopSelectionStrategy::Init(ts::Yaml::Map &n)
-{
-  NH_Debug(NH_DEBUG_TAG, "calling Init()");
   std::string self_host;
   bool self_host_used = false;
 
   try {
+    // scheme is optional, and strategies with no scheme will match hosts with no scheme
     if (n["scheme"]) {
       auto scheme_val = n["scheme"].Scalar();
       if (scheme_val == "http") {
@@ -74,9 +59,7 @@ NextHopSelectionStrategy::Init(ts::Yaml::Map &n)
       } else if (scheme_val == "https") {
         scheme = NH_SCHEME_HTTPS;
       } else {
-        scheme = NH_SCHEME_NONE;
-        NH_Note("Invalid 'scheme' value, '%s', for the strategy named '%s', setting to NH_SCHEME_NONE", scheme_val.c_str(),
-                strategy_name.c_str());
+        NH_Note("Invalid scheme '%s' for strategy '%s', setting to NONE", scheme_val.c_str(), strategy_name.c_str());
       }
     }
 
@@ -218,7 +201,7 @@ NextHopSelectionStrategy::Init(ts::Yaml::Map &n)
             std::vector<std::shared_ptr<HostRecord>> hosts_inner;
 
             for (unsigned int hst = 0; hst < hosts_list.size(); ++hst) {
-              std::shared_ptr<HostRecord> host_rec = std::make_shared<HostRecord>(hosts_list[hst].as<HostRecord>());
+              std::shared_ptr<HostRecord> host_rec = std::make_shared<HostRecord>(hosts_list[hst].as<HostRecordCfg>());
               host_rec->group_index                = grp;
               host_rec->host_index                 = hst;
               if ((self_host == host_rec->hostname) || mach->is_self(host_rec->hostname.c_str())) {
@@ -243,29 +226,26 @@ NextHopSelectionStrategy::Init(ts::Yaml::Map &n)
       throw std::invalid_argument("self host (" + self_host + ") does not appear in the first (peer) group");
     }
   } catch (std::exception &ex) {
-    NH_Error("Error parsing the strategy named '%s' due to '%s', this strategy will be ignored.", strategy_name.c_str(), ex.what());
-    return false;
+    throw std::invalid_argument("Error parsing the strategy named '" + strategy_name + "' due to '" + ex.what() +
+                                "', this strategy will be ignored.");
   }
 
   if (ring_mode == NH_PEERING_RING) {
     if (groups == 1) {
       if (!go_direct) {
-        NH_Error("when ring mode is '%s', go_direct must be true when there is only one host group.", peering_rings.data());
-        return false;
+        throw std::invalid_argument("ring mode '" + std::string(peering_rings) +
+                                    "' go_direct must be true when there is only one host group");
       }
     } else if (groups != 2) {
-      NH_Error("when ring mode is '%s', requires two host groups (peering group and an upstream group),"
-               " or just a single peering group with go_direct.",
-               peering_rings.data());
-      return false;
+      throw std::invalid_argument(
+        "ring mode '" + std::string(peering_rings) +
+        "' requires two host groups (peering group and an upstream group), or a single peering group with go_direct");
     }
     if (policy_type != NH_CONSISTENT_HASH) {
-      NH_Error("ring mode '%s', is only implemented for a 'consistent_hash' policy.", peering_rings.data());
-      return false;
+      throw std::invalid_argument("ring mode '" + std::string(peering_rings) +
+                                  "' is only implemented for a 'consistent_hash' policy");
     }
   }
-
-  return true;
 }
 
 void
@@ -285,7 +265,10 @@ NextHopSelectionStrategy::nextHopExists(TSHttpTxn txnp, void *ih)
     for (auto &hh : host_groups[gg]) {
       HostRecord *p = hh.get();
       if (p->available.load()) {
-        NH_Debug(NH_DEBUG_TAG, "[%" PRIu64 "] found available next hop %s", sm_id, p->hostname.c_str());
+        NH_Debug(NH_DEBUG_TAG,
+                 "[%" PRIu64 "] found available next hop %s (this is NOT necessarily the parent which will be selected, just the "
+                 "first available parent found)",
+                 sm_id, p->hostname.c_str());
         return true;
       }
     }
@@ -316,17 +299,11 @@ NextHopSelectionStrategy::responseIsRetryable(int64_t sm_id, HttpTransact::Curre
   return PARENT_RETRY_NONE;
 }
 
-void
-NextHopSelectionStrategy::retryComplete(TSHttpTxn txnp, const char *hostname, const int port)
-{
-  return passive_health.retryComplete(txnp, hostname, port);
-}
-
 namespace YAML
 {
-template <> struct convert<HostRecord> {
+template <> struct convert<HostRecordCfg> {
   static bool
-  decode(const Node &node, HostRecord &nh)
+  decode(const Node &node, HostRecordCfg &nh)
   {
     ts::Yaml::Map map{node};
     ts::Yaml::Map *mmap{&map};
@@ -397,19 +374,25 @@ template <> struct convert<NHProtocol> {
   {
     ts::Yaml::Map map{node};
 
+    // scheme is optional, and strategies with no scheme will match hosts with no scheme
     if (map["scheme"]) {
-      if (map["scheme"].Scalar() == "http") {
+      const auto scheme_val = map["scheme"].Scalar();
+      if (scheme_val == "http") {
         nh.scheme = NH_SCHEME_HTTP;
-      } else if (map["scheme"].Scalar() == "https") {
+      } else if (scheme_val == "https") {
         nh.scheme = NH_SCHEME_HTTPS;
       } else {
-        nh.scheme = NH_SCHEME_NONE;
+        NH_Note("Invalid scheme '%s' for protocol, setting to NONE", scheme_val.c_str());
       }
     }
     if (map["port"]) {
       nh.port = map["port"].as<int>();
-      if ((nh.port <= 0) || (nh.port > 65535)) {
-        throw YAML::ParserException(map["port"].Mark(), "port number must be in (inclusive) range 0 - 65,536");
+      if (nh.port <= 0 || nh.port > 65535) {
+        throw YAML::ParserException(map["port"].Mark(), "port number must be in (inclusive) range 1 - 65,536");
+      }
+    } else {
+      if (nh.port == 0) {
+        throw YAML::ParserException(map["port"].Mark(), "no port defined must be in (inclusive) range 1 - 65,536");
       }
     }
     if (map["health_check_url"]) {

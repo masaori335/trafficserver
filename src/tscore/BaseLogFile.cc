@@ -333,7 +333,8 @@ BaseLogFile::open_file(int perm)
   }
 
   // set m_bytes_written to force the rolling based on file size.
-  m_bytes_written = fseek(m_fp, 0, SEEK_CUR);
+  fseek(m_fp, 0, SEEK_END);
+  m_bytes_written = ftell(m_fp);
 
   log_log_trace("BaseLogFile %s is now open (fd=%d)\n", m_name.get(), fileno(m_fp));
   m_is_init = true;
@@ -390,9 +391,7 @@ BaseLogFile::display(FILE *fd)
  * instance of Diags is ready, we cannot simply call something like Debug().
  * However, we still need to log the creation of BaseLogFile, since the
  * information is still useful. This function will print out log messages
- * into traffic.out if we happen to be bootstrapping Diags. Since
- * traffic_manager redirects stdout/stderr into traffic.out, that
- * redirection is inherited by way of exec()/fork() all the way here.
+ * into traffic.out if we happen to be bootstrapping Diags.
  *
  * TODO use Debug() for non bootstrap instances
  */
@@ -497,13 +496,13 @@ BaseMetaInfo::_read_from_file()
           t = tok.getNext();
           if (t) {
             _creation_time = static_cast<time_t>(ink_atoi64(t));
-            _flags |= VALID_CREATION_TIME;
+            _flags         |= VALID_CREATION_TIME;
           }
         } else if (strcmp(t, "object_signature") == 0) {
           t = tok.getNext();
           if (t) {
             _log_object_signature = ink_atoi64(t);
-            _flags |= VALID_SIGNATURE;
+            _flags                |= VALID_SIGNATURE;
             log_log_trace("BaseMetaInfo::_read_from_file\n"
                           "\tfilename = %s\n"
                           "\tsignature string = %s\n"

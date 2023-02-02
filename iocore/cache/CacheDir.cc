@@ -25,6 +25,7 @@
 
 #include "tscore/hugepages.h"
 #include "tscore/Regression.h"
+#include "tscore/Random.h"
 
 // #define LOOP_CHECK_MODE 1
 #ifdef LOOP_CHECK_MODE
@@ -400,7 +401,7 @@ dir_clear_range(off_t start, off_t end, Vol *vol)
 {
   for (off_t i = 0; i < vol->buckets * DIR_DEPTH * vol->segments; i++) {
     Dir *e = dir_index(vol, i);
-    if (!dir_token(e) && dir_offset(e) >= static_cast<int64_t>(start) && dir_offset(e) < static_cast<int64_t>(end)) {
+    if (dir_offset(e) >= static_cast<int64_t>(start) && dir_offset(e) < static_cast<int64_t>(end)) {
       CACHE_DEC_DIR_USED(vol->mutex);
       dir_set_offset(e, 0); // delete
     }
@@ -977,7 +978,7 @@ sync_cache_dir_on_shutdown()
         continue;
       }
       d->header->last_write_pos = d->header->write_pos;
-      d->header->write_pos += d->agg_buf_pos;
+      d->header->write_pos      += d->agg_buf_pos;
       ink_assert(d->header->write_pos == d->header->agg_pos);
       d->agg_buf_pos = 0;
       d->header->write_serial++;
@@ -993,7 +994,7 @@ sync_cache_dir_on_shutdown()
         buf = nullptr;
       }
       buflen = dirlen;
-      if (ats_hugepage_enabled()) {
+      if (ats_hugepage_enabled() && cache_config_dir_enable_hugepages) {
         buf      = static_cast<char *>(ats_alloc_hugepage(buflen));
         buf_huge = true;
       }
@@ -1098,8 +1099,7 @@ Lrestart:
       Debug("cache_dir_sync", "sync started");
       /* Don't sync the directory to disk if its not dirty. Syncing the
          clean directory to disk is also the cause of INKqa07151. Increasing
-         the serial serial causes the cache to recover more data
-         than necessary.
+         the serial number causes the cache to recover more data than necessary.
          The dirty bit it set in dir_insert, dir_overwrite and dir_delete_entry
        */
       if (!vol->header->dirty) {
@@ -1126,7 +1126,7 @@ Lrestart:
           buf = nullptr;
         }
         buflen = dirlen;
-        if (ats_hugepage_enabled()) {
+        if (ats_hugepage_enabled() && cache_config_dir_enable_hugepages) {
           buf      = static_cast<char *>(ats_alloc_hugepage(buflen));
           buf_huge = true;
         }
@@ -1286,14 +1286,14 @@ Vol::dir_check(bool /* fix ATS_UNUSED */) // TODO: we should eliminate this para
       ++hist[std::min(h, SEGMENT_HISTOGRAM_WIDTH)];
       seg_chain_max = std::max(seg_chain_max, h);
     }
-    int fl_size = dir_freelist_length(this, s);
-    in_use += seg_in_use;
-    empty += seg_empty;
-    stale += seg_stale;
-    free += fl_size;
-    buckets_in_use += seg_buckets_in_use;
+    int fl_size      = dir_freelist_length(this, s);
+    in_use           += seg_in_use;
+    empty            += seg_empty;
+    stale            += seg_stale;
+    free             += fl_size;
+    buckets_in_use   += seg_buckets_in_use;
     max_chain_length = std::max(max_chain_length, seg_chain_max);
-    bytes_in_use += seg_bytes_in_use;
+    bytes_in_use     += seg_bytes_in_use;
 
     printf("  - Segment-%d | Entries: used=%d stale=%d free=%d disk-bytes=%d Buckets: used=%d empty=%d max=%d avg=%.2f dups=%d\n",
            s, seg_in_use, seg_stale, fl_size, seg_bytes_in_use, seg_buckets_in_use, seg_empty, seg_chain_max,
@@ -1400,8 +1400,7 @@ regress_rand_CacheKey(const CacheKey *key)
 void
 dir_corrupt_bucket(Dir *b, int s, Vol *d)
 {
-  // coverity[dont_call]
-  int l    = (static_cast<int>(dir_bucket_length(b, s, d) * drand48()));
+  int l    = (static_cast<int>(dir_bucket_length(b, s, d) * ts::Random::drandom()));
   Dir *e   = b;
   Dir *seg = d->dir_segment(s);
   for (int i = 0; i < l; i++) {

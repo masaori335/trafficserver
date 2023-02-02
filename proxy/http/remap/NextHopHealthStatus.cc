@@ -119,22 +119,21 @@ NextHopHealthStatus::markNextHop(TSHttpTxn txn, const char *hostname, const int 
             new_fail_count = h->failCount = 1;
           }
         } else if (result.retry == true) {
-          h->failedAt = _now;
+          h->failedAt    = _now;
+          new_fail_count = h->failCount += 1;
         }
       } // end lock guard
       NH_Note("[%" PRId64 "] NextHop %s marked as down %s", sm_id, (result.retry) ? "retry" : "initially", h->hostname.c_str());
     } else {
-      int old_count = 0;
       // if the last failure was outside the retry window, set the failcount to 1 and failedAt to now.
       { // lock guard
         std::lock_guard<std::mutex> lock(h->_mutex);
         if ((h->failedAt.load() + retry_time) < static_cast<unsigned>(_now)) {
-          h->failCount = 1;
-          h->failedAt  = _now;
+          new_fail_count = h->failCount = 1;
+          h->failedAt                   = _now;
         } else {
-          old_count = h->failCount = 1;
+          new_fail_count = h->failCount += 1;
         }
-        new_fail_count = old_count + 1;
       } // end of lock_guard
       NH_Debug(NH_DEBUG_TAG, "[%" PRId64 "] Parent fail count increased to %d for %s", sm_id, new_fail_count, h->hostname.c_str());
     }
@@ -148,26 +147,4 @@ NextHopHealthStatus::markNextHop(TSHttpTxn txn, const char *hostname, const int 
     }
     break;
   }
-}
-
-void
-NextHopHealthStatus::retryComplete(TSHttpTxn txn, const char *hostname, const int port)
-{
-  HttpSM *sm          = reinterpret_cast<HttpSM *>(txn);
-  ParentResult result = sm->t_state.parent_result;
-  int64_t sm_id       = sm->sm_id;
-
-  // make sure we're called back with a result structure for a parent that is being retried.
-  if (result.result != PARENT_SPECIFIED && !result.retry) {
-    return;
-  }
-
-  const std::string host_port = HostRecord::makeHostPort(hostname, port);
-  auto iter                   = host_map.find(host_port);
-  if (iter == host_map.end()) {
-    NH_Debug(NH_DEBUG_TAG, "[%" PRId64 "] no host named %s found in host_map", sm_id, host_port.c_str());
-    return;
-  }
-
-  iter->second->retriers.dec();
 }

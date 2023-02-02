@@ -41,15 +41,17 @@ read_request(TSHttpTxn txnp, Config *const config)
   hdrmgr.populateFrom(txnp, TSHttpTxnClientReqGet);
   HttpHeader const header(hdrmgr.m_buffer, hdrmgr.m_lochdr);
 
-  if (TS_HTTP_METHOD_GET == header.method()) {
-    static int const SLICER_MIME_LEN_INFO = strlen(SLICER_MIME_FIELD_INFO);
-    if (!header.hasKey(SLICER_MIME_FIELD_INFO, SLICER_MIME_LEN_INFO)) {
+  if (TS_HTTP_METHOD_GET == header.method() || TS_HTTP_METHOD_HEAD == header.method()) {
+    if (!header.hasKey(config->m_skip_header.data(), config->m_skip_header.size())) {
       // check if any previous plugin has monkeyed with the transaction status
       TSHttpStatus const txnstat = TSHttpTxnStatusGet(txnp);
       if (TS_HTTP_STATUS_NONE != txnstat) {
         DEBUG_LOG("txn status change detected (%d), skipping plugin\n", static_cast<int>(txnstat));
         return false;
       }
+
+      // set HEAD config to only expect header response
+      config->m_head_req = (TS_HTTP_METHOD_HEAD == header.method());
 
       if (config->hasRegex()) {
         int urllen         = 0;
@@ -68,9 +70,9 @@ read_request(TSHttpTxn txnp, Config *const config)
       }
 
       // turn off any and all transaction caching (shouldn't matter)
-      TSHttpTxnServerRespNoStoreSet(txnp, 1);
-      TSHttpTxnRespCacheableSet(txnp, 0);
-      TSHttpTxnReqCacheableSet(txnp, 0);
+      TSHttpTxnCntlSet(txnp, TS_HTTP_CNTL_SERVER_NO_STORE, true);
+      TSHttpTxnCntlSet(txnp, TS_HTTP_CNTL_RESPONSE_CACHEABLE, false);
+      TSHttpTxnCntlSet(txnp, TS_HTTP_CNTL_REQUEST_CACHEABLE, false);
 
       DEBUG_LOG("slice accepting and slicing");
       // connection back into ATS
@@ -177,14 +179,14 @@ read_request(TSHttpTxn txnp, Config *const config)
       TSContDataSet(icontp, (void *)data);
 
       // Skip remap and remap rule requirement
-      TSSkipRemappingSet(txnp, 1);
+      TSHttpTxnCntlSet(txnp, TS_HTTP_CNTL_SKIP_REMAPPING, true);
 
       // Grab the transaction
       TSHttpTxnIntercept(icontp, txnp);
 
       return true;
     } else {
-      DEBUG_LOG("slice passing GET request through to next plugin");
+      DEBUG_LOG("slice passing GET or HEAD request through to next plugin");
     }
   }
 
@@ -233,9 +235,7 @@ TSReturnCode
 TSRemapNewInstance(int argc, char *argv[], void **ih, char * /* errbuf */, int /* errbuf_size */)
 {
   Config *const config = new Config;
-  if (2 < argc) {
-    config->fromArgs(argc - 2, argv + 2);
-  }
+  config->fromArgs(argc - 2, argv + 2);
   *ih = static_cast<void *>(config);
   return TS_SUCCESS;
 }
@@ -274,9 +274,7 @@ TSPluginInit(int argc, char const *argv[])
     return;
   }
 
-  if (1 < argc) {
-    globalConfig.fromArgs(argc - 1, argv + 1);
-  }
+  globalConfig.fromArgs(argc - 1, argv + 1);
 
   TSCont const contp(TSContCreate(global_read_request_hook, nullptr));
 

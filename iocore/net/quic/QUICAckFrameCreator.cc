@@ -61,7 +61,8 @@ QUICAckFrameManager::update(QUICEncryptionLevel level, QUICPacketNumber packet_n
  */
 QUICFrame *
 QUICAckFrameManager::generate_frame(uint8_t *buf, QUICEncryptionLevel level, uint64_t /* connection_credit */,
-                                    uint16_t maximum_frame_size, size_t current_packet_size, uint32_t seq_num)
+                                    uint16_t maximum_frame_size, size_t current_packet_size, uint32_t seq_num,
+                                    QUICFrameGenerator *owner)
 {
   QUICAckFrame *ack_frame = nullptr;
 
@@ -309,7 +310,7 @@ QUICAckFrameManager::QUICAckFrameCreator::_create_ack_frame(uint8_t *buf)
     } else {
       uint64_t delay = this->_calculate_delay();
       ack_frame      = QUICFrameFactory::create_ack_frame(buf, largest_ack_number, delay, length - 1,
-                                                     this->_ack_manager->issue_frame_id(), this->_ack_manager);
+                                                          this->_ack_manager->issue_frame_id(), this->_ack_manager);
     }
 
     gap             = last_ack_number - pn;

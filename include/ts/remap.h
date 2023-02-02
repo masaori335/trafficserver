@@ -31,13 +31,14 @@
 extern "C" {
 #endif /* __cplusplus */
 
-#define TSREMAP_VMAJOR 3 /* major version number */
-#define TSREMAP_VMINOR 0 /* minor version number */
+#define TSREMAP_VMAJOR  3 /* major version number */
+#define TSREMAP_VMINOR  0 /* minor version number */
 #define TSREMAP_VERSION ((TSREMAP_VMAJOR << 16) | TSREMAP_VMINOR)
 
 typedef struct _tsremap_api_info {
   unsigned long size;            /* in: sizeof(struct _tsremap_api_info) */
   unsigned long tsremap_version; /* in: TS supported version ((major << 16) | minor) */
+  TSRemapPluginInfo plugin_info; /* in: Pointer to the internal RemapPluginInst */
 } TSRemapInterface;
 
 typedef struct _tm_remap_request_info {

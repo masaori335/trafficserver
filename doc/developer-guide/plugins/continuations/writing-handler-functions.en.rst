@@ -95,7 +95,6 @@ Event                                         Event Sender                      
 :macro:`TS_EVENT_CACHE_LOOKUP_COMPLETE`       :macro:`TS_HTTP_CACHE_LOOKUP_COMPLETE_HOOK`  :type:`TSHttpTxn`
 :macro:`TS_EVENT_IMMEDIATE`                   :func:`TSVConnClose`
                                               :func:`TSVIOReenable`
-                                              :func:`TSContSchedule`
                                               :func:`TSContScheduleOnPool`
                                               :func:`TSContScheduleOnThread`
 :macro:`TS_EVENT_IMMEDIATE`                   :macro:`TS_HTTP_REQUEST_TRANSFORM_HOOK`
@@ -113,8 +112,7 @@ Event                                         Event Sender                      
                                               :func:`TSHttpTxnServerIntercept`
                                               :func:`TSHttpTxnIntercept`
 :macro:`TS_EVENT_HOST_LOOKUP`                 :func:`TSHostLookup`                         :type:`TSHostLookupResult`
-:macro:`TS_EVENT_TIMEOUT`                     :func:`TSContSchedule`
-                                              :func:`TSContScheduleOnPool`
+:macro:`TS_EVENT_TIMEOUT`                     :func:`TSContScheduleOnPool`
                                               :func:`TSContScheduleOnThread`
 :macro:`TS_EVENT_ERROR`
 :macro:`TS_EVENT_VCONN_READ_READY`            :func:`TSVConnRead`                          :type:`TSVIO`
@@ -137,6 +135,12 @@ The continuation functions are listed below:
 -  :func:`TSContDataSet`
 -  :func:`TSContDestroy`
 -  :func:`TSContMutexGet`
--  :func:`TSContSchedule`
 -  :func:`TSContScheduleOnPool`
 -  :func:`TSContScheduleOnThread`
+
+When a handler function blocks, it blocks the event thread running it.  This blocks all the continuations (internal ones
+along with those of plugins) in the event thread's queue.  This may increase the worst-case latency for HTTP request
+processing.  If there is enough blocking, this could increase CPU idle time, which may reduce proxy throughput.  The
+Au test **polite_hook_wait** illustrates a method for using dynamic threading to do a blocking call without blocking
+any handler function.  But the overhead of this method may cancel out the performance improvement, if blocking times
+are short.

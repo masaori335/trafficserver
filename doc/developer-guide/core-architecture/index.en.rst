@@ -26,5 +26,5 @@ Core Architecture
    :maxdepth: 1
 
    heap.en
-   rpc.en
+   hostdb.en
    url_rewrite_architecture.en.rst

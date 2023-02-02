@@ -21,6 +21,7 @@
  *  limitations under the License.
  */
 
+#include "hdrs/VersionConverter.h"
 #include "HTTP2.h"
 #include "HPACK.h"
 
@@ -32,20 +33,6 @@
 
 const char *const HTTP2_CONNECTION_PREFACE = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
-// Constant strings for pseudo headers
-const char *HTTP2_VALUE_SCHEME    = ":scheme";
-const char *HTTP2_VALUE_METHOD    = ":method";
-const char *HTTP2_VALUE_AUTHORITY = ":authority";
-const char *HTTP2_VALUE_PATH      = ":path";
-const char *HTTP2_VALUE_STATUS    = ":status";
-
-const unsigned HTTP2_LEN_SCHEME    = countof(":scheme") - 1;
-const unsigned HTTP2_LEN_METHOD    = countof(":method") - 1;
-const unsigned HTTP2_LEN_AUTHORITY = countof(":authority") - 1;
-const unsigned HTTP2_LEN_PATH      = countof(":path") - 1;
-const unsigned HTTP2_LEN_STATUS    = countof(":status") - 1;
-
-static size_t HTTP2_LEN_STATUS_VALUE_STR         = 3;
 static const uint32_t HTTP2_MAX_TABLE_SIZE_LIMIT = 64 * 1024;
 
 namespace
@@ -55,7 +42,8 @@ struct Http2HeaderName {
   int name_len     = 0;
 };
 
-Http2HeaderName http2_connection_specific_headers[5] = {};
+static VersionConverter hvc;
+
 } // namespace
 
 // Statistics
@@ -84,6 +72,10 @@ static const char *const HTTP2_STAT_MAX_PING_FRAMES_PER_MINUTE_EXCEEDED_NAME =
 static const char *const HTTP2_STAT_MAX_PRIORITY_FRAMES_PER_MINUTE_EXCEEDED_NAME =
   "proxy.process.http2.max_priority_frames_per_minute_exceeded";
 static const char *const HTTP2_STAT_INSUFFICIENT_AVG_WINDOW_UPDATE_NAME = "proxy.process.http2.insufficient_avg_window_update";
+static const char *const HTTP2_STAT_MAX_CONCURRENT_STREAMS_EXCEEDED_IN_NAME =
+  "proxy.process.http2.max_concurrent_streams_exceeded_in";
+static const char *const HTTP2_STAT_MAX_CONCURRENT_STREAMS_EXCEEDED_OUT_NAME =
+  "proxy.process.http2.max_concurrent_streams_exceeded_out";
 
 union byte_pointer {
   byte_pointer(void *p) : ptr(p) {}
@@ -224,10 +216,10 @@ http2_parse_frame_header(IOVec iov, Http2FrameHeader &hdr)
   memcpy_and_advance(hdr.flags, ptr);
   memcpy_and_advance(streamid.bytes, ptr);
 
-  hdr.length = ntohl(length_and_type.value) >> 8;
-  hdr.type   = ntohl(length_and_type.value) & 0xff;
+  hdr.length        = ntohl(length_and_type.value) >> 8;
+  hdr.type          = ntohl(length_and_type.value) & 0xff;
   streamid.bytes[0] &= 0x7f; // Clear the high reserved bit
-  hdr.streamid = ntohl(streamid.value);
+  hdr.streamid      = ntohl(streamid.value);
 
   return true;
 }
@@ -347,7 +339,7 @@ http2_parse_priority_parameter(IOVec iov, Http2Priority &priority)
 
   priority.exclusive_flag = dependency.bytes[0] & 0x80;
 
-  dependency.bytes[0] &= 0x7f; // Clear the highest bit for exclusive flag
+  dependency.bytes[0]        &= 0x7f; // Clear the highest bit for exclusive flag
   priority.stream_dependency = ntohl(dependency.value);
 
   memcpy_and_advance(priority.weight, ptr);
@@ -419,232 +411,25 @@ http2_parse_window_update(IOVec iov, uint32_t &size)
 ParseResult
 http2_convert_header_from_2_to_1_1(HTTPHdr *headers)
 {
-  ink_assert(http_hdr_type_get(headers->m_http) != HTTP_TYPE_UNKNOWN);
-
-  // HTTP Version
-  headers->version_set(HTTPVersion(1, 1));
-
-  if (http_hdr_type_get(headers->m_http) == HTTP_TYPE_REQUEST) {
-    // :scheme
-    if (MIMEField *field = headers->field_find(HTTP2_VALUE_SCHEME, HTTP2_LEN_SCHEME); field != nullptr && field->value_is_valid()) {
-      int scheme_len;
-      const char *scheme = field->value_get(&scheme_len);
-
-      int scheme_wks_idx = hdrtoken_tokenize(scheme, scheme_len);
-      headers->m_http->u.req.m_url_impl->set_scheme(headers->m_heap, scheme, scheme_wks_idx, scheme_len, true);
-
-      headers->field_delete(field);
-    } else {
-      return PARSE_RESULT_ERROR;
-    }
-
-    // :authority
-    if (MIMEField *field = headers->field_find(HTTP2_VALUE_AUTHORITY, HTTP2_LEN_AUTHORITY);
-        field != nullptr && field->value_is_valid()) {
-      int authority_len;
-      const char *authority = field->value_get(&authority_len);
-
-      headers->m_http->u.req.m_url_impl->set_host(headers->m_heap, authority, authority_len, true);
-
-      headers->field_delete(field);
-    } else {
-      return PARSE_RESULT_ERROR;
-    }
-
-    // :path
-    if (MIMEField *field = headers->field_find(HTTP2_VALUE_PATH, HTTP2_LEN_PATH); field != nullptr && field->value_is_valid()) {
-      int path_len;
-      const char *path = field->value_get(&path_len);
-
-      // cut first '/' if there, because `url_print()` add '/' before printing path
-      if (path_len >= 1 && path[0] == '/') {
-        ++path;
-        --path_len;
-      }
-
-      headers->m_http->u.req.m_url_impl->set_path(headers->m_heap, path, path_len, true);
-
-      headers->field_delete(field);
-    } else {
-      return PARSE_RESULT_ERROR;
-    }
-
-    // :method
-    if (MIMEField *field = headers->field_find(HTTP2_VALUE_METHOD, HTTP2_LEN_METHOD); field != nullptr && field->value_is_valid()) {
-      int method_len;
-      const char *method = field->value_get(&method_len);
-
-      headers->method_set(method, method_len);
-      headers->field_delete(field);
-    } else {
-      return PARSE_RESULT_ERROR;
-    }
-
-    // Combine Cookie headers ([RFC 7540] 8.1.2.5.)
-    if (MIMEField *field = headers->field_find(MIME_FIELD_COOKIE, MIME_LEN_COOKIE); field != nullptr) {
-      headers->field_combine_dups(field, true, ';');
-    }
+  if (hvc.convert(*headers, 2, 1) == 0) {
+    return PARSE_RESULT_DONE;
   } else {
-    // Set status from :status
-    if (MIMEField *field = headers->field_find(HTTP2_VALUE_STATUS, HTTP2_LEN_STATUS); field != nullptr) {
-      int status_len;
-      const char *status = field->value_get(&status_len);
-
-      headers->status_set(http_parse_status(status, status + status_len));
-      headers->field_delete(field);
-    } else {
-      return PARSE_RESULT_ERROR;
-    }
-  }
-
-  // Check validity of all names and values
-  for (auto &mf : *headers) {
-    if (!mf.name_is_valid() || !mf.value_is_valid()) {
-      return PARSE_RESULT_ERROR;
-    }
-  }
-
-  return PARSE_RESULT_DONE;
-}
-
-/**
-  Initialize HTTPHdr for HTTP/2
-
-  Reserve HTTP/2 Pseudo-Header Fields in front of HTTPHdr. Value of these header fields will be set by
-  `http2_convert_header_from_1_1_to_2()`. When a HTTPHdr for HTTP/2 headers is created, this should be called immediately.
-  Because all pseudo-header fields MUST appear in the header block before regular header fields.
- */
-void
-http2_init_pseudo_headers(HTTPHdr &hdr)
-{
-  switch (http_hdr_type_get(hdr.m_http)) {
-  case HTTP_TYPE_REQUEST: {
-    MIMEField *method = hdr.field_create(HTTP2_VALUE_METHOD, HTTP2_LEN_METHOD);
-    hdr.field_attach(method);
-
-    MIMEField *scheme = hdr.field_create(HTTP2_VALUE_SCHEME, HTTP2_LEN_SCHEME);
-    hdr.field_attach(scheme);
-
-    MIMEField *authority = hdr.field_create(HTTP2_VALUE_AUTHORITY, HTTP2_LEN_AUTHORITY);
-    hdr.field_attach(authority);
-
-    MIMEField *path = hdr.field_create(HTTP2_VALUE_PATH, HTTP2_LEN_PATH);
-    hdr.field_attach(path);
-
-    break;
-  }
-  case HTTP_TYPE_RESPONSE: {
-    MIMEField *status = hdr.field_create(HTTP2_VALUE_STATUS, HTTP2_LEN_STATUS);
-    hdr.field_attach(status);
-
-    break;
-  }
-  default:
-    ink_abort("HTTP_TYPE_UNKNOWN");
+    return PARSE_RESULT_ERROR;
   }
 }
 
 /**
   Convert HTTP/1.1 HTTPHdr to HTTP/2
 
-  Assuming HTTP/2 Pseudo-Header Fields are reserved by `http2_init_pseudo_headers()`.
+  Assuming HTTP/2 Pseudo-Header Fields are reserved by passing a version to `HTTPHdr::create()`.
  */
 ParseResult
 http2_convert_header_from_1_1_to_2(HTTPHdr *headers)
 {
-  switch (http_hdr_type_get(headers->m_http)) {
-  case HTTP_TYPE_REQUEST: {
-    // :method
-    if (MIMEField *field = headers->field_find(HTTP2_VALUE_METHOD, HTTP2_LEN_METHOD); field != nullptr) {
-      int value_len;
-      const char *value = headers->method_get(&value_len);
-
-      field->value_set(headers->m_heap, headers->m_mime, value, value_len);
-    } else {
-      ink_abort("initialize HTTP/2 pseudo-headers");
-      return PARSE_RESULT_ERROR;
-    }
-
-    // :scheme
-    if (MIMEField *field = headers->field_find(HTTP2_VALUE_SCHEME, HTTP2_LEN_SCHEME); field != nullptr) {
-      int value_len;
-      const char *value = headers->scheme_get(&value_len);
-
-      if (value != nullptr) {
-        field->value_set(headers->m_heap, headers->m_mime, value, value_len);
-      } else {
-        field->value_set(headers->m_heap, headers->m_mime, URL_SCHEME_HTTPS, URL_LEN_HTTPS);
-      }
-    } else {
-      ink_abort("initialize HTTP/2 pseudo-headers");
-      return PARSE_RESULT_ERROR;
-    }
-
-    // :authority
-    if (MIMEField *field = headers->field_find(HTTP2_VALUE_AUTHORITY, HTTP2_LEN_AUTHORITY); field != nullptr) {
-      int value_len;
-      const char *value = headers->host_get(&value_len);
-
-      if (headers->is_port_in_header()) {
-        int port = headers->port_get();
-        ts::LocalBuffer<char> buf(value_len + 8);
-        char *host_and_port = buf.data();
-        value_len           = snprintf(host_and_port, value_len + 8, "%.*s:%d", value_len, value, port);
-
-        field->value_set(headers->m_heap, headers->m_mime, host_and_port, value_len);
-      } else {
-        field->value_set(headers->m_heap, headers->m_mime, value, value_len);
-      }
-    } else {
-      ink_abort("initialize HTTP/2 pseudo-headers");
-      return PARSE_RESULT_ERROR;
-    }
-
-    // :path
-    if (MIMEField *field = headers->field_find(HTTP2_VALUE_PATH, HTTP2_LEN_PATH); field != nullptr) {
-      int value_len;
-      const char *value = headers->path_get(&value_len);
-
-      ts::LocalBuffer<char> buf(value_len + 1);
-      char *path = buf.data();
-      path[0]    = '/';
-      memcpy(path + 1, value, value_len);
-
-      field->value_set(headers->m_heap, headers->m_mime, path, value_len + 1);
-    } else {
-      ink_abort("initialize HTTP/2 pseudo-headers");
-      return PARSE_RESULT_ERROR;
-    }
-
-    // TODO: remove host/Host header
-    // [RFC 7540] 8.1.2.3. Clients that generate HTTP/2 requests directly SHOULD use the ":authority" pseudo-header field instead
-    // of the Host header field.
-
-    break;
-  }
-  case HTTP_TYPE_RESPONSE: {
-    // :status
-    if (MIMEField *field = headers->field_find(HTTP2_VALUE_STATUS, HTTP2_LEN_STATUS); field != nullptr) {
-      // ink_small_itoa() requires 5+ buffer length
-      char status_str[HTTP2_LEN_STATUS_VALUE_STR + 3];
-      mime_format_int(status_str, headers->status_get(), sizeof(status_str));
-
-      field->value_set(headers->m_heap, headers->m_mime, status_str, HTTP2_LEN_STATUS_VALUE_STR);
-    } else {
-      ink_abort("initialize HTTP/2 pseudo-headers");
-      return PARSE_RESULT_ERROR;
-    }
-    break;
-  }
-  default:
-    ink_abort("HTTP_TYPE_UNKNOWN");
-  }
-
-  // Intermediaries SHOULD remove connection-specific header fields.
-  for (auto &h : http2_connection_specific_headers) {
-    if (MIMEField *field = headers->field_find(h.name, h.name_len); field != nullptr) {
-      headers->field_delete(field);
-    }
+  if (hvc.convert(*headers, 1, 2) == 0) {
+    return PARSE_RESULT_DONE;
+  } else {
+    return PARSE_RESULT_ERROR;
   }
 
   return PARSE_RESULT_DONE;
@@ -680,9 +465,11 @@ Http2ErrorCode
 http2_decode_header_blocks(HTTPHdr *hdr, const uint8_t *buf_start, const uint32_t buf_len, uint32_t *len_read, HpackHandle &handle,
                            bool &trailing_header, uint32_t maximum_table_size)
 {
-  const MIMEField *field;
-  const char *value;
-  int len;
+  const MIMEField *field  = nullptr;
+  const char *name        = nullptr;
+  int name_len            = 0;
+  const char *value       = nullptr;
+  int value_len           = 0;
   bool is_trailing_header = trailing_header;
   int64_t result = hpack_decode_header_block(handle, hdr, buf_start, buf_len, Http2::max_header_list_size, maximum_table_size);
 
@@ -707,14 +494,14 @@ http2_decode_header_blocks(HTTPHdr *hdr, const uint8_t *buf_start, const uint32_
     expected_pseudo_header_count = 0;
   }
   for (auto &field : *hdr) {
-    value = field.name_get(&len);
+    name = field.name_get(&name_len);
     // Pseudo headers must appear before regular headers
-    if (len && value[0] == ':') {
+    if (name_len && name[0] == ':') {
       ++pseudo_header_count;
       if (pseudo_header_count > expected_pseudo_header_count) {
         return Http2ErrorCode::HTTP2_ERROR_PROTOCOL_ERROR;
       }
-    } else if (len <= 0) {
+    } else if (name_len <= 0) {
       return Http2ErrorCode::HTTP2_ERROR_PROTOCOL_ERROR;
     } else {
       if (pseudo_header_count != expected_pseudo_header_count) {
@@ -734,10 +521,10 @@ http2_decode_header_blocks(HTTPHdr *hdr, const uint8_t *buf_start, const uint32_
   }
 
   // :path pseudo header MUST NOT empty for http or https URIs
-  field = hdr->field_find(HTTP2_VALUE_PATH, HTTP2_LEN_PATH);
+  field = hdr->field_find(PSEUDO_HEADER_PATH.data(), PSEUDO_HEADER_PATH.size());
   if (field) {
-    field->value_get(&len);
-    if (len == 0) {
+    field->value_get(&value_len);
+    if (value_len == 0) {
       return Http2ErrorCode::HTTP2_ERROR_PROTOCOL_ERROR;
     }
   }
@@ -753,8 +540,8 @@ http2_decode_header_blocks(HTTPHdr *hdr, const uint8_t *buf_start, const uint32_
   // value other than "trailers".
   field = hdr->field_find(MIME_FIELD_TE, MIME_LEN_TE);
   if (field) {
-    value = field->value_get(&len);
-    if (!(len == 8 && memcmp(value, "trailers", 8) == 0)) {
+    value = field->value_get(&value_len);
+    if (!(value_len == 8 && memcmp(value, "trailers", 8) == 0)) {
       return Http2ErrorCode::HTTP2_ERROR_PROTOCOL_ERROR;
     }
   }
@@ -762,11 +549,11 @@ http2_decode_header_blocks(HTTPHdr *hdr, const uint8_t *buf_start, const uint32_
   if (!is_trailing_header) {
     // Check pseudo headers
     if (hdr->fields_count() >= 4) {
-      if (hdr->field_find(HTTP2_VALUE_SCHEME, HTTP2_LEN_SCHEME) == nullptr ||
-          hdr->field_find(HTTP2_VALUE_METHOD, HTTP2_LEN_METHOD) == nullptr ||
-          hdr->field_find(HTTP2_VALUE_PATH, HTTP2_LEN_PATH) == nullptr ||
-          hdr->field_find(HTTP2_VALUE_AUTHORITY, HTTP2_LEN_AUTHORITY) == nullptr ||
-          hdr->field_find(HTTP2_VALUE_STATUS, HTTP2_LEN_STATUS) != nullptr) {
+      if (hdr->field_find(PSEUDO_HEADER_SCHEME.data(), PSEUDO_HEADER_SCHEME.size()) == nullptr ||
+          hdr->field_find(PSEUDO_HEADER_METHOD.data(), PSEUDO_HEADER_METHOD.size()) == nullptr ||
+          hdr->field_find(PSEUDO_HEADER_PATH.data(), PSEUDO_HEADER_PATH.size()) == nullptr ||
+          hdr->field_find(PSEUDO_HEADER_AUTHORITY.data(), PSEUDO_HEADER_AUTHORITY.size()) == nullptr ||
+          hdr->field_find(PSEUDO_HEADER_STATUS.data(), PSEUDO_HEADER_STATUS.size()) != nullptr) {
         // Decoded header field is invalid
         return Http2ErrorCode::HTTP2_ERROR_PROTOCOL_ERROR;
       }
@@ -780,33 +567,36 @@ http2_decode_header_blocks(HTTPHdr *hdr, const uint8_t *buf_start, const uint32_
 }
 
 // Initialize this subsystem with librecords configs (for now)
-uint32_t Http2::max_concurrent_streams_in      = 100;
-uint32_t Http2::min_concurrent_streams_in      = 10;
-uint32_t Http2::max_active_streams_in          = 0;
-bool Http2::throttling                         = false;
-uint32_t Http2::stream_priority_enabled        = 0;
-uint32_t Http2::initial_window_size            = 65535;
-uint32_t Http2::max_frame_size                 = 16384;
-uint32_t Http2::header_table_size              = 4096;
-uint32_t Http2::max_header_list_size           = 4294967295;
-uint32_t Http2::accept_no_activity_timeout     = 120;
-uint32_t Http2::no_activity_timeout_in         = 120;
-uint32_t Http2::active_timeout_in              = 0;
-uint32_t Http2::push_diary_size                = 256;
-uint32_t Http2::zombie_timeout_in              = 0;
-float Http2::stream_error_rate_threshold       = 0.1;
-uint32_t Http2::max_settings_per_frame         = 7;
-uint32_t Http2::max_settings_per_minute        = 14;
-uint32_t Http2::max_settings_frames_per_minute = 14;
-uint32_t Http2::max_ping_frames_per_minute     = 60;
-uint32_t Http2::max_priority_frames_per_minute = 120;
-float Http2::min_avg_window_update             = 2560.0;
-uint32_t Http2::con_slow_log_threshold         = 0;
-uint32_t Http2::stream_slow_log_threshold      = 0;
-uint32_t Http2::header_table_size_limit        = 65536;
-uint32_t Http2::write_buffer_block_size        = 262144;
-float Http2::write_size_threshold              = 0.5;
-uint32_t Http2::write_time_threshold           = 100;
+uint32_t Http2::max_concurrent_streams_in            = 100;
+uint32_t Http2::min_concurrent_streams_in            = 10;
+uint32_t Http2::max_active_streams_in                = 0;
+bool Http2::throttling                               = false;
+uint32_t Http2::stream_priority_enabled              = 0;
+uint32_t Http2::initial_window_size_in               = 65535;
+Http2FlowControlPolicy Http2::flow_control_policy_in = Http2FlowControlPolicy::STATIC_SESSION_AND_STATIC_STREAM;
+uint32_t Http2::max_frame_size                       = 16384;
+uint32_t Http2::header_table_size                    = 4096;
+uint32_t Http2::max_header_list_size                 = 4294967295;
+uint32_t Http2::accept_no_activity_timeout           = 120;
+uint32_t Http2::no_activity_timeout_in               = 120;
+uint32_t Http2::active_timeout_in                    = 0;
+uint32_t Http2::push_diary_size                      = 256;
+uint32_t Http2::zombie_timeout_in                    = 0;
+float Http2::stream_error_rate_threshold             = 0.1;
+uint32_t Http2::stream_error_sampling_threshold      = 10;
+uint32_t Http2::max_settings_per_frame               = 7;
+uint32_t Http2::max_settings_per_minute              = 14;
+uint32_t Http2::max_settings_frames_per_minute       = 14;
+uint32_t Http2::max_ping_frames_per_minute           = 60;
+uint32_t Http2::max_priority_frames_per_minute       = 120;
+float Http2::min_avg_window_update                   = 2560.0;
+uint32_t Http2::con_slow_log_threshold               = 0;
+uint32_t Http2::stream_slow_log_threshold            = 0;
+uint32_t Http2::header_table_size_limit              = 65536;
+uint32_t Http2::write_buffer_block_size              = 262144;
+float Http2::write_size_threshold                    = 0.5;
+uint32_t Http2::write_time_threshold                 = 100;
+uint32_t Http2::buffer_water_mark                    = 0;
 
 void
 Http2::init()
@@ -815,7 +605,16 @@ Http2::init()
   REC_EstablishStaticConfigInt32U(min_concurrent_streams_in, "proxy.config.http2.min_concurrent_streams_in");
   REC_EstablishStaticConfigInt32U(max_active_streams_in, "proxy.config.http2.max_active_streams_in");
   REC_EstablishStaticConfigInt32U(stream_priority_enabled, "proxy.config.http2.stream_priority_enabled");
-  REC_EstablishStaticConfigInt32U(initial_window_size, "proxy.config.http2.initial_window_size_in");
+  REC_EstablishStaticConfigInt32U(initial_window_size_in, "proxy.config.http2.initial_window_size_in");
+
+  uint32_t flow_control_policy_in_int = 0;
+  REC_EstablishStaticConfigInt32U(flow_control_policy_in_int, "proxy.config.http2.flow_control.policy_in");
+  if (flow_control_policy_in_int > 2) {
+    Error("Invalid value for proxy.config.http2.flow_control.policy_in: %d", flow_control_policy_in_int);
+    flow_control_policy_in_int = 0;
+  }
+  flow_control_policy_in = static_cast<Http2FlowControlPolicy>(flow_control_policy_in_int);
+
   REC_EstablishStaticConfigInt32U(max_frame_size, "proxy.config.http2.max_frame_size");
   REC_EstablishStaticConfigInt32U(header_table_size, "proxy.config.http2.header_table_size");
   REC_EstablishStaticConfigInt32U(max_header_list_size, "proxy.config.http2.max_header_list_size");
@@ -825,6 +624,7 @@ Http2::init()
   REC_EstablishStaticConfigInt32U(push_diary_size, "proxy.config.http2.push_diary_size");
   REC_EstablishStaticConfigInt32U(zombie_timeout_in, "proxy.config.http2.zombie_debug_timeout_in");
   REC_EstablishStaticConfigFloat(stream_error_rate_threshold, "proxy.config.http2.stream_error_rate_threshold");
+  REC_EstablishStaticConfigInt32U(stream_error_sampling_threshold, "proxy.config.http2.stream_error_sampling_threshold");
   REC_EstablishStaticConfigInt32U(max_settings_per_frame, "proxy.config.http2.max_settings_per_frame");
   REC_EstablishStaticConfigInt32U(max_settings_per_minute, "proxy.config.http2.max_settings_per_minute");
   REC_EstablishStaticConfigInt32U(max_settings_frames_per_minute, "proxy.config.http2.max_settings_frames_per_minute");
@@ -837,11 +637,12 @@ Http2::init()
   REC_EstablishStaticConfigInt32U(write_buffer_block_size, "proxy.config.http2.write_buffer_block_size");
   REC_EstablishStaticConfigFloat(write_size_threshold, "proxy.config.http2.write_size_threshold");
   REC_EstablishStaticConfigInt32U(write_time_threshold, "proxy.config.http2.write_time_threshold");
+  REC_EstablishStaticConfigInt32U(buffer_water_mark, "proxy.config.http2.default_buffer_water_mark");
 
   // If any settings is broken, ATS should not start
   ink_release_assert(http2_settings_parameter_is_valid({HTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, max_concurrent_streams_in}));
   ink_release_assert(http2_settings_parameter_is_valid({HTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, min_concurrent_streams_in}));
-  ink_release_assert(http2_settings_parameter_is_valid({HTTP2_SETTINGS_INITIAL_WINDOW_SIZE, initial_window_size}));
+  ink_release_assert(http2_settings_parameter_is_valid({HTTP2_SETTINGS_INITIAL_WINDOW_SIZE, initial_window_size_in}));
   ink_release_assert(http2_settings_parameter_is_valid({HTTP2_SETTINGS_MAX_FRAME_SIZE, max_frame_size}));
   ink_release_assert(http2_settings_parameter_is_valid({HTTP2_SETTINGS_HEADER_TABLE_SIZE, header_table_size}));
   ink_release_assert(http2_settings_parameter_is_valid({HTTP2_SETTINGS_MAX_HEADER_LIST_SIZE, max_header_list_size}));
@@ -899,25 +700,15 @@ Http2::init()
                      static_cast<int>(HTTP2_STAT_MAX_PRIORITY_FRAMES_PER_MINUTE_EXCEEDED), RecRawStatSyncSum);
   RecRegisterRawStat(http2_rsb, RECT_PROCESS, HTTP2_STAT_INSUFFICIENT_AVG_WINDOW_UPDATE_NAME, RECD_INT, RECP_PERSISTENT,
                      static_cast<int>(HTTP2_STAT_INSUFFICIENT_AVG_WINDOW_UPDATE), RecRawStatSyncSum);
+  RecRegisterRawStat(http2_rsb, RECT_PROCESS, HTTP2_STAT_MAX_CONCURRENT_STREAMS_EXCEEDED_IN_NAME, RECD_INT, RECP_PERSISTENT,
+                     static_cast<int>(HTTP2_STAT_MAX_CONCURRENT_STREAMS_EXCEEDED_IN), RecRawStatSyncSum);
+  RecRegisterRawStat(http2_rsb, RECT_PROCESS, HTTP2_STAT_MAX_CONCURRENT_STREAMS_EXCEEDED_OUT_NAME, RECD_INT, RECP_PERSISTENT,
+                     static_cast<int>(HTTP2_STAT_MAX_CONCURRENT_STREAMS_EXCEEDED_OUT), RecRawStatSyncSum);
 
   http2_init();
 }
 
-/**
-  mime_init() needs to be called
- */
 void
 http2_init()
 {
-  ink_assert(MIME_FIELD_CONNECTION != nullptr);
-  ink_assert(MIME_FIELD_KEEP_ALIVE != nullptr);
-  ink_assert(MIME_FIELD_PROXY_CONNECTION != nullptr);
-  ink_assert(MIME_FIELD_TRANSFER_ENCODING != nullptr);
-  ink_assert(MIME_FIELD_UPGRADE != nullptr);
-
-  http2_connection_specific_headers[0] = {MIME_FIELD_CONNECTION, MIME_LEN_CONNECTION};
-  http2_connection_specific_headers[1] = {MIME_FIELD_KEEP_ALIVE, MIME_LEN_KEEP_ALIVE};
-  http2_connection_specific_headers[2] = {MIME_FIELD_PROXY_CONNECTION, MIME_LEN_PROXY_CONNECTION};
-  http2_connection_specific_headers[3] = {MIME_FIELD_TRANSFER_ENCODING, MIME_LEN_TRANSFER_ENCODING};
-  http2_connection_specific_headers[4] = {MIME_FIELD_UPGRADE, MIME_LEN_UPGRADE};
 }
