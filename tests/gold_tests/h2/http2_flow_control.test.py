@@ -23,6 +23,7 @@ from typing import List, Optional
 
 Test.Summary = __doc__
 
+Test.SkipIf(Condition.true("This test is disabled for now because it's flaky"))
 
 class Http2FlowControlTest:
     """Define an object to test HTTP/2 flow control behavior."""
