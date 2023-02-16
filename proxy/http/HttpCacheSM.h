@@ -57,13 +57,7 @@ class HttpCacheSM : public Continuation
 public:
   HttpCacheSM();
 
-  void
-  init(HttpSM *sm_arg, Ptr<ProxyMutex> &amutex)
-  {
-    master_sm = sm_arg;
-    mutex     = amutex;
-    captive_action.init(this);
-  }
+  void init(HttpSM *sm_arg, Ptr<ProxyMutex> &amutex);
 
   Action *open_read(const HttpCacheKey *key, URL *url, HTTPHdr *hdr, const OverridableHttpConfigParams *params,
                     time_t pin_in_cache);

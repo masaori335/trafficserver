@@ -119,6 +119,7 @@ Cache::open_read(Continuation *cont, const CacheKey *key, CacheHTTPHdr *request,
       c->frag_type = CACHE_FRAG_TYPE_HTTP;
       c->params    = params;
       c->od        = od;
+      c->tag_id    = cont->tag_id;
     }
     if (!lock.is_locked()) {
       SET_CONTINUATION_HANDLER(c, &CacheVC::openReadStartHead);

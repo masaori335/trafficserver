@@ -59,12 +59,15 @@ HttpCacheAction::cancel(Continuation *c)
   }
 }
 
-HttpCacheSM::HttpCacheSM()
-  : Continuation(nullptr),
+HttpCacheSM::HttpCacheSM() : Continuation(nullptr), captive_action() {}
 
-    captive_action()
-
+void
+HttpCacheSM::init(HttpSM *sm_arg, Ptr<ProxyMutex> &amutex)
 {
+  master_sm = sm_arg;
+  mutex     = amutex;
+  captive_action.init(this);
+  tag_id = sm_arg->tag_id;
 }
 
 //////////////////////////////////////////////////////////////////////////

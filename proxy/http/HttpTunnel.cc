@@ -460,6 +460,7 @@ HttpTunnel::init(HttpSM *sm_arg, Ptr<ProxyMutex> &amutex)
   sm                       = sm_arg;
   active                   = false;
   mutex                    = amutex;
+  tag_id                   = sm_arg->tag_id;
   ink_release_assert(reentrancy_count == 0);
   SET_HANDLER(&HttpTunnel::main_handler);
   flow_state.enabled_p = params->oride.flow_control_enabled;

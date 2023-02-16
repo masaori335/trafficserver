@@ -1552,6 +1552,57 @@ static const RecordElement RecordsConfig[] =
   //#
   //###########
   {RECT_CONFIG, "proxy.config.http.host_sni_policy", RECD_INT, "2", RECU_NULL, RR_NULL, RECC_NULL, "[0-2]", RECA_NULL},
+
+  //####
+  //# Resource Constraints
+  //####
+  // restart
+  {RECT_CONFIG, "proxy.config.resource.max_stats_size", RECD_INT, "1000", RECU_RESTART_TS, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+  // dynamic
+  {RECT_CONFIG, "proxy.config.resource.top_n", RECD_INT, "10", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+
+  // sni
+  {RECT_CONFIG, "proxy.config.resource.sni.mode", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_INT, "[0-2]", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.sni.limit", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.sni.penalty_duration", RECD_INT, "60", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.sni.red_zone", RECD_FLOAT, "0.2", RECU_DYNAMIC, RR_NULL, RECC_NULL, nullptr, RECA_NULL}
+  ,
+
+  // active_q
+  {RECT_CONFIG, "proxy.config.resource.active_q.mode", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_INT, "[0-2]", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.active_q.limit", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.active_q.penalty_duration", RECD_INT, "60", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.active_q.red_zone", RECD_FLOAT, "0.2", RECU_DYNAMIC, RR_NULL, RECC_NULL, nullptr, RECA_NULL}
+  ,
+
+  // disk_read
+  {RECT_CONFIG, "proxy.config.resource.disk_read.mode", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_INT, "[0-2]", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.disk_read.limit", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.disk_read.penalty_duration", RECD_INT, "60", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.disk_read.red_zone", RECD_FLOAT, "0.2", RECU_DYNAMIC, RR_NULL, RECC_NULL, nullptr, RECA_NULL}
+  ,
+
+  // disk_write
+  {RECT_CONFIG, "proxy.config.resource.disk_write.mode", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_INT, "[0-2]", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.disk_write.limit", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.disk_write.penalty_duration", RECD_INT, "60", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.disk_write.red_zone", RECD_FLOAT, "0.2", RECU_DYNAMIC, RR_NULL, RECC_NULL, nullptr, RECA_NULL}
+  ,
+
 };
 // clang-format on
 

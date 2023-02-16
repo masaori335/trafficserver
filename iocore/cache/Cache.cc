@@ -37,7 +37,38 @@
 
 #include "tscore/hugepages.h"
 
+#include "Resource.h"
+#include "P_UnixNet.h"
+
 #include <atomic>
+
+namespace
+{
+bool
+increment_disk_read_resource(uint64_t tag_id)
+{
+  NetHandler *nh = get_NetHandler(this_ethread());
+  if (!nh) {
+    ink_assert(false);
+    return true;
+  }
+
+  auto &manager = nh->resource_local_manager;
+
+  if (manager.mutex == nullptr) {
+    return true;
+  }
+
+  SCOPED_MUTEX_LOCK(lock, manager.mutex, this_ethread());
+  manager.inc(tag_id, ResourceType::DISK_READ);
+  if (manager.is_full(tag_id, ResourceType::DISK_READ)) {
+    return false;
+  }
+
+  return true;
+}
+
+} // namespace
 
 constexpr ts::VersionNumber CACHE_DB_VERSION(CACHE_DB_MAJOR_VERSION, CACHE_DB_MINOR_VERSION);
 
@@ -2343,8 +2374,15 @@ CacheVC::handleRead(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
   io.action        = this;
   io.thread        = mutex->thread_holding->tt == DEDICATED ? AIO_CALLBACK_THREAD_ANY : mutex->thread_holding;
   SET_HANDLER(&CacheVC::handleReadDone);
+
+  // can we return error here?
+  if (vio.cont) {
+    ink_assert(this->tag_id == vio.cont->tag_id);
+  }
+  increment_disk_read_resource(this->tag_id);
+
   ink_assert(ink_aio_read(&io) >= 0);
-  CACHE_DEBUG_INCREMENT_DYN_STAT(cache_pread_count_stat);
+  CACHE_INCREMENT_DYN_STAT(cache_pread_count_stat);
   return EVENT_CONT;
 
 LramHit : {

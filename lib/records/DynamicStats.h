@@ -46,6 +46,7 @@ public:
   int create(RecT rec_type, const char *name, RecDataT data_type, RecRawStatSyncCb sync_cb, bool is_persistent = false);
   int increment(int id, int64_t amount);
   int set_sum(int id, int64_t value);
+  int set_sum_thread(int id, int64_t value);
 
   // References
   int64_t get_sum(int id) const;
@@ -122,6 +123,21 @@ DynamicStats::set_sum(int id, int64_t value)
   }
 
   return RecSetGlobalRawStatSum(_rsb, id, value);
+}
+
+/**
+   TSStatIntSet thread specific
+ */
+inline int
+DynamicStats::set_sum_thread(int id, int64_t value)
+{
+  if (id < 0) {
+    return REC_ERR_FAIL;
+  }
+
+  RecRawStat *tlp = raw_stat_get_tlp(_rsb, id, nullptr);
+  tlp->sum        = value;
+  return REC_ERR_OKAY;
 }
 
 /**

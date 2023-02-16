@@ -33,6 +33,7 @@
 #include "I_EventSystem.h"
 #include "P_SSLNextProtocolAccept.h"
 #include "SSLTypes.h"
+#include "ResourceConstraints.h"
 
 #include "tscore/ink_inet.h"
 
@@ -405,4 +406,22 @@ public:
 
 private:
   std::string_view policy{};
+};
+
+class SNITag : public ActionItem
+{
+public:
+  SNITag(std::string &name) { _tag_id = ResourceConstraints::hash(name); }
+
+  int
+  SNIAction(TLSSNISupport *snis, const Context &ctx) const override
+  {
+    auto cont    = dynamic_cast<Continuation *>(snis);
+    cont->tag_id = _tag_id;
+
+    return SSL_TLSEXT_ERR_OK;
+  }
+
+private:
+  uint32_t _tag_id = 0;
 };

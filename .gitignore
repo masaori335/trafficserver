@@ -112,6 +112,8 @@ iocore/eventsystem/test_IOBuffer
 iocore/eventsystem/test_EventSystem
 iocore/eventsystem/test_MIOBufferWriter
 iocore/hostdb/test_RefCountCache
+iocore/resource/test_libresource
+iocore/resource/test_scenario
 
 proxy/hdrs/test_mime
 proxy/hdrs/test_Huffmancode

@@ -184,6 +184,14 @@ public:
 
   EThread *thread_affinity = nullptr;
 
+  /**
+    Identifier of property (SNI/Reamp)
+   */
+  uint32_t tag_id = 0;
+
+  ////
+  // Functions
+  //
   bool
   setThreadAffinity(EThread *ethread)
   {

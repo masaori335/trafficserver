@@ -22,6 +22,9 @@
  */
 
 #include "P_Net.h"
+#include "P_SSLNetVConnection.h"
+#include "Resource.h"
+#include "ResourceConstraints.h"
 
 using namespace std::literals;
 
@@ -116,6 +119,14 @@ public:
     // Cleanup the active and keep-alive queues periodically
     nh.manage_active_queue(nullptr, true); // close any connections over the active timeout
     nh.manage_keep_alive_queue();
+
+    // Temporally hack for Resource Constraints
+    // InactivityCop might start earlier than ResourceManager
+    if (nh.resource_local_manager.mutex) {
+      // Guard for the race with reconfigure
+      SCOPED_MUTEX_LOCK(lock, nh.resource_local_manager.mutex, this_ethread());
+      nh.resource_local_manager.reserve();
+    }
 
     return 0;
   }
@@ -762,6 +773,20 @@ NetHandler::add_to_active_queue(NetEvent *ne)
       NET_SUM_DYN_STAT(net_requests_max_throttled_in_stat, 1);
       return false;
     }
+
+    // Resource Constraints
+    {
+      SCOPED_MUTEX_LOCK(lock, resource_local_manager.mutex, this_ethread());
+
+      // FIXME: find better way to get the tag
+      uint64_t tid = static_cast<SSLNetVConnection *>(ne)->tag_id;
+
+      resource_local_manager.inc(tid, ResourceType::ACTIVE_Q);
+      if (resource_local_manager.is_full(tid, ResourceType::ACTIVE_Q)) {
+        return false;
+      }
+    }
+
     // in the keep-alive queue or no queue, new to this queue
     remove_from_keep_alive_queue(ne);
     ++active_queue_size;
@@ -780,5 +805,11 @@ NetHandler::remove_from_active_queue(NetEvent *ne)
   if (active_queue.in(ne)) {
     active_queue.remove(ne);
     --active_queue_size;
+
+    // Gauge type resource doesn't work with RTBv1
+    // {
+    //   SCOPED_MUTEX_LOCK(lock, resource_local_manager.mutex, this_ethread());
+    //   resource_local_manager.dec(static_cast<SSLNetVConnection *>(ne)->tag_id, ResourceType::ACTIVE_Q);
+    // }
   }
 }

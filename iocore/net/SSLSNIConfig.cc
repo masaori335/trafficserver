@@ -39,6 +39,7 @@
 #include "tscore/I_Layout.h"
 
 #include "tscpp/util/TextView.h"
+#include "ResourceManager.h"
 
 #include <sstream>
 #include <utility>
@@ -137,6 +138,10 @@ SNIConfigParams::load_sni_config()
     }
     if (item.http2_buffer_water_mark.has_value()) {
       ai->actions.push_back(std::make_unique<HTTP2BufferWaterMark>(item.http2_buffer_water_mark.value()));
+    }
+
+    if (!item.tag.empty()) {
+      ai->actions.push_back(std::make_unique<SNITag>(item.tag));
     }
 
     ai->actions.push_back(std::make_unique<SNI_IpAllow>(item.ip_allow, item.fqdn));
@@ -268,6 +273,7 @@ SNIConfig::reconfigure()
   if (!retStatus) {
     _configid = configProcessor.set(_configid, params);
     prewarmManager.reconfigure();
+    resourceManager.reconfigure();
   } else {
     delete params;
   }
@@ -275,6 +281,7 @@ SNIConfig::reconfigure()
   std::string sni_filename = RecConfigReadConfigPath("proxy.config.ssl.servername.filename");
   if (!retStatus || TSSystemState::is_initializing()) {
     Note("%s finished loading", sni_filename.c_str());
+
   } else {
     Error("%s failed to load", sni_filename.c_str());
   }

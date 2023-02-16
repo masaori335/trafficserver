@@ -141,6 +141,8 @@ struct EventIO {
 #include "P_DNSConnection.h"
 #include "P_UnixUDPConnection.h"
 #include "P_UnixPollDescriptor.h"
+#include "ResourceConstraints.h"
+
 #include <limits>
 
 class NetEvent;
@@ -316,6 +318,8 @@ public:
   /// This enables signaling the correct instances when the configuration is updated.
   /// Event type threads that use @c NetHandler must set the corresponding bit.
   static std::bitset<std::numeric_limits<unsigned int>::digits> active_thread_types;
+
+  ResourceLocalManager resource_local_manager;
 
   int mainNetEvent(int event, Event *data);
   int waitForActivity(ink_hrtime timeout) override;

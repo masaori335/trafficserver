@@ -282,3 +282,44 @@ INKContInternal::free()
 INKVConnInternal::INKVConnInternal() : INKContInternal() {}
 
 INKVConnInternal::INKVConnInternal(TSEventFunc funcp, TSMutex mutexp) : INKContInternal(funcp, mutexp) {}
+
+#include "ResourceManager.h"
+void
+ResourceManager::reconfigure()
+{
+  ink_assert(false);
+  return;
+}
+
+ResourceManager resourceManager;
+
+#include "ResourceConstraints.h"
+void
+ResourceLocalManager::inc(uint64_t tid, ResourceType type)
+{
+  ink_assert(false);
+  return;
+}
+
+bool
+ResourceLocalManager::is_full(uint64_t tid, ResourceType type)
+{
+  ink_assert(false);
+  return false;
+}
+
+void
+ResourceLocalManager::reserve()
+{
+  ink_assert(false);
+  return;
+}
+
+#include "Resource.h"
+
+uint32_t
+ResourceConstraints::hash(std::string_view name)
+{
+  ink_assert(false);
+  return 0;
+}

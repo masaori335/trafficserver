@@ -41,6 +41,7 @@
 #include "P_TLSKeyLogger.h"
 #include "BoringSSLUtils.h"
 #include "ProxyProtocol.h"
+#include "Resource.h"
 #include "SSLSessionCache.h"
 #include "SSLSessionTicket.h"
 #include "SSLDynlock.h"
@@ -417,6 +418,15 @@ ssl_client_hello_callback(SSL *s, int *al, void *arg)
     return SSL_CLIENT_HELLO_ERROR;
   }
 
+  // Resource Constraints
+  auto &manager = netvc->nh->resource_local_manager;
+
+  SCOPED_MUTEX_LOCK(lock, manager.mutex, this_ethread());
+  manager.inc(netvc->tag_id, ResourceType::SNI);
+  if (manager.is_full(netvc->tag_id, ResourceType::SNI)) {
+    return SSL_CLIENT_HELLO_ERROR;
+  }
+
   bool reenabled = netvc->callHooks(TS_EVENT_SSL_CLIENT_HELLO);
 
   if (!reenabled) {
@@ -449,6 +459,15 @@ ssl_client_hello_callback(const SSL_CLIENT_HELLO *client_hello)
   if (!netvc || netvc->ssl != s) {
     Debug("ssl.error", "ssl_client_hello_callback call back on stale netvc");
     return ssl_select_cert_error;
+  }
+
+  // Resource Constraints
+  auto &manager = netvc->nh->resource_local_manager;
+
+  SCOPED_MUTEX_LOCK(lock, manager.mutex, this_ethread());
+  manager.inc(netvc->tag_id, ResourceType::SNI);
+  if (manager.is_full(netvc->tag_id, ResourceType::SNI)) {
+    return SSL_CLIENT_HELLO_ERROR;
   }
 
   bool reenabled = netvc->callHooks(TS_EVENT_SSL_CLIENT_HELLO);

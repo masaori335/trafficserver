@@ -145,6 +145,7 @@ std::set<std::string> valid_sni_config_keys = {TS_fqdn,
                                                TS_http2,
                                                TS_http2_buffer_water_mark,
                                                TS_ip_allow,
+                                               TS_tag,
 #if TS_USE_HELLO_CB || defined(OPENSSL_IS_BORINGSSL)
                                                TS_valid_tls_versions_in,
 #endif
@@ -345,6 +346,11 @@ template <> struct convert<YamlSNIConfig::Item> {
         item.EnableProtocol(static_cast<YamlSNIConfig::TLSProtocol>(protocol));
       }
     }
+
+    if (node[TS_tag]) {
+      item.tag = node[TS_tag].as<std::string>();
+    }
+
     return true;
   }
 };

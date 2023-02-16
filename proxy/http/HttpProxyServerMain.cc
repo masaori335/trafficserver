@@ -45,6 +45,7 @@
 #include "http3/Http3SessionAccept.h"
 #endif
 #include "PreWarmManager.h"
+#include "ResourceManager.h"
 
 #include <vector>
 
@@ -389,12 +390,15 @@ start_HttpProxyServer()
     hook = hook->next();
   }
 
+  resourceManager.start();
   prewarmManager.start();
 }
 
 void
 stop_HttpProxyServer()
 {
+  resourceManager.stop();
+  prewarmManager.stop();
   sslNetProcessor.stop_accept();
   netProcessor.stop_accept();
 }

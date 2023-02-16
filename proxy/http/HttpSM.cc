@@ -510,6 +510,7 @@ HttpSM::attach_client_session(ProxyTransaction *client_vc)
     return;
   }
   ua_txn = client_vc;
+  tag_id = netvc->tag_id;
 
   // It seems to be possible that the ua_txn pointer will go stale before log entries for this HTTP transaction are
   // generated.  Therefore, collect information that may be needed for logging from the ua_txn object at this point.
