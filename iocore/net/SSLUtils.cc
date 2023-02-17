@@ -467,7 +467,7 @@ ssl_client_hello_callback(const SSL_CLIENT_HELLO *client_hello)
   SCOPED_MUTEX_LOCK(lock, manager.mutex, this_ethread());
   manager.inc(netvc->tag_id, ResourceType::SNI);
   if (manager.is_full(netvc->tag_id, ResourceType::SNI)) {
-    return SSL_CLIENT_HELLO_ERROR;
+    return ssl_select_cert_error;
   }
 
   bool reenabled = netvc->callHooks(TS_EVENT_SSL_CLIENT_HELLO);
