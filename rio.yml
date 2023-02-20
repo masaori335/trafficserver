@@ -38,3 +38,30 @@ builds:
       - "_sandbox/**"
   jenkins:
     concurrentBuild: true
+- branchName: 9.2.x
+  group: test
+  version: unittest-boringssl
+  <<: *build_machine
+  build:
+    template: freestyle:v4:prb
+    steps:
+    - ./apple/rio.sh --build --branch 9.2.x --variation -boringssl --prb
+  jenkins:
+    concurrentBuild: true
+- branchName: 9.2.x
+  group: test
+  version: autest-boringssl
+  <<: *test_machine
+  build:
+    template: freestyle:v4:prb
+    steps:
+    - ./apple/rio.sh --test --branch 9.2.x --variation -boringssl
+  reports:
+    junit:
+      paths:
+      - "**/.out/*.xml"
+    logs:
+      paths:
+      - "_sandbox/**"
+  jenkins:
+    concurrentBuild: true
