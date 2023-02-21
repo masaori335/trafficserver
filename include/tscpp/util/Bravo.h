@@ -206,7 +206,7 @@ private:
 
    SLOT_SIZE needs to be larget than number of threads for lock_shared to go fast-path.
  */
-template <typename T = std::shared_mutex, size_t SLOT_SIZE = 4096, int SLOWDOWN_GUARD = 7> class shared_mutex_impl
+template <typename T = std::shared_mutex, size_t SLOT_SIZE = 64, int SLOWDOWN_GUARD = 7> class shared_mutex_impl
 {
 public:
   shared_mutex_impl()  = default;
