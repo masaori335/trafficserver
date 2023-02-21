@@ -37,6 +37,8 @@
 
 #pragma once
 
+#include "DenseThreadId.h"
+
 #include <array>
 #include <atomic>
 #include <cassert>
@@ -349,8 +351,7 @@ private:
   size_t
   _starting_point()
   {
-    std::hash<std::thread::id> hasher;
-    return mix32(hasher(std::this_thread::get_id())) % SLOT_SIZE;
+    return DenseThreadId::self();
   }
 
   /**
