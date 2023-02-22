@@ -30,13 +30,8 @@
 #include "tscore/ink_platform.h"
 #include "ts/ts.h"
 #include "ts/InkAPIPrivateIOCore.h"
-#if defined(solaris) && !defined(__GNUC__)
-#include "P_EventSystem.h" // I_EventSystem.h
-#include "P_Net.h"         // I_Net.h
-#else
 #include "I_EventSystem.h"
 #include "I_Net.h"
-#endif
 #include "I_Cache.h"
 #include "I_HostDB.h"
 
@@ -452,7 +447,7 @@ INKUDPSendTo(TSCont contp, INKUDPConn udp, unsigned int ip, int port, char *data
   sdk_assert(sdk_sanity_check_continuation(contp) == TS_SUCCESS);
 
   FORCE_PLUGIN_SCOPED_MUTEX(contp);
-  UDPPacket *packet   = new_UDPPacket();
+  UDPPacket *packet   = UDPPacket::new_UDPPacket();
   UDPConnection *conn = (UDPConnection *)udp;
 
   ats_ip4_set(&packet->to, ip, htons(port));
@@ -497,7 +492,7 @@ INKUDPConnFdGet(INKUDPConn udp)
 INKUDPPacket
 INKUDPPacketCreate()
 {
-  UDPPacket *packet = new_UDPPacket();
+  UDPPacket *packet = UDPPacket::new_UDPPacket();
   return ((INKUDPPacket)packet);
 }
 

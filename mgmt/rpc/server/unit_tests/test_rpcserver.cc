@@ -151,12 +151,12 @@ getTemporaryDir()
   tmpDir          /= "sandbox_XXXXXX";
 
   char dirNameTemplate[tmpDir.string().length() + 1];
-  sprintf(dirNameTemplate, "%s", tmpDir.c_str());
+  snprintf(dirNameTemplate, sizeof(dirNameTemplate), "%s", tmpDir.c_str());
 
   return fs::path(mkdtemp(dirNameTemplate));
 }
 
-// Handy class to avoid manually disconecting the socket.
+// Handy class to avoid manually disconnecting the socket.
 // TODO: should it also connect?
 struct ScopedLocalSocket : shared::rpc::IPCSocketClient {
   using super = shared::rpc::IPCSocketClient;

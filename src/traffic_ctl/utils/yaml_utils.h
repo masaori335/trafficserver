@@ -1,7 +1,5 @@
 /** @file
 
-  Calculate some derivative metrics (for convenience).
-
   @section license License
 
   Licensed to the Apache Software Foundation (ASF) under one
@@ -20,21 +18,15 @@
   See the License for the specific language governing permissions and
   limitations under the License.
  */
-
 #pragma once
+#include <string_view>
+#include <swoc/Lexicon.h>
 
-#include <tuple>
-#include "records/I_RecDefs.h"
-
-using DerivativeSum = std::tuple<const char *, RecDataT, std::vector<const char *>>;
-
-class DerivativeMetrics
+namespace yaml_utils
 {
-public:
-  DerivativeMetrics();
-  void Update();
+// TODO: This should be sourced from another place
+constexpr std::string_view YAML_FLOAT_TAG_URI{"tag:yaml.org,2002:float"};
+constexpr std::string_view YAML_INT_TAG_URI{"tag:yaml.org,2002:int"};
+constexpr std::string_view YAML_STR_TAG_URI{"tag:yaml.org,2002:str"};
 
-  // Don't allow copy and assign
-  DerivativeMetrics(DerivativeMetrics const &)            = delete;
-  DerivativeMetrics &operator=(DerivativeMetrics const &) = delete;
-};
+} // namespace yaml_utils

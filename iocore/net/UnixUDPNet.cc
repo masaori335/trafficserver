@@ -48,6 +48,145 @@ using UDPNetContHandler = int (UDPNetHandler::*)(int, void *);
 ClassAllocator<UDPPacketInternal> udpPacketAllocator("udpPacketAllocator");
 EventType ET_UDP;
 
+void
+UDPPacketInternal::free()
+{
+  chain = nullptr;
+  if (conn)
+    conn->Release();
+  conn = nullptr;
+  udpPacketAllocator.free(this);
+}
+
+UDPPacket *
+UDPPacket::new_UDPPacket()
+{
+  UDPPacketInternal *p = udpPacketAllocator.alloc();
+  return p;
+}
+
+UDPPacket *
+UDPPacket::new_UDPPacket(struct sockaddr const *to, ink_hrtime when, Ptr<IOBufferBlock> &buf, uint16_t segment_size)
+{
+  UDPPacketInternal *p = udpPacketAllocator.alloc();
+
+  p->in_the_priority_queue = 0;
+  p->in_heap               = 0;
+  p->delivery_time         = when;
+  if (to)
+    ats_ip_copy(&p->to, to);
+  p->chain        = buf;
+  p->segment_size = segment_size;
+  return p;
+}
+
+UDPPacket *
+UDPPacket::new_incoming_UDPPacket(struct sockaddr *from, struct sockaddr *to, Ptr<IOBufferBlock> &block)
+{
+  UDPPacketInternal *p = udpPacketAllocator.alloc();
+
+  p->in_the_priority_queue = 0;
+  p->in_heap               = 0;
+  p->delivery_time         = 0;
+  ats_ip_copy(&p->from, from);
+  ats_ip_copy(&p->to, to);
+  p->chain = block;
+
+  return p;
+}
+
+UDPPacketInternal::UDPPacketInternal()
+
+{
+  memset(&from, '\0', sizeof(from));
+  memset(&to, '\0', sizeof(to));
+}
+
+UDPPacketInternal::~UDPPacketInternal()
+{
+  chain = nullptr;
+}
+
+void
+UDPPacket::append_block(IOBufferBlock *block)
+{
+  UDPPacketInternal *p = static_cast<UDPPacketInternal *>(this);
+
+  if (block) {
+    if (p->chain) { // append to end
+      IOBufferBlock *last = p->chain.get();
+      while (last->next) {
+        last = last->next.get();
+      }
+      last->next = block;
+    } else {
+      p->chain = block;
+    }
+  }
+}
+
+int64_t
+UDPPacket::getPktLength() const
+{
+  UDPPacketInternal *p = const_cast<UDPPacketInternal *>(static_cast<const UDPPacketInternal *>(this));
+  IOBufferBlock *b;
+
+  p->pktLength = 0;
+  b            = p->chain.get();
+  while (b) {
+    p->pktLength += b->read_avail();
+    b            = b->next.get();
+  }
+  return p->pktLength;
+}
+
+void
+UDPPacket::free()
+{
+  static_cast<UDPPacketInternal *>(this)->free();
+}
+
+void
+UDPPacket::setContinuation(Continuation *c)
+{
+  static_cast<UDPPacketInternal *>(this)->cont = c;
+}
+
+void
+UDPPacket::setConnection(UDPConnection *c)
+{
+  /*Code reviewed by Case Larsen.  Previously, we just had
+     ink_assert(!conn).  This prevents tunneling of packets
+     correctly---that is, you get packets from a server on a udp
+     conn. and want to send it to a player on another connection, the
+     assert will prevent that.  The "if" clause enables correct
+     handling of the connection ref. counts in such a scenario. */
+
+  UDPConnectionInternal *&conn = static_cast<UDPPacketInternal *>(this)->conn;
+
+  if (conn) {
+    if (conn == c)
+      return;
+    conn->Release();
+    conn = nullptr;
+  }
+  conn = static_cast<UDPConnectionInternal *>(c);
+  conn->AddRef();
+}
+
+IOBufferBlock *
+UDPPacket::getIOBlockChain()
+{
+  ink_assert(dynamic_cast<UDPPacketInternal *>(this) != nullptr);
+  return static_cast<UDPPacketInternal *>(this)->chain.get();
+}
+
+UDPConnection *
+UDPPacket::getConnection()
+{
+  return static_cast<UDPPacketInternal *>(this)->conn;
+}
+
 //
 // Global Data
 //
@@ -251,7 +390,7 @@ UDPNetProcessorInternal::udp_read_from_net(UDPNetHandler *nh, UDPConnection *xuc
     }
 
     // create packet
-    UDPPacket *p = new_incoming_UDPPacket(ats_ip_sa_cast(&fromaddr), ats_ip_sa_cast(&toaddr), chain);
+    UDPPacket *p = UDPPacket::new_incoming_UDPPacket(ats_ip_sa_cast(&fromaddr), ats_ip_sa_cast(&toaddr), chain);
     p->setConnection(uc);
     // queue onto the UDPConnection
     uc->inQueue.push((UDPPacketInternal *)p);
@@ -979,7 +1118,7 @@ sendPackets:
     bytesThisPipe       -= pktLen;
     packets[npackets++] = p;
   next_pkt:
-    if (bytesThisPipe < 0 && npackets == N_MAX_PACKETS) {
+    if (bytesThisPipe < 0 || npackets == N_MAX_PACKETS) {
       break;
     }
   }
@@ -1167,8 +1306,19 @@ UDPQueue::SendMultipleUDPPackets(UDPPacketInternal **p, uint16_t n)
 #else
   msgvec_size = sizeof(struct mmsghdr) * n * 64;
 #endif
-  msgvec = static_cast<struct mmsghdr *>(alloca(msgvec_size));
+  // The sizeof(struct msghdr) is 56 bytes or so. It can be too big to stack (alloca).
+  IOBufferBlock *tmp = new_IOBufferBlock();
+  tmp->alloc(iobuffer_size_to_index(msgvec_size, BUFFER_SIZE_INDEX_1M));
+  msgvec = reinterpret_cast<struct mmsghdr *>(tmp->buf());
   memset(msgvec, 0, msgvec_size);
+
+  // The sizeof(struct iove) is 16 bytes or so. It can be too big to stack (alloca).
+  int iovec_size      = sizeof(struct iovec) * n * 64;
+  IOBufferBlock *tmp2 = new_IOBufferBlock();
+  tmp2->alloc(iobuffer_size_to_index(iovec_size, BUFFER_SIZE_INDEX_1M));
+  struct iovec *iovec = reinterpret_cast<struct iovec *>(tmp2->buf());
+  memset(iovec, 0, iovec_size);
+  int iovec_used = 0;
 
   int vlen = 0;
   int fd   = p[0]->conn->getFd();
@@ -1194,7 +1344,7 @@ UDPQueue::SendMultipleUDPPackets(UDPPacketInternal **p, uint16_t n)
         u                   = static_cast<union udp_segment_hdr *>(alloca(sizeof(union udp_segment_hdr)));
         msg->msg_control    = u->buf;
         msg->msg_controllen = sizeof(u->buf);
-        iov                 = static_cast<struct iovec *>(alloca(sizeof(struct iovec)));
+        iov                 = &iovec[iovec_used++];
         iov_len             = 1;
         iov->iov_base       = packet->chain.get()->start();
         iov->iov_len        = packet->chain.get()->size();
@@ -1216,7 +1366,7 @@ UDPQueue::SendMultipleUDPPackets(UDPPacketInternal **p, uint16_t n)
           msg              = &msgvec[vlen].msg_hdr;
           msg->msg_name    = reinterpret_cast<caddr_t>(&packet->to.sa);
           msg->msg_namelen = ats_ip_size(packet->to);
-          iov              = static_cast<struct iovec *>(alloca(sizeof(struct iovec)));
+          iov              = &iovec[iovec_used++];
           iov_len          = 1;
           iov->iov_base    = packet->chain.get()->start() + offset;
           iov->iov_len =
@@ -1235,7 +1385,7 @@ UDPQueue::SendMultipleUDPPackets(UDPPacketInternal **p, uint16_t n)
       msg              = &msgvec[vlen].msg_hdr;
       msg->msg_name    = reinterpret_cast<caddr_t>(&packet->to.sa);
       msg->msg_namelen = ats_ip_size(packet->to);
-      iov              = static_cast<struct iovec *>(alloca(sizeof(struct iovec) * 64));
+      iov              = &iovec[iovec_used++];
       iov_len          = 0;
       for (IOBufferBlock *b = packet->chain.get(); b != nullptr; b = b->next.get()) {
         iov[iov_len].iov_base = static_cast<caddr_t>(b->start());
@@ -1291,6 +1441,8 @@ UDPQueue::SendMultipleUDPPackets(UDPPacketInternal **p, uint16_t n)
     }
 #endif
   }
+  tmp->free();
+  tmp2->free();
 
   return res;
 #else

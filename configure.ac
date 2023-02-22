@@ -101,6 +101,8 @@ TS_ENABLE_LAYOUT(TrafficServer, [cachedir docdir])
 # Reparse the configure arguments so we can override the layout.
 TS_PARSE_ARGUMENTS
 
+AC_PATH_PROG(PKG_CONFIG, pkg-config)
+
 #
 # Host detection
 #
@@ -687,8 +689,7 @@ ifdef([AC_PROG_SED], [], [
 ])
 
 
-# Various OS specific setup. Note that on Solaris, 32-bit is always the
-# default, even on a box that with 64-bit architecture.
+# Various OS specific setup.
 # This also sets up a "normalized" variable and define $host_os_def.
 case $host_os in
   linux*)
@@ -714,16 +715,6 @@ case $host_os in
     ;;
   openbsd*)
     host_os_def="openbsd"
-    ;;
-  solaris*)
-    host_os_def="solaris"
-    case "`isalist`" in
-      *amd64*)
-        TS_ADDTO(AM_CFLAGS, [-m64])
-        TS_ADDTO(AM_CXXFLAGS, [-m64])
-        TS_ADDTO(LUAJIT_LDFLAGS, [-m64])
-        ;;
-    esac
     ;;
   *)
     AM_LDFLAGS="-rdynamic"
@@ -911,16 +902,6 @@ case $host_os_def in
     ])
 
     ;; # freebsd|kfreebsd)
-
-  solaris)
-    AS_IF([test "x$ax_cv_c_compiler_vendor" = "xgnu"], [
-      common_opt="-pipe -Wall -Wextra -Wno-ignored-qualifiers -Wno-unused-parameter"
-      debug_opt="-ggdb3 $common_opt"
-      release_opt="-g $common_opt $optimizing_flags -feliminate-unused-debug-symbols -fno-strict-aliasing"
-      cxx_opt="-Wno-invalid-offsetof"
-    ])
-
-    ;; # solaris)
 
   *)
     # Not sure what platform this is, but take a stab at some general GCC options ...
@@ -1250,7 +1231,7 @@ TS_CHECK_CRYPTO
 # Check for OpenSSL Version
 TS_CHECK_CRYPTO_VERSION
 
-# Check for OpenSSL Version 3 and add compatiblity define if needed
+# Check for OpenSSL Version 3 and add compatibility define if needed
 TS_CHECK_OPENSSL3
 AM_CONDITIONAL([OPENSSL_IS_OPENSSL3], [test -n "$openssl_is_openssl3"])
 
@@ -1476,7 +1457,7 @@ TS_CHECK_YAML_HEADERS_EXPORT
 AM_CONDITIONAL([EXPORT_YAML_HEADERS], [test x"$enable_yaml_headers" = x"yes"])
 
 TS_CHECK_LIBSWOC
-AM_CONDITIONAL([BUILD_SWOC], [test x"$has_libswoc" = x"no"])
+AM_CONDITIONAL([BUILD_SWOC], [test "$has_libswoc" = "no"])
 
 TS_CHECK_SWOC_HEADERS_EXPORT
 AM_CONDITIONAL([EXPORT_SWOC_HEADERS], [test x"$enable_swoc_headers" = x"yes"])
@@ -1856,12 +1837,15 @@ AC_CHECK_HEADERS([opentelemetry/trace/provider.h], [
 AM_CONDITIONAL([HAS_OTEL], [test "x${has_otel}" = "x1" ])
 AC_LANG_POP([C++])
 
+# check for wasm
+has_wasm=0
 # Checking if wamr is available
 AC_LANG_PUSH([C++])
 AC_CHECK_HEADERS([wasm_c_api.h], [
   AC_CHECK_LIB([iwasm], [main], [
     AC_SUBST([WAMR_LIBS], [" -liwasm "])
     AC_SUBST(has_wamr, 1)
+    has_wasm=1
   ], [
     AC_SUBST([WAMR_LIBS], [""])
     AC_SUBST(has_wamr, 0)
@@ -1870,6 +1854,26 @@ AC_CHECK_HEADERS([wasm_c_api.h], [
 
 AM_CONDITIONAL([HAS_WAMR], [test "x${has_wamr}" = "x1" ])
 AC_LANG_POP([C++])
+
+# Checking if wamedge is available
+AC_LANG_PUSH([C++])
+AC_CHECK_HEADERS([wasmedge/wasmedge.h], [
+  AC_CHECK_LIB([wasmedge], [main], [
+    AC_SUBST([WASMEDGE_LIBS], [" -lwasmedge "])
+    AC_SUBST(has_wasmedge, 1)
+    has_wasm=1
+  ], [
+    AC_SUBST([WASMEDGE_LIBS], [""])
+    AC_SUBST(has_wasmedge, 0)
+  ])
+])
+
+AM_CONDITIONAL([HAS_WASMEDGE], [test "x${has_wasmedge}" = "x1" ])
+AC_LANG_POP([C++])
+
+# check for wasm
+AC_SUBST(has_wasm)
+AM_CONDITIONAL([HAS_WASM], [test "x${has_wasm}" = "x1" ])
 
 # Right now, the healthcheck plugins requires inotify_init (and friends)
 AM_CONDITIONAL([BUILD_HEALTHCHECK_PLUGIN], [ test "$ac_cv_func_inotify_init" = "yes" ])
@@ -2397,7 +2401,6 @@ AC_CONFIG_FILES([
   rc/trafficserver
   rc/trafficserver.conf
   rc/trafficserver.service
-  rc/trafficserver.xml
   src/tscpp/util/Makefile
   src/tscore/Makefile
   src/records/Makefile

@@ -214,14 +214,3 @@ HostStatus::setHostStatus(const std::string_view host, TSHostStatus status, unsi
   this->hosts_statuses[std::string(host)]->local_down_time = down_time;
   NH_Debug("next_hop", "setting host status for '%.*s' to %s", host.size(), host.data(), HostStatusNames[status]);
 }
-
-#include "I_UDPConnection.h"
-
-void
-UDPConnection::Release()
-{
-}
-
-#include "P_UDPPacket.h"
-ClassAllocator<UDPPacketInternal> udpPacketAllocator("udpPacketAllocator");
-// for UDPPacketInternal::free()

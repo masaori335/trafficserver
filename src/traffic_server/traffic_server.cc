@@ -76,10 +76,10 @@ extern "C" int plock(int);
 #include "P_Cache.h"
 #include "tscore/I_Layout.h"
 #include "I_Machine.h"
-#include "RecordsConfig.h"
+#include "records/I_RecordsConfig.h"
 #include "records/I_RecProcess.h"
 #include "Transform.h"
-#include "ProxyConfig.h"
+#include "ConfigProcessor.h"
 #include "HttpProxyServerMain.h"
 #include "HttpBodyFactory.h"
 #include "ProxySession.h"
@@ -1822,7 +1822,6 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   RecRegisterStatInt(RECT_NODE, "proxy.node.config.reconfigure_time", time(nullptr), RECP_NON_PERSISTENT);
   RecRegisterStatInt(RECT_NODE, "proxy.node.config.reconfigure_required", 0, RECP_NON_PERSISTENT);
   RecRegisterStatInt(RECT_NODE, "proxy.node.config.restart_required.proxy", 0, RECP_NON_PERSISTENT);
-  RecRegisterStatInt(RECT_NODE, "proxy.node.config.restart_required.manager", 0, RECP_NON_PERSISTENT);
   RecRegisterStatInt(RECT_NODE, "proxy.node.config.draining", 0, RECP_NON_PERSISTENT);
   RecRegisterStatInt(RECT_NODE, "proxy.node.proxy_running", 1, RECP_NON_PERSISTENT);
   RecSetRecordInt("proxy.node.restarts.proxy.start_time", time(nullptr), REC_SOURCE_DEFAULT);

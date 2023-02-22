@@ -17,17 +17,18 @@
 
 .. include:: ../../common.defs
 
-.. _traffic_manager:
+.. _admin-tools:
 
-traffic_manager
-***************
+Administrator tools
+*******************
 
-.. important::
+.. toctree::
+   :hidden:
 
-  traffic_manager is deprecated. :program:`traffic_server` must be used instead.
+   converting-records-to-yaml.en
 
-See also
-========
+:doc:`converting-records-to-yaml.en`
+   Explain how to migrate from ``records.config`` style files to :file:`records.yaml` config
+   files.
 
-:manpage:`traffic_ctl(8)`,
-:manpage:`traffic_server(8)`
+

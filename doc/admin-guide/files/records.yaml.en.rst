@@ -22,50 +22,93 @@
 records.yaml
 ************
 
+.. important::
+
+   From ATS 10 we have moved from the old ``records.config`` format style in flavour of the new
+   YAML style. Please check :ref:`rec-config-to-yaml` for information about migrating from the
+   old style to the new YAML base config.
+
+
 The :file:`records.yaml` file (by default, located in
-``/usr/local/etc/trafficserver/``) is a list of configurable variables used by
-the |TS| software. Many of the variables in :file:`records.yaml` are set
-automatically when you set configuration options with :option:`traffic_ctl config set`. After you
-modify :file:`records.yaml`, run the command :option:`traffic_ctl config reload`
+``/usr/local/etc/trafficserver/``) is a YAML base configuration file used by
+the |TS| software. After you modify :file:`records.yaml`, run the command :option:`traffic_ctl config reload`
 to apply the changes.
 
-Note: The configuration directory, containing the ``SYSCONFDIR`` value specified at build time
-relative to the installation prefix, contains |TS| configuration files.
-The ``$TS_ROOT`` environment variable can be used alter the installation prefix at run time.
-The directory must allow read/write access for configuration reloads.
+.. note::
 
-Format
-======
+   The configuration directory, containing the ``SYSCONFDIR`` value specified at build time
+   relative to the installation prefix, contains |TS| configuration files.
+   The ``$TS_ROOT`` environment variable can be used alter the installation prefix at run time.
+   The directory must allow read/write access for configuration reloads.
 
-Each variable has the following format::
 
-   CONFIG variable_name DATATYPE variable_value
+YAML structure
+==============
+
+All fields are located inside the ``ts`` root node. ATS supports reading multiple documents from
+the same YAML stream, subsequent documents overrides earlier fields.
+
+
+.. code-block:: yaml
+   :linenos:
+
+   ts:
+     diags:
+      debug:
+         enabled: 0
+         tags: http|dns
+    # ...
+    # rest of the fields.
+    # ...
+
+
+.. important::
+
+   Internally, ATS uses record names as :ref:`configuration-variables`.
+
 
 Data Type
 ---------
 
-A variable's type is defined by the ``DATATYPE`` and must be one of:
+There is no need to manually set the record type, it can be done if desired.
+The types accepted are:
 
 ========== ====================================================================
 Type       Description
 ========== ====================================================================
-``FLOAT``  Floating point, expressed as a decimal number without units or
+``float``  Floating point, expressed as a decimal number without units or
            exponents.
-``INT``    Integers, expressed with or without unit prefixes (as described
+``int``    Integers, expressed with or without unit prefixes (as described
            below).
-``STRING`` String of characters up to the first newline. No quoting necessary.
+``str``    String of characters up to the first newline. No quoting necessary.
 ========== ====================================================================
+
+Non core records
+~~~~~~~~~~~~~~~~
+
+Records that aren't part of the core ATS needs to set the field type, this for now
+is the only way to know the field type.
+
+We expect non core records to set the type (!!int, !!float, etc).
+
+.. code-block:: yaml
+
+   ts:
+      plugin_x:
+         my_field_1: !!int '1'
+         my_field_2: !!float '1.2'
+         my_field_3: 'my string'
 
 Values
 ------
 
-The *variable_value* must conform to the variable's type. For ``STRING``, this
+The *field_value* must conform to the variable's type. For ``str``, this
 is simply any character data until the first newline.
 
-For integer (``INT``) variables, values are expressed as any normal integer,
+For integer (``int``) fields, values are expressed as any normal integer,
 e.g. ``32768``. They can also be expressed using more human readable values
 using standard unit prefixes, e.g. ``32K``. The following prefixes are
-supported for all ``INT`` type configurations:
+supported for all ``int`` type configurations:
 
 ====== ============ ===========================================================
 Prefix Description  Equivalent in Bytes
@@ -76,7 +119,7 @@ Prefix Description  Equivalent in Bytes
 ``T``  Terabytes    1,099,511,627,776 bytes (1024\ :sup:`4`)
 ====== ============ ===========================================================
 
-Floating point variables (``FLOAT``) must be expressed as a regular decimal
+Floating point variables (``float``) must be expressed as a regular decimal
 number. Unit prefixes are not supported, nor are alternate notations (scientific,
 exponent, etc.).
 
@@ -104,36 +147,72 @@ Overridable
 
 A variable marked as *Overridable* can be changed on a per-remap basis using
 plugins (like the :ref:`admin-plugins-conf-remap`), affecting operations within
-the current transaction only.
+the current transaction only. Remap config files still uses the legacy ``records.config``
+style.
 
 Examples
 ========
 
-In the following example, the variable `proxy.config.proxy_name`_ is
-a ``STRING`` datatype with the value ``my_server``. This means that the
-name of the |TS| proxy is ``my_server``. ::
+In the following example, the field `proxy_name` is a ``str`` datatype with the
+value ``my_server``. This means that the name of the |TS| proxy is ``my_server``.
 
-   CONFIG proxy.config.proxy_name STRING my_server
+   .. code-block:: yaml
+      :linenos:
 
-If the server name should be ``that_server`` the line would be ::
+      ts:
+         proxy_name: my_server
 
-   CONFIG proxy.config.proxy_name STRING that_server
 
-In the following example, the variable ``proxy.config.arm.enabled`` is
-a yes/no flag. A value of ``0`` (zero) disables the option; a value of
-``1`` enables the option. ::
+If the server name should be ``that_server`` the line would be:
 
-   CONFIG proxy.config.arm.enabled INT 0
+   .. code-block:: yaml
+      :linenos:
 
-In the following example, the variable sets the time to wait for a
-DNS response to 10 seconds. ::
+      ts:
+         proxy_name: that_server
 
-   CONFIG proxy.config.hostdb.lookup_timeout INT 10
+
+In the following example, the field is a yes/no flag. A value of ``0`` (zero)
+disables the option; a value of ``1`` enables the option.
+
+   .. code-block:: yaml
+      :linenos:
+
+      ts:
+         arm:
+            enabled: 0
+
+In the following example, the field sets the time to wait for a
+DNS response to 10 seconds.
+
+   .. code-block:: yaml
+      :linenos:
+
+      ts:
+         hostdb:
+            lookup_timeout: 10
+
+In the following example the field sets the field with a ``float`` value.
+
+   .. code-block:: yaml
+      :linenos:
+
+      ts:
+         exec_thread:
+            autoconfig:
+               scale: 1.0
+
 
 The last examples configures a 64GB RAM cache, using a human readable
-prefix. ::
+prefix.
 
-   CONFIG proxy.config.cache.ram_cache.size INT 64G
+   .. code-block:: yaml
+      :linenos:
+
+      ts:
+         cache:
+            ram_cache:
+               size: 64G
 
 Environment Overrides
 =====================
@@ -187,35 +266,11 @@ System Variables
 
    The location of the |TS| ``bin`` directory.
 
-.. ts:cv:: CONFIG proxy.config.proxy_binary STRING traffic_server
-
- .. important::
-
-      This is now deprecated. traffic_manager is no longer supported.
-
-.. ts:cv:: CONFIG proxy.config.proxy_binary_opts STRING -M
-
-   .. important::
-
-      This is now deprecated
-
-.. ts:cv:: CONFIG proxy.config.manager_binary STRING traffic_manager
-
-   .. important::
-
-      This is now deprecated. traffic_manager is no longer supported.
-
 .. ts:cv:: CONFIG proxy.config.memory.max_usage INT 0
    :units: bytes
 
    Throttle incoming connections if resident memory usage exceeds this value.
    Setting the option to 0 disables the feature.
-
-.. ts:cv:: CONFIG proxy.config.env_prep STRING
-
-   .. important::
-
-      This is now deprecated. traffic_manager is no longer supported.
 
 .. ts:cv:: CONFIG proxy.config.syslog_facility STRING LOG_DAEMON
 
@@ -383,13 +438,6 @@ Thread Variables
    that :program:`traffic_server` crashes. ``-1`` means there is
    no limit. A value of ``0`` prevents core dump creation.
 
-.. ts:cv:: CONFIG proxy.config.restart.active_client_threshold INT 0
-   :reloadable:
-
-   .. important::
-
-      Deprecated. traffic_manager is no longer supported.
-
 .. ts:cv:: CONFIG proxy.config.restart.stop_listening INT 0
    :reloadable:
 
@@ -470,7 +518,7 @@ Network
    ``default_inactivity_timeout`` is a connection level concept. This is not
    necessarily a problem, but it does mean that care must be taken when
    applying the override to consider that all transactions in the connection
-   which has this timeout overriden will be impacted by the override. For
+   which has this timeout overridden will be impacted by the override. For
    instance, if the default inactivity timeout is being overridden via a
    :ref:`admin-plugins-conf-remap` rule in :file:`remap.config`, then all
    transactions for that connection will be impacted by the override, not just
@@ -568,12 +616,6 @@ Network
 
 Management
 ==========
-
-.. ts:cv:: CONFIG proxy.node.config.manager_log_filename STRING manager.log
-
-   .. important::
-
-      This is now deprecated. traffic_manager is no longer supported.
 
 .. ts:cv:: CONFIG proxy.config.admin.user_id STRING nobody
 
@@ -4010,7 +4052,7 @@ Client-Related Configuration
    ================================ ======================================================================
    ``""``                           No ALPN extension is sent by |TS| in origin-side TLS handshakes.
                                     |TS| will assume an HTTP/1.1 connection in this case.
-   ``"http/1.1"``                   Only HTTP/1.1 is advertized by |TS|. Thus, the origin will
+   ``"http/1.1"``                   Only HTTP/1.1 is advertised by |TS|. Thus, the origin will
                                     either negotiate HTTP/1.1, or it will fail the handshake if that
                                     is not supported by the origin.
    ``"http/1.1,http/1.0"``          Both HTTP/1.1 and HTTP/1.0 are supported by |TS|, but HTTP/1.1
@@ -4019,7 +4061,7 @@ Client-Related Configuration
                                     origin supports HTTP/2, it will be used for the connection. If
                                     not, it will fall back to HTTP/1.1 or, if that is not supported,
                                     HTTP/1.0. (HTTP/2 to origin is currently not supported by |TS|.)
-   ``"h2"``                         |TS| only advertizes HTTP/2 support. Thus, the origin will
+   ``"h2"``                         |TS| only advertises HTTP/2 support. Thus, the origin will
                                     either negotiate HTTP/2 or fail the handshake. (HTTP/2 to origin
                                     is currently not supported by |TS|.)
    ================================ ======================================================================
@@ -4604,7 +4646,7 @@ UDP Configuration
    Specifies the number of UDP threads to run. By default 0 threads are dedicated to UDP,
    which results in effectively disabling UDP support.
 
-.. ts:cv:: CONFIG proxy.config.udp.enable_gso INT 0
+.. ts:cv:: CONFIG proxy.config.udp.enable_gso INT 1
 
    Enables (``1``) or disables (``0``) UDP GSO. When enabled, |TS| tries to use UDP GSO,
    and disables it automatically if it causes send errors.
@@ -4857,7 +4899,7 @@ Sockets
    specifies the timeout used for the polling mechanism used. This timeout is
    always in milliseconds (ms). This is the timeout to ``epoll_wait()`` on
    Linux platforms, and to ``kevent()`` on BSD type OSs. The default value is
-   ``10`` on all platforms or 30 on Solaris.
+   ``10`` on all platforms.
 
    Changing this configuration can reduce CPU usage on an idle system, since
    periodic tasks gets processed at these intervals. On busy servers, this

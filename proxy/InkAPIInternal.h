@@ -28,7 +28,7 @@
 #include "I_Net.h"
 #include "HTTP.h"
 #include "tscore/List.h"
-#include "ProxyConfig.h"
+#include "ConfigProcessor.h"
 #include "I_Cache.h"
 #include "I_Tasks.h"
 #include "Plugin.h"
@@ -120,7 +120,7 @@ public:
 
   // This is like invoke(), but allows for blocking on continuation mutexes.  It is a hack, calling it can block
   // the calling thread.  Hooks that require this should be reimplemented, modeled on the hook handling in HttpSM.cc .
-  // That is, try to lock the mutex, and reschedule the contination if the mutex cannot be locked.
+  // That is, try to lock the mutex, and reschedule the continuation if the mutex cannot be locked.
   //
   int blocking_invoke(int event, void *edata) const;
 };
