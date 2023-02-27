@@ -135,11 +135,40 @@ ResourceReport::operator()(const DiskWriteLimiterV1 &limiter)
 ////
 // ResourceLocalManager
 //
+ResourceLocalManager::ResourceLocalManager() : Continuation(new_ProxyMutex())
+{
+  SET_HANDLER(&ResourceLocalManager::state_running);
+}
+
+ResourceLocalManager::~ResourceLocalManager()
+{
+  this->mutex = nullptr;
+}
+
+int
+ResourceLocalManager::state_init(int event, void *data)
+{
+  return EVENT_DONE;
+}
+
+int
+ResourceLocalManager::state_running(int event, void *data)
+{
+  switch (event) {
+  case EVENT_IMMEDIATE: {
+    reconfigure();
+    break;
+  }
+  default:
+    ink_abort("unsupported event=%s (%d)", get_vc_event_name(event), event);
+    break;
+  }
+  return EVENT_DONE;
+}
+
 void
 ResourceLocalManager::start()
 {
-  mutex = new_ProxyMutex();
-
   _limiters.emplace_back(TLSHandshakeLimiterV1{});
   _limiters.emplace_back(ActiveQLimiterV1{});
   _limiters.emplace_back(DiskReadLimiterV1{});

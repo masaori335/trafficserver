@@ -48,11 +48,11 @@ ResourceManager::start()
   for (int i = 0; i < tg->_count; ++i) {
     EThread *ethread = tg->_thread[i];
     NetHandler *nh   = get_NetHandler(ethread);
-    new (&nh->resource_local_manager) ResourceLocalManager;
+    new (&nh->resource_local_manager) ResourceLocalManager();
     nh->resource_local_manager.start();
   }
 
-  this->reconfigure();
+  this->reconfigure(true);
 }
 
 void
@@ -75,7 +75,7 @@ ResourceManager::stop()
    Called on startup or task thread
  */
 void
-ResourceManager::reconfigure()
+ResourceManager::reconfigure(bool startup)
 {
   Note("reconfigure Resource Manager");
 
@@ -131,9 +131,11 @@ ResourceManager::reconfigure()
   for (int i = 0; i < tg->_count; ++i) {
     EThread *ethread = tg->_thread[i];
     NetHandler *nh   = get_NetHandler(ethread);
-    {
+    if (startup) {
       SCOPED_MUTEX_LOCK(lock, nh->resource_local_manager.mutex, this_ethread());
       nh->resource_local_manager.reconfigure();
+    } else {
+      ethread->schedule_imm_local(&nh->resource_local_manager);
     }
   }
 }

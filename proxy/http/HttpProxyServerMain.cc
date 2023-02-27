@@ -315,6 +315,8 @@ init_accept_HttpProxyServer(int n_accept_threads)
   for (int i = 0, n = proxy_ports.size(); i < n; ++i) {
     MakeHttpProxyAcceptor(HttpProxyAcceptors.at(i), proxy_ports[i], n_accept_threads);
   }
+
+  resourceManager.start();
 }
 
 /** Increment the counter to keep track of how many et_net threads
@@ -390,7 +392,6 @@ start_HttpProxyServer()
     hook = hook->next();
   }
 
-  resourceManager.start();
   prewarmManager.start();
 }
 

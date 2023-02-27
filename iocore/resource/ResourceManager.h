@@ -45,7 +45,7 @@ public:
 
   void start();
   void stop();
-  void reconfigure();
+  void reconfigure(bool startup = false);
 
   void set_sum(ResourceType stats_type, uint64_t tag_id, ResourceStatsType index, uint64_t value);
   void set_sum(ResourceType stats_type, ResourceStatsType index, uint64_t value);

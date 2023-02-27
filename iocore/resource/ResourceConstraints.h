@@ -105,17 +105,21 @@ struct ResourceReport {
 /**
    Thread Local Resource Manager
  */
-class ResourceLocalManager
+class ResourceLocalManager : public Continuation
 {
 public:
-  ResourceLocalManager()  = default;
-  ~ResourceLocalManager() = default;
+  ResourceLocalManager();
+  ~ResourceLocalManager();
 
   // No copying or moving
   ResourceLocalManager(const ResourceLocalManager &) = delete;
   ResourceLocalManager &operator=(const ResourceLocalManager &) = delete;
   ResourceLocalManager(ResourceLocalManager &&)                 = delete;
   ResourceLocalManager &operator=(ResourceLocalManager &&) = delete;
+
+  // States
+  int state_init(int event, void *data);
+  int state_running(int event, void *data);
 
   void start();
   void stop();
@@ -126,13 +130,6 @@ public:
   void inc(uint64_t tid, ResourceType type);
   void dec(uint64_t tid, ResourceType type);
   void reserve();
-
-  ////
-  // Variables
-  //
-
-  // For race of Task Thread (config reload) vs ET Thread
-  Ptr<ProxyMutex> mutex;
 
 private:
   void _reserve(ResourceLimiter *limiter);

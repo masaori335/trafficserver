@@ -285,7 +285,7 @@ INKVConnInternal::INKVConnInternal(TSEventFunc funcp, TSMutex mutexp) : INKContI
 
 #include "ResourceManager.h"
 void
-ResourceManager::reconfigure()
+ResourceManager::reconfigure(bool startup)
 {
   ink_assert(false);
   return;
@@ -294,6 +294,18 @@ ResourceManager::reconfigure()
 ResourceManager resourceManager;
 
 #include "ResourceConstraints.h"
+ResourceLocalManager::ResourceLocalManager() : Continuation(nullptr)
+{
+  ink_assert(false);
+  return;
+}
+
+ResourceLocalManager::~ResourceLocalManager()
+{
+  ink_assert(false);
+  return;
+}
+
 void
 ResourceLocalManager::inc(uint64_t tid, ResourceType type)
 {

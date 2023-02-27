@@ -109,8 +109,6 @@ ResourceConfig::reconfigure()
 {
   ResourceConfigParams *params = new ResourceConfigParams();
   _config_id                   = configProcessor.set(_config_id, params);
-
-  resourceManager.reconfigure();
 }
 
 ResourceConfigParams *
