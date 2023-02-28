@@ -314,7 +314,7 @@ ResourceLocalManager::is_full(uint64_t tid, ResourceType type)
   case ResourceType::ACTIVE_Q: {
     result = _active_q_limiter->is_full(tid);
 
-    if (_mode_disk_write == ResourceConfigMode::RESTRICTION) {
+    if (_mode_active_q == ResourceConfigMode::RESTRICTION) {
       return result;
     }
 
@@ -367,7 +367,7 @@ ResourceLocalManager::inc(uint64_t tid, ResourceType type)
     return _active_q_limiter->inc(tid);
   }
   case ResourceType::DISK_READ: {
-    if (_mode_sni == ResourceConfigMode::DISABLED) {
+    if (_mode_disk_read == ResourceConfigMode::DISABLED) {
       // nothing to do
       return;
     }
