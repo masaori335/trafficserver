@@ -303,6 +303,9 @@ ResourceLocalManager::is_full(uint64_t tid, ResourceType type)
 
   switch (type) {
   case ResourceType::SNI: {
+    if (_mode_sni == ResourceConfigMode::DISABLED) {
+      return false;
+    }
     result = _sni_limiter->is_full(tid);
 
     if (_mode_sni == ResourceConfigMode::RESTRICTION) {
@@ -312,6 +315,9 @@ ResourceLocalManager::is_full(uint64_t tid, ResourceType type)
     break;
   }
   case ResourceType::ACTIVE_Q: {
+    if (_mode_active_q == ResourceConfigMode::DISABLED) {
+      return false;
+    }
     result = _active_q_limiter->is_full(tid);
 
     if (_mode_active_q == ResourceConfigMode::RESTRICTION) {
@@ -321,6 +327,9 @@ ResourceLocalManager::is_full(uint64_t tid, ResourceType type)
     break;
   }
   case ResourceType::DISK_READ: {
+    if (_mode_disk_read == ResourceConfigMode::DISABLED) {
+      return false;
+    }
     result = _disk_read_limiter->is_full(tid);
 
     if (_mode_disk_read == ResourceConfigMode::RESTRICTION) {
@@ -330,6 +339,9 @@ ResourceLocalManager::is_full(uint64_t tid, ResourceType type)
     break;
   }
   case ResourceType::DISK_WRITE: {
+    if (_mode_disk_write == ResourceConfigMode::DISABLED) {
+      return false;
+    }
     result = _disk_write_limiter->is_full(tid);
 
     if (_mode_disk_write == ResourceConfigMode::RESTRICTION) {
