@@ -35,9 +35,16 @@
 #define PN "ssl_hook_test"
 #define PCP "[" PN " Plugin] "
 
+static bool was_conn_closed;
+
 int
 ReenableSSL(TSCont cont, TSEvent event, void *edata)
 {
+  if (was_conn_closed) {
+    TSContDestroy(cont);
+    return TS_SUCCESS;
+  }
+
   TSVConn ssl_vc = reinterpret_cast<TSVConn>(TSContDataGet(cont));
   TSDebug(PN, "Callback reenable ssl_vc=%p", ssl_vc);
   TSVConnReenable(ssl_vc);
@@ -73,6 +80,7 @@ CB_Pre_Accept_Delay(TSCont cont, TSEvent event, void *edata)
   TSContDataSet(cb, ssl_vc);
 
   // Schedule to reenable in a bit
+  was_conn_closed = false;
   TSContScheduleOnPool(cb, 2000, TS_THREAD_POOL_NET);
 
   return TS_SUCCESS;
@@ -108,6 +116,7 @@ CB_out_start_delay(TSCont cont, TSEvent event, void *edata)
   TSContDataSet(cb, ssl_vc);
 
   // Schedule to reenable in a bit
+  was_conn_closed = false;
   TSContScheduleOnPool(cb, 2000, TS_THREAD_POOL_NET);
 
   return TS_SUCCESS;
@@ -124,6 +133,9 @@ CB_close(TSCont cont, TSEvent event, void *edata)
 
   // All done, reactivate things
   TSVConnReenable(ssl_vc);
+
+  was_conn_closed = true;
+
   return TS_SUCCESS;
 }
 
@@ -169,6 +181,7 @@ CB_Client_Hello(TSCont cont, TSEvent event, void *edata)
   TSContDataSet(cb, ssl_vc);
 
   // Schedule to reenable in a bit
+  was_conn_closed = false;
   TSContScheduleOnPool(cb, 2000, TS_THREAD_POOL_NET);
 
   return TS_SUCCESS;
@@ -215,6 +228,7 @@ CB_Cert(TSCont cont, TSEvent event, void *edata)
   TSContDataSet(cb, ssl_vc);
 
   // Schedule to reenable in a bit
+  was_conn_closed = false;
   TSContScheduleOnPool(cb, 2000, TS_THREAD_POOL_NET);
 
   return TS_SUCCESS;
@@ -246,11 +260,11 @@ parse_callbacks(int argc, const char *argv[], int &preaccept_count, int &client_
         ptr = index(argv[i], '=');
         if (ptr) {
           if (strncmp(argv[i] + 1, "close", strlen("close")) == 0) {
-            close_count = atoi(ptr + i);
+            close_count = atoi(ptr + 1);
           } else if (strncmp(argv[i] + 1, "client_hello_imm", strlen("client_hello_imm")) == 0) {
-            client_hello_count_immediate = atoi(ptr + i);
+            client_hello_count_immediate = atoi(ptr + 1);
           } else if (strncmp(argv[i] + 1, "client_hello", strlen("client_hello")) == 0) {
-            client_hello_count = atoi(ptr + i);
+            client_hello_count = atoi(ptr + 1);
           } else {
             cert_count = atoi(ptr + 1);
           }

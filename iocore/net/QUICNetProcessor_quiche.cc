@@ -89,16 +89,17 @@ QUICNetProcessor::start(int, size_t stacksize)
     quiche_config_load_priv_key_from_pem_file(this->_quiche_config, context->userconfig->key);
   }
 
-  quiche_config_set_max_idle_timeout(this->_quiche_config, 5000);
+  quiche_config_set_max_idle_timeout(this->_quiche_config, params->no_activity_timeout_in());
   quiche_config_set_max_recv_udp_payload_size(this->_quiche_config, 16384);
   quiche_config_set_max_send_udp_payload_size(this->_quiche_config, 16384);
-  quiche_config_set_initial_max_data(this->_quiche_config, 10000000);
-  quiche_config_set_initial_max_stream_data_bidi_local(this->_quiche_config, 1000000);
-  quiche_config_set_initial_max_stream_data_bidi_remote(this->_quiche_config, 1000000);
-  quiche_config_set_initial_max_stream_data_uni(this->_quiche_config, 1000000);
+  quiche_config_set_initial_max_data(this->_quiche_config, params->initial_max_data_in());
+  quiche_config_set_initial_max_stream_data_bidi_local(this->_quiche_config, params->initial_max_stream_data_bidi_local_in());
+  quiche_config_set_initial_max_stream_data_bidi_remote(this->_quiche_config, params->initial_max_stream_data_bidi_remote_in());
+  quiche_config_set_initial_max_stream_data_uni(this->_quiche_config, params->initial_max_stream_data_uni_in());
   quiche_config_set_initial_max_streams_bidi(this->_quiche_config, params->initial_max_streams_bidi_in());
   quiche_config_set_initial_max_streams_uni(this->_quiche_config, params->initial_max_streams_uni_in());
   quiche_config_set_disable_active_migration(this->_quiche_config, params->disable_active_migration());
+  quiche_config_set_active_connection_id_limit(this->_quiche_config, params->active_cid_limit_in());
   quiche_config_set_cc_algorithm(this->_quiche_config, QUICHE_CC_RENO);
 
 #ifdef TLS1_3_VERSION_DRAFT_TXT

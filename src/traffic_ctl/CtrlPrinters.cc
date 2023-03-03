@@ -25,8 +25,16 @@
 
 #include "jsonrpc/ctrl_yaml_codecs.h"
 #include "tscpp/util/ts_meta.h"
-#include <tscore/BufferWriter.h>
+#include <swoc/bwf_base.h>
+#include <swoc/bwf_ex.h>
+#include <swoc/BufferWriter.h>
 #include "PrintUtils.h"
+
+swoc::BufferWriter &
+bwformat(swoc::BufferWriter &w, swoc::bwf::Spec const &spec, FloatDate const &wrap)
+{
+  return bwformat(w, spec, swoc::bwf::Date(static_cast<time_t>(swoc::svtod(wrap._src)), wrap._fmt));
+}
 
 //------------------------------------------------------------------------------------------------------------------------------------
 
@@ -96,16 +104,7 @@ BasePrinter::write_output_json(YAML::Node const &node) const
 void
 RecordPrinter::write_output(YAML::Node const &result)
 {
-  auto response = result.as<shared::rpc::RecordLookUpResponse>();
-  if (is_legacy_format()) {
-    write_output_legacy(response);
-  } else {
-    write_output_pretty(response);
-  }
-}
-void
-RecordPrinter::write_output_legacy(shared::rpc::RecordLookUpResponse const &response)
-{
+  auto const &response = result.as<shared::rpc::RecordLookUpResponse>();
   std::string text;
   for (auto &&recordInfo : response.recordList) {
     if (!recordInfo.registered) {
@@ -116,17 +115,12 @@ RecordPrinter::write_output_legacy(shared::rpc::RecordLookUpResponse const &resp
     if (!_printAsRecords) {
       std::cout << recordInfo.name << ": " << recordInfo.currentValue << '\n';
     } else {
-      std::cout << ts::bwprint(text, "{} {} {} {} # default: {}\n", rec_labelof(recordInfo.rclass), recordInfo.name,
-                               recordInfo.dataType, recordInfo.currentValue, recordInfo.defaultValue);
+      std::cout << swoc::bwprint(text, "{} {} {} {} # default: {}\n", rec_labelof(recordInfo.rclass), recordInfo.name,
+                                 recordInfo.dataType, recordInfo.currentValue, recordInfo.defaultValue);
     }
   }
   // we print errors if found.
   print_record_error_list(response.errorList);
-}
-void
-RecordPrinter::write_output_pretty(shared::rpc::RecordLookUpResponse const &response)
-{
-  write_output_legacy(response);
 }
 //------------------------------------------------------------------------------------------------------------------------------------
 void
@@ -150,12 +144,12 @@ DiffConfigPrinter::write_output(YAML::Node const &result)
     const bool hasChanged    = (currentValue != defaultValue);
     if (hasChanged) {
       if (!_printAsRecords) {
-        std::cout << ts::bwprint(text, "{} has changed\n", recordInfo.name);
-        std::cout << ts::bwprint(text, "\tCurrent Value: {}\n", currentValue);
-        std::cout << ts::bwprint(text, "\tDefault Value: {}\n", defaultValue);
+        std::cout << swoc::bwprint(text, "{} has changed\n", recordInfo.name);
+        std::cout << swoc::bwprint(text, "\tCurrent Value: {}\n", currentValue);
+        std::cout << swoc::bwprint(text, "\tDefault Value: {}\n", defaultValue);
       } else {
-        std::cout << ts::bwprint(text, "{} {} {} {} # default: {}\n", rec_labelof(recordInfo.rclass), recordInfo.name,
-                                 recordInfo.dataType, recordInfo.currentValue, recordInfo.defaultValue);
+        std::cout << swoc::bwprint(text, "{} {} {} {} # default: {}\n", rec_labelof(recordInfo.rclass), recordInfo.name,
+                                   recordInfo.dataType, recordInfo.currentValue, recordInfo.defaultValue);
       }
     }
   }
@@ -169,19 +163,11 @@ ConfigReloadPrinter::write_output(YAML::Node const &result)
 void
 ConfigShowFileRegistryPrinter::write_output(YAML::Node const &result)
 {
-  if (is_pretty_format()) {
-    this->write_output_pretty(result);
-  } else {
-    if (auto registry = result["config_registry"]) {
-      write_output_json(registry);
-    }
-  }
-}
-
-void
-ConfigShowFileRegistryPrinter::write_output_pretty(YAML::Node const &result)
-{
   if (auto &&registry = result["config_registry"]) {
+    if (is_json_format()) {
+      write_output_json(registry);
+      return;
+    }
     for (auto &&element : registry) {
       std::cout << "┌ " << element["file_path"] << '\n';
       std::cout << "└┬ Config name: " << element["config_record_name"] << '\n';
@@ -195,7 +181,6 @@ ConfigShowFileRegistryPrinter::write_output_pretty(YAML::Node const &result)
 void
 ConfigSetPrinter::write_output(YAML::Node const &result)
 {
-  // we match the legacy format, the only one supported for now.
   static const std::unordered_map<std::string, std::string> Update_Type_To_String_Message = {
     {"0", "Set {}"                                                                                          }, // UNDEFINED
     {"1", "Set {}, please wait 10 seconds for traffic server to sync configuration, restart is not required"}, // DYNAMIC
@@ -208,14 +193,41 @@ ConfigSetPrinter::write_output(YAML::Node const &result)
     for (auto &&updatedRec : response.data) {
       if (auto search = Update_Type_To_String_Message.find(updatedRec.updateType);
           search != std::end(Update_Type_To_String_Message)) {
-        std::cout << ts::bwprint(text, search->second, updatedRec.recName) << '\n';
+        std::cout << swoc::bwprint(text, search->second, updatedRec.recName) << '\n';
       } else {
         std::cout << "Oops we don't know how to handle the update status for '" << updatedRec.recName << "' ["
                   << updatedRec.updateType << "]\n";
       }
     }
   } catch (std::exception const &ex) {
-    std::cout << ts::bwprint(text, "Unexpected error found {}", ex.what());
+    std::cout << swoc::bwprint(text, "Unexpected error found {}", ex.what());
+  }
+}
+//-----------------------------------------------------------------------------------------------------------------------------------
+
+void
+ConfigStatusPrinter::write_output(YAML::Node const &result)
+{
+  auto const &response = result.as<shared::rpc::RecordLookUpResponse>();
+  std::string text, recordName;
+  try {
+    for (auto &&recordInfo : response.recordList) {
+      recordName = recordInfo.name;
+      if (recordName == "proxy.process.version.server.long") {
+        std::cout << "Version: " << recordInfo.currentValue << "\n";
+      } else if (recordName == "proxy.node.restarts.proxy.start_time") {
+        std::cout << swoc::bwprint(text, "{}: {}\n", "Started at", FloatDate(recordInfo.currentValue, "%a %d %b %Y %H:%M:%S"));
+      } else if (recordName == "proxy.node.config.reconfigure_time") {
+        std::cout << swoc::bwprint(text, "{}: {}\n", "Reconfigured at", FloatDate(recordInfo.currentValue, "%a %d %b %Y %H:%M:%S"));
+      } else if (recordName == "proxy.node.config.reconfigure_required") {
+        std::cout << "Reconfigure required: " << ((recordInfo.currentValue == "1") ? "yes" : "no") << "\n";
+      } else if (recordName == "proxy.node.config.restart_required.proxy") {
+        std::cout << "Restart required: " << ((recordInfo.currentValue == "1") ? "yes" : "no") << "\n";
+      }
+    }
+  } catch (...) {
+    std::cout << recordName << ": <unable to read the value>"
+              << "\n";
   }
 }
 //------------------------------------------------------------------------------------------------------------------------------------
@@ -223,16 +235,6 @@ void
 RecordDescribePrinter::write_output(YAML::Node const &result)
 {
   auto const &response = result.as<shared::rpc::RecordLookUpResponse>();
-  if (is_legacy_format()) {
-    write_output_legacy(response);
-  } else {
-    write_output_pretty(response);
-  }
-}
-
-void
-RecordDescribePrinter::write_output_legacy(shared::rpc::RecordLookUpResponse const &response)
-{
   std::string text;
   for (auto &&recordInfo : response.recordList) {
     if (!recordInfo.registered) {
@@ -240,44 +242,37 @@ RecordDescribePrinter::write_output_legacy(shared::rpc::RecordLookUpResponse con
                 << ": Unrecognized configuration value. Record is a configuration name/value but is not registered\n";
       continue;
     }
-    std::cout << ts::bwprint(text, "{:16s}: {}\n", "Name", recordInfo.name);
-    std::cout << ts::bwprint(text, "{:16s}: {}\n", "Current Value ", recordInfo.currentValue);
-    std::cout << ts::bwprint(text, "{:16s}: {}\n", "Default Value ", recordInfo.defaultValue);
-    std::cout << ts::bwprint(text, "{:16s}: {}\n", "Record Type ", rec_labelof(recordInfo.rclass));
-    std::cout << ts::bwprint(text, "{:16s}: {}\n", "Data Type ", recordInfo.dataType);
+    std::cout << swoc::bwprint(text, "{:16s}: {}\n", "Name", recordInfo.name);
+    std::cout << swoc::bwprint(text, "{:16s}: {}\n", "Current Value ", recordInfo.currentValue);
+    std::cout << swoc::bwprint(text, "{:16s}: {}\n", "Default Value ", recordInfo.defaultValue);
+    std::cout << swoc::bwprint(text, "{:16s}: {}\n", "Record Type ", rec_labelof(recordInfo.rclass));
+    std::cout << swoc::bwprint(text, "{:16s}: {}\n", "Data Type ", recordInfo.dataType);
 
     std::visit(ts::meta::overloaded{
                  [&](shared::rpc::RecordLookUpResponse::RecordParamInfo::ConfigMeta const &meta) {
-                   std::cout << ts::bwprint(text, "{:16s}: {}\n", "Access Control ", rec_accessof(meta.accessType));
-                   std::cout << ts::bwprint(text, "{:16s}: {}\n", "Update Type ", rec_updateof(meta.updateType));
-                   std::cout << ts::bwprint(text, "{:16s}: {}\n", "Update Status ", meta.updateStatus);
-                   std::cout << ts::bwprint(text, "{:16s}: {}\n", "Source ", rec_sourceof(meta.source));
+                   std::cout << swoc::bwprint(text, "{:16s}: {}\n", "Access Control ", rec_accessof(meta.accessType));
+                   std::cout << swoc::bwprint(text, "{:16s}: {}\n", "Update Type ", rec_updateof(meta.updateType));
+                   std::cout << swoc::bwprint(text, "{:16s}: {}\n", "Update Status ", meta.updateStatus);
+                   std::cout << swoc::bwprint(text, "{:16s}: {}\n", "Source ", rec_sourceof(meta.source));
 
-                   std::cout << ts::bwprint(text, "{:16s}: {}\n", "Syntax Check ", meta.checkExpr);
+                   std::cout << swoc::bwprint(text, "{:16s}: {}\n", "Syntax Check ", meta.checkExpr);
                  },
                  [&](shared::rpc::RecordLookUpResponse::RecordParamInfo::StatMeta const &meta) {
                    // This may not be what we want, as for a metric we may not need to print all the same info. In that case
                    // just create a new printer for this.
-                   std::cout << ts::bwprint(text, "{:16s}: {}\n", "Persist Type ", meta.persistType);
+                   std::cout << swoc::bwprint(text, "{:16s}: {}\n", "Persist Type ", meta.persistType);
                  },
                },
                recordInfo.meta);
 
-    std::cout << ts::bwprint(text, "{:16s}: {}\n", "Overridable", (recordInfo.overridable ? "yes" : "no"));
-    std::cout << ts::bwprint(text, "{:16s}: {}\n", "Version ", recordInfo.version);
-    std::cout << ts::bwprint(text, "{:16s}: {}\n", "Order ", recordInfo.order);
-    std::cout << ts::bwprint(text, "{:16s}: {}\n", "Raw Stat Block ", recordInfo.rsb);
+    std::cout << swoc::bwprint(text, "{:16s}: {}\n", "Overridable", (recordInfo.overridable ? "yes" : "no"));
+    std::cout << swoc::bwprint(text, "{:16s}: {}\n", "Version ", recordInfo.version);
+    std::cout << swoc::bwprint(text, "{:16s}: {}\n", "Order ", recordInfo.order);
+    std::cout << swoc::bwprint(text, "{:16s}: {}\n", "Raw Stat Block ", recordInfo.rsb);
   }
 
   // also print errors.
   print_record_error_list(response.errorList);
-}
-
-void
-RecordDescribePrinter::write_output_pretty(shared::rpc::RecordLookUpResponse const &response)
-{
-  // we default for legacy.
-  write_output_legacy(response);
 }
 //------------------------------------------------------------------------------------------------------------------------------------
 void
@@ -308,14 +303,6 @@ SetHostStatusPrinter::write_output(YAML::Node const &result)
 void
 CacheDiskStoragePrinter::write_output(YAML::Node const &result)
 {
-  // do nothing.
-  if (!is_legacy_format()) {
-    write_output_pretty(result);
-  }
-}
-void
-CacheDiskStoragePrinter::write_output_pretty(YAML::Node const &result)
-{
   auto my_print = [](auto const &disk) {
     std::cout << "Device: " << disk.path << '\n';
     std::cout << "Status: " << disk.status << '\n';
@@ -334,13 +321,6 @@ CacheDiskStoragePrinter::write_output_pretty(YAML::Node const &result)
 //------------------------------------------------------------------------------------------------------------------------------------
 void
 CacheDiskStorageOfflinePrinter::write_output(YAML::Node const &result)
-{
-  if (!is_legacy_format()) {
-    write_output_pretty(result);
-  }
-}
-void
-CacheDiskStorageOfflinePrinter::write_output_pretty(YAML::Node const &result)
 {
   for (auto &&item : result) {
     if (auto n = item["has_online_storage_left"]) {

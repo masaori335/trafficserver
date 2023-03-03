@@ -26,7 +26,6 @@ Test different combinations of TLS handshake hooks to ensure they are applied co
 
 Test.SkipUnless(
     Condition.HasOpenSSLVersion("1.1.1"),
-    Condition.IsOpenSSL()
 )
 
 ts = Test.MakeATSProcess("ts", enable_tls=True)
@@ -52,7 +51,7 @@ ts.Disk.remap_config.AddLine(
     'map https://example.com:{1} http://127.0.0.1:{0}'.format(server.Variables.Port, ts.Variables.ssl_port)
 )
 
-Test.PrepareTestPlugin(os.path.join(Test.Variables.AtsTestPluginsDir, 'ssl_hook_test.so'), ts, '-client_hello=2')
+Test.PrepareTestPlugin(os.path.join(Test.Variables.AtsTestPluginsDir, 'ssl_hook_test.so'), ts, '-client_hello=2 -close=1')
 
 tr = Test.AddTestRun("Test two client hello hooks")
 tr.Processes.Default.StartBefore(server)

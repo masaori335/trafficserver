@@ -21,9 +21,36 @@
 #pragma once
 
 #include <iostream>
+#include <string_view>
 #include <yaml-cpp/yaml.h>
 
 #include "shared/rpc/RPCRequests.h"
+#include <swoc/BufferWriter.h>
+
+/** Format wrapper for floating point time stamps represented as strings.
+ * If the time isn't provided, the current epoch time is used. If the format string isn't
+ * provided a format like "2017 Jun 29 14:11:29" is used.
+ */
+struct FloatDate {
+  std::string_view _src;
+  std::string_view _fmt;
+
+  /** Constructor.
+   *
+   * @param src A string's representation of a floating point timestamp.
+   * @param fmt The format specification for the date string.
+   */
+  FloatDate(std::string_view src, std::string_view fmt) : _src{src}, _fmt{fmt} {}
+};
+
+/** Format a timestamp wrapped in a @c FloatDate.
+ *
+ * @param w Output.
+ * @param spec Format specifier.
+ * @param wrap Timestamp string_view wrapper.
+ * @return @a w
+ */
+swoc::BufferWriter &bwformat(swoc::BufferWriter &w, swoc::bwf::Spec const &spec, FloatDate const &wrap);
 
 //------------------------------------------------------------------------------------------------------------------------------------
 ///
@@ -39,15 +66,14 @@ public:
   /// This enum maps the --format flag coming from traffic_ctl. (also --records is included here, see comments down below.)
   struct Options {
     enum class OutputFormat {
-      LEGACY = 0, // Legacy format, mimics the old traffic_ctl output
-      PRETTY,     // Enhanced printing messages. (in case you would like to generate them)
-      JSON,       // Json formatting
-      RECORDS,    // only valid for configs, but it's handy to have it here.
-      RPC         // Print JSONRPC request and response + default output.
+      NOT_SET = 0, // nothing set.
+      JSON,        // Json formatting
+      RECORDS,     // only valid for configs, but it's handy to have it here.
+      RPC          // Print JSONRPC request and response + default output.
     };
     Options() = default;
     Options(OutputFormat fmt) : _format(fmt) {}
-    OutputFormat _format{OutputFormat::LEGACY}; //!< selected(passed) format.
+    OutputFormat _format{OutputFormat::NOT_SET}; //!< selected(passed) format.
   };
 
   /// Printer constructor. Needs the format as it will be used by derived classes.
@@ -83,9 +109,7 @@ public:
   Options::OutputFormat get_format() const;
   bool print_rpc_message() const;
   bool is_json_format() const;
-  bool is_legacy_format() const;
   bool is_records_format() const;
-  bool is_pretty_format() const;
 
 protected:
   void write_output_json(YAML::Node const &node) const;
@@ -111,19 +135,9 @@ BasePrinter::is_json_format() const
 }
 
 inline bool
-BasePrinter::is_legacy_format() const
-{
-  return get_format() == Options::OutputFormat::LEGACY;
-}
-inline bool
 BasePrinter::is_records_format() const
 {
   return get_format() == Options::OutputFormat::RECORDS;
-}
-inline bool
-BasePrinter::is_pretty_format() const
-{
-  return get_format() == Options::OutputFormat::PRETTY;
 }
 //------------------------------------------------------------------------------------------------------------------------------------
 class GenericPrinter : public BasePrinter
@@ -141,8 +155,6 @@ public:
 class RecordPrinter : public BasePrinter
 {
   void write_output(YAML::Node const &result) override;
-  void write_output_legacy(shared::rpc::RecordLookUpResponse const &result);
-  void write_output_pretty(shared::rpc::RecordLookUpResponse const &result);
 
 public:
   RecordPrinter(Options opt) : BasePrinter(opt) { _printAsRecords = is_records_format(); }
@@ -162,7 +174,6 @@ public:
 class DiffConfigPrinter : public RecordPrinter
 {
   void write_output(YAML::Node const &result) override;
-  void write_output_pretty(YAML::Node const &result);
 
 public:
   DiffConfigPrinter(BasePrinter::Options opt) : RecordPrinter(opt) {}
@@ -171,7 +182,6 @@ public:
 class ConfigReloadPrinter : public BasePrinter
 {
   void write_output(YAML::Node const &result) override;
-  void write_output_pretty(YAML::Node const &result);
 
 public:
   ConfigReloadPrinter(BasePrinter::Options opt) : BasePrinter(opt) {}
@@ -180,7 +190,6 @@ public:
 class ConfigShowFileRegistryPrinter : public BasePrinter
 {
   void write_output(YAML::Node const &result) override;
-  void write_output_pretty(YAML::Node const &result);
 
 public:
   using BasePrinter::BasePrinter;
@@ -194,10 +203,16 @@ public:
   using BasePrinter::BasePrinter;
 };
 //------------------------------------------------------------------------------------------------------------------------------------
+class ConfigStatusPrinter : public BasePrinter
+{
+  void write_output(YAML::Node const &result) override;
+
+public:
+  using BasePrinter::BasePrinter;
+};
+//------------------------------------------------------------------------------------------------------------------------------------
 class RecordDescribePrinter : public BasePrinter
 {
-  void write_output_legacy(shared::rpc::RecordLookUpResponse const &result);
-  void write_output_pretty(shared::rpc::RecordLookUpResponse const &result);
   void write_output(YAML::Node const &result) override;
 
 public:
@@ -222,7 +237,6 @@ public:
 //------------------------------------------------------------------------------------------------------------------------------------
 class CacheDiskStoragePrinter : public BasePrinter
 {
-  void write_output_pretty(YAML::Node const &result);
   void write_output(YAML::Node const &result) override;
 
 public:
@@ -232,7 +246,6 @@ public:
 class CacheDiskStorageOfflinePrinter : public BasePrinter
 {
   void write_output(YAML::Node const &result) override;
-  void write_output_pretty(YAML::Node const &result);
 
 public:
   CacheDiskStorageOfflinePrinter(BasePrinter::Options opt) : BasePrinter(opt) {}

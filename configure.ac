@@ -234,6 +234,17 @@ AC_ARG_ENABLE([tsan],
 AC_MSG_RESULT([$enable_tsan])
 
 #
+# Enable Link Time Optimization. This may need different settings per compiler?
+#
+AC_MSG_CHECKING([whether to enable LTO])
+AC_ARG_ENABLE([lto],
+  [AS_HELP_STRING([--enable-lto],[turn on Link Time Optimization])],
+  [],
+  [enable_lto=no]
+)
+AC_MSG_RESULT([$enable_lto])
+
+#
 # Fast SDK APIs, this disables the parameter checks (assert)
 # on all APIs.
 #
@@ -938,6 +949,19 @@ AS_IF([test x"$enable_werror" = "xyes"], [
   TS_ADDTO(debug_opt, -Werror)
 ])
 
+# Add the necessary flags for LTO
+AS_IF([test x"$enable_lto" = "xyes"], [
+  AS_IF([test "x$ax_cv_c_compiler_vendor" = "xclang"], [
+    TS_ADDTO(AM_CXXFLAGS, [-flto=thin -fuse-ld=lld])
+    TS_ADDTO(AM_CFLAGS, [-flto=thin -fuse-ld=lld])
+    TS_ADDTO(AM_LDFLAGS, [-flto=thin -fuse-ld=lld])
+    ], [
+    TS_ADDTO(AM_CXXFLAGS, [-flto])
+    TS_ADDTO(AM_CFLAGS, [-flto])
+    TS_ADDTO(AM_LDFLAGS, [-flto])
+    ])
+])
+
 cc_oflag_opt=$release_opt
 cc_oflag_dbg=$debug_opt
 cxx_oflag_opt="$release_opt $cxx_opt $cxx_rel"
@@ -1307,6 +1331,8 @@ AC_CHECK_FUNCS([ \
   X509_get0_signature \
   ERR_get_error_all \
   SHA1 \
+  SHA256_Init \
+  MD5_Init \
   SSL_SESSION_dup \
 ])
 
@@ -1962,7 +1988,7 @@ AC_CHECK_HEADERS([sys/types.h \
 
 # On OpenBSD, pthread.h must be included before pthread_np.h
 AC_CHECK_HEADERS([pthread_np.h], [], [], [#include <pthread.h>])
-AC_CHECK_HEADERS([sys/statfs.h sys/statvfs.h sys/disk.h sys/disklabel.h sys/mount.h])
+AC_CHECK_HEADERS([sys/statfs.h sys/statvfs.h sys/disk.h sys/disklabel.h])
 AC_CHECK_HEADERS([linux/hdreg.h linux/major.h])
 
 AC_CHECK_HEADERS([sys/sysctl.h], [], [],
@@ -2419,6 +2445,7 @@ AC_MSG_NOTICE([Build option summary:
     CC:                 $CC
     CXX:                $CXX
     CPP:                $CPP
+    LD:                 $LD
     CFLAGS:             $CFLAGS
     CXXFLAGS:           $CXXFLAGS
     CPPFLAGS:           $CPPFLAGS

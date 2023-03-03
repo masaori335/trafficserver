@@ -56,7 +56,7 @@ main(int argc, const char **argv)
     .add_option("--version", "-V", "Print version string")
     .add_option("--help", "-h", "Print usage information")
     .add_option("--run-root", "", "using TS_RUNROOT as sandbox", "TS_RUNROOT", 1)
-    .add_option("--format", "-f", "Use a specific output format {legacy|pretty|json|rpc}", "", 1, "legacy", "format");
+    .add_option("--format", "-f", "Use a specific output format {json|rpc}", "", 1, "", "format");
 
   auto &config_command     = parser.add_command("config", "Manipulate configuration records").require_commands();
   auto &metric_command     = parser.add_command("metric", "Manipulate performance metrics").require_commands();
@@ -123,8 +123,11 @@ main(int argc, const char **argv)
                              [&]() { command->execute(); }); // not implemented
   metric_command.add_command("match", "Get metrics matching a regular expression", "", MORE_THAN_ZERO_ARG_N,
                              [&]() { command->execute(); });
-  metric_command.add_command("monitor", "Display the value of a metric over time", "", MORE_THAN_ZERO_ARG_N,
-                             [&]() { CtrlUnimplementedCommand("monitor"); }); // not implemented
+  metric_command
+    .add_command("monitor", "Display the value of a metric(s) over time", "", MORE_THAN_ZERO_ARG_N, [&]() { command->execute(); })
+    .add_example_usage("traffic_ctl metric monitor METRIC -i 3 -c 10")
+    .add_option("--count", "-c", "Stop after requesting count metrics.", "", 1, "10")
+    .add_option("--interval", "-i", "Wait interval seconds between sending each metric request. Minimum value is 1s.", "", 1, "5");
   metric_command.add_command("zero", "Clear one or more metric values", "", MORE_THAN_ONE_ARG_N, [&]() { command->execute(); });
 
   // plugin command
