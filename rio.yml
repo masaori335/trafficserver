@@ -10,7 +10,35 @@ schemaVersion: '2.0'
 
 timeout: 60
 
+#########
+# 9.2.x
+#########
 builds:
+- branchName: 9.2.x
+  group: intpr
+  <<: *build_machine
+  build:
+    template: freestyle:v4:publish
+    buildParameters:
+    - parameter: pr_id
+      description: Internal GitHub PR ID to build
+    - parameter: variation
+      defaultValue: llvm
+      description: Build variation [llvm (deault), asan, or debug]
+    steps:
+    - ./apple/rio.sh --build --branch 9.2.x --prid ${BUILD_PARAM_pr_id} --variation -${BUILD_PARAM_variation}
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+  package:
+    freeform:
+      - publish:
+        - repo: yum:cdn-edge
+  jenkins:
+    concurrentBuild: true
+
 - branchName: 9.2.x
   group: test
   version: unittest
@@ -21,6 +49,7 @@ builds:
     - ./apple/rio.sh --build --branch 9.2.x --variation -llvm --prb
   jenkins:
     concurrentBuild: true
+
 - branchName: 9.2.x
   group: test
   version: autest
