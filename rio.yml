@@ -15,6 +15,84 @@ timeout: 60
 #########
 builds:
 - branchName: 9.2.x
+  group: release
+  version: all
+  <<: *build_machine
+  build:
+    template: freestyle:v4:publish
+    steps:
+    - echo "There's nothing to do on this pipeline itself."
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+    pipelineChain:
+      - pipeline: release-9.2.x-publish-regular
+      - pipeline: release-9.2.x-publish-variant
+        buildArguments:
+          - name: "variation"
+            value: "asan"
+      - pipeline: release-9.2.x-publish-variant
+        buildArguments:
+          - name: "variation"
+            value: "debug"
+      - pipeline: release-9.2.x-publish-variant
+        buildArguments:
+          - name: "variation"
+            value: "boringssl"
+  jenkins:
+    concurrentBuild: true
+
+- branchName: 9.2.x
+  group: release
+  version: regular
+  <<: *build_machine
+  build:
+    template: freestyle:v4:publish
+    steps:
+    - ./apple/rio.sh --build --branch 9.2.x --variation -llvm --tagbuild
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+    pipelineChain:
+      - pipeline: test-9.2.x-publish-autest
+  package:
+    freeform:
+      - publish:
+        - repo: yum:cdn-edge
+  jenkins:
+    concurrentBuild: true
+
+- branchName: 9.2.x
+  group: release
+  version: variant
+  <<: *build_machine
+  build:
+    template: freestyle:v4:publish
+    buildParameters:
+    - parameter: variation
+      defaultValue: llvm
+      description: Build variation [llvm (deault), asan, or debug]
+    steps:
+    - ./apple/rio.sh --build --branch 9.2.x --variation -${BUILD_PARAM_variation}
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+    pipelineChain:
+      - pipeline: test-9.2.x-publish-autest
+  package:
+    freeform:
+      - publish:
+        - repo: yum:cdn-edge
+  jenkins:
+    concurrentBuild: true
+
+- branchName: 9.2.x
   group: intpr
   <<: *build_machine
   build:
