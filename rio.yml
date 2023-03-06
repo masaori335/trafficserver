@@ -41,6 +41,64 @@ builds:
 
 - branchName: 9.2.x
   group: test
+  version: autest-all
+  <<: *build_machine
+  trigger:
+    timer: '@daily'
+  build:
+    buildParameters:
+    - parameter: test_filter
+      description: Tests to run
+      defaultValue: '*'
+    template: freestyle:v4:publish
+    steps:
+    - echo "There's nothing to do on this pipeline itself."
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+    pipelineChain:
+      - pipeline: test-9.2.x-publish-autest
+        buildArguments:
+          - name: "variation"
+            value: "llvm"
+      - pipeline: test-9.2.x-publish-autest
+        buildArguments:
+          - name: "variation"
+            value: "boringssl"
+  jenkins:
+    concurrentBuild: true
+
+- branchName: 9.2.x
+  group: test
+  version: autest
+  <<: *test_machine
+  build:
+    buildParameters:
+    - parameter: variation
+      defaultValue: llvm
+      description: Build variation [llvm (deault), asan, or debug]
+    - parameter: test_filter
+      description: Tests to run
+      defaultValue: '*'
+    template: freestyle:v4:publish
+    steps:
+    - ./apple/rio.sh --test --branch 9.2.x --variation -${BUILD_PARAM_variation} -f "${BUILD_PARAM_test_filter}"
+  reports:
+    junit:
+      paths:
+      - "**/.out/*.xml"
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+  jenkins:
+    concurrentBuild: true
+
+- branchName: 9.2.x
+  group: test
   version: unittest
   <<: *build_machine
   build:
@@ -67,6 +125,7 @@ builds:
       - "_sandbox/**"
   jenkins:
     concurrentBuild: true
+
 - branchName: 9.2.x
   group: test
   version: unittest-boringssl
@@ -77,6 +136,7 @@ builds:
     - ./apple/rio.sh --build --branch 9.2.x --variation -boringssl --prb
   jenkins:
     concurrentBuild: true
+
 - branchName: 9.2.x
   group: test
   version: autest-boringssl
