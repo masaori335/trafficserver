@@ -1,0 +1,110 @@
+schemaVersion: '2.0'
+
+<<: &build_machine
+  machine:
+    baseImage: docker.apple.com/edge/trafficserver_build:20220826-1-el7
+
+<<: &test_machine
+  machine:
+    baseImage: docker.apple.com/edge/trafficserver_autest:20220822-1-el7
+
+timeout: 60
+
+builds:
+#########
+# master - 10.x.x
+#########
+- branchName: master
+  group: test
+  version: unittest
+  <<: *build_machine
+  build:
+    template: freestyle:v4:prb
+    steps:
+    - ./apple/rio.sh --build --branch master --variation -llvm --prb
+  jenkins:
+    concurrentBuild: true
+
+#########
+# 9.2.x
+#########
+- branchName: 9.2.x
+  group: intpr
+  <<: *build_machine
+  build:
+    template: freestyle:v4:publish
+    buildParameters:
+    - parameter: pr_id
+      description: Internal GitHub PR ID to build
+    - parameter: variation
+      defaultValue: llvm
+      description: Build variation [llvm (deault), asan, or debug]
+    steps:
+    - ./apple/rio.sh --build --branch 9.2.x --prid ${BUILD_PARAM_pr_id} --variation -${BUILD_PARAM_variation}
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+  package:
+    freeform:
+      - publish:
+        - repo: yum:cdn-edge
+  jenkins:
+    concurrentBuild: true
+
+- branchName: 9.2.x
+  group: test
+  version: unittest
+  <<: *build_machine
+  build:
+    template: freestyle:v4:prb
+    steps:
+    - ./apple/rio.sh --build --branch 9.2.x --variation -llvm --prb
+  jenkins:
+    concurrentBuild: true
+
+- branchName: 9.2.x
+  group: test
+  version: autest
+  <<: *test_machine
+  build:
+    template: freestyle:v4:prb
+    steps:
+    - ./apple/rio.sh --test --branch 9.2.x --variation -llvm
+  reports:
+    junit:
+      paths:
+      - "**/.out/*.xml"
+    logs:
+      paths:
+      - "_sandbox/**"
+  jenkins:
+    concurrentBuild: true
+- branchName: 9.2.x
+  group: test
+  version: unittest-boringssl
+  <<: *build_machine
+  build:
+    template: freestyle:v4:prb
+    steps:
+    - ./apple/rio.sh --build --branch 9.2.x --variation -boringssl --prb
+  jenkins:
+    concurrentBuild: true
+- branchName: 9.2.x
+  group: test
+  version: autest-boringssl
+  <<: *test_machine
+  build:
+    template: freestyle:v4:prb
+    steps:
+    - ./apple/rio.sh --test --branch 9.2.x --variation -boringssl
+  reports:
+    junit:
+      paths:
+      - "**/.out/*.xml"
+    logs:
+      paths:
+      - "_sandbox/**"
+  jenkins:
+    concurrentBuild: true
