@@ -59,6 +59,9 @@ builds:
       enabled: false
     pipelineChain:
       - pipeline: test-9.2.x-publish-autest
+  secrets:
+    names:
+    - TRAFFICSERVER
   package:
     freeform:
       - publish:
