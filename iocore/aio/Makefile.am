@@ -18,6 +18,7 @@
 
 AM_CPPFLAGS += \
 	-I$(abs_top_srcdir)/iocore/eventsystem \
+	-I$(abs_top_srcdir)/iocore/io_uring \
 	-I$(abs_top_srcdir)/include \
 	-I$(abs_top_srcdir)/lib \
 	@SWOC_INCLUDES@
