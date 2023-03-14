@@ -247,6 +247,9 @@ sed -i -e 's/-fuse-linker-plugin/-fuse-ld=*/g' libtool
 
 make %{?_smp_mflags} %{make_verbose}
 
+%check
+make check %{?_smp_mflags} %{make_verbose}
+
 %install
 rm -rf $RPM_BUILD_ROOT
 make DESTDIR=$RPM_BUILD_ROOT install
