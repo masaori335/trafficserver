@@ -25,6 +25,31 @@ builds:
   jenkins:
     concurrentBuild: true
 
+- branchName: master
+  group: intpr
+  <<: *build_machine
+  build:
+    template: freestyle:v4:publish
+    buildParameters:
+    - parameter: pr_id
+      description: Internal GitHub PR ID to build
+    - parameter: variation
+      defaultValue: llvm
+      description: Build variation [llvm (deault), asan, or debug]
+    steps:
+    - ./apple/rio.sh --build --branch master --prid ${BUILD_PARAM_pr_id} --variation -${BUILD_PARAM_variation}
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+  package:
+    freeform:
+      - publish:
+        - repo: yum:cdn-edge
+  jenkins:
+    concurrentBuild: true
+
 #########
 # 9.2.x
 #########
