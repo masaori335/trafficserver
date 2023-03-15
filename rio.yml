@@ -124,8 +124,6 @@ builds:
   group: test
   version: autest-all
   <<: *build_machine
-  trigger:
-    timer: '@daily'
   build:
     buildParameters:
     - parameter: test_filter
@@ -135,6 +133,7 @@ builds:
     steps:
     - echo "There's nothing to do on this pipeline itself."
   trigger:
+    timer: '@daily'
     gitPush: false
   finally:
     tag:
