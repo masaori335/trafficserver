@@ -135,7 +135,11 @@ ResourceManager::reconfigure(bool startup)
       SCOPED_MUTEX_LOCK(lock, nh->resource_local_manager.mutex, this_ethread());
       nh->resource_local_manager.reconfigure();
     } else {
-      ethread->schedule_imm_local(&nh->resource_local_manager);
+      if (nh->resource_local_manager.handler == &ResourceLocalManager::state_running) {
+        ethread->schedule_imm_local(&nh->resource_local_manager);
+      } else {
+        Warning("Resource Local Manager is not running yet. Retry later");
+      }
     }
   }
 }

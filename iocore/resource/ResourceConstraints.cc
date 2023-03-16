@@ -137,7 +137,7 @@ ResourceReport::operator()(const DiskWriteLimiterV1 &limiter)
 //
 ResourceLocalManager::ResourceLocalManager() : Continuation(new_ProxyMutex())
 {
-  SET_HANDLER(&ResourceLocalManager::state_running);
+  SET_HANDLER(&ResourceLocalManager::state_init);
 }
 
 ResourceLocalManager::~ResourceLocalManager()
@@ -192,6 +192,8 @@ ResourceLocalManager::start()
   for (auto &limiter : _limiters) {
     std::visit([&](auto &l) { l.add(UNKNOWN_TID); }, limiter);
   }
+
+  SET_HANDLER(&ResourceLocalManager::state_running);
 }
 
 void
