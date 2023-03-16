@@ -192,8 +192,6 @@ ResourceLocalManager::start()
   for (auto &limiter : _limiters) {
     std::visit([&](auto &l) { l.add(UNKNOWN_TID); }, limiter);
   }
-
-  reconfigure();
 }
 
 void
