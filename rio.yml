@@ -185,6 +185,11 @@ builds:
     template: freestyle:v4:prb
     steps:
     - ./apple/rio.sh --build --branch 9.2.x --variation -llvm --prb
+  finally:
+    notify:
+      pullRequestComment:
+        postOnSuccess: false
+        postOnFailure: false
   jenkins:
     concurrentBuild: true
 
@@ -196,6 +201,11 @@ builds:
     template: freestyle:v4:prb
     steps:
     - ./apple/rio.sh --test --branch 9.2.x --variation -llvm
+  finally:
+    notify:
+      pullRequestComment:
+        postOnSuccess: false
+        postOnFailure: false
   reports:
     junit:
       paths:
@@ -214,6 +224,11 @@ builds:
     template: freestyle:v4:prb
     steps:
     - ./apple/rio.sh --build --branch 9.2.x --variation -boringssl --prb
+  finally:
+    notify:
+      pullRequestComment:
+        postOnSuccess: false
+        postOnFailure: false
   jenkins:
     concurrentBuild: true
 
@@ -225,6 +240,11 @@ builds:
     template: freestyle:v4:prb
     steps:
     - ./apple/rio.sh --test --branch 9.2.x --variation -boringssl
+  finally:
+    notify:
+      pullRequestComment:
+        postOnSuccess: false
+        postOnFailure: false
   reports:
     junit:
       paths:
