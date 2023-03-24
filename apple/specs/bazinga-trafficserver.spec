@@ -71,10 +71,8 @@
 %if %{?_with_boringssl:1}%{!?_with_boringssl:0}
 %define boring_release_prefix boringssl.
 %define ssl_library /opt/bazinga/boringssl
-%define _enable_boringocsp --with-boringocsp=/opt/bazinga/include:/opt/bazinga/lib64
 %else
 %define ssl_library /opt/bazinga
-%define _enable_boringocsp %{nil}
 %endif
 
 %if %{?_with_pr:1}%{!?_with_pr:0}
@@ -219,7 +217,6 @@ export LIBRARY_PATH=/opt/bazinga/lib64
 %endif
      --with-brotli=/opt/bazinga/include:/opt/bazinga/lib64 \
      --with-openssl=%{ssl_library} \
-     %{?_enable_boringocsp} \
 %if "%{_version}" < "8.1.0"
      --with-yaml-cpp=/opt/bazinga \
 %endif
