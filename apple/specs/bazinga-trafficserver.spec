@@ -28,6 +28,13 @@
 
 %define base_package_name bazinga-trafficserver
 
+# for 10 builds, default to io_uring and malloc allocator
+# todo: also default to quiche and boringssl
+%if %{_version_major} == 10
+%define _enable_io_uring 1
+%define _enable_malloc_allocator "--enable-malloc-allocator"
+%endif
+
 %if %{?_with_asan:1}%{!?_with_asan:0}
 %define asan_release_prefix asan.
 %define _enable_asan --enable-asan
@@ -199,6 +206,7 @@ export LIBRARY_PATH=/opt/bazinga/lib64
      %{?_enable_asan} \
      %{?_enable_io_uring} \
      %{?_enable_tests} \
+     %{?_enable_malloc_allocator} \
      CPPFLAGS="%{_cpp_flags} -DTCP_FASTOPEN=23 -DSO_REUSEPORT=15 -DTCP_NOTSENT_LOWAT=25 -I/opt/bazinga/include" \
      CFLAGS="%{_with_llvm_cflags}" \
      CXXFLAGS="%{_with_llvm_cxxflags} %{?_with_llvm_cppflags}" \

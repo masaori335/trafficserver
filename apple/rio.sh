@@ -46,6 +46,7 @@ if [[ ! -z $PR_ID && $PR_ID -gt 0 ]]; then
 fi
 
 VERSION=$(grep '\[TS_VERSION_S\]' configure.ac | head -n 1 | perl -pe 's{^.*\],\[(\d+.\d+.\d+).*$}{$1}')
+VERSION_MAJOR=$(echo $VERSION | cut -d . -f 1)
 COMMIT_TREE_LENGTH=$(git rev-list HEAD 2>/dev/null | wc -l)
 BUILD_VERSION="${RIO_BUILD_NUMBER}.${COMMIT_TREE_LENGTH}"
 export BUILD_VERSION
@@ -60,7 +61,7 @@ if [ "$VARIATION" = "-boringssl" ]; then
     LD_LIBRARY_PATH=/lib64 yum erase -d1 -y bazinga-openssl-devel
 fi
 
-if [ "$VARIATION" = "-io_uring" ]; then
+if [ "$VARIATION" = "-io_uring" || "$VERSION_MAJOR" = "10" ]; then
     LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-liburing bazinga-liburing-devel
 fi
 

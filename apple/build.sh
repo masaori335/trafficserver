@@ -29,6 +29,8 @@ else
     VERSION_SEPARATOR="/"
 fi
 
+VERSION_MAJOR=$(echo $VERSION | cut -d . -f 1)
+
 DOCKER_IMAGE=trafficserver-builder${SUBPROJECT}${TS_PLUGIN_VERSION}${VARIATION}
 
 buildroot=build  # directory where the build is done, artifacts stored.
@@ -100,6 +102,7 @@ fi
 
 rpmbuild $RPMBUILD_MODE $buildroot/$specfilename \
          --define "_version ${VERSION}" \
+         --define "_version_major ${VERSION_MAJOR}" \
          --define "_release ${BUILD_VERSION}" \
          --define "_archive ${archive}" \
          --define "_commit ${GIT_VERSION}" \
