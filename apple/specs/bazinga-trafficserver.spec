@@ -278,9 +278,14 @@ cp -r %{_builddir}/%{srcdir}/include/shared $RPM_BUILD_ROOT%{_prefix}/include/in
 cp -r %{_builddir}/%{srcdir}/include/ts $RPM_BUILD_ROOT%{_prefix}/include/internal
 cp -r %{_builddir}/%{srcdir}/include/tscore $RPM_BUILD_ROOT%{_prefix}/include/internal
 cp -r %{_builddir}/%{srcdir}/include/tscpp $RPM_BUILD_ROOT%{_prefix}/include/internal
+mkdir -p $RPM_BUILD_ROOT%{_prefix}/include/internal/records
+cp -r %{_builddir}/%{srcdir}/lib/records/*h $RPM_BUILD_ROOT%{_prefix}/include/internal/records
+
 # Selectively take proxy and iocore headers and flatten for easier inclusion
-find %{_builddir}/%{srcdir}/proxy -name \*.h -type f | cpio -pdmv $RPM_BUILD_ROOT%{_prefix}/include/internal
-find %{_builddir}/%{srcdir}/iocore -name \*.h -type f | cpio -pdmv $RPM_BUILD_ROOT%{_prefix}/include/internal
+pushd %{_builddir}/%{srcdir}
+find proxy -name \*.h -type f | cpio -pdmv $RPM_BUILD_ROOT%{_prefix}/include/internal
+find iocore -name \*.h -type f | cpio -pdmv $RPM_BUILD_ROOT%{_prefix}/include/internal
+popd
 
 find $RPM_BUILD_ROOT%{_prefix}/include/internal -name Makefile\* | xargs rm
 
