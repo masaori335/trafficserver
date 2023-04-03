@@ -73,6 +73,10 @@ QUICNetVConnection::free()
 void
 QUICNetVConnection::remove_connection_ids()
 {
+  if (this->_ctable) {
+    this->_ctable->erase(this->_quic_connection_id, this);
+    this->_ctable->erase(this->_original_quic_connection_id, this);
+  }
 }
 
 // called by ET_UDP
@@ -149,7 +153,7 @@ QUICNetVConnection::state_handshake(int event, Event *data)
     this->closed = 1;
     break;
   default:
-    QUICConDebug("Unhandleed event: %d", event);
+    QUICConDebug("Unhandled event: %d", event);
     break;
   }
 
@@ -180,7 +184,7 @@ QUICNetVConnection::state_established(int event, Event *data)
     this->closed = 1;
     break;
   default:
-    QUICConDebug("Unhandleed event: %d", event);
+    QUICConDebug("Unhandled event: %d", event);
     break;
   }
   return EVENT_DONE;
@@ -281,12 +285,14 @@ QUICNetVConnection::acceptEvent(int event, Event *e)
   SET_HANDLER((NetVConnHandler)&QUICNetVConnection::state_handshake);
 
   // Send this netvc to InactivityCop.
+  // Note: even though we will set the timeouts to 0, we need this so we make sure the one gets freed and the IO is properly ended.
   nh->startCop(this);
 
+  // We will take care of this by using `idle_timeout` configured by `proxy.config.quic.no_activity_timeout_in`.
+  this->set_default_inactivity_timeout(0);
+
   if (inactivity_timeout_in) {
-    set_inactivity_timeout(inactivity_timeout_in);
-  } else {
-    set_inactivity_timeout(0);
+    this->set_inactivity_timeout(inactivity_timeout_in);
   }
 
   if (active_timeout_in) {
@@ -334,10 +340,8 @@ QUICNetVConnection::handle_received_packet(UDPPacket *packet)
   quiche_recv_info recv_info = {
     &packet->from.sa,
     static_cast<socklen_t>(packet->from.isIp4() ? sizeof(packet->from.sin) : sizeof(packet->from.sin6)),
-#ifdef HAVE_QUICHE_CONFIG_SET_ACTIVE_CONNECTION_ID_LIMIT
     &packet->to.sa,
     static_cast<socklen_t>(packet->to.isIp4() ? sizeof(packet->to.sin) : sizeof(packet->to.sin6)),
-#endif
   };
 
   ssize_t done = quiche_conn_recv(this->_quiche_con, buf, buf_len, &recv_info);
@@ -589,10 +593,8 @@ QUICNetVConnection::_handle_interval()
   quiche_conn_on_timeout(this->_quiche_con);
 
   if (quiche_conn_is_closed(this->_quiche_con)) {
-    this->_ctable->erase(this->_quic_connection_id, this);
-    this->_ctable->erase(this->_original_quic_connection_id, this);
-
     if (quiche_conn_is_timed_out(this->_quiche_con)) {
+      QUICConDebug("QUIC Idle timeout detected");
       this->thread->schedule_imm(this, VC_EVENT_INACTIVITY_TIMEOUT);
       return;
     }

@@ -1,6 +1,6 @@
 /** @file
 
-  Loading @c IpMap from a configuration file.
+  A brief file description
 
   @section license License
 
@@ -21,15 +21,36 @@
   limitations under the License.
  */
 
-// Copied from IPRange.cc for backwards compatibility.
-
 #pragma once
 
-class IpMap; // declare in name only.
+#include "tscore/ink_config.h"
 
-// Returns 0 if successful, error string otherwise
-int read_addr(char *line, int n, int *i, sockaddr *addr, char *err);
-// Returns 0 if successful, error string otherwise
-char *Load_IpMap_From_File(IpMap *map, int fd, char const *key_str);
-// Returns 0 if successful, error string otherwise
-char *Load_IpMap_From_File(IpMap *map, FILE *f, char const *key_str);
+#ifndef HAVE_BIO_SET_DATA
+#define HAVE_BIO_SET_DATA     1
+#define BIO_set_data(a, _ptr) ((a)->ptr = (_ptr))
+#endif
+
+#ifndef HAVE_BIO_GET_DATA
+#define HAVE_BIO_GET_DATA 1
+#define BIO_get_data(a)   ((a)->ptr)
+#endif
+
+#ifndef HAVE_BIO_GET_SHUTDOWN
+#define HAVE_BIO_GET_SHUTDOWN 1
+#define BIO_get_shutdown(a)   ((a)->shutdown)
+#endif
+
+#ifndef HAVE_BIO_METH_GET_CTRL
+#define HAVE_BIO_METH_GET_CTRL  1
+#define BIO_meth_get_ctrl(biom) ((biom)->ctrl)
+#endif
+
+#ifndef HAVE_BIO_METH_GET_CREATE
+#define HAVE_BIO_METH_GET_CREATE  1
+#define BIO_meth_get_create(biom) ((biom)->create)
+#endif
+
+#ifndef HAVE_BIO_METH_GET_DESTROY
+#define HAVE_BIO_METH_GET_DESTROY  1
+#define BIO_meth_get_destroy(biom) ((biom)->destroy)
+#endif
