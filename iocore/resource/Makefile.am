@@ -49,7 +49,7 @@ libresource_a_SOURCES = \
 #
 # unit tests
 #
-TESTS = $(check_PROGRAMS)
+TESTS = test_libresource test_test_scenario
 
 check_PROGRAMS = test_libresource test_scenario
 

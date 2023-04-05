@@ -1,0 +1,3 @@
+#!/bin/bash
+
+./test_scenario --r-in $srcdir/unit_tests/data/scenario0.csv

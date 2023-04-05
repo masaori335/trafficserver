@@ -34,6 +34,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <variant>
 
 using namespace RTB;
 
