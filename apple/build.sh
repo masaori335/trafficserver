@@ -82,6 +82,11 @@ if [ "$VARIATION" == "-asan" ];then
     RPMBUILD_FLAGS+=" --with llvm"
 fi
 
+# skip check for io_uring as it doesn't currently work in rio
+if [ "$VARIATION" == "-io_uring" ];then
+    RPMBUILD_FLAGS+=" --nocheck"
+fi
+
 # -quiche requires boringssl
 if [ "$VARIATION" == "-quiche" ];then
     RPMBUILD_FLAGS+=" --with boringssl"
