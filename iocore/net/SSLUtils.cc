@@ -2053,7 +2053,10 @@ SSLMultiCertConfigLoader::load(SSLCertLookup *lookup)
   ElevateAccess elevate_access(elevate_setting ? ElevateAccess::FILE_PRIVILEGE : 0);
 
   line = tokLine(content.data(), &tok_state);
+  size_t len = 0;
+
   while (line != nullptr) {
+    len += (tok_state - line);
     line_num++;
 
     // Skip all blank spaces at beginning of line.
@@ -2085,6 +2088,12 @@ SSLMultiCertConfigLoader::load(SSLCertLookup *lookup)
     }
 
     line = tokLine(nullptr, &tok_state);
+  }
+
+  // Check the read length. tokLine replaces `\n` with `\0`, so len + line_num should be equal to the length of the content. 
+  if (len + line_num < content.length()) {
+    Error("Some SSL cert config was not read - len=%ld line_num=%d content.length=%ld", len, line_num, content.length());
+    return false;
   }
 
   // We *must* have a default context even if it can't possibly work. The default context is used to
