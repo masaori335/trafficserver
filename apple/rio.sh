@@ -63,7 +63,7 @@ if [ $PRB -eq 1 ]; then
 fi
 
 if [ "$VARIATION" = "-boringssl" ]; then
-    LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci 'bazinga-boringssl < 19'
+    LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci 'bazinga-boringssl < 20'
     LD_LIBRARY_PATH=/lib64 yum erase -d1 -y bazinga-openssl-devel
 fi
 

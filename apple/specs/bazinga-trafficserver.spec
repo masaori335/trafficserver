@@ -120,7 +120,7 @@ BuildRequires:	bazinga-luajit-devel
 %if "%{_version}" < "8.1.0"
 BuildRequires:	bazinga-yaml-cpp-devel
 %endif
-%{?_with_boringssl:BuildRequires: bazinga-boringssl < 19}
+%{?_with_boringssl:BuildRequires: bazinga-boringssl < 20}
 %{!?_with_boringssl:BuildRequires: bazinga-openssl-devel}
 BuildRequires: bazinga-llvm-lld
 
@@ -142,7 +142,7 @@ Requires:	initscripts, zlib, pcre, expat, xz
 Requires:	libcurl, ncurses-libs, libcap, hwloc, libmaxminddb
 Requires:	bazinga-jemalloc >= 4.3.1
 Requires:	bazinga-brotli >= 1.0.6
-%{?_with_boringssl:Requires: bazinga-boringssl < 19}
+%{?_with_boringssl:Requires: bazinga-boringssl < 20}
 %{!?_with_boringssl:Requires: bazinga-openssl-libs >= 1.1.1a}
 Requires(post):	chkconfig
 Requires(preun): chkconfig initscripts
