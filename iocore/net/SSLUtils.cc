@@ -1186,9 +1186,12 @@ ssl_callback_info(const SSL *ssl, int where, int ret)
     if (cipher) {
       const char *cipherName = SSL_CIPHER_get_name(cipher);
       // lookup index of stat by name and incr count
-      if (auto it = cipher_map.find(cipherName); it != cipher_map.end()) {
-        SSL_INCREMENT_DYN_STAT((intptr_t)it->second);
+      auto it = cipher_map.find(cipherName);
+      if (it == cipher_map.end()) {
+        it = cipher_map.find(SSL_CIPHER_STAT_OTHER);
+        ink_assert(it != cipher_map.end());
       }
+      SSL_INCREMENT_DYN_STAT((intptr_t)it->second);
     }
   }
 }
@@ -2052,7 +2055,7 @@ SSLMultiCertConfigLoader::load(SSLCertLookup *lookup)
   REC_ReadConfigInteger(elevate_setting, "proxy.config.ssl.cert.load_elevated");
   ElevateAccess elevate_access(elevate_setting ? ElevateAccess::FILE_PRIVILEGE : 0);
 
-  line = tokLine(content.data(), &tok_state);
+  line       = tokLine(content.data(), &tok_state);
   size_t len = 0;
 
   while (line != nullptr) {
@@ -2090,7 +2093,7 @@ SSLMultiCertConfigLoader::load(SSLCertLookup *lookup)
     line = tokLine(nullptr, &tok_state);
   }
 
-  // Check the read length. tokLine replaces `\n` with `\0`, so len + line_num should be equal to the length of the content. 
+  // Check the read length. tokLine replaces `\n` with `\0`, so len + line_num should be equal to the length of the content.
   if (len + line_num < content.length()) {
     Error("Some SSL cert config was not read - len=%ld line_num=%d content.length=%ld", len, line_num, content.length());
     return false;
