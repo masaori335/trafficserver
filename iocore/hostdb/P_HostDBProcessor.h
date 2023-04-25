@@ -29,13 +29,13 @@
 
 #include <unordered_map>
 
+#include "swoc/swoc_file.h"
 #include <tscpp/util/TsSharedMutex.h>
 
 #include "I_HostDBProcessor.h"
 #include "P_RefCountCache.h"
 #include "tscore/PendingAction.h"
 #include "tscore/TsBuffer.h"
-#include "tscore/ts_file.h"
 
 //
 // Data
@@ -195,7 +195,7 @@ struct SplitDNS;
     This handles both the host name and raw address cases.
 */
 struct HostDBHash {
-  typedef HostDBHash self; ///< Self reference type.
+  using self = HostDBHash; ///< Self reference type.
 
   CryptoHash hash; ///< The hash value.
 

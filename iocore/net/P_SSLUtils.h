@@ -29,6 +29,8 @@
 #endif
 #include <openssl/ssl.h>
 
+#include "tscpp/util/ts_errata.h"
+
 #include "tscore/ink_config.h"
 #include "tscore/Diags.h"
 #include "records/I_RecCore.h"
@@ -42,12 +44,12 @@
 struct SSLConfigParams;
 class SSLNetVConnection;
 
-typedef int ssl_error_t;
+using ssl_error_t = int;
 
 #ifndef OPENSSL_IS_BORINGSSL
-typedef int ssl_curve_id;
+using ssl_curve_id = int;
 #else
-typedef uint16_t ssl_curve_id;
+using ssl_curve_id = uint16_t;
 #endif
 
 // Return the SSL Curve ID associated to the specified SSL connection
@@ -77,7 +79,7 @@ public:
   SSLMultiCertConfigLoader(const SSLConfigParams *p) : _params(p) {}
   virtual ~SSLMultiCertConfigLoader(){};
 
-  bool load(SSLCertLookup *lookup);
+  swoc::Errata load(SSLCertLookup *lookup);
 
   virtual SSL_CTX *default_server_ssl_ctx();
 

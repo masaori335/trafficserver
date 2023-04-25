@@ -667,26 +667,49 @@ CXXFLAGS="${_ts_saved_CXXFLAGS}"
 # All compilers we support have 'gnu99' as an available C standard
 TS_ADDTO(AM_CFLAGS, [-std=gnu99])
 
+AC_ARG_VAR(CXXSTD, [C++ standard version])
+if test "x${CXXSTD}" = "x"; then
+  CXXSTD="17"
+fi
+case $CXXSTD in
+  17)
+    cxxver="201703L"
+    ;;
+  20)
+    AC_MSG_NOTICE([Unsupported standard version $CXXSTD])
+    cxxver="202002L"
+    ;;
+  23)
+    AC_MSG_NOTICE([Unsupported standard version $CXXSTD])
+    cxxver="202100L"
+    ;;
+  *)
+    AC_MSG_WARN([Unrecognized standard version $CXXSTD])
+    CXXSTD="17"
+    cxxver="201703L"
+    ;;
+esac
+
 ac_save_CXX="$CXX"
-CXX="$CXX -std=c++17"
+CXX="$CXX -std=c++$CXXSTD"
 AC_LANG_PUSH(C++)
-AC_MSG_CHECKING([whether $CXX supports -std=c++17])
+AC_MSG_CHECKING([whether $CXX supports -std=c++$CXXSTD])
 AC_COMPILE_IFELSE([
     AC_LANG_PROGRAM([
-#if __cplusplus < 201703L
-#error "This is not C++17"
+#if __cplusplus < $cxxver
+#error "This is not C++$CXXSTD"
 #endif
     ], []
     )], [
     AC_MSG_RESULT(yes)
     ], [
     AC_MSG_RESULT(no)
-    AC_MSG_ERROR([*** A compiler with support for -std=c++17 is required.])
+    AC_MSG_ERROR([*** A compiler with support for -std=c++$CXXSTD is required.])
 ])
 AC_LANG_POP
 CXX="$ac_save_CXX"
 
-TS_ADDTO(AM_CXXFLAGS, [-std=c++17])
+TS_ADDTO(AM_CXXFLAGS, [-std=c++$CXXSTD])
 
 dnl AC_PROG_SED is only available from version 2.6 (released in 2003). CentosOS
 dnl 5.9 still has an ancient version, but we have macros that require
@@ -809,19 +832,9 @@ AS_IF([test -n "$LEX"],
 # Otherwise just use the checked in version.
 AM_CONDITIONAL([BUILD_TSCONFIG_GRAMMAR], [ test -n "$LEX" && test -n "$YACC" ])
 
-# Check for Perl and Doxygen
+# Check for Doxygen
 AC_PATH_PROG([DOXYGEN], [doxygen]) # needed for Doxygen
-AC_PATH_PROG([PERL], [perl],[not found])
-AS_IF([test "x$PERL" = "xnot found"],
-  BUILD_PERL_LIB=false
-)
 AC_ARG_VAR([DOXYGEN], [full path of Doxygen executable])
-AC_ARG_VAR([PERL], [full path of Perl executable])
-
-# Check if MakeMaker is available
-AX_PROG_PERL_MODULES([ExtUtils::MakeMaker], AM_CONDITIONAL([BUILD_PERL_LIB], [true]),
-                                            AM_CONDITIONAL([BUILD_PERL_LIB], [false])
-)
 
 # Check for GNU-style -On optimization flags
 AC_MSG_CHECKING([whether to auto-set compiler optimization flags])
@@ -1440,12 +1453,16 @@ TS_CHECK_LUAJIT
 # Check for optional quiche library
 TS_CHECK_QUICHE
 if test "${has_quiche}" = "1"; then
+if test "$openssl_is_boringssl" = "1" ; then
 enable_quic=yes
 ## Doing these again for Quiche
 AM_CONDITIONAL([ENABLE_QUIC], [test "x$enable_quic" = "xyes"])
 TS_ARG_ENABLE_VAR([use], [quic])
 AC_SUBST(use_quic)
 AC_SUBST(has_quiche)
+else
+  AC_MSG_ERROR([Use of BoringSSL is required if Quiche is used.])
+fi
 fi
 
 # Check for optional WAVM library
@@ -2388,8 +2405,6 @@ AC_CONFIG_FILES([
   iocore/utils/Makefile
   lib/Makefile
   src/tscpp/api/Makefile
-  lib/perl/Makefile
-  lib/perl/lib/Apache/TS.pm
   src/wccp/Makefile
   lib/fastlz/Makefile
   lib/swoc/Makefile

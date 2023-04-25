@@ -100,7 +100,6 @@ add_library(tscore SHARED
         lockfile.cc
         runroot.cc
         signals.cc
-        ts_file.cc
 )
 add_dependencies(tscore ParseRules tscpputil)
 target_include_directories(tscore PRIVATE
@@ -139,8 +138,9 @@ add_executable(test_tscore
         unit_tests/test_ink_memory.cc
         unit_tests/test_layout.cc
         unit_tests/test_scoped_resource.cc
-        unit_tests/test_ts_file.cc
         unit_tests/unit_test_main.cc
 )
 target_link_libraries(test_tscore PRIVATE tscore inkevent records_p libswoc)
 target_include_directories(test_tscore PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/iocore/eventsystem ${CATCH_INCLUDE_DIR})
+
+install(TARGETS tscore)

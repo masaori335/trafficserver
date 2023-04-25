@@ -99,7 +99,7 @@ static const int boundary_size   = 2 + sizeof("RANGE_SEPARATOR") - 1 + 2;
 static const char *str_100_continue_response = "HTTP/1.1 100 Continue\r\n\r\n";
 static const int len_100_continue_response   = strlen(str_100_continue_response);
 
-// Handy typedef for short (single line) message generation.
+// Handy alias for short (single line) message generation.
 using lbw = ts::LocalBufferWriter<256>;
 
 namespace
@@ -110,12 +110,8 @@ std::atomic<int64_t> next_sm_id(0);
 /// Buffer for some error logs.
 thread_local std::string error_bw_buffer;
 
-/**
-   Outbound PROXY Protocol
+} // namespace
 
-   Write PROXY Protocol to the first block of given MIOBuffer
-   FIXME: make @vc_in const
- */
 int64_t
 do_outbound_proxy_protocol(MIOBuffer *miob, NetVConnection *vc_out, NetVConnection *vc_in, int conf)
 {
@@ -147,8 +143,6 @@ do_outbound_proxy_protocol(MIOBuffer *miob, NetVConnection *vc_out, NetVConnecti
 
   return len;
 }
-
-} // namespace
 
 ClassAllocator<HttpSM> httpSMAllocator("httpSMAllocator");
 
@@ -1931,7 +1925,6 @@ HttpSM::state_http_server_open(int event, void *data)
   case CONNECT_EVENT_TXN:
     SMDebug("http", "Connection handshake complete via CONNECT_EVENT_TXN");
     if (this->create_server_txn(static_cast<PoolableSession *>(data))) {
-      write_outbound_proxy_protocol();
       handle_http_server_open();
     } else { // Failed to create transaction.  Maybe too many active transactions already
       // Try again (probably need a bounding counter here)
@@ -1944,7 +1937,6 @@ HttpSM::state_http_server_open(int event, void *data)
     // Update the time out to the regular connection timeout.
     SMDebug("http_ss", "Connection handshake complete");
     this->create_server_txn(this->create_server_session(_netvc, _netvc_read_buffer, _netvc_reader));
-    write_outbound_proxy_protocol();
     t_state.current.server->clear_connect_fail();
     handle_http_server_open();
     return 0;
@@ -4537,7 +4529,12 @@ HttpSM::do_hostdb_lookup()
 
   milestones[TS_MILESTONE_DNS_LOOKUP_BEGIN] = Thread::get_hrtime();
 
-  if (t_state.txn_conf->srv_enabled) {
+  // If directed to not look up fqdns then mark as resolved
+  if (t_state.http_config_param->no_dns_forward_to_parent && t_state.parent_result.result == PARENT_UNDEFINED) {
+    t_state.dns_info.resolved_p = true;
+    call_transact_and_set_next_state(nullptr);
+    return;
+  } else if (t_state.txn_conf->srv_enabled) {
     char d[MAXDNAME];
 
     // Look at the next_hop_scheme to determine what scheme to put in the SRV lookup
@@ -5676,11 +5673,13 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
       SMDebug("http_ss", "Queue multiplexed request");
       new_entry          = new ConnectingEntry();
       new_entry->mutex   = this->mutex;
+      new_entry->ua_txn  = ua_txn;
       new_entry->handler = (ContinuationHandler)&ConnectingEntry::state_http_server_open;
       new_entry->ipaddr.assign(&t_state.current.server->dst_addr.sa);
-      new_entry->hostname  = t_state.current.server->name;
-      new_entry->sni       = this->get_outbound_sni();
-      new_entry->cert_name = this->get_outbound_cert();
+      new_entry->hostname            = t_state.current.server->name;
+      new_entry->sni                 = this->get_outbound_sni();
+      new_entry->cert_name           = this->get_outbound_cert();
+      new_entry->is_no_plugin_tunnel = plugin_tunnel_type == HTTP_NO_PLUGIN_TUNNEL;
       this->t_state.set_connect_fail(EIO);
       new_entry->connect_sms.insert(this);
       ethread->connecting_pool->m_ip_pool.insert(std::make_pair(new_entry->ipaddr, new_entry));
@@ -6542,17 +6541,6 @@ HttpSM::write_header_into_buffer(HTTPHdr *h, MIOBuffer *b)
   } while (!done);
 
   return dumpoffset;
-}
-
-void
-HttpSM::write_outbound_proxy_protocol()
-{
-  int64_t nbytes = 1;
-  if (t_state.txn_conf->proxy_protocol_out >= 0) {
-    nbytes = do_outbound_proxy_protocol(server_txn->get_remote_reader()->mbuf, server_txn->get_netvc(), ua_txn->get_netvc(),
-                                        t_state.txn_conf->proxy_protocol_out);
-  }
-  server_entry->write_vio = server_txn->do_io_write(this, nbytes, server_txn->get_remote_reader());
 }
 
 void

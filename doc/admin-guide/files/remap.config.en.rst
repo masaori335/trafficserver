@@ -433,7 +433,12 @@ Acl Filters
 
 Acl filters can be created to control access of specific remap lines. The markup
 is very similar to that of :file:`ip_allow.yaml`, with slight changes to
-accommodate remap markup
+accommodate remap markup.
+
+**Note:** As of ATS v10.x, these filters are applied just as :file:`ip_allow.yaml`,
+this means once a filter matches the request, the action for that rule takes effect.
+In previous versions, all filters for a remap rule were evaluated, and the ``deny``
+action took priority.
 
 Examples
 --------
@@ -495,6 +500,21 @@ The filter `disable_delete_purge` will be applied to all of the
 mapping rules. (It is activated before any mappings and is never
 deactivated.) The filter `local_only` will only be applied to the
 second mapping.
+
+Implict IPAllow filter
+======================
+
+To allow control of :ref:`IP Allow<ip-allow>` it is treated as an implicitly active and named
+filter. When this filter is active IP Allow checks are done before remap. To prevent this for
+specific remap rules, this filter, named "ip_allow", must be disabled. The common way of doing this
+would be ::
+
+   .deactivatefilter ip_allow
+   map ...
+   map ...
+   .activateefilter ip_allow
+
+Note this entirely disables IP Allow checks for those remap rules.
 
 NextHop Selection Strategies
 ============================

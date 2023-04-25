@@ -24,24 +24,26 @@
 #include <atomic>
 #include "catch.hpp"
 
+#include "swoc/swoc_file.h"
+
 #include "I_IO_URING.h"
-#include "tscore/ts_file.h"
 
 #include <functional>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include "tscore/ink_hrtime.h"
 
-ts::file::path
+swoc::file::path
 temp_prefix(const char *basename)
 {
   char buffer[PATH_MAX];
   std::error_code err;
-  auto tmpdir = ts::file::temp_directory_path();
+  auto tmpdir = swoc::file::temp_directory_path();
   snprintf(buffer, sizeof(buffer), "%s/%s.XXXXXX", tmpdir.c_str(), basename);
-  auto prefix = ts::file::path(mkdtemp(buffer));
-  bool result = ts::file::create_directories(prefix, err, 0755);
+  auto prefix = swoc::file::path(mkdtemp(buffer));
+  bool result = swoc::file::create_directories(prefix, err, 0755);
   if (!result) {
     throw std::runtime_error("Failed to create directory");
   }
@@ -51,7 +53,7 @@ temp_prefix(const char *basename)
 }
 
 int
-open_path(const ts::file::path &path, int oflags = O_CREAT | O_RDWR, int mode = 0644)
+open_path(const swoc::file::path &path, int oflags = O_CREAT | O_RDWR, int mode = 0644)
 {
   return open(path.c_str(), oflags, mode);
 }
@@ -126,7 +128,7 @@ TEST_CASE("disk_io", "[io_uring]")
 
   auto tmp = temp_prefix("disk_io");
 
-  REQUIRE(ts::file::exists(tmp));
+  REQUIRE(swoc::file::exists(tmp));
 
   auto apath = tmp / "a";
 
@@ -137,13 +139,13 @@ TEST_CASE("disk_io", "[io_uring]")
   REQUIRE(fd != -1);
 
   io_uring_write(ctx, fd, "hello", 5, [](int result) { REQUIRE(result == 5); });
-  ctx.submit_and_wait(100);
+  ctx.submit_and_wait(100 * HRTIME_MSECOND);
   io_uring_close(ctx, fd, [&fd](int result) {
     REQUIRE(result == 0);
     fd = -1;
   });
 
-  ctx.submit_and_wait(100);
+  ctx.submit_and_wait(100 * HRTIME_MSECOND);
 
   REQUIRE(fd == -1);
 
@@ -156,7 +158,7 @@ TEST_CASE("disk_io", "[io_uring]")
     REQUIRE("hello"sv == std::string_view(buffer, result));
   });
 
-  ctx.submit_and_wait(100);
+  ctx.submit_and_wait(100 * HRTIME_MSECOND);
 }
 
 void
@@ -263,7 +265,7 @@ TEST_CASE("net_io", "[io_uring]")
   uint64_t completions_before = io_uring_completions;
   uint64_t needed             = 2;
   while ((io_uring_completions - completions_before) < needed) {
-    ctx.submit_and_wait(1000);
+    ctx.submit_and_wait(1 * HRTIME_SECOND);
   }
 
   REQUIRE(server.clients == 1);
