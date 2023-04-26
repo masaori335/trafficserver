@@ -30,6 +30,8 @@
  ****************************************************************************/
 #pragma once
 
+#include <string>
+#include <unordered_map>
 #include <vector>
 #include <string_view>
 #include <strings.h>
@@ -92,7 +94,8 @@ struct SNIConfigParams : public ConfigInfo {
   int load_sni_config();
   std::pair<const ActionVector *, ActionItem::Context> get(std::string_view servername) const;
 
-  SNIList sni_action_list;
+  std::unordered_map<std::string, ActionVector> sni_action_map; ///< for exact fqdn matching
+  SNIList sni_action_list;                                      ///< for regex fqdn matching
   NextHopPropertyList next_hop_list;
   YamlSNIConfig yaml_sni;
 };
