@@ -204,6 +204,56 @@ ResourceManager::set_sum(ResourceType stats_type, ResourceStatsType index, uint6
 }
 
 void
+ResourceManager::increment(ResourceType stats_type, uint64_t tag_id, ResourceStatsType index, uint64_t value)
+{
+  switch (static_cast<int>(stats_type)) {
+  case static_cast<int>(ResourceType::SNI): {
+    _sni_stats.increment(tag_id, index, value);
+    break;
+  }
+  case static_cast<int>(ResourceType::ACTIVE_Q): {
+    _active_q_stats.increment(tag_id, index, value);
+    break;
+  }
+  case static_cast<int>(ResourceType::DISK_READ): {
+    _disk_read_stats.increment(tag_id, index, value);
+    break;
+  }
+  case static_cast<int>(ResourceType::DISK_WRITE): {
+    _disk_write_stats.increment(tag_id, index, value);
+    break;
+  }
+  default:
+    ink_abort("unsupported stats type");
+  }
+}
+
+void
+ResourceManager::increment(ResourceType stats_type, ResourceStatsType index, uint64_t value)
+{
+  switch (static_cast<int>(stats_type)) {
+  case static_cast<int>(ResourceType::SNI): {
+    _sni_stats.increment(index, value);
+    break;
+  }
+  case static_cast<int>(ResourceType::ACTIVE_Q): {
+    _active_q_stats.increment(index, value);
+    break;
+  }
+  case static_cast<int>(ResourceType::DISK_READ): {
+    _disk_read_stats.increment(index, value);
+    break;
+  }
+  case static_cast<int>(ResourceType::DISK_WRITE): {
+    _disk_write_stats.increment(index, value);
+    break;
+  }
+  default:
+    ink_abort("unsupported stats type");
+  }
+}
+
+void
 ResourceManager::clear(ResourceType stats_type)
 {
   switch (static_cast<int>(stats_type)) {

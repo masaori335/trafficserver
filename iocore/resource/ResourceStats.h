@@ -37,6 +37,8 @@ public:
   void add(uint32_t tid, std::string_view name);
   void set_sum(uint64_t tag_id, ResourceStatsType index, uint64_t value);
   void set_sum(ResourceStatsType s, uint64_t value);
+  void increment(uint64_t tag_id, ResourceStatsType index, uint64_t value);
+  void increment(ResourceStatsType s, uint64_t value);
   void clear();
 
   ////
@@ -50,6 +52,7 @@ private:
   //
   int _register_property_stat(std::string_view, ResourceStatsType s);
   void _register_global_stat(ResourceStatsType s);
+  int _find_register(uint64_t tid, uint64_t value);
 
   ////
   // Variables
