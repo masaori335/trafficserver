@@ -136,7 +136,7 @@ ResourceManager::reconfigure(bool startup)
       nh->resource_local_manager.reconfigure();
     } else {
       if (nh->resource_local_manager.handler == &ResourceLocalManager::state_running) {
-        ethread->schedule_imm_local(&nh->resource_local_manager);
+        ethread->schedule_imm(&nh->resource_local_manager);
       } else {
         Warning("Resource Local Manager is not running yet. Retry later");
       }
@@ -196,56 +196,6 @@ ResourceManager::set_sum(ResourceType stats_type, ResourceStatsType index, uint6
   }
   case static_cast<int>(ResourceType::DISK_WRITE): {
     _disk_write_stats.set_sum(index, value);
-    break;
-  }
-  default:
-    ink_abort("unsupported stats type");
-  }
-}
-
-void
-ResourceManager::increment(ResourceType stats_type, uint64_t tag_id, ResourceStatsType index, uint64_t value)
-{
-  switch (static_cast<int>(stats_type)) {
-  case static_cast<int>(ResourceType::SNI): {
-    _sni_stats.increment(tag_id, index, value);
-    break;
-  }
-  case static_cast<int>(ResourceType::ACTIVE_Q): {
-    _active_q_stats.increment(tag_id, index, value);
-    break;
-  }
-  case static_cast<int>(ResourceType::DISK_READ): {
-    _disk_read_stats.increment(tag_id, index, value);
-    break;
-  }
-  case static_cast<int>(ResourceType::DISK_WRITE): {
-    _disk_write_stats.increment(tag_id, index, value);
-    break;
-  }
-  default:
-    ink_abort("unsupported stats type");
-  }
-}
-
-void
-ResourceManager::increment(ResourceType stats_type, ResourceStatsType index, uint64_t value)
-{
-  switch (static_cast<int>(stats_type)) {
-  case static_cast<int>(ResourceType::SNI): {
-    _sni_stats.increment(index, value);
-    break;
-  }
-  case static_cast<int>(ResourceType::ACTIVE_Q): {
-    _active_q_stats.increment(index, value);
-    break;
-  }
-  case static_cast<int>(ResourceType::DISK_READ): {
-    _disk_read_stats.increment(index, value);
-    break;
-  }
-  case static_cast<int>(ResourceType::DISK_WRITE): {
-    _disk_write_stats.increment(index, value);
     break;
   }
   default:

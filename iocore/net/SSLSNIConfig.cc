@@ -39,8 +39,6 @@
 #include "tscore/I_Layout.h"
 
 #include "tscpp/util/TextView.h"
-#include "tscpp/util/Convert.h"
-
 #include "ResourceManager.h"
 
 #include <sstream>
@@ -113,63 +111,40 @@ int
 SNIConfigParams::load_sni_config()
 {
   for (auto &item : yaml_sni.items) {
-    Debug("ssl_sni", "name: %s", item.fqdn.data());
-
-    ActionVector *actions = nullptr;
-
-    if (item.fqdn.find('*') == std::string::npos) {
-      // servername is case-insensitive, store & find it in lower case
-      char lower_case_name[TS_MAX_HOST_NAME_LEN + 1];
-      ts::transform_lower(item.fqdn, lower_case_name);
-      auto [it, inserted] = sni_action_map.emplace(std::make_pair(lower_case_name, ActionVector()));
-
-      if (!inserted) {
-        Error("error on loading sni yaml - fqdn=%s", item.fqdn.data());
-        return 1;
-      }
-
-      actions = &it->second;
-    } else {
-      auto ai = sni_action_list.emplace(sni_action_list.end());
-      ai->set_glob_name(item.fqdn);
-      actions = &ai->actions;
-    }
-
-    if (actions == nullptr) {
-      Error("error on loading sni yaml - fqdn=%s", item.fqdn.data());
-      return 1;
-    }
+    auto ai = sni_action_list.emplace(sni_action_list.end());
+    ai->set_glob_name(item.fqdn);
+    Debug("ssl", "name: %s", item.fqdn.data());
 
     // set SNI based actions to be called in the ssl_servername_only callback
     if (item.offer_h2.has_value()) {
-      actions->push_back(std::make_unique<ControlH2>(item.offer_h2.value()));
+      ai->actions.push_back(std::make_unique<ControlH2>(item.offer_h2.value()));
     }
     if (item.verify_client_level != 255) {
-      actions->push_back(
+      ai->actions.push_back(
         std::make_unique<VerifyClient>(item.verify_client_level, item.verify_client_ca_file, item.verify_client_ca_dir));
     }
     if (item.host_sni_policy != 255) {
-      actions->push_back(std::make_unique<HostSniPolicy>(item.host_sni_policy));
+      ai->actions.push_back(std::make_unique<HostSniPolicy>(item.host_sni_policy));
     }
     if (!item.protocol_unset) {
-      actions->push_back(std::make_unique<TLSValidProtocols>(item.protocol_mask));
+      ai->actions.push_back(std::make_unique<TLSValidProtocols>(item.protocol_mask));
     }
     if (item.tunnel_destination.length() > 0) {
-      actions->push_back(
+      ai->actions.push_back(
         std::make_unique<TunnelDestination>(item.tunnel_destination, item.tunnel_type, item.tunnel_prewarm, item.tunnel_alpn));
     }
     if (!item.client_sni_policy.empty()) {
-      actions->push_back(std::make_unique<OutboundSNIPolicy>(item.client_sni_policy));
+      ai->actions.push_back(std::make_unique<OutboundSNIPolicy>(item.client_sni_policy));
     }
     if (item.http2_buffer_water_mark.has_value()) {
-      actions->push_back(std::make_unique<HTTP2BufferWaterMark>(item.http2_buffer_water_mark.value()));
+      ai->actions.push_back(std::make_unique<HTTP2BufferWaterMark>(item.http2_buffer_water_mark.value()));
     }
 
     if (!item.tag.empty()) {
-      actions->push_back(std::make_unique<SNITag>(item.tag));
+      ai->actions.push_back(std::make_unique<SNITag>(item.tag));
     }
 
-    actions->push_back(std::make_unique<SNI_IpAllow>(item.ip_allow, item.fqdn));
+    ai->actions.push_back(std::make_unique<SNI_IpAllow>(item.ip_allow, item.fqdn));
 
     // set the next hop properties
     auto nps = next_hop_list.emplace(next_hop_list.end());
@@ -197,21 +172,9 @@ SNIConfigParams::load_sni_config()
   return 0;
 }
 
-/**
-  CAVEAT: the "fqdn" field in the sni.yaml accepts wildcards (*), but it has a negative performance impact.
-  */
 std::pair<const ActionVector *, ActionItem::Context>
 SNIConfigParams::get(std::string_view servername) const
 {
-  // Check for exact matches (fast path)
-  char lower_case_name[TS_MAX_HOST_NAME_LEN + 1];
-  ts::transform_lower(servername, lower_case_name);
-  auto iter = sni_action_map.find(lower_case_name);
-  if (iter != sni_action_map.end()) {
-    return {&iter->second, {}};
-  }
-
-  // Check for wildcard matches (slow path)
   int ovector[OVECSIZE];
 
   for (const auto &retval : sni_action_list) {
@@ -246,7 +209,6 @@ SNIConfigParams::get(std::string_view servername) const
       return {&retval.actions, {std::move(groups)}};
     }
   }
-
   return {nullptr, {}};
 }
 
@@ -284,7 +246,7 @@ SNIConfigParams::initialize()
 
 SNIConfigParams::~SNIConfigParams()
 {
-  // sni_action_map, sni_action_list and next_hop_list should cleanup with the params object
+  // sni_action_list and next_hop_list should cleanup with the params object
 }
 
 ////

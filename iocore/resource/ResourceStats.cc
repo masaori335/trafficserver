@@ -108,9 +108,42 @@ ResourceStats::set_sum(uint64_t tid, ResourceStatsType index, uint64_t value)
     return;
   }
 
-  int offset = _find_register(tid, value);
-  if (offset < 0) {
-    return;
+  int offset = 0;
+
+  // Race of creating new stats if _stats_id_map doesn't have it
+  {
+    SCOPED_MUTEX_LOCK(lock, mutex, this_ethread());
+
+    auto stats_id_result = _stats_id_map.find(tid);
+    if (stats_id_result == _stats_id_map.end()) {
+      if (value == 0) {
+        // Do NOT create new stats entry if value is 0
+        return;
+      }
+
+      auto name_map_result = _name_map.find(tid);
+      if (name_map_result == _name_map.end()) {
+        // unknown property
+        return;
+      }
+
+      std::string_view name = name_map_result->second;
+
+      // remember only the first stat_id
+      int stat_id = _register_property_stat(name, ResourceStatsType::OBSERVED);
+      if (stat_id < 0) {
+        Warning("error with adding %.*s", static_cast<int>(name.size()), name.data());
+        return;
+      }
+      _stats_id_map.insert_or_assign(tid, stat_id);
+
+      _register_property_stat(name, ResourceStatsType::TOKEN);
+      _register_property_stat(name, ResourceStatsType::TMP_LIMIT);
+      _register_property_stat(name, ResourceStatsType::DENIED);
+      _register_property_stat(name, ResourceStatsType::OVERFLOWED);
+    } else {
+      offset = stats_id_result->second;
+    }
   }
 
   int sid = offset + static_cast<int>(index);
@@ -127,70 +160,6 @@ ResourceStats::set_sum(ResourceStatsType index, uint64_t value)
 
   RecRawStat *tlp = raw_stat_get_tlp(_global_buckets, static_cast<int>(index), nullptr);
   tlp->sum        = value;
-}
-
-void
-ResourceStats::increment(uint64_t tid, ResourceStatsType index, uint64_t value)
-{
-  if (mutex == nullptr) {
-    return;
-  }
-
-  int offset = _find_register(tid, value);
-  if (offset < 0) {
-    return;
-  }
-
-  int sid = offset + static_cast<int>(index);
-
-  _property_buckets.increment(sid, value);
-}
-
-void
-ResourceStats::increment(ResourceStatsType index, uint64_t value)
-{
-  if (mutex == nullptr) {
-    return;
-  }
-  RecIncrRawStat(_global_buckets, nullptr, static_cast<int>(index), value);
-}
-
-int
-ResourceStats::_find_register(uint64_t tid, uint64_t value)
-{
-  // Race of creating new stats if _stats_id_map doesn't have it
-  SCOPED_MUTEX_LOCK(lock, mutex, this_ethread());
-
-  auto stats_id_result = _stats_id_map.find(tid);
-  if (stats_id_result == _stats_id_map.end()) {
-    if (value == 0) {
-      // Do NOT create new stats entry if value is 0
-      return -1;
-    }
-
-    auto name_map_result = _name_map.find(tid);
-    if (name_map_result == _name_map.end()) {
-      // unknown property
-      return -1;
-    }
-
-    std::string_view name = name_map_result->second;
-
-    // remember only the first stat_id
-    int stat_id = _register_property_stat(name, ResourceStatsType::OBSERVED);
-    if (stat_id < 0) {
-      Warning("error with adding %.*s", static_cast<int>(name.size()), name.data());
-      return -1;
-    }
-    _stats_id_map.insert_or_assign(tid, stat_id);
-
-    _register_property_stat(name, ResourceStatsType::TOKEN);
-    _register_property_stat(name, ResourceStatsType::TMP_LIMIT);
-    _register_property_stat(name, ResourceStatsType::DENIED);
-    _register_property_stat(name, ResourceStatsType::OVERFLOWED);
-    return 0;
-  }
-  return stats_id_result->second;
 }
 
 void

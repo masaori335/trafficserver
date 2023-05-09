@@ -46,9 +46,6 @@ FetchSM::cleanUp()
     chunked_handler.clear();
   }
 
-  if (http_vc) {
-    http_vc->do_io_close();
-  }
   free_MIOBuffer(req_buffer);
   free_MIOBuffer(resp_buffer);
   mutex.clear();
@@ -56,6 +53,7 @@ FetchSM::cleanUp()
   client_response_hdr.destroy();
   ats_free(client_response);
   cont_mutex.clear();
+  http_vc->do_io_close();
   FetchSMAllocator.free(this);
 }
 
@@ -68,17 +66,6 @@ FetchSM::httpConnect()
 
   Debug(DEBUG_TAG, "[%s] calling httpconnect write pi=%p tag=%s id=%" PRId64, __FUNCTION__, pi, tag, id);
   http_vc = reinterpret_cast<PluginVC *>(TSHttpConnectWithPluginId(&_addr.sa, tag, id));
-  if (http_vc == nullptr) {
-    Debug(DEBUG_TAG, "Not ready to use");
-    if (contp) {
-      if (fetch_flags & TS_FETCH_FLAGS_STREAM) {
-        return InvokePluginExt(TS_EVENT_ERROR);
-      }
-      InvokePlugin(callback_events.failure_event_id, nullptr);
-    }
-    cleanUp();
-    return;
-  }
 
   /*
    * TS-2906: We need a way to unset internal request when using FetchSM, the use case for this
@@ -107,13 +94,14 @@ int
 FetchSM::InvokePlugin(int event, void *data)
 {
   EThread *mythread = this_ethread();
-  SCOPED_MUTEX_LOCK(lock, mutex, mythread);
-  if (contp) {
-    SCOPED_MUTEX_LOCK(lock2, contp->mutex, mythread);
-    return contp->handleEvent(event, data);
-  } else {
-    return TS_ERROR;
-  }
+
+  MUTEX_TAKE_LOCK(contp->mutex, mythread);
+
+  int ret = contp->handleEvent(event, data);
+
+  MUTEX_UNTAKE_LOCK(contp->mutex, mythread);
+
+  return ret;
 }
 
 bool
@@ -661,9 +649,6 @@ FetchSM::ext_launch()
 void
 FetchSM::ext_write_data(const void *data, size_t len)
 {
-  if (write_vio == nullptr) {
-    return;
-  }
   if (fetch_flags & TS_FETCH_FLAGS_NEWLOCK) {
     MUTEX_TAKE_LOCK(mutex, this_ethread());
   }
@@ -733,12 +718,18 @@ FetchSM::ext_read_data(char *buf, size_t len)
 void
 FetchSM::ext_destroy()
 {
-  SCOPED_MUTEX_LOCK(lock, mutex, this_ethread());
-
   contp = nullptr;
 
   if (recursion) {
     return;
+  }
+
+  if (fetch_flags & TS_FETCH_FLAGS_NEWLOCK) {
+    MUTEX_TRY_LOCK(lock, mutex, this_ethread());
+    if (!lock.is_locked()) {
+      eventProcessor.schedule_in(this, FETCH_LOCK_RETRY_TIME);
+      return;
+    }
   }
 
   cleanUp();

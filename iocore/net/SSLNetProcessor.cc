@@ -39,6 +39,7 @@
 SSLNetProcessor ssl_NetProcessor;
 NetProcessor &sslNetProcessor = ssl_NetProcessor;
 
+#if TS_USE_TLS_OCSP
 struct OCSPContinuation : public Continuation {
   int
   mainEvent(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
@@ -51,6 +52,7 @@ struct OCSPContinuation : public Continuation {
 
   OCSPContinuation() : Continuation(new_ProxyMutex()) { SET_HANDLER(&OCSPContinuation::mainEvent); }
 };
+#endif /* TS_USE_TLS_OCSP */
 
 void
 SSLNetProcessor::cleanup()
@@ -76,6 +78,7 @@ SSLNetProcessor::start(int, size_t stacksize)
   // Initialize SSL statistics. This depends on an initial set of certificates being loaded above.
   SSLInitializeStatistics();
 
+#if TS_USE_TLS_OCSP
   if (SSLConfigParams::ssl_ocsp_enabled) {
     EventType ET_OCSP  = eventProcessor.spawn_event_threads("ET_OCSP", 1, stacksize);
     Continuation *cont = new OCSPContinuation();
@@ -83,6 +86,7 @@ SSLNetProcessor::start(int, size_t stacksize)
     eventProcessor.schedule_imm(cont, ET_OCSP);
     eventProcessor.schedule_every(cont, HRTIME_SECONDS(SSLConfigParams::ssl_ocsp_update_period), ET_OCSP);
   }
+#endif /* TS_USE_TLS_OCSP */
 
   // We have removed the difference between ET_SSL threads and ET_NET threads,
   // So just keep on chugging

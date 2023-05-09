@@ -69,8 +69,10 @@ report_v1(const T &limiter, ResourceType resource_type)
 {
   auto &global_bucket = limiter.global_bucket();
 
-  resourceManager.increment(resource_type, ResourceStatsType::OBSERVED, global_bucket.observed);
-  resourceManager.increment(resource_type, ResourceStatsType::TOKEN, global_bucket.token);
+  resourceManager.set_sum(resource_type, ResourceStatsType::OBSERVED, global_bucket.observed);
+  resourceManager.set_sum(resource_type, ResourceStatsType::TOKEN, global_bucket.token);
+
+  resourceManager.clear(resource_type);
 
   auto &map            = limiter.bucket_map();
   auto &sorted_tid_map = limiter.sorted_tid_map();
@@ -81,11 +83,11 @@ report_v1(const T &limiter, ResourceType resource_type)
     const uint64_t tid = iter->second;
     const auto &bucket = map.at(tid);
 
-    resourceManager.increment(resource_type, tid, ResourceStatsType::OBSERVED, bucket.observed);
-    resourceManager.increment(resource_type, tid, ResourceStatsType::TOKEN, bucket.token);
-    resourceManager.increment(resource_type, tid, ResourceStatsType::DENIED, bucket.denied);
-    resourceManager.increment(resource_type, tid, ResourceStatsType::TMP_LIMIT, bucket.tmp_limit);
-    resourceManager.increment(resource_type, tid, ResourceStatsType::OVERFLOWED, bucket.overflowed);
+    resourceManager.set_sum(resource_type, tid, ResourceStatsType::OBSERVED, bucket.observed);
+    resourceManager.set_sum(resource_type, tid, ResourceStatsType::TOKEN, bucket.token);
+    resourceManager.set_sum(resource_type, tid, ResourceStatsType::DENIED, bucket.denied);
+    resourceManager.set_sum(resource_type, tid, ResourceStatsType::TMP_LIMIT, bucket.tmp_limit);
+    resourceManager.set_sum(resource_type, tid, ResourceStatsType::OVERFLOWED, bucket.overflowed);
   }
 }
 
@@ -422,9 +424,34 @@ ResourceLocalManager::reserve()
     return;
   }
 
-  for (auto &limiter : _limiters) {
-    std::visit([&](auto &l) { l.filter(); }, limiter);
-    std::visit(ResourceReport{}, limiter);
-    std::visit([&](auto &l) { l.reserve(); }, limiter);
+  // NOTE: can we reduce glue code like this?
+  // for (auto &limiter : _limiters) {
+  //   std::visit([&](auto &l) { l.filter(); }, limiter);
+  //   std::visit(ResourceReport{}, limiter);
+  //   std::visit([&](auto &l) { l.reserve(); }, limiter);
+  // }
+
+  if (_mode_sni != ResourceConfigMode::DISABLED) {
+    _sni_limiter->filter();
+    report_v1<TLSHandshakeLimiterV1>(*_sni_limiter, ResourceType::SNI);
+    _sni_limiter->reserve();
+  }
+
+  if (_mode_active_q != ResourceConfigMode::DISABLED) {
+    _active_q_limiter->filter();
+    report_v1<ActiveQLimiterV1>(*_active_q_limiter, ResourceType::ACTIVE_Q);
+    _active_q_limiter->reserve();
+  }
+
+  if (_mode_disk_read != ResourceConfigMode::DISABLED) {
+    _disk_read_limiter->filter();
+    report_v1<DiskReadLimiterV1>(*_disk_read_limiter, ResourceType::DISK_READ);
+    _disk_read_limiter->reserve();
+  }
+
+  if (_mode_disk_write != ResourceConfigMode::DISABLED) {
+    _disk_write_limiter->filter();
+    report_v1<DiskWriteLimiterV1>(*_disk_write_limiter, ResourceType::DISK_WRITE);
+    _disk_write_limiter->reserve();
   }
 }
