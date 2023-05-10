@@ -37,14 +37,12 @@ traffic_server_traffic_server_CPPFLAGS = \
 	@SWOC_INCLUDES@ \
 	$(TS_INCLUDES) \
 	@OPENSSL_INCLUDES@ \
-	@BORINGOCSP_INCLUDES@ \
 	@YAMLCPP_INCLUDES@
 
 traffic_server_traffic_server_LDFLAGS = \
 	$(AM_LDFLAGS) \
         @SWOC_LDFLAGS@ \
-	@YAMLCPP_LDFLAGS@ \
-	@BORINGOCSP_LDFLAGS@
+	@YAMLCPP_LDFLAGS@
 
 traffic_server_traffic_server_SOURCES = \
 	traffic_server/Crash.cc \
@@ -101,7 +99,6 @@ traffic_server_traffic_server_LDADD = \
 	@SWOC_LIBS@ \
 	@OPENSSL_LIBS@ \
 	@YAMLCPP_LIBS@ \
-	@BORINGOCSP_LIBS@ \
 	@URING_LIBS@ \
 	-lm
 
@@ -115,11 +112,8 @@ if ENABLE_QUIC
 traffic_server_traffic_server_LDADD += \
   $(top_builddir)/proxy/http3/libhttp3.a \
   $(top_builddir)/iocore/net/quic/libquic.a \
-  $(top_builddir)/iocore/eventsystem/libinkevent.a
-if USE_QUICHE
-traffic_server_traffic_server_LDADD += \
+  $(top_builddir)/iocore/eventsystem/libinkevent.a \
   $(QUICHE_LIB)
-endif
 endif
 
 if ENABLE_IO_URING

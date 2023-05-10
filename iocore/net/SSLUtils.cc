@@ -328,7 +328,7 @@ ssl_client_hello_callback(SSL *s, int *al, void *arg)
 static ssl_select_cert_result_t
 ssl_client_hello_callback(const SSL_CLIENT_HELLO *client_hello)
 {
-  SSL *s = client_hello->ssl;
+  SSL *s              = client_hello->ssl;
   TLSSNISupport *snis = TLSSNISupport::getInstance(s);
 
   if (snis) {
@@ -375,13 +375,15 @@ ssl_cert_callback(SSL *ssl, void *arg)
   int retval = 1;
 
   // If we are in tunnel mode, don't select a cert.  Pause!
-  NetVConnection *netvc = reinterpret_cast<NetVConnection *>(sslnetvc);
-  if (HttpProxyPort::TRANSPORT_BLIND_TUNNEL == netvc->attributes) {
+  if (sslnetvc) {
+    NetVConnection *netvc = reinterpret_cast<NetVConnection *>(sslnetvc);
+    if (HttpProxyPort::TRANSPORT_BLIND_TUNNEL == netvc->attributes) {
 #ifdef OPENSSL_IS_BORINGSSL
-    return -2; // Retry
+      return -2; // Retry
 #else
-    return -1; // Pause
+      return -1; // Pause
 #endif
+    }
   }
 
   SSLCertContextType ctxType = SSLCertContextType::GENERIC;
@@ -411,7 +413,7 @@ ssl_cert_callback(SSL *ssl, void *arg)
       retval = -1; // Pause
     }
   } else {
-    if (tcss->selectCertificate(ssl, ctxType) == 1) {
+    if (tcss && tcss->selectCertificate(ssl, ctxType) == 1) {
       retval = 1;
     } else {
       retval = 0;
@@ -938,9 +940,7 @@ SSLInitializeLibrary()
     CRYPTO_set_dynlock_destroy_callback(ssl_dyn_destroy_callback);
   }
 
-#if TS_USE_TLS_OCSP
   ssl_stapling_ex_init();
-#endif /* TS_USE_TLS_OCSP */
 
   // Reserve an application data index so that we can attach
   // the SSLNetVConnection to the SSL session.
@@ -1118,9 +1118,12 @@ ssl_callback_info(const SSL *ssl, int where, int ret)
     if (cipher) {
       const char *cipherName = SSL_CIPHER_get_name(cipher);
       // lookup index of stat by name and incr count
-      if (auto it = cipher_map.find(cipherName); it != cipher_map.end()) {
-        SSL_INCREMENT_DYN_STAT((intptr_t)it->second);
+      auto it = cipher_map.find(cipherName);
+      if (it == cipher_map.end()) {
+        it = cipher_map.find(SSL_CIPHER_STAT_OTHER);
+        ink_assert(it != cipher_map.end());
       }
+      SSL_INCREMENT_DYN_STAT((intptr_t)it->second);
     }
   }
 }
@@ -1267,8 +1270,23 @@ SSLMultiCertConfigLoader::init_server_ssl_ctx(CertLoadData const &data, const SS
     Debug("ssl_load", "Creating new context %p cert_count=%ld initial: %s", ctx, cert_names_list.size(),
           cert_names_list[0].c_str());
 
-    // disable selected protocols
     SSL_CTX_set_options(ctx, _params->ssl_ctx_options);
+
+    if (_params->server_tls_ver_min >= 0 || _params->server_tls_ver_max >= 0) {
+      int ver = 0;
+      if (_params->server_tls_ver_min >= 0) {
+        ver = TLS1_VERSION + _params->server_tls_ver_min;
+      }
+      // Setting 0 enables version down to the lowest version supported by the SSL library
+      SSL_CTX_set_min_proto_version(ctx, ver);
+
+      ver = 0;
+      if (_params->server_tls_ver_max >= 0) {
+        ver = TLS1_VERSION + _params->server_tls_ver_max;
+      }
+      // Setting 0 enables version up to the highest version supported by the SSL library
+      SSL_CTX_set_max_proto_version(ctx, ver);
+    }
 
     if (!this->_setup_session_cache(ctx)) {
       goto fail;
@@ -1391,7 +1409,7 @@ SSLMultiCertConfigLoader::_setup_session_cache(SSL_CTX *ctx)
     SSL_CTX_set_timeout(ctx, params->ssl_session_cache_timeout);
   }
 
-  int additional_cache_flags = 0;
+  int additional_cache_flags  = 0;
   additional_cache_flags     |= (params->ssl_session_cache_auto_clear == 0) ? SSL_SESS_CACHE_NO_AUTO_CLEAR : 0;
 
   switch (params->ssl_session_cache) {
@@ -2359,18 +2377,12 @@ SSLMultiCertConfigLoader::load_certs(SSL_CTX *ctx, const std::vector<std::string
                                      const std::vector<std::string> &key_list, CertLoadData const &data,
                                      const SSLConfigParams *params, const SSLMultiCertConfigParams *sslMultCertSettings)
 {
-#if TS_USE_TLS_OCSP
   if (SSLConfigParams::ssl_ocsp_enabled) {
     Debug("ssl_load", "SSL OCSP Stapling is enabled");
     SSL_CTX_set_tlsext_status_cb(ctx, ssl_callback_ocsp_stapling);
   } else {
     Debug("ssl_load", "SSL OCSP Stapling is disabled");
   }
-#else
-  if (SSLConfigParams::ssl_ocsp_enabled) {
-    Warning("failed to enable SSL OCSP Stapling; this version of OpenSSL does not support it");
-  }
-#endif /* TS_USE_TLS_OCSP */
 
   ink_assert(!cert_names_list.empty());
 
@@ -2451,7 +2463,6 @@ SSLMultiCertConfigLoader::load_certs(SSL_CTX *ctx, const std::vector<std::string
         }
       }
     }
-#if TS_USE_TLS_OCSP
     if (SSLConfigParams::ssl_ocsp_enabled) {
       if (sslMultCertSettings->ocsp_response) {
         const char *ocsp_response_name = data.ocsp_list[i].c_str();
@@ -2465,7 +2476,6 @@ SSLMultiCertConfigLoader::load_certs(SSL_CTX *ctx, const std::vector<std::string
         }
       }
     }
-#endif /* TS_USE_TLS_OCSP */
     X509_free(cert);
   }
   return true;
@@ -2571,7 +2581,7 @@ SSLSessionDup(SSL_SESSION *sess)
   return SSL_SESSION_dup(sess);
 #else
   SSL_SESSION *duplicated = nullptr;
-  int len = i2d_SSL_SESSION(sess, nullptr);
+  int len                 = i2d_SSL_SESSION(sess, nullptr);
   if (len < 0) {
     return nullptr;
   }

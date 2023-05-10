@@ -34,7 +34,6 @@ AM_CPPFLAGS += \
 	-I$(abs_top_srcdir)/src/traffic_server \
 	$(TS_INCLUDES) \
 	@OPENSSL_INCLUDES@ \
-	@BORINGOCSP_INCLUDES@ \
 	@YAMLCPP_INCLUDES@ \
 	@SWOC_INCLUDES@
 
@@ -85,7 +84,7 @@ test_UDPNet_LDADD = \
 	$(top_builddir)/src/tscore/libtscore.la $(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/proxy/hdrs/libhdrs.a \
 	$(top_builddir)/proxy/ParentSelectionStrategy.o \
-	@HWLOC_LIBS@ @OPENSSL_LIBS@ @BORINGOCSP_LIBS@ @LIBPCRE@ @YAMLCPP_LIBS@ @SWOC_LIBS@
+	@HWLOC_LIBS@ @OPENSSL_LIBS@ @LIBPCRE@ @YAMLCPP_LIBS@ @SWOC_LIBS@
 
 test_UDPNet_SOURCES = \
 	libinknet_stub.cc \
@@ -215,7 +214,6 @@ libinknet_a_SOURCES = \
 	SNIActionPerformer.cc
 
 if ENABLE_QUIC
-if USE_QUICHE
 libinknet_a_SOURCES += \
   P_QUICClosedConCollector.h \
   P_QUICPacketHandler.h \
@@ -229,22 +227,6 @@ libinknet_a_SOURCES += \
   QUICNetVConnection_quiche.cc \
   QUICNextProtocolAccept_quiche.cc \
   QUICPacketHandler_quiche.cc
-else
-libinknet_a_SOURCES += \
-  P_QUICClosedConCollector.h \
-  P_QUICPacketHandler.h \
-  P_QUICNet.h \
-  P_QUICNetProcessor.h \
-  P_QUICNetVConnection.h \
-  P_QUICNextProtocolAccept.h \
-  QUICClosedConCollector.cc \
-  QUICPacketHandler.cc \
-  QUICMultiCertConfigLoader.cc \
-  QUICNet.cc \
-  QUICNetProcessor.cc \
-  QUICNetVConnection.cc \
-  QUICNextProtocolAccept.cc
-endif
 endif
 
 if BUILD_TESTS

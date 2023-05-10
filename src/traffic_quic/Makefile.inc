@@ -38,8 +38,7 @@ traffic_quic_traffic_quic_CPPFLAGS = \
 traffic_quic_traffic_quic_LDFLAGS = \
 	$(AM_LDFLAGS) \
 	@SWOC_LIBS@ \
-	@OPENSSL_LDFLAGS@ \
-	@BORINGOCSP_LDFLAGS@
+	@OPENSSL_LDFLAGS@
 
 traffic_quic_traffic_quic_SOURCES = \
 	traffic_quic/quic_client.cc \
@@ -63,10 +62,5 @@ traffic_quic_traffic_quic_LDADD = \
 	@SWOC_LIBS@ \
 	@YAMLCPP_LIBS@ \
 	@OPENSSL_LIBS@ \
-	@BORINGOCSP_LIBS@ \
+	@QUICHE_LIB@ \
 	@LIBPCRE@
-
-if USE_QUICHE
-traffic_quic_traffic_quic_LDADD += \
-  $(QUICHE_LIB)
-endif

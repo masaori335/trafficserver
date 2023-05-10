@@ -60,11 +60,11 @@
       offset = 0;                                               \
       if ((H)->valid()) {                                       \
         do {                                                    \
-          used    = 0;                                          \
-          tmp     = offset;                                     \
-          done    = (H)->print(b, 4095, &used, &tmp);           \
+          used     = 0;                                         \
+          tmp      = offset;                                    \
+          done     = (H)->print(b, 4095, &used, &tmp);          \
           offset  += used;                                      \
-          b[used] = '\0';                                       \
+          b[used]  = '\0';                                      \
           fprintf(stderr, "%s", b);                             \
         } while (!done);                                        \
       }                                                         \
@@ -605,10 +605,9 @@ public:
       }
 
       void
-      increment(MgmtInt configured_connect_attempts_max_retries)
+      increment()
       {
         ++_v;
-        ink_assert(_v <= configured_connect_attempts_max_retries);
       }
 
       unsigned
@@ -620,7 +619,7 @@ public:
     private:
       unsigned _v{0}, _saved_v{0};
     };
-    Attempts attempts;
+    Attempts retry_attempts;
     unsigned simple_retry_attempts             = 0;
     unsigned unavailable_server_retry_attempts = 0;
     ParentRetry_t retry_type                   = PARENT_RETRY_NONE;
@@ -944,7 +943,17 @@ public:
     MgmtInt
     configured_connect_attempts_max_retries() const
     {
-      return txn_conf->connect_attempts_max_retries;
+      if (dns_info.looking_up != ResolveInfo::PARENT_PROXY) {
+        return txn_conf->connect_attempts_max_retries;
+      }
+      // For parent proxy, return the maximum retry count for the current parent
+      // intead of the max retries for the whole parent group.  The max retry
+      // count for the current parent is derived from rounding the current
+      // attempt up to next multiple of ppca.
+      auto ppca                    = txn_conf->per_parent_connect_attempts;
+      auto cur_tries               = current.retry_attempts.get() + 1;
+      auto cur_parent_max_attempts = ((cur_tries + ppca - 1) / ppca) * ppca;
+      return std::min(cur_parent_max_attempts, txn_conf->parent_connect_attempts) - 1;
     }
 
   private:

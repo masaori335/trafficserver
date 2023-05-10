@@ -235,7 +235,7 @@ decode_bitstring(const unsigned char **cpp, char *dn, const char *eom)
   if ((blen = (*cp & 0xff)) == 0) {
     blen = 256;
   }
-  plen = (blen + 3) / 4;
+  plen  = (blen + 3) / 4;
   plen += sizeof("\\[x/]") + (blen > 99 ? 3 : (blen > 9) ? 2 : 1);
   if (dn + plen >= eom) {
     return (-1);
@@ -417,7 +417,7 @@ ink_ns_name_ntop(const u_char *src, char *dst, size_t dstsiz)
  *\li	The root is returned as "."
  *\li	All other domains are returned in non absolute form
  */
-#if defined(linux)
+#if defined(__linux__)
 int
 ns_name_ntop(const u_char *src, char *dst, size_t dstsiz) __THROW
 #else

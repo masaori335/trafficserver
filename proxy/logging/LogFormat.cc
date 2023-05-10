@@ -108,7 +108,7 @@ LogFormat::id_from_name(const char *name)
   if (name) {
     CryptoHash hash;
     CryptoContext().hash_immediate(hash, name, static_cast<int>(strlen(name)));
-#if defined(linux)
+#if defined(__linux__)
     /* Mask most significant bit so that return value of this function
      * is not sign extended to be a negative number.
      * This problem is only known to occur on Linux which
@@ -680,7 +680,7 @@ LogFormat::parse_format_string(const char *format_str, char **printf_str, char *
         field_len = stop - start - 2;
         memcpy(&(*fields_str)[fields_pos], &format_str[start + 2], field_len);
         fields_pos                  += field_len;
-        (*printf_str)[printf_pos++] = LOG_FIELD_MARKER;
+        (*printf_str)[printf_pos++]  = LOG_FIELD_MARKER;
         ++field_count;
         start = stop;
       } else {
@@ -692,10 +692,10 @@ LogFormat::parse_format_string(const char *format_str, char **printf_str, char *
 
         if (escape_char == '\\') {
           start                       += 1;
-          (*printf_str)[printf_pos++] = static_cast<char>(escape_char);
+          (*printf_str)[printf_pos++]  = static_cast<char>(escape_char);
         } else if (escape_char >= 0) {
           start                       += 3;
-          (*printf_str)[printf_pos++] = static_cast<char>(escape_char);
+          (*printf_str)[printf_pos++]  = static_cast<char>(escape_char);
         } else {
           memcpy(&(*printf_str)[printf_pos], &format_str[start], stop - start + 1);
           printf_pos += stop - start + 1;
@@ -710,10 +710,10 @@ LogFormat::parse_format_string(const char *format_str, char **printf_str, char *
 
       if (escape_char == '\\') {
         start                       += 1;
-        (*printf_str)[printf_pos++] = static_cast<char>(escape_char);
+        (*printf_str)[printf_pos++]  = static_cast<char>(escape_char);
       } else if (escape_char >= 0) {
         start                       += 3;
-        (*printf_str)[printf_pos++] = static_cast<char>(escape_char);
+        (*printf_str)[printf_pos++]  = static_cast<char>(escape_char);
       } else {
         (*printf_str)[printf_pos++] = format_str[start];
       }

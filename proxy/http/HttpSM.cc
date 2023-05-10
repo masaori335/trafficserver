@@ -2026,7 +2026,7 @@ HttpSM::state_read_server_response_header(int event, void *data)
   case VC_EVENT_READ_COMPLETE:
     // More data to parse
     // Got some data, won't retry origin connection on error
-    t_state.current.attempts.maximize(t_state.configured_connect_attempts_max_retries());
+    t_state.current.retry_attempts.maximize(t_state.configured_connect_attempts_max_retries());
     break;
 
   case VC_EVENT_ERROR:
@@ -4727,7 +4727,7 @@ HttpSM::parse_range_and_compare(MIMEField *field, int64_t content_length)
     return;
   }
 
-  ranges    = new RangeRecord[n_values];
+  ranges     = new RangeRecord[n_values];
   value     += 6; // skip leading 'bytes='
   value_len -= 6;
 
@@ -5162,10 +5162,10 @@ void
 HttpSM::send_origin_throttled_response()
 {
   // if the request is to a parent proxy, do not reset
-  // t_state.current.attempts so that another parent or
+  // t_state.current.retry_attempts so that another parent or
   // NextHop may be tried.
   if (t_state.dns_info.looking_up != ResolveInfo::PARENT_PROXY) {
-    t_state.current.attempts.maximize(t_state.configured_connect_attempts_max_retries());
+    t_state.current.retry_attempts.maximize(t_state.configured_connect_attempts_max_retries());
   }
   t_state.current.state = HttpTransact::OUTBOUND_CONGESTION;
   call_transact_and_set_next_state(HttpTransact::HandleResponse);
@@ -5346,7 +5346,8 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
         SMDebug("ip_allow", "Line %d denial for '%.*s' from %s", acl.source_line(), method_str_len, method_str,
                 ats_ip_ntop(server_ip, ipb, sizeof(ipb)));
       }
-      t_state.current.attempts.maximize(t_state.configured_connect_attempts_max_retries()); // prevent any more retries with this IP
+      t_state.current.retry_attempts.maximize(
+        t_state.configured_connect_attempts_max_retries()); // prevent any more retries with this IP
       call_transact_and_set_next_state(HttpTransact::Forbidden);
       return;
     }
@@ -5600,7 +5601,7 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
 
           SMDebug("http_ss", "using pre-warmed tunnel netvc=%p", netvc);
 
-          t_state.current.attempts.clear();
+          t_state.current.retry_attempts.clear();
 
           ink_release_assert(default_handler == HttpSM::default_handler);
           handleEvent(NET_EVENT_OPEN, netvc);
@@ -6531,7 +6532,7 @@ HttpSM::write_header_into_buffer(HTTPHdr *h, MIOBuffer *b)
     int tmp              = dumpoffset;
 
     ink_assert(block->write_avail() > 0);
-    done       = h->print(block->start(), block->write_avail(), &bufindex, &tmp);
+    done        = h->print(block->start(), block->write_avail(), &bufindex, &tmp);
     dumpoffset += bufindex;
     ink_assert(bufindex > 0);
     b->fill(bufindex);
@@ -6685,7 +6686,7 @@ HttpSM::setup_server_send_request()
   if (t_state.api_server_request_body_set) {
     SMDebug("http", "appending msg of %" PRId64 " bytes to request %s", msg_len, t_state.internal_msg_buffer);
     hdr_length                += server_entry->write_buffer->write(t_state.internal_msg_buffer, msg_len);
-    server_request_body_bytes = msg_len;
+    server_request_body_bytes  = msg_len;
   }
 
   milestones[TS_MILESTONE_SERVER_BEGIN_WRITE] = Thread::get_hrtime();

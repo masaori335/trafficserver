@@ -1462,33 +1462,20 @@ APIHook const *
 HttpHookState::getNext()
 {
   APIHook const *zret = nullptr;
-  do {
-    APIHook const *hg   = _global.candidate();
-    APIHook const *hssn = _ssn.candidate();
-    APIHook const *htxn = _txn.candidate();
-    zret                = nullptr;
 
-    Debug("plugin", "computing next callback for hook %d", _id);
+#ifdef DEBUG
+  Debug("plugin", "computing next callback for hook %d", _id);
+#endif
 
-    if (hg) {
-      zret = hg;
-      ++_global;
-    } else if (hssn) {
-      zret = hssn;
-      ++_ssn;
-    } else if (htxn) {
-      zret = htxn;
-      ++_txn;
-    }
-  } while (zret != nullptr && !this->is_enabled());
+  if (zret = _global.candidate(); zret) {
+    ++_global;
+  } else if (zret = _ssn.candidate(); zret) {
+    ++_ssn;
+  } else if (zret = _txn.candidate(); zret) {
+    ++_txn;
+  }
 
   return zret;
-}
-
-bool
-HttpHookState::is_enabled()
-{
-  return true;
 }
 
 void
@@ -9570,7 +9557,6 @@ TSSslServerContextCreate(TSSslX509 cert, const char *certname, const char *rsp_f
   SSLConfigParams *config = SSLConfig::acquire();
   if (config != nullptr) {
     ret = reinterpret_cast<TSSslContext>(SSLCreateServerContext(config, nullptr));
-#if TS_USE_TLS_OCSP
     if (ret && SSLConfigParams::ssl_ocsp_enabled && cert && certname) {
       if (SSL_CTX_set_tlsext_status_cb(reinterpret_cast<SSL_CTX *>(ret), ssl_callback_ocsp_stapling)) {
         if (!ssl_stapling_init_cert(reinterpret_cast<SSL_CTX *>(ret), reinterpret_cast<X509 *>(cert), certname, rsp_file)) {
@@ -9578,7 +9564,6 @@ TSSslServerContextCreate(TSSslX509 cert, const char *certname, const char *rsp_f
         }
       }
     }
-#endif
     SSLConfig::release(config);
   }
   return ret;
