@@ -123,6 +123,7 @@ BuildRequires:	bazinga-yaml-cpp-devel
 %{?_with_boringssl:BuildRequires: bazinga-boringssl < 19}
 %{!?_with_boringssl:BuildRequires: bazinga-openssl-devel}
 BuildRequires: bazinga-llvm-lld
+%{?_with_io_uring:BuildRequires: bazinga-liburing-devel}
 
 # trafficserver fails to build on ppc and others, TS-1131, see lib/ts/ink_queue.h
 ExclusiveArch:	%{ix86} x86_64 ia64 %{arm}
@@ -142,6 +143,7 @@ Requires:	initscripts, zlib, pcre, expat, xz
 Requires:	libcurl, ncurses-libs, libcap, hwloc, libmaxminddb
 Requires:	bazinga-jemalloc >= 4.3.1
 Requires:	bazinga-brotli >= 1.0.6
+%{?_with_io_uring:Requires: bazinga-liburing}
 %{?_with_boringssl:Requires: bazinga-boringssl < 19}
 %{!?_with_boringssl:Requires: bazinga-openssl-libs >= 1.1.1a}
 Requires(post):	chkconfig
