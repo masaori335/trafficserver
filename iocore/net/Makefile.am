@@ -31,9 +31,10 @@ AM_CPPFLAGS += \
 	-I$(abs_top_srcdir)/mgmt \
 	-I$(abs_top_srcdir)/mgmt/utils \
 	-I$(abs_top_srcdir)/proxy/http \
+	-I$(abs_top_srcdir)/proxy/http/remap \
+	-I$(abs_top_srcdir)/src/traffic_server \
 	$(TS_INCLUDES) \
 	@OPENSSL_INCLUDES@ \
-	@BORINGOCSP_INCLUDES@ \
 	@YAMLCPP_INCLUDES@
 
 TESTS = $(check_PROGRAMS)
@@ -81,7 +82,7 @@ test_UDPNet_LDADD = \
 	$(top_builddir)/src/tscore/libtscore.la $(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/proxy/hdrs/libhdrs.a \
 	$(top_builddir)/proxy/ParentSelectionStrategy.o \
-	@HWLOC_LIBS@ @OPENSSL_LIBS@ @BORINGOCSP_LIBS@ @LIBPCRE@ @YAMLCPP_LIBS@
+	@HWLOC_LIBS@ @OPENSSL_LIBS@ @LIBPCRE@ @YAMLCPP_LIBS@
 
 test_UDPNet_SOURCES = \
 	libinknet_stub.cc \

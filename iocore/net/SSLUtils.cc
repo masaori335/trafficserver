@@ -1009,9 +1009,7 @@ SSLInitializeLibrary()
     CRYPTO_set_dynlock_destroy_callback(ssl_dyn_destroy_callback);
   }
 
-#if TS_USE_TLS_OCSP
   ssl_stapling_ex_init();
-#endif /* TS_USE_TLS_OCSP */
 
   // Reserve an application data index so that we can attach
   // the SSLNetVConnection to the SSL session.
@@ -1186,9 +1184,12 @@ ssl_callback_info(const SSL *ssl, int where, int ret)
     if (cipher) {
       const char *cipherName = SSL_CIPHER_get_name(cipher);
       // lookup index of stat by name and incr count
-      if (auto it = cipher_map.find(cipherName); it != cipher_map.end()) {
-        SSL_INCREMENT_DYN_STAT((intptr_t)it->second);
+      auto it = cipher_map.find(cipherName);
+      if (it == cipher_map.end()) {
+        it = cipher_map.find(SSL_CIPHER_STAT_OTHER);
+        ink_assert(it != cipher_map.end());
       }
+      SSL_INCREMENT_DYN_STAT((intptr_t)it->second);
     }
   }
 }
@@ -2052,7 +2053,7 @@ SSLMultiCertConfigLoader::load(SSLCertLookup *lookup)
   REC_ReadConfigInteger(elevate_setting, "proxy.config.ssl.cert.load_elevated");
   ElevateAccess elevate_access(elevate_setting ? ElevateAccess::FILE_PRIVILEGE : 0);
 
-  line = tokLine(content.data(), &tok_state);
+  line       = tokLine(content.data(), &tok_state);
   size_t len = 0;
 
   while (line != nullptr) {
@@ -2090,7 +2091,7 @@ SSLMultiCertConfigLoader::load(SSLCertLookup *lookup)
     line = tokLine(nullptr, &tok_state);
   }
 
-  // Check the read length. tokLine replaces `\n` with `\0`, so len + line_num should be equal to the length of the content. 
+  // Check the read length. tokLine replaces `\n` with `\0`, so len + line_num should be equal to the length of the content.
   if (len + line_num < content.length()) {
     Error("Some SSL cert config was not read - len=%ld line_num=%d content.length=%ld", len, line_num, content.length());
     return false;
@@ -2430,18 +2431,12 @@ SSLMultiCertConfigLoader::load_certs(SSL_CTX *ctx, const std::vector<std::string
                                      const std::vector<std::string> &key_list, CertLoadData const &data,
                                      const SSLConfigParams *params, const SSLMultiCertConfigParams *sslMultCertSettings)
 {
-#if TS_USE_TLS_OCSP
   if (SSLConfigParams::ssl_ocsp_enabled) {
     Debug("ssl_load", "SSL OCSP Stapling is enabled");
     SSL_CTX_set_tlsext_status_cb(ctx, ssl_callback_ocsp_stapling);
   } else {
     Debug("ssl_load", "SSL OCSP Stapling is disabled");
   }
-#else
-  if (SSLConfigParams::ssl_ocsp_enabled) {
-    Warning("failed to enable SSL OCSP Stapling; this version of OpenSSL does not support it");
-  }
-#endif /* TS_USE_TLS_OCSP */
 
   ink_assert(!cert_names_list.empty());
 
@@ -2521,7 +2516,6 @@ SSLMultiCertConfigLoader::load_certs(SSL_CTX *ctx, const std::vector<std::string
         }
       }
     }
-#if TS_USE_TLS_OCSP
     if (SSLConfigParams::ssl_ocsp_enabled) {
       if (sslMultCertSettings->ocsp_response) {
         const char *ocsp_response_name = data.ocsp_list[i].c_str();
@@ -2535,7 +2529,6 @@ SSLMultiCertConfigLoader::load_certs(SSL_CTX *ctx, const std::vector<std::string
         }
       }
     }
-#endif /* TS_USE_TLS_OCSP */
     X509_free(cert);
   }
   return true;

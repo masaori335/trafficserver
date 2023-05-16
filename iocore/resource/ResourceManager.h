@@ -49,6 +49,8 @@ public:
 
   void set_sum(ResourceType stats_type, uint64_t tag_id, ResourceStatsType index, uint64_t value);
   void set_sum(ResourceType stats_type, ResourceStatsType index, uint64_t value);
+  void increment(ResourceType stats_type, uint64_t tag_id, ResourceStatsType index, uint64_t value);
+  void increment(ResourceType stats_type, ResourceStatsType index, uint64_t value);
   void clear(ResourceType stats_type);
 
   std::string_view name(uint64_t tid) const;

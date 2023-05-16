@@ -33,6 +33,8 @@
 #include "tscore/bwf_std_format.h"
 #include "tscore/TestBox.h"
 
+#include "tscpp/util/Convert.h"
+
 #include "I_EventSystem.h"
 
 #include "P_SSLUtils.h"
@@ -139,24 +141,6 @@ private:
   /// @return The index of the added context.
   int store(SSLCertContext const &cc);
 };
-
-namespace
-{
-/** Copy @a src to @a dst, transforming to lower case.
- *
- * @param src Input string.
- * @param dst Output buffer.
- */
-inline void
-transform_lower(std::string_view src, ts::MemSpan<char> dst)
-{
-  if (src.size() > dst.size() - 1) { // clip @a src, reserving space for the terminal nul.
-    src = std::string_view{src.data(), dst.size() - 1};
-  }
-  auto final = std::transform(src.begin(), src.end(), dst.data(), [](char c) -> char { return std::tolower(c); });
-  *final++   = '\0';
-}
-} // namespace
 
 // Zero out and free the heap space allocated for ticket keys to avoid leaking secrets.
 // The first several bytes stores the number of keys and the rest stores the ticket keys.
@@ -458,7 +442,7 @@ SSLContextStorage::insert(const char *name, int idx)
 {
   ats_wildcard_matcher wildcard;
   char lower_case_name[TS_MAX_HOST_NAME_LEN + 1];
-  transform_lower(name, lower_case_name);
+  ts::transform_lower(name, lower_case_name);
 
   shared_SSL_CTX ctx = this->ctx_store[idx].getCtx();
   if (wildcard.match(lower_case_name)) {
@@ -509,7 +493,7 @@ SSLContextStorage::lookup(const std::string &name)
   }
   // Try lower casing it
   char lower_case_name[TS_MAX_HOST_NAME_LEN + 1];
-  transform_lower(name, lower_case_name);
+  ts::transform_lower(name, lower_case_name);
   if (auto it_lower = this->hostnames.find(lower_case_name); it_lower != this->hostnames.end()) {
     return &(this->ctx_store[it_lower->second]);
   }
@@ -554,7 +538,7 @@ reverse_dns_name(const char *hostname, char (&reversed)[TS_MAX_HOST_NAME_LEN + 1
       *(--ptr) = '.';
     }
   }
-  transform_lower(ptr, {ptr, strlen(ptr) + 1});
+  ts::transform_lower(ptr, {ptr, strlen(ptr) + 1});
 
   return ptr;
 }

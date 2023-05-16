@@ -1,5 +1,7 @@
 /** @file
 
+  Collection of utility functions for converting between different chars.
+
   @section license License
 
   Licensed to the Apache Software Foundation (ASF) under one
@@ -21,16 +23,24 @@
 
 #pragma once
 
-#include "tscore/ink_config.h"
+#include "MemSpan.h"
 
-#include <openssl/ssl.h>
+#include <string_view>
 
-void ssl_stapling_ex_init();
-bool ssl_stapling_init_cert(SSL_CTX *ctx, X509 *cert, const char *certname, const char *rsp_file);
-void ocsp_update();
-
-#ifndef OPENSSL_IS_BORINGSSL
-int ssl_callback_ocsp_stapling(SSL *);
-#else
-int ssl_callback_ocsp_stapling(SSL *, void *);
-#endif
+namespace ts
+{
+/** Copy @a src to @a dst, transforming to lower case.
+ *
+ * @param src Input string.
+ * @param dst Output buffer.
+ */
+inline void
+transform_lower(std::string_view src, ts::MemSpan<char> dst)
+{
+  if (src.size() > dst.size() - 1) { // clip @a src, reserving space for the terminal nul.
+    src = std::string_view{src.data(), dst.size() - 1};
+  }
+  auto final = std::transform(src.begin(), src.end(), dst.data(), [](char c) -> char { return std::tolower(c); });
+  *final++   = '\0';
+}
+} // namespace ts
