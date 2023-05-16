@@ -136,7 +136,7 @@ ResourceManager::reconfigure(bool startup)
       nh->resource_local_manager.reconfigure();
     } else {
       if (nh->resource_local_manager.handler == &ResourceLocalManager::state_running) {
-        ethread->schedule_imm_local(&nh->resource_local_manager);
+        ethread->schedule_imm(&nh->resource_local_manager);
       } else {
         Warning("Resource Local Manager is not running yet. Retry later");
       }
