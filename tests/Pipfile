@@ -50,5 +50,8 @@ python-jose = "*"
 Werkzeug = "==2.0.3"
 flask = "==2.1.3"
 
+# Pin this to avoid ssl version issues
+urllib3 = "==1.26.6"
+
 [requires]
 python_version = "3"
