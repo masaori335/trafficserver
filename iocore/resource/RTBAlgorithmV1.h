@@ -60,6 +60,7 @@ public:
     uint64_t limit            = 0;
     uint64_t penalty_duration = 0;
     float red_zone            = 0.1;
+    bool queue                = 0;
   };
 
   struct Bucket {
@@ -69,6 +70,9 @@ public:
     uint64_t tmp_limit         = 0;
     uint64_t tmp_limit_counter = 0;
     uint64_t denied            = 0;
+    uint64_t enqueue           = 0;
+    uint64_t dequeue           = 0;
+    uint64_t queue_delta       = 0;
   };
 
   using BucketMap    = std::unordered_map<uint64_t, Bucket>; ///< key = tid, value = bucket
@@ -164,6 +168,7 @@ AlgorithmV1<StatsType>::inc(uint64_t tid)
 
   Bucket &b = e->second;
   ++b.observed;
+  ++b.enqueue;
 
   if (b.token > 0 && b.observed <= b.token) {
     return;
@@ -184,7 +189,7 @@ AlgorithmV1<StatsType>::dec(uint64_t tid)
 
   Bucket &b = e->second;
   --b.observed;
-
+  ++b.dequeue;
   if (b.overflowed == 0) {
     return;
   }
@@ -202,6 +207,10 @@ AlgorithmV1<StatsType>::filter()
 
   // Sort tid by observed
   for (auto &[tid, bucket] : _bucket_map) {
+    if (_conf.queue) {
+      bucket.queue_delta += bucket.enqueue - bucket.dequeue;
+      bucket.observed = bucket.queue_delta + bucket.enqueue;
+    }
     _sorted_tid_map.insert(std::make_pair(bucket.observed, tid));
   }
 }
@@ -231,7 +240,10 @@ AlgorithmV1<StatsType>::_reserve_without_tmp_limit()
   for (auto iter = _sorted_tid_map.crbegin(); iter != _sorted_tid_map.crend() && i < _conf.top_n; ++iter, ++i) {
     const uint64_t tid = iter->second;
     Bucket &bucket     = _bucket_map[tid];
-
+    if (_conf.queue) {
+      bucket.queue_delta += bucket.enqueue - bucket.dequeue;
+      bucket.observed = bucket.queue_delta + bucket.enqueue;
+    }
     total += bucket.observed;
   }
 
@@ -257,7 +269,9 @@ AlgorithmV1<StatsType>::_reserve_without_tmp_limit()
       // Clear Stats
       StatsType::clear(bucket.observed);
       StatsType::clear(bucket.overflowed);
-      bucket.denied = 0;
+      StatsType::clear(bucket.enqueue);
+      StatsType::clear(bucket.dequeue);
+      StatsType::clear(bucket.denied);
     }
   }
 
@@ -329,7 +343,9 @@ AlgorithmV1<StatsType>::_reserve_with_tmp_limit()
     // Clear Stats
     StatsType::clear(bucket.observed);
     StatsType::clear(bucket.overflowed);
-    bucket.denied = 0;
+    StatsType::clear(bucket.enqueue);
+    StatsType::clear(bucket.dequeue);
+    StatsType::clear(bucket.denied);
   }
 
   ////

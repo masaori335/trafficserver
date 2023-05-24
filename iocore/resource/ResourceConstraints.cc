@@ -77,7 +77,7 @@ report_v1(const T &limiter, ResourceType resource_type)
   auto &conf           = limiter.conf();
 
   uint64_t i = 0;
-  for (auto iter = sorted_tid_map.crbegin(); iter != sorted_tid_map.crend() && i < conf.top_n; ++iter, ++i) {
+  for (auto iter = sorted_tid_map.crbegin(); iter != sorted_tid_map.crend(); ++iter, ++i) {
     const uint64_t tid = iter->second;
     const auto &bucket = map.at(tid);
 
@@ -86,6 +86,10 @@ report_v1(const T &limiter, ResourceType resource_type)
     resourceManager.increment(resource_type, tid, ResourceStatsType::DENIED, bucket.denied);
     resourceManager.increment(resource_type, tid, ResourceStatsType::TMP_LIMIT, bucket.tmp_limit);
     resourceManager.increment(resource_type, tid, ResourceStatsType::OVERFLOWED, bucket.overflowed);
+    if (conf.queue) {
+      resourceManager.increment(resource_type, tid, ResourceStatsType::ENQUEUE, bucket.enqueue);
+      resourceManager.increment(resource_type, tid, ResourceStatsType::DEQUEUE, bucket.dequeue);
+    }
   }
 }
 
@@ -234,6 +238,7 @@ ResourceLocalManager::reconfigure()
                        resource_conf->active_q.limit,
                        resource_conf->active_q.penalty_duration,
                        resource_conf->active_q.red_zone,
+                       resource_conf->active_q.queue,
                      });
                    },
                    [&](DiskReadLimiterV1 &l) {
@@ -269,14 +274,6 @@ ResourceLocalManager::reconfigure()
         Warning("tid for %s got conflict with tid for unknown", item.tag.c_str());
         continue;
       }
-
-      auto r = _tid_map.find(tid);
-      if (r != _tid_map.end()) {
-        // skip tid already registered
-        continue;
-      }
-
-      _tid_map.insert_or_assign(tid, item.tag);
 
       for (auto &limiter : _limiters) {
         std::visit([&](auto &l) { l.add(tid); }, limiter);
@@ -403,7 +400,14 @@ void
 ResourceLocalManager::dec(uint64_t tid, ResourceType type)
 {
   switch (type) {
-  case ResourceType::ACTIVE_Q:
+  case ResourceType::ACTIVE_Q: {
+    if (_mode_active_q == ResourceConfigMode::DISABLED) {
+      // nothing to do
+      return;
+    }
+
+    return _active_q_limiter->dec(tid);
+  }
   case ResourceType::SNI:
   default:
     ink_abort("unsupported yet");

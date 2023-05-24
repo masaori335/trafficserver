@@ -14,6 +14,10 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+experimental_slice_slice_la_CPPFLAGS = \
+  $(AM_CPPFLAGS) \
+  -I$(abs_top_srcdir)/iocore/eventsystem
+
 pkglib_LTLIBRARIES += experimental/slice/slice.la
 
 experimental_slice_slice_la_SOURCES = \

@@ -1603,6 +1603,16 @@ static const RecordElement RecordsConfig[] =
   {RECT_CONFIG, "proxy.config.resource.disk_write.red_zone", RECD_FLOAT, "0.2", RECU_DYNAMIC, RR_NULL, RECC_NULL, nullptr, RECA_NULL}
   ,
 
+  // server_conn
+  {RECT_CONFIG, "proxy.config.resource.server_conn.mode", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_INT, "[0-2]", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.server_conn.limit", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.server_conn.penalty_duration", RECD_INT, "60", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.server_conn.red_zone", RECD_FLOAT, "0.2", RECU_DYNAMIC, RR_NULL, RECC_NULL, nullptr, RECA_NULL}
+  ,
+
 };
 // clang-format on
 

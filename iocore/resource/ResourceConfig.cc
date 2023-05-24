@@ -52,6 +52,7 @@ ResourceConfigParams::ResourceConfigParams()
   REC_ReadConfigInteger(this->active_q.limit, "proxy.config.resource.active_q.limit");
   REC_ReadConfigInteger(this->active_q.penalty_duration, "proxy.config.resource.active_q.penalty_duration");
   REC_ReadConfigFloat(this->active_q.red_zone, "proxy.config.resource.active_q.red_zone");
+  this->active_q.queue = true;
 
   // disk_read
   int32_t disk_read_mode;

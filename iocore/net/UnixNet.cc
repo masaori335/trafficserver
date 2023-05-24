@@ -806,10 +806,11 @@ NetHandler::remove_from_active_queue(NetEvent *ne)
     active_queue.remove(ne);
     --active_queue_size;
 
-    // Gauge type resource doesn't work with RTBv1
-    // {
-    //   SCOPED_MUTEX_LOCK(lock, resource_local_manager.mutex, this_ethread());
-    //   resource_local_manager.dec(static_cast<SSLNetVConnection *>(ne)->tag_id, ResourceType::ACTIVE_Q);
-    // }
+    // Resource Constraints
+    {
+      SCOPED_MUTEX_LOCK(lock, resource_local_manager.mutex, this_ethread());
+      uint64_t tid = static_cast<SSLNetVConnection *>(ne)->tag_id;
+      resource_local_manager.dec(tid, ResourceType::ACTIVE_Q);
+    }
   }
 }

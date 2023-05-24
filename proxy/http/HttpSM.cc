@@ -1880,8 +1880,9 @@ HttpSM::state_http_server_open(int event, void *data)
 
   switch (event) {
   case NET_EVENT_OPEN: {
-    NetVConnection *netvc        = static_cast<NetVConnection *>(data);
-    UnixNetVConnection *vc       = static_cast<UnixNetVConnection *>(data);
+    NetVConnection *netvc  = static_cast<NetVConnection *>(data);
+    UnixNetVConnection *vc = static_cast<UnixNetVConnection *>(data);
+
     PoolableSession *new_session = this->create_server_session(netvc);
     if (t_state.current.request_to == HttpTransact::PARENT_PROXY) {
       new_session->to_parent_proxy = true;

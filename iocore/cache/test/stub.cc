@@ -313,6 +313,13 @@ ResourceLocalManager::inc(uint64_t tid, ResourceType type)
   return;
 }
 
+void
+ResourceLocalManager::dec(uint64_t tid, ResourceType type)
+{
+  ink_assert(false);
+  return;
+}
+
 bool
 ResourceLocalManager::is_full(uint64_t tid, ResourceType type)
 {

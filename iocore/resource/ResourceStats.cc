@@ -39,11 +39,10 @@ struct StatEntry {
 /**
    String of ResourceStatsType. The order must be the same.
  */
-constexpr StatEntry STAT_ENTRIES[] = {{"observed"sv, RecRawStatSyncSum},
-                                      {"token"sv, RecRawStatSyncSum},
-                                      {"tmp_limit"sv, RecRawStatSyncSum},
-                                      {"denied"sv, RecRawStatSyncSum},
-                                      {"overflowed"sv, RecRawStatSyncSum}};
+constexpr StatEntry STAT_ENTRIES[] = {{"observed"sv, RecRawStatSyncSum},   {"token"sv, RecRawStatSyncSum},
+                                      {"tmp_limit"sv, RecRawStatSyncSum},  {"denied"sv, RecRawStatSyncSum},
+                                      {"overflowed"sv, RecRawStatSyncSum}, {"enqueue"sv, RecRawStatSyncSum},
+                                      {"dequeue"sv, RecRawStatSyncSum}};
 
 } // namespace
 
@@ -62,6 +61,18 @@ ResourceStats::init(Ptr<ProxyMutex> m, std::string_view stats_name, int32_t stat
 
   _register_global_stat(ResourceStatsType::OBSERVED);
   _register_global_stat(ResourceStatsType::TOKEN);
+}
+
+void
+ResourceStats::enable_queue()
+{
+  _queue = true;
+}
+
+bool
+ResourceStats::queue()
+{
+  return _queue;
 }
 
 /**
@@ -188,6 +199,10 @@ ResourceStats::_find_register(uint64_t tid, uint64_t value)
     _register_property_stat(name, ResourceStatsType::TMP_LIMIT);
     _register_property_stat(name, ResourceStatsType::DENIED);
     _register_property_stat(name, ResourceStatsType::OVERFLOWED);
+    if (_queue) {
+      _register_property_stat(name, ResourceStatsType::ENQUEUE);
+      _register_property_stat(name, ResourceStatsType::DEQUEUE);
+    }
     return 0;
   }
   return stats_id_result->second;
@@ -207,6 +222,10 @@ ResourceStats::clear()
     _property_buckets.set_sum_thread(sid + static_cast<int>(ResourceStatsType::TMP_LIMIT), 0);
     _property_buckets.set_sum_thread(sid + static_cast<int>(ResourceStatsType::DENIED), 0);
     _property_buckets.set_sum_thread(sid + static_cast<int>(ResourceStatsType::OVERFLOWED), 0);
+    if (_queue) {
+      _property_buckets.set_sum_thread(sid + static_cast<int>(ResourceStatsType::ENQUEUE), 0);
+      _property_buckets.set_sum_thread(sid + static_cast<int>(ResourceStatsType::DEQUEUE), 0);
+    }
   }
 }
 

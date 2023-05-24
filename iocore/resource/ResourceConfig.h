@@ -41,6 +41,7 @@ struct ResourceConfigParams : public ConfigInfo {
     uint64_t limit            = 0;
     uint64_t penalty_duration = 0;
     float red_zone            = 0.0;
+    bool queue                = false;
   };
 
   // Config Params

@@ -97,6 +97,7 @@ ResourceManager::reconfigure(bool startup)
 
     if (resource_conf->active_q.mode != ResourceConfigMode::DISABLED && _active_q_stats.mutex == nullptr) {
       _active_q_stats.init(mutex, ActiveQResource::prefix, resource_conf->stats_size);
+      _active_q_stats.enable_queue();
     }
 
     if (resource_conf->disk_read.mode != ResourceConfigMode::DISABLED && _disk_read_stats.mutex == nullptr) {

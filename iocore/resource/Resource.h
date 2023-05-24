@@ -41,6 +41,8 @@ enum class ResourceStatsType {
   TMP_LIMIT,
   DENIED,
   OVERFLOWED,
+  ENQUEUE,
+  DEQUEUE,
   LAST_ENTRY,
 };
 

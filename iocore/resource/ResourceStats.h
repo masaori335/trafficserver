@@ -40,6 +40,8 @@ public:
   void increment(uint64_t tag_id, ResourceStatsType index, uint64_t value);
   void increment(ResourceStatsType s, uint64_t value);
   void clear();
+  void enable_queue();
+  bool queue();
 
   ////
   // Variables
@@ -58,6 +60,7 @@ private:
   // Variables
   //
   std::string_view _name;
+  bool _queue = false;
 
   DynamicStats _property_buckets;
   RecRawStatBlock *_global_buckets = nullptr;
