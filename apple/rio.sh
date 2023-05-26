@@ -62,12 +62,12 @@ if [ $PRB -eq 1 ]; then
     export GIT_TAG=prb/$VERSION/$BUILD_VERSION
 fi
 
-if [ "$VARIATION" = "-boringssl" ]; then
+if [[ "$VARIATION" =~ .*boringssl.* ]]; then
     LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci 'bazinga-boringssl < 22'
     LD_LIBRARY_PATH=/lib64 yum erase -d1 -y bazinga-openssl-devel
 fi
 
-if [ "$VARIATION" = "-io_uring" ]; then
+if [[ "$VARIATION" =~ .*io_uring.* ]]; then
     LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-liburing bazinga-liburing-devel
 fi
 

@@ -78,17 +78,24 @@ if [ "$VARIATION" != "" ]; then
 fi
 
 # -asan requires llvm
-if [ "$VARIATION" == "-asan" ];then
+if [[ "$VARIATION" =~ .*asan.* ]];then
     RPMBUILD_FLAGS+=" --with llvm"
 fi
 
 # skip check for io_uring as it doesn't currently work in rio
-if [ "$VARIATION" == "-io_uring" ];then
+if [[ "$VARIATION" =~ .*io_uring.* ]];then
+    RPMBUILD_FLAGS+=" --with io_uring"
     RPMBUILD_FLAGS+=" --nocheck"
 fi
 
+# -boringssl requires boringssl
+if [[ "$VARIATION" == .*boringssl.* ]];then
+    RPMBUILD_FLAGS+=" --with boringssl"
+fi
+
 # -quiche requires boringssl
-if [ "$VARIATION" == "-quiche" ];then
+if [[ "$VARIATION" == .*quiche.* ]];then
+    RPMBUILD_FLAGS+=" --with quiche"
     RPMBUILD_FLAGS+=" --with boringssl"
 fi
 
