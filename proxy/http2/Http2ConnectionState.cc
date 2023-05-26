@@ -29,6 +29,8 @@
 #include "Http2DebugNames.h"
 #include "HttpDebugNames.h"
 
+#include "TLSSNISupport.h"
+
 #include "tscpp/util/PostScript.h"
 #include "tscpp/util/LocalBuffer.h"
 
@@ -1066,6 +1068,18 @@ Http2ConnectionState::init(Http2CommonSession *ssn)
     this->_server_rwnd             = Http2::initial_window_size;
     this->server_rwnd_is_shrinking = false;
   }
+
+  if (this->session) {
+      TLSSNISupport *snis = dynamic_cast<TLSSNISupport *>(session->get_netvc());
+      if (snis && snis->hints_from_sni.http2_initial_window_size_in.has_value()) {
+          this->_server_rwnd = snis->hints_from_sni.http2_initial_window_size_in.value();
+          if (this->_server_rwnd < HTTP2_INITIAL_WINDOW_SIZE) {
+                this->server_rwnd_is_shrinking = true;
+          }
+      }
+  }
+
+  Http2ConDebug(session, "initial _server_rwnd: %zd", this->_server_rwnd);
 
   local_hpack_handle  = new HpackHandle(HTTP2_HEADER_TABLE_SIZE);
   remote_hpack_handle = new HpackHandle(HTTP2_HEADER_TABLE_SIZE);

@@ -144,6 +144,7 @@ std::set<std::string> valid_sni_config_keys = {TS_fqdn,
                                                TS_client_sni_policy,
                                                TS_http2,
                                                TS_http2_buffer_water_mark,
+                                               TS_http2_initial_window_size_in,
                                                TS_ip_allow,
                                                TS_tag,
 #if TS_USE_HELLO_CB || defined(OPENSSL_IS_BORINGSSL)
@@ -177,6 +178,9 @@ template <> struct convert<YamlSNIConfig::Item> {
     }
     if (node[TS_http2_buffer_water_mark]) {
       item.http2_buffer_water_mark = node[TS_http2_buffer_water_mark].as<int>();
+    }
+    if (node[TS_http2_initial_window_size_in]) {
+      item.http2_initial_window_size_in = node[TS_http2_initial_window_size_in].as<int>();
     }
 
     // enum

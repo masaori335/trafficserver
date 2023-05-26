@@ -164,6 +164,9 @@ SNIConfigParams::load_sni_config()
     if (item.http2_buffer_water_mark.has_value()) {
       actions->push_back(std::make_unique<HTTP2BufferWaterMark>(item.http2_buffer_water_mark.value()));
     }
+    if (item.http2_initial_window_size_in.has_value()) {
+      actions->push_back(std::make_unique<HTTP2InitialWindowSizeIn>(item.http2_initial_window_size_in.value()));
+    }
 
     if (!item.tag.empty()) {
       actions->push_back(std::make_unique<SNITag>(item.tag));
