@@ -4530,7 +4530,7 @@ HttpSM::do_hostdb_lookup()
   milestones[TS_MILESTONE_DNS_LOOKUP_BEGIN] = Thread::get_hrtime();
 
   // If directed to not look up fqdns then mark as resolved
-  if (t_state.http_config_param->no_dns_forward_to_parent && t_state.parent_result.result == PARENT_UNDEFINED) {
+  if (t_state.txn_conf->no_dns_forward_to_parent && t_state.parent_result.result == PARENT_UNDEFINED) {
     t_state.dns_info.resolved_p = true;
     call_transact_and_set_next_state(nullptr);
     return;
@@ -4623,9 +4623,9 @@ HttpSM::track_connect_fail() const
   bool retval = false;
   if (t_state.current.server->had_connect_fail()) {
     // What does our policy say?
-    if (t_state.txn_conf->connect_dead_policy == 2) { // Any connection error through TLS handshake
+    if (t_state.txn_conf->connect_down_policy == 2) { // Any connection error through TLS handshake
       retval = true;
-    } else if (t_state.txn_conf->connect_dead_policy == 1) { // Any connection error through TCP
+    } else if (t_state.txn_conf->connect_down_policy == 1) { // Any connection error through TCP
       retval = t_state.current.server->connect_result != -ENET_SSL_CONNECT_FAILED;
     }
   }
@@ -5353,8 +5353,8 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
     }
 
     if (HttpTransact::is_server_negative_cached(&t_state) == true &&
-        t_state.txn_conf->connect_attempts_max_retries_dead_server <= 0) {
-      call_transact_and_set_next_state(HttpTransact::OriginDead);
+        t_state.txn_conf->connect_attempts_max_retries_down_server <= 0) {
+      call_transact_and_set_next_state(HttpTransact::OriginDown);
       return;
     }
   }
@@ -5973,7 +5973,7 @@ HttpSM::release_server_session(bool serve_from_cache)
 //
 //   We failed in our attempt post (or put) a document
 //    to the server.  Two cases happen here.  The normal
-//    one is the server died, in which case we ought to
+//    one is the server is down, in which case we ought to
 //    return an error to the client.  The second one is
 //    stupid.  The server returned a response without reading
 //    all the post data.  In order to be as transparent as
@@ -6011,7 +6011,7 @@ HttpSM::handle_post_failure()
 
   tunnel.deallocate_buffers();
   tunnel.reset();
-  // Server died
+  // Server is down
   if (t_state.current.state == HttpTransact::STATE_UNDEFINED || t_state.current.state == HttpTransact::CONNECTION_ALIVE) {
     t_state.set_connect_fail(server_txn->get_netvc()->lerrno);
     t_state.current.state = HttpTransact::CONNECTION_CLOSED;
@@ -6054,8 +6054,8 @@ HttpSM::handle_http_server_open()
 
     int method = t_state.hdr_info.server_request.method_get_wksidx();
     if (method != HTTP_WKSIDX_TRACE &&
-        server_txn->has_request_body(t_state.hdr_info.response_content_length,
-                                     t_state.server_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING) &&
+        server_txn->has_request_body(t_state.hdr_info.request_content_length,
+                                     t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING) &&
         do_post_transform_open()) {
       do_setup_post_tunnel(HTTP_TRANSFORM_VC); /* This doesn't seem quite right.  Should be sending the request header */
     } else {
@@ -7923,7 +7923,7 @@ HttpSM::set_next_state()
 
       call_transact_and_set_next_state(nullptr);
       break;
-    } else if (t_state.dns_info.looking_up == ResolveInfo::ORIGIN_SERVER && t_state.http_config_param->no_dns_forward_to_parent &&
+    } else if (t_state.dns_info.looking_up == ResolveInfo::ORIGIN_SERVER && t_state.txn_conf->no_dns_forward_to_parent &&
                t_state.parent_result.result != PARENT_UNDEFINED) {
       t_state.dns_info.resolved_p = true; // seems dangerous - where's the IP address?
       call_transact_and_set_next_state(nullptr);

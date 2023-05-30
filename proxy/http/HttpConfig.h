@@ -356,7 +356,7 @@ enum {
   http_origin_shutdown_cleanup_entry,
   http_origin_shutdown_tunnel_abort,
 
-  http_dead_server_no_requests,
+  http_down_server_no_requests,
 
   http_origin_reuse,
   http_origin_not_found,
@@ -579,9 +579,9 @@ struct OverridableHttpConfigParams {
   MgmtByte insert_request_via_string  = 1;
   MgmtByte insert_response_via_string = 0;
 
-  //////////////////////
-  //  DOC IN CACHE NO DNS//
-  //////////////////////
+  /////////////////////////
+  // DOC IN CACHE NO DNS //
+  /////////////////////////
   MgmtByte doc_in_cache_skip_dns = 1;
   MgmtByte flow_control_enabled  = 0;
 
@@ -595,6 +595,7 @@ struct OverridableHttpConfigParams {
   //////////////////////////
   MgmtByte srv_enabled                   = 0;
   MgmtByte parent_failures_update_hostdb = 0;
+  MgmtByte no_dns_forward_to_parent      = 0;
 
   MgmtByte cache_open_write_fail_action = 0;
 
@@ -680,11 +681,11 @@ struct OverridableHttpConfigParams {
   // origin server connect attempts //
   ////////////////////////////////////
   MgmtInt connect_attempts_max_retries             = 0;
-  MgmtInt connect_attempts_max_retries_dead_server = 3;
+  MgmtInt connect_attempts_max_retries_down_server = 3;
   MgmtInt connect_attempts_rr_retries              = 3;
   MgmtInt connect_attempts_timeout                 = 30;
 
-  MgmtInt connect_dead_policy = 2;
+  MgmtInt connect_down_policy = 2;
 
   ////////////////////////////////////
   // parent proxy connect attempts //
@@ -822,10 +823,9 @@ public:
   ///////////////////////////////////////////////////////////////////
   MgmtByte disable_ssl_parenting = 0;
 
-  MgmtByte no_dns_forward_to_parent = 0;
-  MgmtByte no_origin_server_dns     = 0;
-  MgmtByte use_client_target_addr   = 0;
-  MgmtByte use_client_source_port   = 0;
+  MgmtByte no_origin_server_dns   = 0;
+  MgmtByte use_client_target_addr = 0;
+  MgmtByte use_client_source_port = 0;
 
   MgmtByte enable_http_stats = 1; // Can be "slow"
 

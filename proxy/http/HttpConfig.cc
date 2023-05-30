@@ -1077,8 +1077,8 @@ register_stat_callbacks()
   RecRegisterRawStat(http_rsb, RECT_PROCESS, "proxy.process.http.milestone.sm_finish", RECD_COUNTER, RECP_PERSISTENT,
                      (int)http_sm_finish_time_stat, RecRawStatSyncSum);
 
-  RecRegisterRawStat(http_rsb, RECT_PROCESS, "proxy.process.http.dead_server.no_requests", RECD_COUNTER, RECP_PERSISTENT,
-                     (int)http_dead_server_no_requests, RecRawStatSyncSum);
+  RecRegisterRawStat(http_rsb, RECT_PROCESS, "proxy.process.http.down_server.no_requests", RECD_COUNTER, RECP_PERSISTENT,
+                     (int)http_down_server_no_requests, RecRawStatSyncSum);
 
   // Current transaction stats parent counter
   RecRegisterRawStat(http_rsb, RECT_PROCESS, "proxy.process.http_parent_count", RECD_COUNTER, RECP_PERSISTENT,
@@ -1179,7 +1179,7 @@ HttpConfig::startup()
   HttpEstablishStaticConfigByte(c.disable_ssl_parenting, "proxy.local.http.parent_proxy.disable_connect_tunneling");
   HttpEstablishStaticConfigByte(c.oride.forward_connect_method, "proxy.config.http.forward_connect_method");
 
-  HttpEstablishStaticConfigByte(c.no_dns_forward_to_parent, "proxy.config.http.no_dns_just_forward_to_parent");
+  HttpEstablishStaticConfigByte(c.oride.no_dns_forward_to_parent, "proxy.config.http.no_dns_just_forward_to_parent");
   HttpEstablishStaticConfigByte(c.oride.uncacheable_requests_bypass_parent, "proxy.config.http.uncacheable_requests_bypass_parent");
   HttpEstablishStaticConfigByte(c.oride.doc_in_cache_skip_dns, "proxy.config.http.doc_in_cache_skip_dns");
 
@@ -1254,10 +1254,10 @@ HttpConfig::startup()
   HttpEstablishStaticConfigFloat(c.oride.background_fill_threshold, "proxy.config.http.background_fill_completed_threshold");
 
   HttpEstablishStaticConfigLongLong(c.oride.connect_attempts_max_retries, "proxy.config.http.connect_attempts_max_retries");
-  HttpEstablishStaticConfigLongLong(c.oride.connect_attempts_max_retries_dead_server,
-                                    "proxy.config.http.connect_attempts_max_retries_dead_server");
+  HttpEstablishStaticConfigLongLong(c.oride.connect_attempts_max_retries_down_server,
+                                    "proxy.config.http.connect_attempts_max_retries_down_server");
 
-  HttpEstablishStaticConfigLongLong(c.oride.connect_dead_policy, "proxy.config.http.connect.dead.policy");
+  HttpEstablishStaticConfigLongLong(c.oride.connect_down_policy, "proxy.config.http.connect.down.policy");
 
   HttpEstablishStaticConfigLongLong(c.oride.connect_attempts_rr_retries, "proxy.config.http.connect_attempts_rr_retries");
   HttpEstablishStaticConfigLongLong(c.oride.connect_attempts_timeout, "proxy.config.http.connect_attempts_timeout");
@@ -1456,7 +1456,7 @@ HttpConfig::reconfigure()
 
   params->proxy_hostname                           = ats_strdup(m_master.proxy_hostname);
   params->proxy_hostname_len                       = (params->proxy_hostname) ? strlen(params->proxy_hostname) : 0;
-  params->no_dns_forward_to_parent                 = INT_TO_BOOL(m_master.no_dns_forward_to_parent);
+  params->oride.no_dns_forward_to_parent           = INT_TO_BOOL(m_master.oride.no_dns_forward_to_parent);
   params->oride.uncacheable_requests_bypass_parent = INT_TO_BOOL(m_master.oride.uncacheable_requests_bypass_parent);
   params->no_origin_server_dns                     = INT_TO_BOOL(m_master.no_origin_server_dns);
   params->use_client_target_addr                   = m_master.use_client_target_addr;
@@ -1541,7 +1541,7 @@ HttpConfig::reconfigure()
   params->oride.background_fill_threshold           = m_master.oride.background_fill_threshold;
 
   params->oride.connect_attempts_max_retries             = m_master.oride.connect_attempts_max_retries;
-  params->oride.connect_attempts_max_retries_dead_server = m_master.oride.connect_attempts_max_retries_dead_server;
+  params->oride.connect_attempts_max_retries_down_server = m_master.oride.connect_attempts_max_retries_down_server;
   if (m_master.oride.connect_attempts_rr_retries > params->oride.connect_attempts_max_retries) {
     Warning("connect_attempts_rr_retries (%" PRIu64 ") is greater than "
             "connect_attempts_max_retries (%" PRIu64 "), this means requests "
@@ -1550,12 +1550,13 @@ HttpConfig::reconfigure()
   }
   params->oride.connect_attempts_rr_retries     = m_master.oride.connect_attempts_rr_retries;
   params->oride.connect_attempts_timeout        = m_master.oride.connect_attempts_timeout;
-  params->oride.connect_dead_policy             = m_master.oride.connect_dead_policy;
+  params->oride.connect_down_policy             = m_master.oride.connect_down_policy;
   params->oride.parent_connect_attempts         = m_master.oride.parent_connect_attempts;
   params->oride.parent_retry_time               = m_master.oride.parent_retry_time;
   params->oride.parent_fail_threshold           = m_master.oride.parent_fail_threshold;
   params->oride.per_parent_connect_attempts     = m_master.oride.per_parent_connect_attempts;
   params->oride.parent_failures_update_hostdb   = m_master.oride.parent_failures_update_hostdb;
+  params->oride.no_dns_forward_to_parent        = m_master.oride.no_dns_forward_to_parent;
   params->oride.enable_parent_timeout_markdowns = m_master.oride.enable_parent_timeout_markdowns;
   params->oride.disable_parent_markdowns        = m_master.oride.disable_parent_markdowns;
 
