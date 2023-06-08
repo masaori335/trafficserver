@@ -8,6 +8,10 @@ schemaVersion: '2.0'
   machine:
     baseImage: docker.apple.com/edge/trafficserver_autest:20230322-1-el7
 
+<<: &build_machine_el9
+  machine:
+    baseImage: docker.apple.com/edge/trafficserver_build:20230607-1-el9 
+
 timeout: 60
 
 #########
@@ -59,6 +63,29 @@ builds:
       enabled: false
     pipelineChain:
       - pipeline: test-9.2.x-publish-autest
+  secrets:
+    names:
+    - TRAFFICSERVER
+  package:
+    freeform:
+      - publish:
+        - repo: yum:cdn-edge
+  jenkins:
+    concurrentBuild: true
+
+- branchName: 9.2.x
+  group: release
+  version: regular-el9
+  <<: *build_machine_el9
+  build:
+    template: freestyle:v4:publish
+    steps:
+    - ./apple/rio.sh --build --branch 9.2.x --variation -llvm --tagbuild
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
   secrets:
     names:
     - TRAFFICSERVER
@@ -184,6 +211,22 @@ builds:
   group: test
   version: unittest
   <<: *build_machine
+  build:
+    template: freestyle:v4:prb
+    steps:
+    - ./apple/rio.sh --build --branch 9.2.x --variation -llvm --prb
+  finally:
+    notify:
+      pullRequestComment:
+        postOnSuccess: false
+        postOnFailure: false
+  jenkins:
+    concurrentBuild: true
+
+- branchName: 9.2.x
+  group: test
+  version: unittest-el9
+  <<: *build_machine_el9
   build:
     template: freestyle:v4:prb
     steps:

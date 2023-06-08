@@ -82,9 +82,15 @@ fi
 # If prb or test, skip staging artifacts
 if [[ $PRB -ne 1 && $TEST -ne 1 ]]; then
   # Stage build
+  # this will only work on rhel-derived-linuxes
+  if grep -q "9" /etc/redhat-release; then
+    OSRELEASE="9"
+  else
+    OSRELEASE="7"
+  fi
   mv build/rpmbuild/RPMS/* build/rpmbuild/
-  ci stage-lib build/rpmbuild/x86_64,ci/el/7/x86_64
-  ci stage-lib build/rpmbuild/SRPMS,ci/el/7/SRPMS
+  ci stage-lib build/rpmbuild/x86_64,ci/el/$OSRELEASE/x86_64
+  ci stage-lib build/rpmbuild/SRPMS,ci/el/$OSRELEASE/SRPMS
 fi
 
 if [ $TAGBUILD -eq 1 ]; then
