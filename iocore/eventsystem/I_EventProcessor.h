@@ -28,6 +28,7 @@
 #include "I_Processor.h"
 #include "I_Event.h"
 #include <atomic>
+#include <cstddef>
 
 #ifdef TS_MAX_THREADS_IN_EACH_THREAD_TYPE
 constexpr int MAX_THREADS_IN_EACH_TYPE = TS_MAX_THREADS_IN_EACH_THREAD_TYPE;
@@ -368,6 +369,12 @@ public:
   {
     ThreadGroupDescriptor const &group{thread_group[type]};
     return {group._thread, group._count};
+  }
+
+  size_t
+  num_threads(EventType type) const
+  {
+    return thread_group[type]._count;
   }
 
 private:

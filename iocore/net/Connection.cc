@@ -32,6 +32,15 @@
 
 #include "P_Net.h"
 
+#if defined(__linux__)
+#include <linux/bpf.h>
+#include <linux/filter.h>
+#endif
+
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+#endif
+
 #ifdef SO_ACCEPTFILTER
 #include <sys/param.h>
 #include <sys/linker.h>
@@ -333,6 +342,29 @@ Server::setup_fd_after_listen(const NetProcessor::AcceptOptions &opt)
         Error("[Server::listen] Defer accept is configured but set failed: %d", errno);
         return -errno;
       }
+    }
+  }
+#endif
+
+#ifdef SO_ATTACH_REUSEPORT_CBPF
+  // Attach BPF program only once. Sockets in the reuseport group will inherit the BPF program.
+  if (opt.attach_reuseport_cbpf > 0 && this_ethread()->id == 0) {
+    uint32_t mod = eventProcessor.num_threads(opt.etype);
+
+    struct sock_filter code[] = {
+      {BPF_LD | BPF_W | BPF_ABS, 0, 0, static_cast<uint32_t>(SKF_AD_OFF + SKF_AD_CPU)}, ///< A = #cpu
+      {BPF_ALU | BPF_MOD, 0, 0, mod},                                                   ///< A = A % mod
+      {BPF_RET | BPF_A, 0, 0, 0},                                                       ///< return A
+    };
+
+    struct sock_fprog p = {
+      .len    = ARRAY_SIZE(code),
+      .filter = code,
+    };
+
+    if (safe_setsockopt(fd, SOL_SOCKET, SO_ATTACH_REUSEPORT_CBPF, &p, sizeof(p)) < 0) {
+      Error("SO_ATTACH_REUSEPORT_CBPF is configured but set failed: %d", errno);
+      return -errno;
     }
   }
 #endif

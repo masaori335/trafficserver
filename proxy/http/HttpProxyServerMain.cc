@@ -158,6 +158,10 @@ make_net_accept_options(const HttpProxyPort *port, unsigned nthreads)
   REC_ReadConfigInteger(net.tfo_queue_length, "proxy.config.net.sock_option_tfo_queue_size_in");
 #endif
 
+#ifdef SO_ATTACH_REUSEPORT_CBPF
+  REC_ReadConfigInteger(net.attach_reuseport_cbpf, "proxy.config.net.attach_reuseport_cbpf");
+#endif
+
   if (port) {
     net.f_inbound_transparent = port->m_inbound_transparent_p;
     net.f_mptcp               = port->m_mptcp;
