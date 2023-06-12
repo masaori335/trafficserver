@@ -116,7 +116,11 @@ BuildRequires:	tcl-devel
 %endif
 BuildRequires:	expat-devel, pcre-devel, zlib-devel, xz-devel, hwloc-devel
 BuildRequires:	libcurl-devel, ncurses-devel, libcap-devel
+%if "%{dist}" == ".el7"
 BuildRequires:	bazinga-luajit-devel
+%else
+BuildRequires:	luajit-devel
+%endif
 %if "%{_version}" < "8.1.0"
 BuildRequires:	bazinga-yaml-cpp-devel
 %endif

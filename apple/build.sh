@@ -117,5 +117,5 @@ rpmbuild $RPMBUILD_MODE $buildroot/$specfilename \
          --define "_commit ${GIT_VERSION}" \
          --define "_gittag ${GIT_TAG}" \
          --define "_topdir `pwd`/$buildroot/rpmbuild" \
-         --define "_pr_id ${INTERNAL_GITHUB_PR}" \
+         --define "_pr_id ${INTERNAL_GITHUB_PR:-'%{nil}'}" \
          ${RPMBUILD_FLAGS}
