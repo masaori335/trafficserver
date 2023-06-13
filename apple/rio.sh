@@ -83,7 +83,7 @@ fi
 if [[ $PRB -ne 1 && $TEST -ne 1 ]]; then
   # Stage build
   # this will only work on rhel-derived-linuxes
-  if grep -q "9" /etc/redhat-release; then
+  if grep -q "release 9" /etc/redhat-release; then
     OSRELEASE="9"
   else
     OSRELEASE="7"
