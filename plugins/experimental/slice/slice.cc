@@ -50,8 +50,8 @@ read_request(TSHttpTxn txnp, Config *const config)
         return false;
       }
 
-      // set HEAD config to only expect header response
-      config->m_head_req = (TS_HTTP_METHOD_HEAD == header.method());
+      // set header method config to only expect header response
+      config->m_method_type = header.method();
 
       if (config->hasRegex()) {
         int urllen         = 0;
