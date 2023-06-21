@@ -1,11 +1,3 @@
-#### EDITOR SUPPORT ####
-## This file exists ONLY to support code editors (e.g. Visual Code, CLion).
-##
-## !!!-> IT WILL NOT BUILD TRAFFIC SERVER <-!!!
-##
-## This file can be tweaked to keep editors happy. In general all projects should be defined here so
-## there is only one instance of this file, not one per directory. This has been done only to the
-## extent that someone using such an editor needed it, so much work is left to be done.
 #######################
 #
 #  Licensed to the Apache Software Foundation (ASF) under one or more contributor license
@@ -45,10 +37,48 @@ execute_process(COMMAND id -ng OUTPUT_VARIABLE BUILD_GROUP OUTPUT_STRIP_TRAILING
 execute_process(COMMAND uname -n OUTPUT_VARIABLE BUILD_MACHINE OUTPUT_STRIP_TRAILING_WHITESPACE)
 
 # Options
+option(BUILD_REGRESSION_TESTING "Build regression tests (default ON)" ON)
 set(DEFAULT_STACK_SIZE 1048576 CACHE STRING "Default stack size (default 1048576)")
+option(ENABLE_FAST_SDK "Use fast SDK APIs (default OFF)")
+option(ENABLE_JEMALLOC "Use jemalloc (default OFF)")
+option(ENABLE_MIMALLOC "Use mimalloc (default OFF)")
+option(ENABLE_POSIX_CAP
+    "Use POSIX capabilities, turn OFF to use id switching. (default ON)"
+    ON
+)
+option(ENABLE_PROFILER "Use gperftools profiler (default OFF)")
+option(ENABLE_TCMALLOC "Use TCMalloc (default OFF)")
+set(ENABLE_TPROXY
+    "AUTO"
+    CACHE
+    STRING
+    "Use TPROXY to enable connection transparency. (default AUTO)
+        'AUTO' for local system default,
+        'NO', to disable,
+        'FORCE' to use built in default,
+        'X' where X is a number to use as the IP_TRANSPARENT sockopt,
+        anything else to enable."
+)
+option(ENABLE_UNWIND   "Use libunwind if found on system (default ON)" ON)
+option(ENABLE_WCCP     "Use WCCP v2 (default OFF)")
 set(TS_MAX_HOST_NAME_LEN 256 CACHE STRING "Max host name length (default 256)")
+set(MAX_EVENT_THREADS
+    4096
+    CACHE
+    STRING
+    "Max number of event threads (default 4096)"
+)
+set(MAX_THREADS_PER_TYPE
+    3072
+    CACHE
+    STRING
+    "Max number of threads per event type (default 3072)"
+)
 set(TS_USE_SET_RBIO 1 CACHE STRING "Use openssl set_rbio (default 1)")
 set(TS_USE_DIAGS 1 CACHE STRING "Use diags (default 1)")
+option(TS_USE_HWLOC "Use hwloc (default OFF)")
+
+set(TS_USE_FAST_SDK ${ENABLE_FAST_SDK})
 
 set(TS_VERSION_MAJOR 10)
 set(TS_VERSION_MINOR 0)
@@ -57,6 +87,10 @@ set(TS_LIBTOOL_MAJOR ${TS_VERSION_MAJOR}${TS_VERSION_MINOR})
 set(TS_LIBTOOL_VERSION ${TS_LIBTOOL_MAJOR}:${TS_VERSION_MICRO}:${TS_VERSION_MINOR})
 set(TS_VERSION_STRING TS_VERSION_S)
 set(TS_VERSION_NUMBER TS_VERSION_N)
+
+set(TS_HAS_WCCP ${ENABLE_WCCP})
+set(TS_MAX_NUMBER_EVENT_THREADS ${MAX_EVENT_THREADS})
+set(TS_MAX_THREADS_IN_EACH_THREAD_TYPE ${MAX_THREADS_PER_TYPE})
 
 # Check include files
 include(CheckIncludeFile)
@@ -95,14 +129,82 @@ CHECK_INCLUDE_FILE(arpa/nameser_compat.h HAVE_ARPA_NAMESER_COMPAT_H)
 CHECK_INCLUDE_FILE(siginfo.h HAVE_SIGINFO_H)
 
 # Find libraries
+find_package(Backtrace)
+if(Backtrace_FOUND)
+    set(TS_HAS_BACKTRACE TRUE)
+endif()
+
+find_package(brotli)
+if(brotli_FOUND)
+    set(HAVE_BROTLI_ENCODE_H TRUE)
+endif()
+
+if(ENABLE_POSIX_CAP)
+    find_package(cap REQUIRED)
+    set(TS_USE_POSIX_CAP ${cap_FOUND})
+    find_path(PRCTL_HEADER NAMES sys/prctl.h)
+    # just making sure
+    if(NOT PRCTL_HEADER)
+        message(FATAL_ERROR "Have cap but sys/prctl.h not found.")
+    endif()
+    set(HAVE_SYS_PRCTL_H TRUE)
+    unset(PRCTL_HEADER)
+else()
+    find_package(cap QUIET)
+endif()
+set(HAVE_SYS_CAPABILITY_H ${cap_FOUND})
+
+find_package(hwloc)
+if(hwloc_FOUND)
+    set(TS_USE_HWLOC TRUE)
+endif()
+
+find_package(LibLZMA)
+if(LibLZMA_FOUND)
+        set(HAVE_LZMA_H TRUE)
+endif()
+
 find_package(PCRE)
+
 include(FindOpenSSL)
 find_package(OpenSSL)
+
+if(ENABLE_PROFILER)
+    find_package(profiler REQUIRED)
+    set(TS_HAS_PROFILER ${profiler_FOUND})
+endif()
+
+find_package(TSMallocReplacement QUIET MODULE)
+if(TSMallocReplacement_FOUND)
+    link_libraries(ts::TSMallocReplacement)
+endif()
+
+if(ENABLE_UNWIND)
+    find_package(unwind)
+    if(unwind_FOUND)
+            link_libraries(unwind::unwind)
+    endif()
+    set(TS_USE_REMOTE_UNWINDING ${unwind_FOUND})
+endif()
+
+find_package(ZLIB REQUIRED)
+
+include(Check128BitCas)
+include(ConfigureTransparentProxy)
 
 # Find ccache
 include(find_ccache)
 
 # Check for IO faculties
+check_symbol_exists(IN6_IS_ADDR_UNSPECIFIED "netinet/in.h" TS_HAS_IN6_IS_ADDR_UNSPECIFIED)
+check_symbol_exists(IP_TOS "netinet/ip.h" TS_HAS_IP_TOS)
+check_symbol_exists(SO_MARK "sys/socket.h" TS_HAS_SO_MARK)
+check_symbol_exists(SO_PEERCRED "sys/socket.h" TS_HAS_SO_PEERCRED)
+check_symbol_exists(TLS1_3_VERSION "${OPENSSL_INCLUDE_DIR}/openssl/ssl.h" TS_USE_TLS13)
+check_symbol_exists(OPENSSL_NO_TLS1_3 "${OPENSSL_INCLUDE_DIR}/ssl.h" TS_NO_USE_TLS13)
+if(TS_NO_USE_TLS13)
+    set(TS_USE_TLS13 FALSE CACHE)
+endif()
 check_symbol_exists(epoll_create "sys/epoll.h" TS_USE_EPOLL)
 check_symbol_exists(kqueue "sys/event.h" TS_USE_KQUEUE)
 set(CMAKE_REQUIRED_LIBRARIES uring)
@@ -115,8 +217,6 @@ check_symbol_exists(getresuid unistd.h HAVE_GETRESUID)
 check_symbol_exists(getresgid unistd.h HAVE_GETRESGID)
 check_symbol_exists(accept4 sys/socket.h HAVE_ACCEPT4)
 check_symbol_exists(eventfd sys/eventfd.h HAVE_EVENTFD)
-
-check_symbol_exists(SSL_CTX_set_tlsext_ticket_key_cb openssl/ssl.h HAVE_SSL_CTX_SET_TLSEXT_TICKET_KEY_CB)
 
 option(USE_IOURING "Use experimental io_uring (linux only)" 0)
 if (HAVE_IOURING AND USE_IOURING)
@@ -141,11 +241,13 @@ check_symbol_exists(BIO_meth_get_ctrl "openssl/bio.h" HAVE_BIO_METH_GET_CTRL)
 check_symbol_exists(BIO_meth_get_create "openssl/bio.h" HAVE_BIO_METH_GET_CREATE)
 check_symbol_exists(BIO_meth_get_destroy "openssl/bio.h" HAVE_BIO_METH_GET_DESTROY)
 check_symbol_exists(DH_get_2048_256 "openssl/dh.h" TS_USE_GET_DH_2048_256)
+check_symbol_exists(SSL_CTX_set_tlsext_ticket_key_cb openssl/ssl.h HAVE_SSL_CTX_SET_TLSEXT_TICKET_KEY_CB)
 
 # Catch2 for tests
-set(CATCH_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/tests/include)
+set(CATCH_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/lib/catch2)
 
 include(CTest)
+set(TS_HAS_TESTS ${BUILD_REGRESSION_TESTING})
 
 message("Configuring for ${HOST_OS}")
 
@@ -163,17 +265,20 @@ if (HOST_OS STREQUAL "darwin")
     set(CMAKE_MACOSX_RPATH 1)
 endif(HOST_OS STREQUAL "darwin")
 
+# Set the rpath for installed binaries
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 add_compile_definitions(${HOST_OS} PACKAGE_NAME="ats" PACKAGE_VERSION="${TS_VERSION_STRING}")
 add_compile_options(-Wno-invalid-offsetof)
 
-# common includes for everyone
+# Common includes for everyone
 include_directories(
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_BINARY_DIR}/include
         ${PCRE_INCLUDE_DIRS}
 )
+
 if (OPENSSL_FOUND)
     include_directories(${OPENSSL_INCLUDE_DIR})
     link_libraries(${OPENSSL_CRYPTO_LIBRARY})
@@ -195,6 +300,8 @@ configure_file(configs/records.yaml.default.in configs/records.yaml.default)
 configure_file(include/tscore/ink_config.h.cmake.in include/tscore/ink_config.h)
 configure_file(include/ts/apidefs.h.in include/ts/apidefs.h)
 
+enable_testing()
+
 add_subdirectory(src/tscpp/util)
 add_subdirectory(src/tscpp/api)
 add_subdirectory(src/tscore)
@@ -206,6 +313,10 @@ add_subdirectory(mgmt/config)
 add_subdirectory(mgmt/rpc)
 add_subdirectory(src/traffic_server)
 add_subdirectory(src/traffic_ctl)
+if(ENABLE_WCCP)
+    add_subdirectory(src/wccp)
+    add_subdirectory(src/traffic_wccp)
+endif()
 add_subdirectory(src/tests)
 add_subdirectory(plugins)
 add_subdirectory(configs)
@@ -261,3 +372,22 @@ endif()
 # Create an empty directories for ATS runtime
 install(DIRECTORY DESTINATION var/log/trafficserver)
 install(DIRECTORY DESTINATION var/trafficserver)
+
+# Display build summary
+include(CMakePrintHelpers)
+message("Build Summary:")
+cmake_print_variables(CMAKE_SYSTEM_NAME)
+cmake_print_variables(CMAKE_SYSTEM_VERSION)
+cmake_print_variables(CMAKE_SYSTEM_PROCESSOR)
+cmake_print_variables(CMAKE_GENERATOR)
+cmake_print_variables(CMAKE_BUILD_TYPE)
+cmake_print_variables(CMAKE_INSTALL_PREFIX)
+cmake_print_variables(CMAKE_CXX_COMPILER)
+cmake_print_variables(CMAKE_C_COMPILER)
+cmake_print_variables(CMAKE_CXX_FLAGS)
+cmake_print_variables(CMAKE_C_FLAGS)
+cmake_print_variables(BUILD_PERSON)
+cmake_print_variables(BUILD_GROUP)
+cmake_print_variables(BUILD_MACHINE)
+cmake_print_variables(DEFAULT_STACK_SIZE)
+cmake_print_variables(CMAKE_INSTALL_RPATH)

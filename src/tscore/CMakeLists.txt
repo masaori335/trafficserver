@@ -106,7 +106,25 @@ target_include_directories(tscore PRIVATE
         ${CMAKE_CURRENT_BINARY_DIR}
         ${YAML_INCLUDE_DIRS}
 )
-target_link_libraries(tscore ${PCRE_LIBRARIES} ${OPENSSL_LIBRARIES} yaml-cpp::yaml-cpp tscpputil resolv libswoc)
+target_link_libraries(tscore
+    PUBLIC
+        libswoc
+        ${OPENSSL_LIBRARIES}
+        ${PCRE_LIBRARIES}
+        resolv
+        tscpputil
+    PRIVATE
+        yaml-cpp::yaml-cpp
+)
+if(TS_USE_HWLOC)
+    target_link_libraries(tscore PUBLIC hwloc::hwloc)
+endif()
+if(TS_HAS_128BIT_CAS AND TS_NEEDS_MCX16_FOR_CAS)
+    target_compile_options(tscore PUBLIC "-mcx16")
+endif()
+if(TS_USE_POSIX_CAP)
+    target_link_libraries(tscore PUBLIC cap::cap)
+endif()
 
 add_executable(test_tscore
         unit_tests/test_AcidPtr.cc
@@ -123,7 +141,6 @@ add_executable(test_tscore
         unit_tests/test_IntrusivePtr.cc
         unit_tests/test_List.cc
         unit_tests/test_MMH.cc
-        unit_tests/test_MT_hashtable.cc
         unit_tests/test_ParseRules.cc
         unit_tests/test_PluginUserArgs.cc
         unit_tests/test_PriorityQueue.cc
@@ -140,7 +157,16 @@ add_executable(test_tscore
         unit_tests/test_scoped_resource.cc
         unit_tests/unit_test_main.cc
 )
-target_link_libraries(test_tscore PRIVATE tscore inkevent records_p libswoc)
-target_include_directories(test_tscore PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/iocore/eventsystem ${CATCH_INCLUDE_DIR})
+target_link_libraries(test_tscore
+    PRIVATE
+        libswoc
+        tscore
+)
+if(TS_USE_HWLOC)
+    target_link_libraries(test_tscore PRIVATE hwloc::hwloc)
+endif()
+target_include_directories(test_tscore PRIVATE ${CMAKE_SOURCE_DIR}/include ${CATCH_INCLUDE_DIR})
+
+add_test(NAME test_tscore COMMAND $<TARGET_FILE:test_tscore>)
 
 install(TARGETS tscore)

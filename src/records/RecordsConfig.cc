@@ -576,6 +576,8 @@ static const RecordElement RecordsConfig[] =
   ,
   {RECT_CONFIG, "proxy.config.http.cache.cache_urls_that_look_dynamic", RECD_INT, "1", RECU_DYNAMIC, RR_NULL, RECC_INT, "[0-1]", RECA_NULL}
   ,
+  {RECT_CONFIG, "proxy.config.http.cache.ignore_query", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_INT, "[0-1]", RECA_NULL}
+  ,
   {RECT_CONFIG, "proxy.config.http.cache.post_method", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_INT, "[0-1]", RECA_NULL}
   ,
   {RECT_CONFIG, "proxy.config.http.cache.max_open_read_retries", RECD_INT, "-1", RECU_NULL, RR_NULL, RECC_NULL, nullptr, RECA_NULL}
@@ -1373,7 +1375,7 @@ static const RecordElement RecordsConfig[] =
   //############
   {RECT_CONFIG, "proxy.config.http3.header_table_size", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
   ,
-  {RECT_CONFIG, "proxy.config.http3.max_header_list_size", RECD_INT, "4096", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  {RECT_CONFIG, "proxy.config.http3.max_field_section_size", RECD_INT, "4096", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
   ,
   {RECT_CONFIG, "proxy.config.http3.qpack_blocked_streams", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
   ,
