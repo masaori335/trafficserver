@@ -300,3 +300,30 @@ builds:
       - "_sandbox/**"
   jenkins:
     concurrentBuild: true
+
+- branchName: 9.2.x
+  group: intpr
+  version: mptcp
+  machine:
+    baseImage: docker.apple.com/edge/trafficserver_build:20230628-3-el7
+  build:
+    template: freestyle:v4:publish
+    buildParameters:
+    - parameter: pr_id
+      description: Internal GitHub PR ID to build with 5.10 kernel headers
+    - parameter: variation
+      defaultValue: llvm
+      description: Build variation [llvm (deault), asan, or debug]
+    steps:
+    - ./apple/rio.sh --build --branch 9.2.x --prid ${BUILD_PARAM_pr_id} --variation -${BUILD_PARAM_variation}
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+  package:
+    freeform:
+      - publish:
+        - repo: yum:cdn-edge
+  jenkins:
+    concurrentBuild: true
