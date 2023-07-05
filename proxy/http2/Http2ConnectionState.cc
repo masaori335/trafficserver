@@ -1070,13 +1070,13 @@ Http2ConnectionState::init(Http2CommonSession *ssn)
   }
 
   if (this->session) {
-      TLSSNISupport *snis = dynamic_cast<TLSSNISupport *>(session->get_netvc());
-      if (snis && snis->hints_from_sni.http2_initial_window_size_in.has_value()) {
-          this->_server_rwnd = snis->hints_from_sni.http2_initial_window_size_in.value();
-          if (this->_server_rwnd < HTTP2_INITIAL_WINDOW_SIZE) {
-                this->server_rwnd_is_shrinking = true;
-          }
+    TLSSNISupport *snis = dynamic_cast<TLSSNISupport *>(session->get_netvc());
+    if (snis && snis->hints_from_sni.http2_initial_window_size_in.has_value()) {
+      this->_server_rwnd = snis->hints_from_sni.http2_initial_window_size_in.value();
+      if (this->_server_rwnd < HTTP2_INITIAL_WINDOW_SIZE) {
+        this->server_rwnd_is_shrinking = true;
       }
+    }
   }
 
   Http2ConDebug(session, "initial _server_rwnd: %zd", this->_server_rwnd);
