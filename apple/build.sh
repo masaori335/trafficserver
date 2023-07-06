@@ -29,8 +29,6 @@ else
     VERSION_SEPARATOR="/"
 fi
 
-DOCKER_IMAGE=trafficserver-builder${SUBPROJECT}${TS_PLUGIN_VERSION}${VARIATION}
-
 buildroot=build  # directory where the build is done, artifacts stored.
 
 # it is important that the tarball, when unpacked, produce a $srcdir top-directory
@@ -40,8 +38,8 @@ mkdir -p $buildroot
 
 if [ "$SUBPROJECT" == "-plugins" ];then
     BZ_DEVEL_PKG=bazinga-trafficserver-devel$TS_VERSION
-    if [ "$VARIATION" == "-asan" ];then
-        BZ_DEVEL_PKG=bazinga-trafficserver$VARIATION-devel$TS_VERSION
+    if [ "$VARIATION" =~ .*-asan.* ];then
+        BZ_DEVEL_PKG=bazinga-trafficserverasan-devel$TS_VERSION
     fi
 
     sudo yum -y install $BZ_DEVEL_PKG --enablerepo=bazinga-testing
@@ -72,10 +70,6 @@ else
 fi
 
 RPMBUILD_FLAGS=()
-if [ "$VARIATION" != "" ]; then
-    X=$(echo $VARIATION | sed -e 's/^-//g')
-    RPMBUILD_FLAGS+="--with $X"
-fi
 
 # -asan requires llvm
 if [[ "$VARIATION" =~ .*asan.* ]];then
@@ -89,14 +83,18 @@ if [[ "$VARIATION" =~ .*io_uring.* ]];then
 fi
 
 # -boringssl requires boringssl
-if [[ "$VARIATION" == .*boringssl.* ]];then
+if [[ "$VARIATION" =~ .*boringssl.* ]];then
     RPMBUILD_FLAGS+=" --with boringssl"
 fi
 
 # -quiche requires boringssl
-if [[ "$VARIATION" == .*quiche.* ]];then
+if [[ "$VARIATION" =~ .*quiche.* ]];then
     RPMBUILD_FLAGS+=" --with quiche"
     RPMBUILD_FLAGS+=" --with boringssl"
+fi
+
+if [[ "$VARIATION" =~ .*debug.* ]];then
+    RPMBUILD_FLAGS+=" --with debug"
 fi
 
 if [ "$INTERNAL_GITHUB_PR" != "" ]; then
