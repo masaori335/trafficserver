@@ -73,6 +73,7 @@ RPMBUILD_FLAGS=()
 
 # -asan requires llvm
 if [[ "$VARIATION" =~ .*asan.* ]];then
+    RPMBUILD_FLAGS+=" --with asan"
     RPMBUILD_FLAGS+=" --with llvm"
 fi
 
