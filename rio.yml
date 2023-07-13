@@ -133,3 +133,35 @@ builds:
       - "_sandbox/**"
   jenkins:
     concurrentBuild: true
+
+########
+# Breakfix
+########
+- branchRules:
+    includePatterns:
+      - breakfix/.*
+      - breakfix-.*
+      - breakfix_.*
+  group: breakfix
+  <<: *build_machine
+  build:
+    template: freestyle:v4:publish
+    buildParameters:
+    - parameter: variation
+      defaultValue: llvm
+      description: Build variation [llvm (deault), asan, or debug]
+    - parameter: version
+      description: Build version for package name (i.e. 52.1234)
+    steps:
+    - ./apple/rio.sh --build --branch ${RIO_BRANCH_NAME} --breakfix ${BUILD_PARAM_version} --variation -${BUILD_PARAM_variation} --tagbuild
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+  package:
+    freeform:
+      - publish:
+        - repo: yum:cdn-edge
+  jenkins:
+    concurrentBuild: true

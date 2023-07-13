@@ -10,7 +10,9 @@ zparseopts -E -D -- b=BUILD -build=BUILD \
                     p:=PR_ID -prid:=PR_ID \
                     a:=BRANCH -branch:=BRANCH \
                     v:=inVARIATION -variation:=inVARIATION \
-                    f:=TEST_FILTER -filter-test:=TEST_FILTER
+                    f:=TEST_FILTER -filter-test:=TEST_FILTER \
+                    x:=BREAK_FIX -breakfix:=BREAK_FIX
+
 if (( $# )); then
     end_opts=$@[(i)(--|-)]
     if [[ -n ${invalid_opt::=${(M)@[0,end_opts-1]#-}} ]]; then
@@ -27,6 +29,7 @@ TEST=${#TEST}
 BRANCH=${BRANCH[-1]}
 PR_ID=${PR_ID[-1]:=${GIT_PR_ID}}
 TEST_FILTER=${TEST_FILTER[-1]}
+BREAK_FIX=${#BREAK_FIX}
 
 inVARIATION=${inVARIATION[-1]}
 if [[ ! -z ${inVARIATION} ]]; then
@@ -47,8 +50,12 @@ fi
 
 VERSION=$(grep '\[TS_VERSION_S\]' configure.ac | head -n 1 | perl -pe 's{^.*\],\[(\d+.\d+.\d+).*$}{$1}')
 VERSION_MAJOR=$(echo $VERSION | cut -d . -f 1)
-COMMIT_TREE_LENGTH=$(git rev-list HEAD 2>/dev/null | wc -l)
-BUILD_VERSION="${RIO_BUILD_NUMBER}.${COMMIT_TREE_LENGTH}"
+if [ -z ${BREAK_FIX} ]; then
+  COMMIT_TREE_LENGTH=$(git rev-list HEAD 2>/dev/null | wc -l)
+  BUILD_VERSION="${RIO_BUILD_NUMBER}.${COMMIT_TREE_LENGTH}"
+else
+  BUILD_VERSION=${BREAK_FIX}-${RIO_BUILD_NUMBER}
+fi
 export BUILD_VERSION
 
 export GIT_TAG=bazinga/$VERSION/$BUILD_VERSION
