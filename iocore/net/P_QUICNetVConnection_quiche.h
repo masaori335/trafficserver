@@ -50,6 +50,8 @@
 #include "quic/QUICContext.h"
 #include "quic/QUICStreamManager.h"
 #include "quic/QUICStreamManager_quiche.h"
+
+#include <netinet/in.h>
 #include <quiche.h>
 
 class QUICPacketHandler;
@@ -86,7 +88,7 @@ public:
   void set_local_addr() override;
 
   // NetEvent
-  void free(EThread *t) override;
+  void free_thread(EThread *t) override;
 
   // UnixNetVConnection
   void reenable(VIO *vio) override;
@@ -155,6 +157,7 @@ protected:
 
   // TLSSNISupport
   void _fire_ssl_servername_event() override;
+  in_port_t _get_local_port() override;
 
   // TLSSessionResumptionSupport
   const IpEndpoint &_getLocalEndpoint() override;

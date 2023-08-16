@@ -89,7 +89,6 @@ extern "C" int plock(int);
 #include "IPAllow.h"
 #include "ParentSelection.h"
 #include "HostStatus.h"
-#include "MgmtUtils.h"
 #include "StatPages.h"
 #include "HTTP.h"
 #include "HuffmanCodec.h"
@@ -136,6 +135,8 @@ static char diags_log_filename[PATH_NAME_MAX] = DEFAULT_DIAGS_LOG_FILENAME;
 static const long MAX_LOGIN = ink_login_name_max();
 
 static void init_ssl_ctx_callback(void *ctx, bool server);
+// This isn't static as its also called from InkAPI.cc
+void load_config_file_callback(const char *parent_file, const char *remap_file);
 static void load_ssl_file_callback(const char *ssl_file);
 static void task_threads_started_callback();
 
@@ -206,8 +207,6 @@ static ArgumentDescription argument_descriptions[] = {
   {"disable_freelist",  'f', "Disable the freelist memory allocator",                                                               "T",     &cmd_disable_freelist,           "PROXY_DPRINTF_LEVEL",     nullptr},
   {"disable_pfreelist", 'F', "Disable the freelist memory allocator in ProxyAllocator",                                             "T",     &cmd_disable_pfreelist,
    "PROXY_DPRINTF_LEVEL",                                                                                                                                                                                nullptr},
-  {"maxRecords",        'm', "Max number of librecords metrics and configurations (default & minimum: 1600)",                       "I",     &max_records_entries,
-   "PROXY_MAX_RECORDS",                                                                                                                                                                                  nullptr},
 
 #if TS_HAS_TESTS
   {"regression",        'R', "Regression Level (quick:1..long:3)",                                                                  "I",     &regression_level,               "PROXY_REGRESSION",        nullptr},
@@ -666,8 +665,6 @@ check_config_directories()
 static void
 initialize_process_manager()
 {
-  mgmt_use_syslog();
-
   RecProcessInit(diags());
   LibRecordsConfigInit();
 
@@ -717,7 +714,7 @@ initialize_jsonrpc_server()
     // jsonrpcServer object.
     ink_assert(jsonrpcServer == nullptr);
     std::string msg;
-    return {false, ts::bwprint(msg, "Server failed: '{}'", ex.what())};
+    return {false, swoc::bwprint(msg, "Server failed: '{}'", ex.what())};
   }
   // Register admin handlers.
   rpc::admin::register_admin_jsonrpc_handlers();
@@ -1946,6 +1943,10 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   }
 #endif
 
+  // Pick the system clock to choose, likely only on Linux. See <linux/time.h>.
+  extern int gSystemClock; // 0 == CLOCK_REALTIME, the default
+  REC_ReadConfigInteger(gSystemClock, "proxy.config.system_clock");
+
   // JSONRPC server and handlers
   if (auto &&[ok, msg] = initialize_jsonrpc_server(); !ok) {
     Warning("JSONRPC server could not be started.\n  Why?: '%s' ... Continuing without it.", msg.c_str());
@@ -2070,9 +2071,13 @@ main(int /* argc ATS_UNUSED */, const char **argv)
 
 #if TS_USE_LINUX_IO_URING == 1
   IOUringContext *ur = IOUringContext::local_context();
-  IOUringContext::set_main_queue(ur);
-  auto [bounded, unbounded] = ur->get_wq_max_workers();
-  Note("io_uring: WQ workers - bounded = %d, unbounded = %d", bounded, unbounded);
+  if (ur->valid()) {
+    IOUringContext::set_main_queue(ur);
+    auto [bounded, unbounded] = ur->get_wq_max_workers();
+    Note("io_uring: WQ workers - bounded = %d, unbounded = %d", bounded, unbounded);
+  } else {
+    Note("io_uring: Not supported");
+  }
 #endif
 
   // !! ET_NET threads start here !!
@@ -2278,7 +2283,11 @@ main(int /* argc ATS_UNUSED */, const char **argv)
 
   while (!TSSystemState::is_event_system_shut_down()) {
 #if TS_USE_LINUX_IO_URING == 1
-    ur->submit_and_wait(1 * HRTIME_SECOND);
+    if (ur->valid()) {
+      ur->submit_and_wait(1 * HRTIME_SECOND);
+    } else {
+      sleep(1);
+    }
 #else
     sleep(1);
 #endif

@@ -301,9 +301,12 @@ public:
    */
   self_type &assign(std::string_view const &name, Generator const &generator);
 
-  bool contains(std::string_view name) {
-      return _map.end() != _map.find(name);
-  }
+  /** Check if a specific name is contained in this mapping.
+   *
+   * @param name Name to check.
+   * @return @c true if present, @c false if not.
+   */
+  bool contains(std::string_view name);
 
 protected:
   /// Copy @a name in to local storage and return a view of it.
@@ -556,6 +559,12 @@ template <typename F> NameMap<F>::NameMap(std::initializer_list<std::tuple<std::
   for (auto &&[name, generator] : list) {
     this->assign(name, generator);
   }
+}
+
+template <typename F>
+bool
+NameMap<F>::contains(std::string_view name) {
+  return _map.end() != _map.find(name);
 }
 
 template <typename F>
@@ -969,7 +978,24 @@ BufferWriter &bwformat(BufferWriter &w, bwf::Spec const &spec, const void *ptr);
  * The format is by default "N:ptr" where N is the size and ptr is a hex formatter pointer. If the
  * format is "x" or "X" the span content is dumped as contiguous hex.
  */
-BufferWriter &bwformat(BufferWriter &w, bwf::Spec const &spec, MemSpan<void> const &span);
+BufferWriter &bwformat(BufferWriter &w, bwf::Spec const &spec, MemSpan<void const> const &span);
+
+/** Format a generic (void) memory span.
+ *
+ * @param w Output
+ * @param spec Format specifier.
+ * @param span Span to format.
+ * @return @a w
+ *
+ * The format is by default "N:ptr" where N is the size and ptr is a hex formatter pointer. If the
+ * format is "x" or "X" the span content is dumped as contiguous hex.
+ *
+ * @internal Overload to avoid unfortunate ambiguities when constructing the span from other spans.
+ * in particular @c MemSpan<char> vs. @c TextView.
+ */
+inline BufferWriter &bwformat(BufferWriter &w, bwf::Spec const &spec, MemSpan<void> const &span) {
+  return bwformat(w, spec, span.rebind<void const>());
+}
 
 template <typename T>
 BufferWriter &
@@ -980,7 +1006,7 @@ bwformat(BufferWriter &w, bwf::Spec const &spec, MemSpan<T> const &span) {
   if (spec._prec <= 0) {
     s._prec = sizeof(T);
   }
-  return bwformat(w, s, span.template rebind<void>());
+  return bwformat(w, s, span.template rebind<void const>());
 }
 
 template <size_t N>
@@ -1279,5 +1305,30 @@ As_Hex(T const &t) {
  * @return @a w
  */
 BufferWriter &bwformat(BufferWriter &w, bwf::Spec const &spec, bwf::HexDump const &hex);
+
+/** Format a buffer writer.
+ *
+ * @param w Output buffer,
+ * @param spec Format specifier.
+ * @param ww Input buffer
+ * @return @a w
+ *
+ * This treats @a ww as a view and prints it as text.
+ */
+inline BufferWriter &bwformat(BufferWriter &w, bwf::Spec const& spec, BufferWriter const& ww) {
+  return bwformat(w, spec, TextView(ww));
+}
+
+template <typename T>
+BufferWriter &
+BufferWriter::format(bwf::Spec const &spec, T const &t) {
+  return bwformat(*this, spec, t);
+}
+
+template <typename T>
+BufferWriter &
+BufferWriter::format(bwf::Spec const &spec, T && t) {
+  return bwformat(*this, spec, t);
+}
 
 }} // namespace swoc::SWOC_VERSION_NS

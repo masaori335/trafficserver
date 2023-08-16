@@ -543,7 +543,6 @@ struct CacheRemoveCont : public Continuation {
 
 // Global Data
 extern ClassAllocator<CacheVC> cacheVConnectionAllocator;
-extern CacheKey zero_key;
 extern CacheSync *cacheDirSync;
 // Function Prototypes
 int cache_write(CacheVC *, CacheHTTPInfoVector *);
@@ -560,7 +559,7 @@ new_CacheVC(Continuation *cont)
   c->vector.data.data = &c->vector.data.fast_data[0];
   c->_action          = cont;
   c->mutex            = cont->mutex;
-  c->start_time       = Thread::get_hrtime();
+  c->start_time       = ink_get_hrtime();
   c->setThreadAffinity(t);
   ink_assert(c->trigger == nullptr);
   static DbgCtl dbg_ctl{"cache_new"};

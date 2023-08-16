@@ -281,7 +281,7 @@ http_insert_forwarded_cb(const char *name, RecDataT dtype, RecData data, void *c
 
   if (0 == strcasecmp("proxy.config.http.insert_forwarded", name)) {
     if (RECD_STRING == dtype) {
-      ts::LocalBufferWriter<1024> error;
+      swoc::LocalBufferWriter<1024> error;
       HttpForwarded::OptionBitSet bs = HttpForwarded::optStrToBitset(std::string_view(data.rec_string), error);
       if (!error.size()) {
         c->oride.insert_forwarded = bs;
@@ -1093,11 +1093,11 @@ set_negative_caching_list(const char *name, RecDataT dtype, RecData data, HttpCo
   // values from proxy.config.http.negative_caching_list
   if (0 == strcasecmp("proxy.config.http.negative_caching_list", name) && RECD_STRING == dtype && data.rec_string) {
     // parse the list of status codes
-    ts::TextView status_list(data.rec_string, strlen(data.rec_string));
+    swoc::TextView status_list(data.rec_string, strlen(data.rec_string));
     auto is_sep{[](char c) { return isspace(c) || ',' == c || ';' == c; }};
     while (!status_list.ltrim_if(is_sep).empty()) {
-      ts::TextView span, token{status_list.take_prefix_if(is_sep)};
-      auto n = ts::svtoi(token, &span);
+      swoc::TextView span, token{status_list.take_prefix_if(is_sep)};
+      auto n = swoc::svtoi(token, &span);
       if (span.size() != token.size()) {
         Error("Invalid status code '%.*s' for negative caching: not a number", static_cast<int>(token.size()), token.data());
       } else if (n <= 0 || n >= HTTP_STATUS_NUMBER) {
@@ -1159,8 +1159,8 @@ HttpConfig::startup()
     c.proxy_hostname[0] = '\0';
   }
 
-  c.inbound  += RecHttpLoadIp("proxy.local.incoming_ip_to_bind");
-  c.outbound += RecHttpLoadIp("proxy.local.outgoing_ip_to_bind");
+  c.inbound  += RecHttpLoadIp("proxy.config.incoming_ip_to_bind");
+  c.outbound += RecHttpLoadIp("proxy.config.outgoing_ip_to_bind");
   RecHttpLoadIpAddrsFromConfVar("proxy.config.http.proxy_protocol_allowlist", c.config_proxy_protocol_ip_addrs);
   SSLConfigInit(&c.config_proxy_protocol_ip_addrs);
 
@@ -1176,7 +1176,7 @@ HttpConfig::startup()
   HttpEstablishStaticConfigLongLong(c.http_request_line_max_size, "proxy.config.http.request_line_max_size");
   HttpEstablishStaticConfigLongLong(c.http_hdr_field_max_size, "proxy.config.http.header_field_max_size");
 
-  HttpEstablishStaticConfigByte(c.disable_ssl_parenting, "proxy.local.http.parent_proxy.disable_connect_tunneling");
+  HttpEstablishStaticConfigByte(c.disable_ssl_parenting, "proxy.config.http.parent_proxy.disable_connect_tunneling");
   HttpEstablishStaticConfigByte(c.oride.forward_connect_method, "proxy.config.http.forward_connect_method");
 
   HttpEstablishStaticConfigByte(c.oride.no_dns_forward_to_parent, "proxy.config.http.no_dns_just_forward_to_parent");
@@ -1221,7 +1221,7 @@ HttpConfig::startup()
     char str[512];
 
     if (REC_ERR_OKAY == RecGetRecordString("proxy.config.http.insert_forwarded", str, sizeof(str))) {
-      ts::LocalBufferWriter<1024> error;
+      swoc::LocalBufferWriter<1024> error;
       HttpForwarded::OptionBitSet bs = HttpForwarded::optStrToBitset(std::string_view(str), error);
       if (!error.size()) {
         c.oride.insert_forwarded = bs;

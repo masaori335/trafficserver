@@ -35,20 +35,44 @@ add_library(http STATIC
         HttpTransactCache.cc
         HttpTransactHeaders.cc
         HttpTunnel.cc
+        HttpVCTable.cc
         ConnectingEntry.cc
         ForwardedConfig.cc
         PreWarmConfig.cc
-        PreWarmManager.cc
 )
+add_library(ts::http ALIAS http)
+
 if(BUILD_REGRESSION_TESTING)
     target_sources(http PRIVATE RegressionHttpTransact.cc)
 endif()
 
-target_include_directories(http PRIVATE
+target_include_directories(http
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+    PRIVATE
         ${IOCORE_INCLUDE_DIRS}
         ${PROXY_INCLUDE_DIRS}
-        ${CMAKE_SOURCE_DIR}/mgmt
-        ${CMAKE_SOURCE_DIR}/mgmt/utils
         ${YAMLCPP_INCLUDE_DIR}
+        OpenSSL::SSL
 )
+
+target_link_libraries(http
+    PUBLIC
+        ts::inkevent
+        ts::inkhostdb
+        ts::proxy
+        ts::tscore
+    PRIVATE
+        ts::inkcache
+        ts::inkutils
+)
+
+if(TS_USE_QUIC)
+    target_link_libraries(http PRIVATE ts::http3)
+endif()
+
+if(BUILD_TESTING)
+  add_subdirectory(unit_tests)
+endif()
+
 add_subdirectory(remap)

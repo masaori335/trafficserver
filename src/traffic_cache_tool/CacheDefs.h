@@ -29,12 +29,12 @@
 
 #include "swoc/swoc_file.h"
 #include "swoc/Scalar.h"
+#include "swoc/TextView.h"
+#include "tscpp/util/ts_errata.h"
 
 #include "tscore/I_Version.h"
 #include "tscore/ink_memory.h"
 #include "tscore/Regex.h"
-#include "tscore/Errata.h"
-#include "tscpp/util/TextView.h"
 #include "tscore/ink_file.h"
 #include "tscore/CryptoHash.h"
 
@@ -228,7 +228,7 @@ class URLparser
 {
 public:
   bool verifyURL(std::string &url1);
-  Errata parseURL(TextView URI);
+  swoc::Errata parseURL(swoc::TextView URI);
   int getPort(std::string &fullURL, int &port_ptr, int &port_len);
 
 private:
@@ -248,8 +248,8 @@ public:
   std::string fragments;
   std::string user;
   std::string password;
-  CacheURL(int port_, ts::TextView b_hostname, ts::TextView b_path, ts::TextView b_params, ts::TextView b_query,
-           ts::TextView b_fragments)
+  CacheURL(int port_, swoc::TextView b_hostname, swoc::TextView b_path, swoc::TextView b_params, swoc::TextView b_query,
+           swoc::TextView b_fragments)
   {
     hostname.assign(b_hostname.data(), b_hostname.size());
     port = port_;
@@ -259,7 +259,7 @@ public:
     fragments.assign(b_fragments.data(), b_fragments.size());
   }
 
-  CacheURL(ts::TextView blob, int port_)
+  CacheURL(swoc::TextView blob, int port_)
   {
     url.assign(blob.data(), blob.size());
     port = port_;
@@ -282,13 +282,13 @@ struct url_matcher {
   {
     std::error_code ec;
     std::string load_content = swoc::file::load(path, ec);
-    ts::TextView fileContent(load_content);
+    swoc::TextView fileContent(load_content);
     if (ec.value() == 0) {
       const char **patterns;
       std::vector<std::string> str_vec;
       int count = 0;
       while (fileContent) {
-        ts::TextView line = fileContent.take_prefix_at('\n');
+        swoc::TextView line = fileContent.take_prefix_at('\n');
         std::string reg_str(line.data(), line.size());
         str_vec.push_back(reg_str);
         count++;
@@ -344,15 +344,16 @@ private:
   DFA regex;
 };
 
+using swoc::Errata;
+using swoc::MemSpan;
+
 using ts::Bytes;
 using ts::Megabytes;
 using ts::CacheStoreBlocks;
 using ts::CacheStripeBlocks;
 using ts::StripeMeta;
 using ts::CacheStripeDescriptor;
-using ts::Errata;
 using ts::CacheDirEntry;
-using swoc::MemSpan;
 using ts::Doc;
 
 constexpr int ESTIMATED_OBJECT_SIZE     = 8000;
@@ -454,7 +455,7 @@ struct Span {
   /// This is broken and needs to be cleaned up.
   void clearPermanently();
 
-  ts::Rv<Stripe *> allocStripe(int vol_idx, const CacheStripeBlocks &len);
+  swoc::Rv<Stripe *> allocStripe(int vol_idx, const CacheStripeBlocks &len);
   Errata updateHeader(); ///< Update serialized header and write to disk.
 
   swoc::file::path _path;   ///< File system location of span.

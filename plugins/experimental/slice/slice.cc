@@ -41,7 +41,7 @@ read_request(TSHttpTxn txnp, Config *const config)
   hdrmgr.populateFrom(txnp, TSHttpTxnClientReqGet);
   HttpHeader const header(hdrmgr.m_buffer, hdrmgr.m_lochdr);
 
-  if (TS_HTTP_METHOD_GET == header.method() || TS_HTTP_METHOD_HEAD == header.method()) {
+  if (TS_HTTP_METHOD_GET == header.method() || TS_HTTP_METHOD_HEAD == header.method() || TS_HTTP_METHOD_PURGE == header.method()) {
     if (!header.hasKey(config->m_skip_header.data(), config->m_skip_header.size())) {
       // check if any previous plugin has monkeyed with the transaction status
       TSHttpStatus const txnstat = TSHttpTxnStatusGet(txnp);
@@ -50,8 +50,8 @@ read_request(TSHttpTxn txnp, Config *const config)
         return false;
       }
 
-      // set HEAD config to only expect header response
-      config->m_head_req = (TS_HTTP_METHOD_HEAD == header.method());
+      // set header method config to only expect header response
+      config->m_method_type = header.method();
 
       if (config->hasRegex()) {
         int urllen         = 0;
@@ -210,7 +210,6 @@ global_read_request_hook(TSCont // contp
 
 ///// remap plugin engine
 
-SLICE_EXPORT
 TSRemapStatus
 TSRemapDoRemap(void *ih, TSHttpTxn txnp, TSRemapRequestInfo *rri)
 {
@@ -224,13 +223,11 @@ TSRemapDoRemap(void *ih, TSHttpTxn txnp, TSRemapRequestInfo *rri)
 }
 
 ///// remap plugin setup and teardown
-SLICE_EXPORT
 void
 TSRemapOSResponse(void *ih, TSHttpTxn rh, int os_response_type)
 {
 }
 
-SLICE_EXPORT
 TSReturnCode
 TSRemapNewInstance(int argc, char *argv[], void **ih, char * /* errbuf */, int /* errbuf_size */)
 {
@@ -240,7 +237,6 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char * /* errbuf */, int /
   return TS_SUCCESS;
 }
 
-SLICE_EXPORT
 void
 TSRemapDeleteInstance(void *ih)
 {
@@ -250,7 +246,6 @@ TSRemapDeleteInstance(void *ih)
   }
 }
 
-SLICE_EXPORT
 TSReturnCode
 TSRemapInit(TSRemapInterface *api_info, char *errbug, int errbuf_size)
 {
@@ -259,7 +254,6 @@ TSRemapInit(TSRemapInterface *api_info, char *errbug, int errbuf_size)
 }
 
 ///// global plugin
-SLICE_EXPORT
 void
 TSPluginInit(int argc, char const *argv[])
 {

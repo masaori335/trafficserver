@@ -33,9 +33,6 @@ check_PROGRAMS = test_jsonrpc test_jsonrpcserver
 
 TESTS = $(check_PROGRAMS)
 
-# TODO: handlers - mgmt/utils needed as ProcessManager.h is included in many pleaces, we should be able to remove it once
-#       we move away from TM
-
 ###########################################################################################
 # Protocol library only, no transport.
 
@@ -54,10 +51,10 @@ libjsonrpc_protocol_la_SOURCES = \
 test_jsonrpc_CPPFLAGS = \
 	$(AM_CPPFLAGS) \
 	-I$(abs_top_srcdir)/lib/catch2 \
-	@YAMLCPP_INCLUDES@
+	@SWOC_INCLUDES@ @YAMLCPP_INCLUDES@
 
 test_jsonrpc_LDFLAGS = \
-	@AM_LDFLAGS@
+	@AM_LDFLAGS@ @SWOC_LIBS@
 
 test_jsonrpc_SOURCES = \
 	jsonrpc/unit_tests/unit_test_main.cc \
@@ -66,12 +63,11 @@ test_jsonrpc_SOURCES = \
 test_jsonrpc_LDADD = \
 	libjsonrpc_protocol.la \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
-	$(top_builddir)/src/tscore/libtscore.la \
+	$(top_builddir)/src/tscore/libtscore.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/src/records/librecords_p.a \
-	$(top_builddir)/src/tscore/libtscore.la \
-	$(top_builddir)/mgmt/utils/libutils_p.la \
-	@YAMLCPP_LIBS@ @HWLOC_LIBS@
+	$(top_builddir)/src/tscore/libtscore.a \
+	@YAMLCPP_LIBS@ @SWOC_LIBS@ @HWLOC_LIBS@ @LIBPCRE@ @LIBCAP@
 
 
 
@@ -107,13 +103,13 @@ test_jsonrpcserver_SOURCES = \
 test_jsonrpcserver_LDADD = \
 	libjsonrpc_protocol.la \
 	libjsonrpc_server.la \
-	$(top_builddir)/src/tscore/libtscore.la \
+	$(top_builddir)/src/tscore/libtscore.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/src/records/librecords_p.a \
+	$(top_builddir)/src/api/libtsapi.la \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
-	$(top_builddir)/src/tscore/libtscore.la \
-	$(top_builddir)/mgmt/utils/libutils_p.la \
-	@YAMLCPP_LIBS@ @HWLOC_LIBS@  @SWOC_LIBS@ @YAMLCPP_LIBS@
+	$(top_builddir)/src/tscore/libtscore.a \
+	@YAMLCPP_LIBS@ @HWLOC_LIBS@  @SWOC_LIBS@ @YAMLCPP_LIBS@ @LIBPCRE@ @LIBCAP@
 
 
 ###########################################################################################
@@ -121,7 +117,6 @@ test_jsonrpcserver_LDADD = \
 
 AM_CPPFLAGS += \
 	-I$(abs_top_srcdir)/mgmt/ \
-	-I$(abs_top_srcdir)/mgmt/utils \
 	-I$(abs_top_srcdir)/proxy/http \
 	-I$(abs_top_srcdir)/proxy/hdrs \
 	-I$(abs_top_srcdir)/proxy/
@@ -155,7 +150,6 @@ librpcpublichandlers_la_SOURCES = \
 # for building.
 # We have also added a proper cleaning for it.
 shared_overridable_txn_vars_SOURCES = overridable_txn_vars.cc
-nodist_librpcpublichandlers_la_SOURCES = $(shared_overridable_txn_vars_SOURCES)
 
 shared_rpc_ipc_client_SOURCES = IPCSocketClient.cc
 
@@ -170,13 +164,12 @@ distclean-local:
 
 # Build with this file instead of the original one.
 $(shared_overridable_txn_vars_SOURCES):
-	echo "#include \"$(top_builddir)/src/shared/$@\"" >$@
+	@echo "#include \"$(top_builddir)/src/shared/$@\"" >$@
 
 $(shared_rpc_ipc_client_SOURCES):
-	echo "#include \"$(top_builddir)/src/shared/rpc/$@\"" >$@
+	@echo "#include \"$(top_builddir)/src/shared/rpc/$@\"" >$@
 
-include $(top_srcdir)/build/tidy.mk
+include $(top_srcdir)/mk/tidy.mk
 
 clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)
-

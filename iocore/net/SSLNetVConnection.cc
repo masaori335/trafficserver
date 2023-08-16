@@ -42,6 +42,8 @@
 #include "SSLStats.h"
 #include "P_ALPNSupport.h"
 
+#include <netinet/in.h>
+
 #include <string>
 #include <cstring>
 
@@ -598,7 +600,7 @@ SSLNetVConnection::net_read_io(NetHandler *nh, EThread *lthread)
       readSignalError(nh, err);
     } else if (ret == SSL_HANDSHAKE_WANT_READ || ret == SSL_HANDSHAKE_WANT_ACCEPT) {
       if (SSLConfigParams::ssl_handshake_timeout_in > 0) {
-        double handshake_time = (static_cast<double>(Thread::get_hrtime() - this->get_tls_handshake_begin_time()) / 1000000000);
+        double handshake_time = (static_cast<double>(ink_get_hrtime() - this->get_tls_handshake_begin_time()) / 1000000000);
         Debug("ssl", "ssl handshake for vc %p, took %.3f seconds, configured handshake_timer: %d", this, handshake_time,
               SSLConfigParams::ssl_handshake_timeout_in);
         if (handshake_time > SSLConfigParams::ssl_handshake_timeout_in) {
@@ -733,7 +735,7 @@ SSLNetVConnection::load_buffer_and_write(int64_t towrite, MIOBufferAccessor &buf
   // Dynamic TLS record sizing
   ink_hrtime now = 0;
   if (SSLConfigParams::ssl_maxrecord == -1) {
-    now                       = Thread::get_hrtime();
+    now                       = ink_get_hrtime();
     int msec_since_last_write = ink_hrtime_diff_msec(now, sslLastWriteTime);
 
     if (msec_since_last_write > SSL_DEF_TLS_RECORD_MSEC_THRESHOLD) {
@@ -838,7 +840,9 @@ SSLNetVConnection::load_buffer_and_write(int64_t towrite, MIOBufferAccessor &buf
       break;
     }
     case SSL_ERROR_SYSCALL:
-      num_really_written = -errno;
+      // SSL_ERROR_SYSCALL is an IO error. errno is likely 0, so set EPIPE, as
+      // we do with SSL_ERROR_SSL below, to indicate a connection error.
+      num_really_written = -EPIPE;
       SSL_INCREMENT_DYN_STAT(ssl_error_syscall);
       Debug("ssl.error", "SSL_write-SSL_ERROR_SYSCALL");
       break;
@@ -858,7 +862,16 @@ SSLNetVConnection::load_buffer_and_write(int64_t towrite, MIOBufferAccessor &buf
   return num_really_written;
 }
 
-SSLNetVConnection::SSLNetVConnection() {}
+SSLNetVConnection::SSLNetVConnection()
+{
+  this->_set_service(static_cast<ALPNSupport *>(this));
+  this->_set_service(static_cast<TLSBasicSupport *>(this));
+  this->_set_service(static_cast<TLSCertSwitchSupport *>(this));
+  this->_set_service(static_cast<TLSEarlyDataSupport *>(this));
+  this->_set_service(static_cast<TLSSNISupport *>(this));
+  this->_set_service(static_cast<TLSSessionResumptionSupport *>(this));
+  this->_set_service(static_cast<TLSTunnelSupport *>(this));
+}
 
 void
 SSLNetVConnection::do_io_close(int lerrno)
@@ -951,7 +964,7 @@ SSLNetVConnection::clear()
   super::clear();
 }
 void
-SSLNetVConnection::free(EThread *t)
+SSLNetVConnection::free_thread(EThread *t)
 {
   ink_release_assert(t == this_ethread());
 
@@ -1280,8 +1293,7 @@ SSLNetVConnection::sslServerHandShakeEvent(int &err)
           // Have to have the read NetState enabled because we are using it for the signal vc
           read.enabled       = true;
           PollDescriptor *pd = get_PollDescriptor(this_ethread());
-          this->async_ep.start(pd, waitfds[0], static_cast<NetEvent *>(this), EVENTIO_READ);
-          this->async_ep.type = EVENTIO_READWRITE_VC;
+          this->async_ep.start(pd, waitfds[0], static_cast<NetEvent *>(this), get_NetHandler(this->thread), EVENTIO_READ);
         }
       }
     }
@@ -1966,6 +1978,12 @@ SSLNetVConnection::_fire_ssl_servername_event()
   this->callHooks(TS_EVENT_SSL_SERVERNAME);
 }
 
+in_port_t
+SSLNetVConnection::_get_local_port()
+{
+  return this->get_local_port();
+}
+
 bool
 SSLNetVConnection::_isTryingRenegotiation() const
 {
@@ -2215,7 +2233,7 @@ SSLNetVConnection::_ssl_connect()
       std::string sni_addr = get_sni_addr(ssl);
       if (!sni_addr.empty()) {
         std::string lookup_key;
-        ts::bwprint(lookup_key, "{}:{}:{}", sni_addr.c_str(), SSL_get_SSL_CTX(ssl), get_verify_str(ssl));
+        swoc::bwprint(lookup_key, "{}:{}:{}", sni_addr.c_str(), SSL_get_SSL_CTX(ssl), get_verify_str(ssl));
 
         Debug("ssl.origin_session_cache", "origin session cache lookup key = %s", lookup_key.c_str());
 
@@ -2469,32 +2487,30 @@ SSLNetVConnection::update_early_data_config(uint32_t max_early_data, uint32_t re
   // We are now also disabling this when using OpenSSL's internal cache, since we
   // are calling "ssl_accept" non-blocking, it seems to be confusing the anti-replay
   // mechanism and causing session resumption to fail.
-  if (SSL_version(ssl) >= TLS1_3_VERSION) {
 #ifdef HAVE_SSL_SET_MAX_EARLY_DATA
-    bool ret1 = false;
-    bool ret2 = false;
-    if ((ret1 = SSL_set_max_early_data(ssl, max_early_data)) == 1) {
-      Debug("ssl_early_data", "SSL_set_max_early_data %u: success", max_early_data);
-    } else {
-      Debug("ssl_early_data", "SSL_set_max_early_data %u: failed", max_early_data);
-    }
-
-    if ((ret2 = SSL_set_recv_max_early_data(ssl, recv_max_early_data)) == 1) {
-      Debug("ssl_early_data", "SSL_set_recv_max_early_data %u: success", recv_max_early_data);
-    } else {
-      Debug("ssl_early_data", "SSL_set_recv_max_early_data %u: failed", recv_max_early_data);
-    }
-
-    if (ret1 && ret2) {
-      Debug("ssl_early_data", "Must disable anti-replay if 0-rtt is enabled.");
-      SSL_set_options(ssl, SSL_OP_NO_ANTI_REPLAY);
-    }
-#else
-    // If SSL_set_max_early_data is unavailable, it's probably BoringSSL,
-    // and SSL_set_early_data_enabled should be available.
-    SSL_set_early_data_enabled(ssl, max_early_data > 0 ? 1 : 0);
-    Warning("max_early_data is not used due to library limitations");
-#endif
+  bool ret1 = false;
+  bool ret2 = false;
+  if ((ret1 = SSL_set_max_early_data(ssl, max_early_data)) == 1) {
+    Debug("ssl_early_data", "SSL_set_max_early_data %u: success", max_early_data);
+  } else {
+    Debug("ssl_early_data", "SSL_set_max_early_data %u: failed", max_early_data);
   }
+
+  if ((ret2 = SSL_set_recv_max_early_data(ssl, recv_max_early_data)) == 1) {
+    Debug("ssl_early_data", "SSL_set_recv_max_early_data %u: success", recv_max_early_data);
+  } else {
+    Debug("ssl_early_data", "SSL_set_recv_max_early_data %u: failed", recv_max_early_data);
+  }
+
+  if (ret1 && ret2) {
+    Debug("ssl_early_data", "Must disable anti-replay if 0-rtt is enabled.");
+    SSL_set_options(ssl, SSL_OP_NO_ANTI_REPLAY);
+  }
+#else
+  // If SSL_set_max_early_data is unavailable, it's probably BoringSSL,
+  // and SSL_set_early_data_enabled should be available.
+  SSL_set_early_data_enabled(ssl, max_early_data > 0 ? 1 : 0);
+  Warning("max_early_data is not used due to library limitations");
+#endif
 #endif
 }

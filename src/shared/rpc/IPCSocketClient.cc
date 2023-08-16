@@ -17,12 +17,13 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 */
-#include "shared/rpc/IPCSocketClient.h"
 #include <stdexcept>
 #include <chrono>
 
+#include "tscpp/util/ts_bw_format.h"
+
+#include "shared/rpc/IPCSocketClient.h"
 #include <tscore/ink_assert.h>
-#include <tscore/BufferWriter.h>
 
 namespace shared::rpc
 {
@@ -32,7 +33,7 @@ IPCSocketClient::connect()
   _sock = socket(AF_UNIX, SOCK_STREAM, 0);
   if (this->is_closed()) {
     std::string text;
-    ts::bwprint(text, "connect: error creating new socket. Why?: {}\n", std::strerror(errno));
+    swoc::bwprint(text, "connect: error creating new socket. Why?: {}\n", std::strerror(errno));
     throw std::runtime_error{text};
   }
   _server.sun_family = AF_UNIX;
@@ -40,7 +41,7 @@ IPCSocketClient::connect()
   if (::connect(_sock, (struct sockaddr *)&_server, sizeof(struct sockaddr_un)) < 0) {
     this->close();
     std::string text;
-    ts::bwprint(text, "connect: Couldn't open connection with {}. Why?: {}\n", _path, std::strerror(errno));
+    swoc::bwprint(text, "connect: Couldn't open connection with {}. Why?: {}\n", _path, std::strerror(errno));
     throw std::runtime_error{text};
   }
 
@@ -54,14 +55,14 @@ IPCSocketClient ::send(std::string_view data)
   if (::write(_sock, msg.c_str(), msg.size()) < 0) {
     this->close();
     std::string text;
-    throw std::runtime_error{ts::bwprint(text, "Error writing on stream socket {}", std ::strerror(errno))};
+    throw std::runtime_error{swoc::bwprint(text, "Error writing on stream socket {}", std ::strerror(errno))};
   }
 
   return *this;
 }
 
 IPCSocketClient::ReadStatus
-IPCSocketClient::read_all(ts::FixedBufferWriter &bw)
+IPCSocketClient::read_all(swoc::FixedBufferWriter &bw)
 {
   if (this->is_closed()) {
     // we had a failure.
@@ -69,10 +70,10 @@ IPCSocketClient::read_all(ts::FixedBufferWriter &bw)
   }
   ReadStatus readStatus{ReadStatus::UNKNOWN};
   while (bw.remaining()) {
-    swoc::MemSpan<char> span{bw.auxBuffer(), bw.remaining()};
+    swoc::MemSpan<char> span{bw.aux_data(), bw.remaining()};
     const ssize_t ret = ::read(_sock, span.data(), span.size());
     if (ret > 0) {
-      bw.fill(ret);
+      bw.commit(ret);
       if (bw.remaining() > 0) { // some space available.
         continue;
       } else {

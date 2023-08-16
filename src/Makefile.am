@@ -15,7 +15,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-include $(top_srcdir)/build/tidy.mk
+include $(top_srcdir)/mk/tidy.mk
 
 bin_PROGRAMS =
 check_PROGRAMS =
@@ -23,7 +23,7 @@ TESTS =
 lib_LTLIBRARIES =
 noinst_PROGRAMS =
 
-SUBDIRS = tscpp/api
+SUBDIRS = tscpp/api api
 
 if BUILD_WCCP
 SUBDIRS += wccp

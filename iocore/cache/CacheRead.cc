@@ -322,7 +322,7 @@ CacheVC::openReadFromWriter(int event, Event *e)
     // before the open_write, but the reader could not get the volume
     // lock. If we don't reset the clock here, we won't choose any writer
     // and hence fail the read request.
-    start_time                = Thread::get_hrtime();
+    start_time                = ink_get_hrtime();
     f.read_from_writer_called = 1;
   }
   cancel_trigger();
@@ -971,7 +971,8 @@ CacheVC::openReadStartEarliest(int /* event ATS_UNUSED */, Event * /* e ATS_UNUS
           // that it inserted
           od->first_dir   = first_dir;
           od->writing_vec = true;
-          earliest_key    = zero_key;
+
+          earliest_key.clear();
 
           // set up this VC as a alternate delete write_vc
           vio.op          = VIO::WRITE;

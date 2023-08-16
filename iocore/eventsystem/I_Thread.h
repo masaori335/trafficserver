@@ -58,15 +58,12 @@
 
 #pragma once
 
-#if !defined(_I_EventSystem_h) && !defined(_P_EventSystem_h)
-#error "include I_EventSystem.h or P_EventSystem.h"
-#endif
-
 #include <functional>
 
+#include "I_ProxyAllocator.h"
+#include "tscore/Ptr.h"
 #include "tscore/ink_platform.h"
 #include "tscore/ink_thread.h"
-#include "I_ProxyAllocator.h"
 
 class ProxyMutex;
 
@@ -160,16 +157,6 @@ public:
 
       @note The cached copy is thread local which means each thread need to update the cached copy by itself.
   */
-  static ink_hrtime get_hrtime();
-
-  /** Get the operating system high resolution time.
-
-      Get the current time at high resolution from the operating system.  This is more expensive
-      than @c get_hrtime and should be used only where very precise timing is required.
-
-      @note This also updates the cached time.
-  */
-  static ink_hrtime get_hrtime_updated();
 
   Thread(const Thread &)            = delete;
   Thread &operator=(const Thread &) = delete;
@@ -177,20 +164,6 @@ public:
 
 protected:
   Thread();
-
-  static thread_local ink_hrtime cur_time;
 };
 
 extern Thread *this_thread();
-
-TS_INLINE ink_hrtime
-Thread::get_hrtime()
-{
-  return cur_time;
-}
-
-TS_INLINE ink_hrtime
-Thread::get_hrtime_updated()
-{
-  return cur_time = ink_get_hrtime_internal();
-}

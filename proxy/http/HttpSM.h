@@ -34,10 +34,13 @@
 #include <string_view>
 #include <optional>
 
+#include "TLSTunnelSupport.h"
 #include "tscore/ink_platform.h"
 #include "I_EventSystem.h"
 #include "HttpCacheSM.h"
 #include "HttpTransact.h"
+#include "HttpUserAgent.h"
+#include "HttpVCTable.h"
 #include "UrlRewrite.h"
 #include "HttpTunnel.h"
 #include "InkAPIInternal.h"
@@ -82,16 +85,6 @@ using HttpSMHandler = int (HttpSM::*)(int, void *);
  */
 int64_t do_outbound_proxy_protocol(MIOBuffer *miob, NetVConnection *vc_out, NetVConnection *vc_in, int conf);
 
-enum HttpVC_t {
-  HTTP_UNKNOWN = 0,
-  HTTP_UA_VC,
-  HTTP_SERVER_VC,
-  HTTP_TRANSFORM_VC,
-  HTTP_CACHE_READ_VC,
-  HTTP_CACHE_WRITE_VC,
-  HTTP_RAW_SERVER_VC
-};
-
 enum BackgroundFill_t {
   BACKGROUND_FILL_NONE = 0,
   BACKGROUND_FILL_STARTED,
@@ -100,48 +93,6 @@ enum BackgroundFill_t {
 };
 
 extern ink_mutex debug_sm_list_mutex;
-
-struct HttpVCTableEntry {
-  VConnection *vc;
-  MIOBuffer *read_buffer;
-  MIOBuffer *write_buffer;
-  VIO *read_vio;
-  VIO *write_vio;
-  HttpSMHandler vc_read_handler;
-  HttpSMHandler vc_write_handler;
-  HttpVC_t vc_type;
-  HttpSM *sm;
-  bool eos;
-  bool in_tunnel;
-};
-
-struct HttpVCTable {
-  static const int vc_table_max_entries = 4;
-  explicit HttpVCTable(HttpSM *);
-
-  HttpVCTableEntry *new_entry();
-  HttpVCTableEntry *find_entry(VConnection *);
-  HttpVCTableEntry *find_entry(VIO *);
-  void remove_entry(HttpVCTableEntry *);
-  void cleanup_entry(HttpVCTableEntry *);
-  void cleanup_all();
-  bool is_table_clear() const;
-
-private:
-  HttpVCTableEntry vc_table[vc_table_max_entries];
-  HttpSM *sm = nullptr;
-};
-
-inline bool
-HttpVCTable::is_table_clear() const
-{
-  for (const auto &i : vc_table) {
-    if (i.vc != nullptr) {
-      return false;
-    }
-  }
-  return true;
-}
 
 struct HttpTransformInfo {
   HttpVCTableEntry *entry = nullptr;
@@ -240,11 +191,12 @@ public:
   //  holding the lock for the server session
   void attach_server_session();
 
-  PoolableSession *create_server_session(NetVConnection *netvc, MIOBuffer *netvc_read_buffer, IOBufferReader *netvc_reader);
+  PoolableSession *create_server_session(NetVConnection &netvc, MIOBuffer *netvc_read_buffer, IOBufferReader *netvc_reader);
   bool create_server_txn(PoolableSession *new_session);
 
   HTTPVersion get_server_version(HTTPHdr &hdr) const;
 
+  HttpUserAgent const &get_user_agent() const;
   ProxyTransaction *get_ua_txn();
   ProxyTransaction *get_server_txn();
 
@@ -347,7 +299,6 @@ public:
   UrlRewrite *m_remap = nullptr;
 
   History<HISTORY_DEFAULT_SIZE> history;
-  ProxyTransaction *ua_txn = nullptr;
 
   // _postbuf api
   int64_t postbuf_reader_avail();
@@ -437,6 +388,12 @@ private:
   void do_hostdb_reverse_lookup();
   void do_cache_lookup_and_read();
   void do_http_server_open(bool raw = false, bool only_direct = false);
+  bool apply_ip_allow_filter();
+  bool ip_allow_is_request_forbidden(const IpAllow::ACL &acl);
+  void ip_allow_deny_request(const IpAllow::ACL &acl);
+  bool grab_pre_warmed_net_v_connection_if_possible(const TLSTunnelSupport &tts, int pid);
+  bool is_prewarm_enabled_or_sni_overridden(const TLSTunnelSupport &tts) const;
+  void open_prewarmed_connection();
   void send_origin_throttled_response();
   void do_setup_post_tunnel(HttpVC_t to_vc_type);
   void do_cache_prepare_write();
@@ -519,6 +476,9 @@ private:
   /// Update the milestones to track time spent in the plugin API.
   void milestone_update_api_time();
 
+  sockaddr *get_server_remote_addr() const;
+  int get_request_method_wksidx() const;
+
 public:
   // TODO:  Now that bodies can be empty, should the body counters be set to -1 ? TS-2213
   // Stats & Logging Info
@@ -535,9 +495,6 @@ public:
   int64_t client_response_body_bytes  = 0;
   int64_t cache_response_body_bytes   = 0;
   int64_t pushed_response_body_bytes  = 0;
-  bool client_tcp_reused              = false;
-  bool client_ssl_reused              = false;
-  bool client_connection_is_ssl       = false;
   bool is_internal                    = false;
   bool server_ssl_reused              = false;
   bool server_connection_is_ssl       = false;
@@ -548,13 +505,8 @@ public:
   //  do_api_callout_internal()
   bool hooks_set = false;
   std::optional<bool> mptcp_state; // Don't initialize, that marks it as "not defined".
-  const char *client_protocol     = "-";
-  const char *server_protocol     = "-";
-  const char *client_sec_protocol = "-";
-  const char *client_cipher_suite = "-";
-  const char *client_curve        = "-";
-  int client_alpn_id              = SessionProtocolNameRegistry::INVALID;
-  int server_transact_count       = 0;
+  const char *server_protocol = "-";
+  int server_transact_count   = 0;
 
   TransactionMilestones milestones;
   ink_hrtime api_timer = 0;
@@ -569,9 +521,7 @@ private:
 
   HttpVCTable vc_table;
 
-  IOBufferReader *ua_raw_buffer_reader = nullptr;
-
-  HttpVCTableEntry *ua_entry     = nullptr;
+  HttpUserAgent _ua{};
   HttpVCTableEntry *server_entry = nullptr;
   ProxyTransaction *server_txn   = nullptr;
 
@@ -629,12 +579,8 @@ private:
    */
   bool has_active_response_plugin_agents = false;
 
-  int _client_connection_id                   = -1;
-  int _client_transaction_id                  = -1;
-  int _client_transaction_priority_weight     = -1;
-  int _client_transaction_priority_dependence = -1;
-  SNIRoutingType _tunnel_type                 = SNIRoutingType::NONE;
-  PreWarmSM *_prewarm_sm                      = nullptr;
+  SNIRoutingType _tunnel_type = SNIRoutingType::NONE;
+  PreWarmSM *_prewarm_sm      = nullptr;
   PostDataBuffers _postbuf;
   NetVConnection *_netvc        = nullptr;
   IOBufferReader *_netvc_reader = nullptr;
@@ -679,10 +625,16 @@ HttpTransact::State::state_machine_id() const
   return state_machine->sm_id;
 }
 
+inline HttpUserAgent const &
+HttpSM::get_user_agent() const
+{
+  return _ua;
+}
+
 inline ProxyTransaction *
 HttpSM::get_ua_txn()
 {
-  return ua_txn;
+  return _ua.get_txn();
 }
 
 inline ProxyTransaction *
@@ -712,25 +664,25 @@ HttpSM::is_dying() const
 inline int
 HttpSM::client_connection_id() const
 {
-  return _client_connection_id;
+  return _ua.get_client_connection_id();
 }
 
 inline int
 HttpSM::client_transaction_id() const
 {
-  return _client_transaction_id;
+  return _ua.get_client_transaction_id();
 }
 
 inline int
 HttpSM::client_transaction_priority_weight() const
 {
-  return _client_transaction_priority_weight;
+  return _ua.get_client_transaction_priority_weight();
 }
 
 inline int
 HttpSM::client_transaction_priority_dependence() const
 {
-  return _client_transaction_priority_dependence;
+  return _ua.get_client_transaction_priority_dependence();
 }
 
 // Function to get the cache_sm object - YTS Team, yamsat
@@ -772,7 +724,8 @@ HttpSM::txn_hook_get(TSHttpHookID id)
 inline bool
 HttpSM::is_transparent_passthrough_allowed()
 {
-  return (t_state.client_info.is_transparent && ua_txn->is_transparent_passthrough_allowed() && ua_txn->is_first_transaction());
+  return (t_state.client_info.is_transparent && _ua.get_txn()->is_transparent_passthrough_allowed() &&
+          _ua.get_txn()->is_first_transaction());
 }
 
 inline int64_t
@@ -835,3 +788,15 @@ HttpSM::get_postbuf_clone_reader()
 {
   return this->_postbuf.get_post_data_buffer_clone_reader();
 }
+
+inline sockaddr *
+HttpSM::get_server_remote_addr() const
+{
+  return &t_state.current.server->dst_addr.sa;
+};
+
+inline int
+HttpSM::get_request_method_wksidx() const
+{
+  return t_state.hdr_info.server_request.method_get_wksidx();
+};

@@ -1,5 +1,5 @@
 #
-# Makefile.am for the Enterprise Management module.
+# Makefile.am for the config Management module.
 #
 #  Licensed to the Apache Software Foundation (ASF) under one
 #  or more contributor license agreements.  See the NOTICE file
@@ -17,46 +17,32 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-
-
 AM_CPPFLAGS += \
-  $(iocore_include_dirs) \
-  -I$(abs_top_srcdir)/iocore/utils \
-  -I$(abs_top_srcdir)/include \
-  -I$(abs_top_srcdir)/lib/ \
-  -I$(abs_top_srcdir)/mgmt/rpc \
-  -I$(abs_top_srcdir)/mgmt/ \
-  -I$(abs_top_srcdir)/mgmt/utils \
-  -I$(abs_top_srcdir)/proxy/ \
-  -I$(abs_top_srcdir)/proxy/http \
-  -I$(abs_top_srcdir)/proxy/hdrs \
-  $(TS_INCLUDES) @SWOC_INCLUDES@ \
-  @YAMLCPP_INCLUDES@
+    $(iocore_include_dirs) \
+    -I$(abs_top_srcdir)/iocore/utils \
+    -I$(abs_top_srcdir)/include \
+    -I$(abs_top_srcdir)/lib/ \
+    -I$(abs_top_srcdir)/mgmt/rpc \
+    -I$(abs_top_srcdir)/mgmt/ \
+    -I$(abs_top_srcdir)/proxy/ \
+    -I$(abs_top_srcdir)/proxy/http \
+    -I$(abs_top_srcdir)/proxy/hdrs \
+    $(TS_INCLUDES) @SWOC_INCLUDES@ \
+    @YAMLCPP_INCLUDES@
 
 # ^^ all the proxy is to include the PluginCallbacks.
 
-noinst_LTLIBRARIES = libconfigmanager.la
-#check_PROGRAMS = test_configfiles
-
+noinst_LIBRARIES = libconfigmanager.a
 
 TESTS = $(check_PROGRAMS)
 
 # Protocol library only, no transport.
-libconfigmanager_COMMON = \
+libconfigmanager_a_SOURCES = \
 	FileManager.h \
 	FileManager.cc \
 	AddConfigFilesHere.cc
 
-
-libconfigmanager_la_SOURCES = \
-	$(libconfigmanager_COMMON)
-
-libconfigmanager_la_LIBADD = \
-	$(top_builddir)/src/tscore/libtscore.la
-
-
-include $(top_srcdir)/build/tidy.mk
+include $(top_srcdir)/mk/tidy.mk
 
 clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)
-

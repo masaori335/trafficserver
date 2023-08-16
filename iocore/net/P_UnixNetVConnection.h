@@ -141,7 +141,7 @@ public:
   // NetEvent
   virtual void net_read_io(NetHandler *nh, EThread *lthread) override;
   virtual void net_write_io(NetHandler *nh, EThread *lthread) override;
-  virtual void free(EThread *t) override;
+  virtual void free_thread(EThread *t) override;
   virtual int
   close() override
   {
@@ -292,7 +292,7 @@ UnixNetVConnection::set_active_timeout(ink_hrtime timeout_in)
 {
   Debug("socket", "Set active timeout=%" PRId64 ", NetVC=%p", timeout_in, this);
   active_timeout_in        = timeout_in;
-  next_activity_timeout_at = (active_timeout_in > 0) ? Thread::get_hrtime() + timeout_in : 0;
+  next_activity_timeout_at = (active_timeout_in > 0) ? ink_get_hrtime() + timeout_in : 0;
 }
 
 inline void

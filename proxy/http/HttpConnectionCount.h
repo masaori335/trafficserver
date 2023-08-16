@@ -23,6 +23,8 @@
 
 #pragma once
 
+#include "swoc/IntrusiveHashMap.h"
+
 #include <string_view>
 #include <chrono>
 #include <atomic>
@@ -33,12 +35,11 @@
 #include "tscore/ink_config.h"
 #include "tscore/ink_mutex.h"
 #include "tscore/ink_inet.h"
-#include "tscore/IntrusiveHashMap.h"
 #include "tscore/Diags.h"
 #include "tscore/CryptoHash.h"
-#include "tscore/BufferWriterForward.h"
-#include "tscpp/util/TextView.h"
-#include <MgmtDefs.h>
+#include "swoc/bwf_fwd.h"
+#include "swoc/TextView.h"
+#include <tscore/MgmtDefs.h>
 #include "HttpProxyAPIEnums.h"
 #include "Show.h"
 
@@ -83,10 +84,10 @@ public:
   // The names of the configuration values.
   // Unfortunately these are not used in RecordsConfig.cc so that must be made consistent by hand.
   // Note: These need to be @c constexpr or there are static initialization ordering risks.
-  static constexpr std::string_view CONFIG_VAR_MAX{"proxy.config.http.per_server.connection.max"_sv};
-  static constexpr std::string_view CONFIG_VAR_MIN{"proxy.config.http.per_server.connection.min"_sv};
-  static constexpr std::string_view CONFIG_VAR_MATCH{"proxy.config.http.per_server.connection.match"_sv};
-  static constexpr std::string_view CONFIG_VAR_ALERT_DELAY{"proxy.config.http.per_server.connection.alert_delay"_sv};
+  static constexpr std::string_view CONFIG_VAR_MAX{"proxy.config.http.per_server.connection.max"};
+  static constexpr std::string_view CONFIG_VAR_MIN{"proxy.config.http.per_server.connection.min"};
+  static constexpr std::string_view CONFIG_VAR_MATCH{"proxy.config.http.per_server.connection.match"};
+  static constexpr std::string_view CONFIG_VAR_ALERT_DELAY{"proxy.config.http.per_server.connection.alert_delay"};
 
   /// A record for the outbound connection count.
   /// These are stored per outbound session equivalence class, as determined by the session matching.
@@ -267,8 +268,8 @@ protected:
 
   /// Internal implementation class instance.
   struct Imp {
-    IntrusiveHashMap<Linkage> _table; ///< Hash table of upstream groups.
-    std::mutex _mutex;                ///< Lock for insert & find.
+    swoc::IntrusiveHashMap<Linkage> _table; ///< Hash table of upstream groups.
+    std::mutex _mutex;                      ///< Lock for insert & find.
   };
   static Imp _imp;
 
@@ -419,9 +420,9 @@ OutboundConnTrack::Linkage::equal(key_type lhs, key_type rhs)
 
 Action *register_ShowConnectionCount(Continuation *, HTTPHdr *);
 
-namespace ts
+namespace swoc
 {
-BufferWriter &bwformat(BufferWriter &w, BWFSpec const &spec, OutboundConnTrack::MatchType type);
-BufferWriter &bwformat(BufferWriter &w, BWFSpec const &spec, OutboundConnTrack::Group::Key const &key);
-BufferWriter &bwformat(BufferWriter &w, BWFSpec const &spec, OutboundConnTrack::Group const &g);
-} // namespace ts
+BufferWriter &bwformat(BufferWriter &w, bwf::Spec const &spec, OutboundConnTrack::MatchType type);
+BufferWriter &bwformat(BufferWriter &w, bwf::Spec const &spec, OutboundConnTrack::Group::Key const &key);
+BufferWriter &bwformat(BufferWriter &w, bwf::Spec const &spec, OutboundConnTrack::Group const &g);
+} // namespace swoc

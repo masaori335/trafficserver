@@ -22,6 +22,7 @@
 
  */
 
+#include "tscpp/util/ts_bw_format.h"
 #include "../ProxyTransaction.h"
 #include "HttpSM.h"
 #include "ConnectingEntry.h"
@@ -33,10 +34,10 @@
 #include "Http2ServerSession.h"
 #include "HttpDebugNames.h"
 #include "HttpSessionManager.h"
+#include "HttpVCTable.h"
 #include "P_Cache.h"
 #include "P_Net.h"
 #include "PreWarmConfig.h"
-#include "PreWarmManager.h"
 #include "StatPages.h"
 #include "Log.h"
 #include "LogAccess.h"
@@ -56,7 +57,6 @@
 #include "ProxyProtocol.h"
 
 #include "tscore/I_Layout.h"
-#include "tscore/bwf_std_format.h"
 #include "ts/sdt.h"
 
 #include <openssl/ossl_typ.h>
@@ -100,7 +100,7 @@ static const char *str_100_continue_response = "HTTP/1.1 100 Continue\r\n\r\n";
 static const int len_100_continue_response   = strlen(str_100_continue_response);
 
 // Handy alias for short (single line) message generation.
-using lbw = ts::LocalBufferWriter<256>;
+using lbw = swoc::LocalBufferWriter<256>;
 
 namespace
 {
@@ -145,111 +145,6 @@ do_outbound_proxy_protocol(MIOBuffer *miob, NetVConnection *vc_out, NetVConnecti
 }
 
 ClassAllocator<HttpSM> httpSMAllocator("httpSMAllocator");
-
-HttpVCTable::HttpVCTable(HttpSM *mysm)
-{
-  memset(&vc_table, 0, sizeof(vc_table));
-  sm = mysm;
-}
-
-HttpVCTableEntry *
-HttpVCTable::new_entry()
-{
-  for (int i = 0; i < vc_table_max_entries; i++) {
-    if (vc_table[i].vc == nullptr) {
-      vc_table[i].sm = sm;
-      return vc_table + i;
-    }
-  }
-
-  ink_release_assert(0);
-  return nullptr;
-}
-
-HttpVCTableEntry *
-HttpVCTable::find_entry(VConnection *vc)
-{
-  for (int i = 0; i < vc_table_max_entries; i++) {
-    if (vc_table[i].vc == vc) {
-      return vc_table + i;
-    }
-  }
-
-  return nullptr;
-}
-
-HttpVCTableEntry *
-HttpVCTable::find_entry(VIO *vio)
-{
-  for (int i = 0; i < vc_table_max_entries; i++) {
-    if (vc_table[i].read_vio == vio || vc_table[i].write_vio == vio) {
-      ink_assert(vc_table[i].vc != nullptr);
-      return vc_table + i;
-    }
-  }
-
-  return nullptr;
-}
-
-// bool HttpVCTable::remove_entry(HttpVCEntry* e)
-//
-//    Deallocates all buffers from the associated
-//      entry and re-initializes it's other fields
-//      for reuse
-//
-void
-HttpVCTable::remove_entry(HttpVCTableEntry *e)
-{
-  e->vc  = nullptr;
-  e->eos = false;
-  if (e->read_buffer) {
-    free_MIOBuffer(e->read_buffer);
-    e->read_buffer = nullptr;
-  }
-  if (e->write_buffer) {
-    free_MIOBuffer(e->write_buffer);
-    e->write_buffer = nullptr;
-  }
-  // Cannot reach in to checkout the netvc
-  // for remaining I/O operations because the netvc
-  // may have been deleted at this point and the pointer
-  // could be stale.
-  e->read_vio         = nullptr;
-  e->write_vio        = nullptr;
-  e->vc_read_handler  = nullptr;
-  e->vc_write_handler = nullptr;
-  e->vc_type          = HTTP_UNKNOWN;
-  e->in_tunnel        = false;
-}
-
-// bool HttpVCTable::cleanup_entry(HttpVCEntry* e)
-//
-//    Closes the associate vc for the entry,
-//     and the call remove_entry
-//
-void
-HttpVCTable::cleanup_entry(HttpVCTableEntry *e)
-{
-  ink_assert(e->vc);
-  if (e->in_tunnel == false) {
-    if (e->vc_type == HTTP_SERVER_VC) {
-      HTTP_INCREMENT_DYN_STAT(http_origin_shutdown_cleanup_entry);
-    }
-    e->vc->do_io_close();
-    e->vc = nullptr;
-  }
-  remove_entry(e);
-}
-
-void
-HttpVCTable::cleanup_all()
-{
-  for (int i = 0; i < vc_table_max_entries; i++) {
-    if (vc_table[i].vc != nullptr) {
-      cleanup_entry(vc_table + i);
-    }
-  }
-}
 
 void
 initialize_thread_for_connecting_pools(EThread *thread)
@@ -357,7 +252,7 @@ HttpSM::destroy()
 void
 HttpSM::init(bool from_early_data)
 {
-  milestones[TS_MILESTONE_SM_START] = Thread::get_hrtime();
+  milestones[TS_MILESTONE_SM_START] = ink_get_hrtime();
 
   _from_early_data = from_early_data;
 
@@ -401,7 +296,7 @@ HttpSM::init(bool from_early_data)
 void
 HttpSM::set_ua_half_close_flag()
 {
-  ua_txn->set_half_close_flag(true);
+  _ua.get_txn()->set_half_close_flag(true);
 }
 
 inline int
@@ -439,11 +334,11 @@ HttpSM::state_add_to_list(int event, void * /* data ATS_UNUSED */)
   t_state.api_next_action = HttpTransact::SM_ACTION_API_SM_START;
   if (do_api_callout() < 0) {
     // Didn't get the hook continuation lock. Clear the read and wait for next event
-    if (ua_entry->read_vio) {
-      // Seems like ua_entry->read_vio->disable(); should work, but that was
+    if (_ua.get_entry()->read_vio) {
+      // Seems like _ua.get_entry()->read_vio->disable(); should work, but that was
       // not sufficient to stop the state machine from processing IO events until the
       // TXN_START hooks had completed.  Just set the number of bytes to read to 0
-      ua_entry->read_vio = ua_entry->vc->do_io_read(this, 0, nullptr);
+      _ua.get_entry()->read_vio = _ua.get_entry()->vc->do_io_read(this, 0, nullptr);
     }
     return EVENT_CONT;
   }
@@ -492,84 +387,43 @@ HttpSM::start_sub_sm()
 void
 HttpSM::attach_client_session(ProxyTransaction *client_vc)
 {
-  milestones[TS_MILESTONE_UA_BEGIN] = Thread::get_hrtime();
+  milestones[TS_MILESTONE_UA_BEGIN] = ink_get_hrtime();
   ink_assert(client_vc != nullptr);
 
   NetVConnection *netvc = client_vc->get_netvc();
   if (!netvc) {
     return;
   }
-  ua_txn = client_vc;
-
-  // It seems to be possible that the ua_txn pointer will go stale before log entries for this HTTP transaction are
-  // generated.  Therefore, collect information that may be needed for logging from the ua_txn object at this point.
-  //
-  _client_transaction_id                  = ua_txn->get_transaction_id();
-  _client_transaction_priority_weight     = ua_txn->get_transaction_priority_weight();
-  _client_transaction_priority_dependence = ua_txn->get_transaction_priority_dependence();
-  {
-    auto p = ua_txn->get_proxy_ssn();
-
-    if (p) {
-      _client_connection_id = p->connection_id();
-    }
-  }
+  _ua.set_txn(client_vc, milestones);
 
   // Collect log & stats information. We've already verified that the netvc is !nullptr above,
-  // and netvc == ua_txn->get_netvc().
+  // and netvc == _ua.get_txn()->get_netvc().
 
-  is_internal       = netvc->get_is_internal_request();
-  mptcp_state       = netvc->get_mptcp_state();
-  client_tcp_reused = !(ua_txn->is_first_transaction());
+  is_internal = netvc->get_is_internal_request();
+  mptcp_state = netvc->get_mptcp_state();
 
-  if (auto tbs = dynamic_cast<TLSBasicSupport *>(netvc)) {
-    client_connection_is_ssl = true;
-    const char *protocol     = tbs->get_tls_protocol_name();
-    client_sec_protocol      = protocol ? protocol : "-";
-    const char *cipher       = tbs->get_tls_cipher_suite();
-    client_cipher_suite      = cipher ? cipher : "-";
-    const char *curve        = tbs->get_tls_curve();
-    client_curve             = curve ? curve : "-";
-
-    if (!client_tcp_reused) {
-      // Copy along the TLS handshake timings
-      milestones[TS_MILESTONE_TLS_HANDSHAKE_START] = tbs->get_tls_handshake_begin_time();
-      milestones[TS_MILESTONE_TLS_HANDSHAKE_END]   = tbs->get_tls_handshake_end_time();
-    }
-  }
-
-  if (auto as = dynamic_cast<ALPNSupport *>(netvc)) {
-    client_alpn_id = as->get_negotiated_protocol_id();
-  }
-
-  if (auto tsrs = dynamic_cast<TLSSessionResumptionSupport *>(netvc)) {
-    client_ssl_reused = tsrs->getSSLSessionCacheHit();
-  }
-
-  const char *protocol_str = client_vc->get_protocol_string();
-  client_protocol          = protocol_str ? protocol_str : "-";
-
-  ink_release_assert(ua_txn->get_half_close_flag() == false);
+  ink_release_assert(_ua.get_txn()->get_half_close_flag() == false);
   mutex = client_vc->mutex;
-  if (ua_txn->debug()) {
+  if (_ua.get_txn()->debug()) {
     debug_on = true;
   }
 
   t_state.setup_per_txn_configs();
+  t_state.api_skip_all_remapping = netvc->get_is_unmanaged_request();
 
-  ink_assert(ua_txn->get_proxy_ssn());
-  ink_assert(ua_txn->get_proxy_ssn()->accept_options);
+  ink_assert(_ua.get_txn()->get_proxy_ssn());
+  ink_assert(_ua.get_txn()->get_proxy_ssn()->accept_options);
 
   // default the upstream IP style host resolution order from inbound
-  t_state.my_txn_conf().host_res_data.order = ua_txn->get_proxy_ssn()->accept_options->host_res_preference;
+  t_state.my_txn_conf().host_res_data.order = _ua.get_txn()->get_proxy_ssn()->accept_options->host_res_preference;
 
   start_sub_sm();
 
   // Allocate a user agent entry in the state machine's
   //   vc table
-  ua_entry          = vc_table.new_entry();
-  ua_entry->vc      = client_vc;
-  ua_entry->vc_type = HTTP_UA_VC;
+  _ua.set_entry(vc_table.new_entry());
+  _ua.get_entry()->vc      = client_vc;
+  _ua.get_entry()->vc_type = HTTP_UA_VC;
 
   ats_ip_copy(&t_state.client_info.src_addr, netvc->get_remote_addr());
   ats_ip_copy(&t_state.client_info.dst_addr, netvc->get_local_addr());
@@ -580,22 +434,22 @@ HttpSM::attach_client_session(ProxyTransaction *client_vc)
   hooks_set = client_vc->has_hooks();
 
   // Setup for parsing the header
-  ua_entry->vc_read_handler = &HttpSM::state_read_client_request_header;
+  _ua.get_entry()->vc_read_handler = &HttpSM::state_read_client_request_header;
   t_state.hdr_info.client_request.destroy();
   t_state.hdr_info.client_request.create(HTTP_TYPE_REQUEST);
 
   // Prepare raw reader which will live until we are sure this is HTTP indeed
-  auto *tts = dynamic_cast<TLSTunnelSupport *>(netvc);
+  auto tts = netvc->get_service<TLSTunnelSupport>();
   if (is_transparent_passthrough_allowed() || (tts && tts->is_decryption_needed())) {
-    ua_raw_buffer_reader = ua_txn->get_remote_reader()->clone();
+    _ua.set_raw_buffer_reader(_ua.get_txn()->get_remote_reader()->clone());
   }
 
   // We first need to run the transaction start hook.  Since
   //  this hook maybe asynchronous, we need to disable IO on
   //  client but set the continuation to be the state machine
   //  so if we get an timeout events the sm handles them
-  ua_entry->read_vio  = client_vc->do_io_read(this, 0, ua_txn->get_remote_reader()->mbuf);
-  ua_entry->write_vio = client_vc->do_io_write(this, 0, nullptr);
+  _ua.get_entry()->read_vio  = client_vc->do_io_read(this, 0, _ua.get_txn()->get_remote_reader()->mbuf);
+  _ua.get_entry()->write_vio = client_vc->do_io_write(this, 0, nullptr);
 
   /////////////////////////
   // set up timeouts     //
@@ -621,18 +475,18 @@ HttpSM::attach_client_session(ProxyTransaction *client_vc)
 void
 HttpSM::setup_client_read_request_header()
 {
-  ink_assert(ua_entry->vc_read_handler == &HttpSM::state_read_client_request_header);
+  ink_assert(_ua.get_entry()->vc_read_handler == &HttpSM::state_read_client_request_header);
 
-  ua_entry->read_vio = ua_txn->do_io_read(this, INT64_MAX, ua_txn->get_remote_reader()->mbuf);
+  _ua.get_entry()->read_vio = _ua.get_txn()->do_io_read(this, INT64_MAX, _ua.get_txn()->get_remote_reader()->mbuf);
   // The header may already be in the buffer if this
   //  a request from a keep-alive connection
-  handleEvent(VC_EVENT_READ_READY, ua_entry->read_vio);
+  handleEvent(VC_EVENT_READ_READY, _ua.get_entry()->read_vio);
 }
 
 void
 HttpSM::setup_blind_tunnel_port()
 {
-  NetVConnection *netvc = ua_txn->get_netvc();
+  NetVConnection *netvc = _ua.get_txn()->get_netvc();
   ink_release_assert(netvc);
   int host_len;
 
@@ -649,7 +503,7 @@ HttpSM::setup_blind_tunnel_port()
   }
 
   TLSTunnelSupport *tts = nullptr;
-  if (!ua_txn->is_outbound_transparent() && (tts = dynamic_cast<TLSTunnelSupport *>(netvc))) {
+  if (!_ua.get_txn()->is_outbound_transparent() && (tts = netvc->get_service<TLSTunnelSupport>())) {
     if (!t_state.hdr_info.client_request.url_get()->host_get(&host_len)) {
       if (tts->has_tunnel_destination()) {
         auto tunnel_host = tts->get_tunnel_host();
@@ -680,14 +534,14 @@ HttpSM::state_read_client_request_header(int event, void *data)
 {
   STATE_ENTER(&HttpSM::state_read_client_request_header, event);
 
-  ink_assert(ua_entry->read_vio == (VIO *)data);
+  ink_assert(_ua.get_entry()->read_vio == (VIO *)data);
   ink_assert(server_entry == nullptr);
   ink_assert(server_txn == nullptr);
 
   int bytes_used = 0;
-  ink_assert(ua_entry->eos == false);
+  ink_assert(_ua.get_entry()->eos == false);
 
-  NetVConnection *netvc = ua_txn->get_netvc();
+  NetVConnection *netvc = _ua.get_txn()->get_netvc();
   if (!netvc && event != VC_EVENT_EOS) {
     return 0;
   }
@@ -699,8 +553,8 @@ HttpSM::state_read_client_request_header(int event, void *data)
     break;
 
   case VC_EVENT_EOS:
-    ua_entry->eos = true;
-    if ((client_request_hdr_bytes > 0) && is_transparent_passthrough_allowed() && (ua_raw_buffer_reader != nullptr)) {
+    _ua.get_entry()->eos = true;
+    if ((client_request_hdr_bytes > 0) && is_transparent_passthrough_allowed() && (_ua.get_raw_buffer_reader() != nullptr)) {
       break;
     }
   // Fall through
@@ -709,8 +563,8 @@ HttpSM::state_read_client_request_header(int event, void *data)
   case VC_EVENT_ACTIVE_TIMEOUT:
     // The user agent is hosed.  Close it &
     //   bail on the state machine
-    vc_table.cleanup_entry(ua_entry);
-    ua_entry = nullptr;
+    vc_table.cleanup_entry(_ua.get_entry());
+    _ua.set_entry(nullptr);
     set_ua_abort(HttpTransact::ABORTED, event);
     terminate_sm = true;
     return 0;
@@ -720,17 +574,18 @@ HttpSM::state_read_client_request_header(int event, void *data)
   //   time we've been called.  The timeout had been set to
   //   the accept timeout by the ProxyTransaction
   //
-  if ((ua_txn->get_remote_reader()->read_avail() > 0) && (client_request_hdr_bytes == 0)) {
-    milestones[TS_MILESTONE_UA_FIRST_READ] = Thread::get_hrtime();
-    ua_txn->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
+  if ((_ua.get_txn()->get_remote_reader()->read_avail() > 0) && (client_request_hdr_bytes == 0)) {
+    milestones[TS_MILESTONE_UA_FIRST_READ] = ink_get_hrtime();
+    _ua.get_txn()->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
   }
   /////////////////////
   // tokenize header //
   /////////////////////
 
-  ParseResult state = t_state.hdr_info.client_request.parse_req(
-    &http_parser, ua_txn->get_remote_reader(), &bytes_used, ua_entry->eos, t_state.http_config_param->strict_uri_parsing,
-    t_state.http_config_param->http_request_line_max_size, t_state.http_config_param->http_hdr_field_max_size);
+  ParseResult state = t_state.hdr_info.client_request.parse_req(&http_parser, _ua.get_txn()->get_remote_reader(), &bytes_used,
+                                                                _ua.get_entry()->eos, t_state.http_config_param->strict_uri_parsing,
+                                                                t_state.http_config_param->http_request_line_max_size,
+                                                                t_state.http_config_param->http_hdr_field_max_size);
 
   client_request_hdr_bytes += bytes_used;
 
@@ -743,7 +598,7 @@ HttpSM::state_read_client_request_header(int event, void *data)
   // We need to handle EOS as well as READ_READY because the client
   // may have sent all of the data already followed by a FIN and that
   // should be OK.
-  if (ua_raw_buffer_reader != nullptr) {
+  if (_ua.get_raw_buffer_reader() != nullptr) {
     bool do_blind_tunnel = false;
     // If we had a parse error and we're done reading data
     // blind tunnel
@@ -753,7 +608,7 @@ HttpSM::state_read_client_request_header(int event, void *data)
       // If we had a GET request that has data after the
       // get request, do blind tunnel
     } else if (state == PARSE_RESULT_DONE && t_state.hdr_info.client_request.method_get_wksidx() == HTTP_WKSIDX_GET &&
-               ua_txn->get_remote_reader()->read_avail() > 0 && !t_state.hdr_info.client_request.is_keep_alive_set()) {
+               _ua.get_txn()->get_remote_reader()->read_avail() > 0 && !t_state.hdr_info.client_request.is_keep_alive_set()) {
       do_blind_tunnel = true;
     }
     if (do_blind_tunnel) {
@@ -781,16 +636,16 @@ HttpSM::state_read_client_request_header(int event, void *data)
   }
 
   // Check to see if we are done parsing the header
-  if (state != PARSE_RESULT_CONT || ua_entry->eos || (state == PARSE_RESULT_CONT && event == VC_EVENT_READ_COMPLETE)) {
-    if (ua_raw_buffer_reader != nullptr) {
-      ua_raw_buffer_reader->dealloc();
-      ua_raw_buffer_reader = nullptr;
+  if (state != PARSE_RESULT_CONT || _ua.get_entry()->eos || (state == PARSE_RESULT_CONT && event == VC_EVENT_READ_COMPLETE)) {
+    if (_ua.get_raw_buffer_reader() != nullptr) {
+      _ua.get_raw_buffer_reader()->dealloc();
+      _ua.set_raw_buffer_reader(nullptr);
     }
     http_parser_clear(&http_parser);
-    ua_entry->vc_read_handler  = &HttpSM::state_watch_for_client_abort;
-    ua_entry->vc_write_handler = &HttpSM::state_watch_for_client_abort;
-    ua_txn->cancel_inactivity_timeout();
-    milestones[TS_MILESTONE_UA_READ_HEADER_DONE] = Thread::get_hrtime();
+    _ua.get_entry()->vc_read_handler  = &HttpSM::state_watch_for_client_abort;
+    _ua.get_entry()->vc_write_handler = &HttpSM::state_watch_for_client_abort;
+    _ua.get_txn()->cancel_inactivity_timeout();
+    milestones[TS_MILESTONE_UA_READ_HEADER_DONE] = ink_get_hrtime();
   }
 
   switch (state) {
@@ -798,7 +653,7 @@ HttpSM::state_read_client_request_header(int event, void *data)
     SMDebug("http", "error parsing client request header");
 
     // Disable further I/O on the client
-    ua_entry->read_vio->nbytes = ua_entry->read_vio->ndone;
+    _ua.get_entry()->read_vio->nbytes = _ua.get_entry()->read_vio->ndone;
 
     (bytes_used > t_state.http_config_param->http_request_line_max_size) ?
       t_state.http_return_code = HTTP_STATUS_REQUEST_URI_TOO_LONG :
@@ -812,12 +667,12 @@ HttpSM::state_read_client_request_header(int event, void *data)
     break;
 
   case PARSE_RESULT_CONT:
-    if (ua_entry->eos) {
+    if (_ua.get_entry()->eos) {
       SMDebug("http_seq", "EOS before client request parsing finished");
       set_ua_abort(HttpTransact::ABORTED, event);
 
       // Disable further I/O on the client
-      ua_entry->read_vio->nbytes = ua_entry->read_vio->ndone;
+      _ua.get_entry()->read_vio->nbytes = _ua.get_entry()->read_vio->ndone;
 
       call_transact_and_set_next_state(HttpTransact::BadRequest);
       break;
@@ -825,14 +680,14 @@ HttpSM::state_read_client_request_header(int event, void *data)
       SMDebug("http_parse", "VC_EVENT_READ_COMPLETE and PARSE CONT state");
       break;
     } else {
-      if (is_transparent_passthrough_allowed() && ua_raw_buffer_reader != nullptr &&
-          ua_raw_buffer_reader->get_current_block()->write_avail() <= 0) {
+      if (is_transparent_passthrough_allowed() && _ua.get_raw_buffer_reader() != nullptr &&
+          _ua.get_raw_buffer_reader()->get_current_block()->write_avail() <= 0) {
         // Disable passthrough regardless of eventual parsing failure or success -- otherwise
         // we either have to consume some data or risk blocking the writer.
-        ua_raw_buffer_reader->dealloc();
-        ua_raw_buffer_reader = nullptr;
+        _ua.get_raw_buffer_reader()->dealloc();
+        _ua.set_raw_buffer_reader(nullptr);
       }
-      ua_entry->read_vio->reenable();
+      _ua.get_entry()->read_vio->reenable();
       return VC_EVENT_CONT;
     }
   case PARSE_RESULT_DONE:
@@ -846,10 +701,10 @@ HttpSM::state_read_client_request_header(int event, void *data)
 
     if (!is_internal && t_state.http_config_param->scheme_proto_mismatch_policy != 0) {
       auto scheme = t_state.hdr_info.client_request.url_get()->scheme_get_wksidx();
-      if ((client_connection_is_ssl && (scheme == URL_WKSIDX_HTTP || scheme == URL_WKSIDX_WS)) ||
-          (!client_connection_is_ssl && (scheme == URL_WKSIDX_HTTPS || scheme == URL_WKSIDX_WSS))) {
+      if ((_ua.get_client_connection_is_ssl() && (scheme == URL_WKSIDX_HTTP || scheme == URL_WKSIDX_WS)) ||
+          (!_ua.get_client_connection_is_ssl() && (scheme == URL_WKSIDX_HTTPS || scheme == URL_WKSIDX_WSS))) {
         Warning("scheme [%s] vs. protocol [%s] mismatch", hdrtoken_index_to_wks(scheme),
-                client_connection_is_ssl ? "tls" : "plaintext");
+                _ua.get_client_connection_is_ssl() ? "tls" : "plaintext");
         if (t_state.http_config_param->scheme_proto_mismatch_policy == 2) {
           t_state.http_return_code = HTTP_STATUS_BAD_REQUEST;
           call_transact_and_set_next_state(HttpTransact::BadRequest);
@@ -876,7 +731,7 @@ HttpSM::state_read_client_request_header(int event, void *data)
       t_state.hdr_info.client_request.mark_early_data();
     }
 
-    ua_txn->set_session_active();
+    _ua.get_txn()->set_session_active();
 
     if (t_state.hdr_info.client_request.version_get() == HTTP_1_1 &&
         (t_state.hdr_info.client_request.method_get_wksidx() == HTTP_WKSIDX_POST ||
@@ -888,15 +743,15 @@ HttpSM::state_read_client_request_header(int event, void *data)
         // immediately, before receive the real response from original server.
         if (t_state.http_config_param->send_100_continue_response) {
           int64_t alloc_index = buffer_size_to_index(len_100_continue_response, t_state.http_config_param->max_payload_iobuf_index);
-          if (ua_entry->write_buffer) {
-            free_MIOBuffer(ua_entry->write_buffer);
-            ua_entry->write_buffer = nullptr;
+          if (_ua.get_entry()->write_buffer) {
+            free_MIOBuffer(_ua.get_entry()->write_buffer);
+            _ua.get_entry()->write_buffer = nullptr;
           }
-          ua_entry->write_buffer    = new_MIOBuffer(alloc_index);
-          IOBufferReader *buf_start = ua_entry->write_buffer->alloc_reader();
+          _ua.get_entry()->write_buffer = new_MIOBuffer(alloc_index);
+          IOBufferReader *buf_start     = _ua.get_entry()->write_buffer->alloc_reader();
           SMDebug("http_seq", "send 100 Continue response to client");
-          int64_t nbytes      = ua_entry->write_buffer->write(str_100_continue_response, len_100_continue_response);
-          ua_entry->write_vio = ua_txn->do_io_write(this, nbytes, buf_start);
+          int64_t nbytes             = _ua.get_entry()->write_buffer->write(str_100_continue_response, len_100_continue_response);
+          _ua.get_entry()->write_vio = _ua.get_txn()->do_io_write(this, nbytes, buf_start);
         } else {
           t_state.hdr_info.client_request.m_100_continue_required = true;
         }
@@ -916,7 +771,7 @@ HttpSM::state_read_client_request_header(int event, void *data)
     if (t_state.hdr_info.client_request.get_content_length() == 0 &&
         t_state.client_info.transfer_encoding != HttpTransact::CHUNKED_ENCODING) {
       // Enable further IO to watch for client aborts
-      ua_entry->read_vio->reenable();
+      _ua.get_entry()->read_vio->reenable();
     } else if (t_state.hdr_info.client_request.method_get_wksidx() == HTTP_WKSIDX_TRACE) {
       // Trace with request body is not allowed
       call_transact_and_set_next_state(HttpTransact::BadRequest);
@@ -926,7 +781,7 @@ HttpSM::state_read_client_request_header(int event, void *data)
       //  be body that we are tunneling POST/PUT/CONNECT or
       //  extension methods and we can't issue another
       //  another IO later for the body with a different buffer
-      ua_entry->read_vio->nbytes = ua_entry->read_vio->ndone;
+      _ua.get_entry()->read_vio->nbytes = _ua.get_entry()->read_vio->ndone;
     }
 
     call_transact_and_set_next_state(HttpTransact::ModifyRequest);
@@ -970,15 +825,16 @@ HttpSM::wait_for_full_body()
   //  header buffer into new buffer
   int64_t post_bytes = chunked ? INT64_MAX : t_state.hdr_info.request_content_length;
   client_request_body_bytes =
-    post_buffer->write(ua_txn->get_remote_reader(), chunked ? ua_txn->get_remote_reader()->read_avail() : post_bytes);
+    post_buffer->write(_ua.get_txn()->get_remote_reader(), chunked ? _ua.get_txn()->get_remote_reader()->read_avail() : post_bytes);
 
-  ua_txn->get_remote_reader()->consume(client_request_body_bytes);
-  p = tunnel.add_producer(ua_entry->vc, post_bytes, buf_start, &HttpSM::tunnel_handler_post_ua, HT_BUFFER_READ, "ua post buffer");
+  _ua.get_txn()->get_remote_reader()->consume(client_request_body_bytes);
+  p = tunnel.add_producer(_ua.get_entry()->vc, post_bytes, buf_start, &HttpSM::tunnel_handler_post_ua, HT_BUFFER_READ,
+                          "ua post buffer");
   if (chunked) {
     tunnel.set_producer_chunking_action(p, 0, TCA_PASSTHRU_CHUNKED_CONTENT);
   }
-  ua_entry->in_tunnel = true;
-  ua_txn->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
+  _ua.get_entry()->in_tunnel = true;
+  _ua.get_txn()->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
   tunnel.tunnel_run(p);
 }
 
@@ -987,8 +843,8 @@ HttpSM::state_watch_for_client_abort(int event, void *data)
 {
   STATE_ENTER(&HttpSM::state_watch_for_client_abort, event);
 
-  ink_assert(ua_entry->read_vio == (VIO *)data || ua_entry->write_vio == (VIO *)data);
-  ink_assert(ua_entry->vc == ua_txn);
+  ink_assert(_ua.get_entry()->read_vio == (VIO *)data || _ua.get_entry()->write_vio == (VIO *)data);
+  ink_assert(_ua.get_entry()->vc == _ua.get_txn());
 
   switch (event) {
   /* EOS means that the client has initiated the connection shut down.
@@ -999,21 +855,21 @@ HttpSM::state_watch_for_client_abort(int event, void *data)
   case VC_EVENT_EOS: {
     // We got an early EOS. If the tunnal has cache writer, don't kill it for background fill.
     if (!terminate_sm) { // Not done already
-      NetVConnection *netvc = ua_txn->get_netvc();
-      if (ua_txn->allow_half_open() || tunnel.has_consumer_besides_client()) {
+      NetVConnection *netvc = _ua.get_txn()->get_netvc();
+      if (_ua.get_txn()->allow_half_open() || tunnel.has_consumer_besides_client()) {
         if (netvc) {
           netvc->do_io_shutdown(IO_SHUTDOWN_READ);
         }
       } else {
-        ua_txn->do_io_close();
-        vc_table.cleanup_entry(ua_entry);
-        ua_entry = nullptr;
+        _ua.get_txn()->do_io_close();
+        vc_table.cleanup_entry(_ua.get_entry());
+        _ua.set_entry(nullptr);
         tunnel.kill_tunnel();
         terminate_sm = true; // Just die already, the requester is gone
         set_ua_abort(HttpTransact::ABORTED, event);
       }
-      if (ua_entry) {
-        ua_entry->eos = true;
+      if (_ua.get_entry()) {
+        _ua.get_entry()->eos = true;
       }
     }
     break;
@@ -1026,7 +882,7 @@ HttpSM::state_watch_for_client_abort(int event, void *data)
       //  If so forward the event to the tunnel.  Otherwise,
       //  kill the tunnel and fallthrough to the case
       //  where the tunnel is not active
-      HttpTunnelConsumer *c = tunnel.get_consumer(ua_txn);
+      HttpTunnelConsumer *c = tunnel.get_consumer(_ua.get_txn());
       if (c && c->alive) {
         SMDebug("http", "forwarding event %s to tunnel", HttpDebugNames::get_event_name(event));
         tunnel.handleEvent(event, c->write_vio);
@@ -1036,10 +892,10 @@ HttpSM::state_watch_for_client_abort(int event, void *data)
       }
     }
     // Disable further I/O on the client
-    if (ua_entry->read_vio) {
-      ua_entry->read_vio->nbytes = ua_entry->read_vio->ndone;
+    if (_ua.get_entry()->read_vio) {
+      _ua.get_entry()->read_vio->nbytes = _ua.get_entry()->read_vio->ndone;
     }
-    milestones[TS_MILESTONE_UA_CLOSE] = Thread::get_hrtime();
+    milestones[TS_MILESTONE_UA_CLOSE] = ink_get_hrtime();
     set_ua_abort(HttpTransact::ABORTED, event);
 
     terminate_sm = true;
@@ -1054,15 +910,15 @@ HttpSM::state_watch_for_client_abort(int event, void *data)
   case VC_EVENT_WRITE_READY:
     // 100-continue handler
     ink_assert(t_state.hdr_info.client_request.m_100_continue_required || t_state.http_config_param->send_100_continue_response);
-    ua_entry->write_vio->reenable();
+    _ua.get_entry()->write_vio->reenable();
     break;
   case VC_EVENT_WRITE_COMPLETE:
     // 100-continue handler
     ink_assert(t_state.hdr_info.client_request.m_100_continue_required || t_state.http_config_param->send_100_continue_response);
-    if (ua_entry->write_buffer) {
-      ink_assert(ua_entry->write_vio && !ua_entry->write_vio->ntodo());
-      free_MIOBuffer(ua_entry->write_buffer);
-      ua_entry->write_buffer = nullptr;
+    if (_ua.get_entry()->write_buffer) {
+      ink_assert(_ua.get_entry()->write_vio && !_ua.get_entry()->write_vio->ntodo());
+      free_MIOBuffer(_ua.get_entry()->write_buffer);
+      _ua.get_entry()->write_buffer = nullptr;
     }
     break;
   default:
@@ -1078,11 +934,11 @@ HttpSM::setup_push_read_response_header()
 {
   ink_assert(server_txn == nullptr);
   ink_assert(server_entry == nullptr);
-  ink_assert(ua_txn != nullptr);
+  ink_assert(_ua.get_txn() != nullptr);
   ink_assert(t_state.method == HTTP_WKSIDX_PUSH);
 
   // Set the handler to read the pushed response hdr
-  ua_entry->vc_read_handler = &HttpSM::state_read_push_response_header;
+  _ua.get_entry()->vc_read_handler = &HttpSM::state_read_push_response_header;
 
   // We record both the total payload size as
   //  client_request_body_bytes and the bytes for the individual
@@ -1098,17 +954,17 @@ HttpSM::setup_push_read_response_header()
 
   // We already done the READ when we read the client
   //  request header
-  ink_assert(ua_entry->read_vio);
+  ink_assert(_ua.get_entry()->read_vio);
 
   // If there is anything in the buffer call the parsing routines
   //  since if the response is finished, we won't get any
   //  additional callbacks
   int resp_hdr_state = VC_EVENT_CONT;
-  if (ua_txn->get_remote_reader()->read_avail() > 0) {
-    if (ua_entry->eos) {
-      resp_hdr_state = state_read_push_response_header(VC_EVENT_EOS, ua_entry->read_vio);
+  if (_ua.get_txn()->get_remote_reader()->read_avail() > 0) {
+    if (_ua.get_entry()->eos) {
+      resp_hdr_state = state_read_push_response_header(VC_EVENT_EOS, _ua.get_entry()->read_vio);
     } else {
-      resp_hdr_state = state_read_push_response_header(VC_EVENT_READ_READY, ua_entry->read_vio);
+      resp_hdr_state = state_read_push_response_header(VC_EVENT_READ_READY, _ua.get_entry()->read_vio);
     }
   }
   // It is possible that the entire PUSHed response header was already
@@ -1116,8 +972,8 @@ HttpSM::setup_push_read_response_header()
   //  IO since we are going to switch buffers when we go to tunnel to
   //  the cache
   if (resp_hdr_state == VC_EVENT_CONT) {
-    ink_assert(ua_entry->eos == false);
-    ua_entry->read_vio = ua_txn->do_io_read(this, INT64_MAX, ua_txn->get_remote_reader()->mbuf);
+    ink_assert(_ua.get_entry()->eos == false);
+    _ua.get_entry()->read_vio = _ua.get_txn()->do_io_read(this, INT64_MAX, _ua.get_txn()->get_remote_reader()->mbuf);
   }
 }
 
@@ -1125,12 +981,12 @@ int
 HttpSM::state_read_push_response_header(int event, void *data)
 {
   STATE_ENTER(&HttpSM::state_read_push_response_header, event);
-  ink_assert(ua_entry->read_vio == (VIO *)data);
+  ink_assert(_ua.get_entry()->read_vio == (VIO *)data);
   ink_assert(t_state.current.server == nullptr);
 
   switch (event) {
   case VC_EVENT_EOS:
-    ua_entry->eos = true;
+    _ua.get_entry()->eos = true;
     // Fall through
 
   case VC_EVENT_READ_READY:
@@ -1148,10 +1004,10 @@ HttpSM::state_read_push_response_header(int event, void *data)
   }
 
   int state = PARSE_RESULT_CONT;
-  while (ua_txn->get_remote_reader()->read_avail() && state == PARSE_RESULT_CONT) {
-    const char *start = ua_txn->get_remote_reader()->start();
+  while (_ua.get_txn()->get_remote_reader()->read_avail() && state == PARSE_RESULT_CONT) {
+    const char *start = _ua.get_txn()->get_remote_reader()->start();
     const char *tmp   = start;
-    int64_t data_size = ua_txn->get_remote_reader()->block_read_avail();
+    int64_t data_size = _ua.get_txn()->get_remote_reader()->block_read_avail();
     ink_assert(data_size >= 0);
 
     /////////////////////
@@ -1163,7 +1019,7 @@ HttpSM::state_read_push_response_header(int event, void *data)
     int64_t bytes_used = tmp - start;
 
     ink_release_assert(bytes_used <= data_size);
-    ua_txn->get_remote_reader()->consume(bytes_used);
+    _ua.get_txn()->get_remote_reader()->consume(bytes_used);
     pushed_response_hdr_bytes += bytes_used;
     client_request_body_bytes += bytes_used;
   }
@@ -1171,8 +1027,8 @@ HttpSM::state_read_push_response_header(int event, void *data)
   // We are out of data.  If we've received an EOS we need to
   //  call the parser with (eof == true) so it can determine
   //  whether to use the response as is or declare a parse error
-  if (ua_entry->eos) {
-    const char *end = ua_txn->get_remote_reader()->start();
+  if (_ua.get_entry()->eos) {
+    const char *end = _ua.get_txn()->get_remote_reader()->start();
     state = t_state.hdr_info.server_response.parse_resp(&http_parser, &end, end, true // We are out of data after server eos
     );
     ink_release_assert(state == PARSE_RESULT_DONE || state == PARSE_RESULT_ERROR);
@@ -1185,9 +1041,9 @@ HttpSM::state_read_push_response_header(int event, void *data)
 
   if (state != PARSE_RESULT_CONT) {
     // Disable further IO
-    ua_entry->read_vio->nbytes = ua_entry->read_vio->ndone;
+    _ua.get_entry()->read_vio->nbytes = _ua.get_entry()->read_vio->ndone;
     http_parser_clear(&http_parser);
-    milestones[TS_MILESTONE_SERVER_READ_HEADER_DONE] = Thread::get_hrtime();
+    milestones[TS_MILESTONE_SERVER_READ_HEADER_DONE] = ink_get_hrtime();
   }
 
   switch (state) {
@@ -1197,7 +1053,7 @@ HttpSM::state_read_push_response_header(int event, void *data)
     break;
 
   case PARSE_RESULT_CONT:
-    ua_entry->read_vio->reenable();
+    _ua.get_entry()->read_vio->reenable();
     return VC_EVENT_CONT;
 
   case PARSE_RESULT_DONE:
@@ -1221,7 +1077,7 @@ HttpSM::state_raw_http_server_open(int event, void *data)
 {
   STATE_ENTER(&HttpSM::state_raw_http_server_open, event);
   ink_assert(server_entry == nullptr);
-  milestones[TS_MILESTONE_SERVER_CONNECT_END] = Thread::get_hrtime();
+  milestones[TS_MILESTONE_SERVER_CONNECT_END] = ink_get_hrtime();
   NetVConnection *netvc                       = nullptr;
 
   pending_action = nullptr;
@@ -1512,21 +1368,21 @@ plugins required to work with sni_routing.
       u.scheme_set(URL_SCHEME_TUNNEL, URL_LEN_TUNNEL);
       t_state.hdr_info.client_request.url_set(&u);
 
-      NetVConnection *netvc = ua_txn->get_netvc();
-      auto *tts             = dynamic_cast<TLSTunnelSupport *>(netvc);
-
-      if (tts && tts->has_tunnel_destination()) {
-        auto tunnel_host = tts->get_tunnel_host();
-        t_state.hdr_info.client_request.url_get()->host_set(tunnel_host.data(), tunnel_host.size());
-        ushort tunnel_port = tts->get_tunnel_port();
-        if (tunnel_port > 0) {
-          t_state.hdr_info.client_request.url_get()->port_set(tunnel_port);
+      NetVConnection *netvc = _ua.get_txn()->get_netvc();
+      if (auto tts = netvc->get_service<TLSTunnelSupport>(); tts) {
+        if (tts->has_tunnel_destination()) {
+          auto tunnel_host = tts->get_tunnel_host();
+          t_state.hdr_info.client_request.url_get()->host_set(tunnel_host.data(), tunnel_host.size());
+          ushort tunnel_port = tts->get_tunnel_port();
+          if (tunnel_port > 0) {
+            t_state.hdr_info.client_request.url_get()->port_set(tunnel_port);
+          } else {
+            t_state.hdr_info.client_request.url_get()->port_set(netvc->get_local_port());
+          }
         } else {
+          t_state.hdr_info.client_request.url_get()->host_set(netvc->get_server_name(), strlen(netvc->get_server_name()));
           t_state.hdr_info.client_request.url_get()->port_set(netvc->get_local_port());
         }
-      } else if (tts) {
-        t_state.hdr_info.client_request.url_get()->host_set(netvc->get_server_name(), strlen(netvc->get_server_name()));
-        t_state.hdr_info.client_request.url_get()->port_set(netvc->get_local_port());
       }
     }
   // FALLTHROUGH
@@ -1543,7 +1399,7 @@ plugins required to work with sni_routing.
 
       // Have a mutex but didn't get the lock, reschedule
       if (!lock.is_locked()) {
-        api_timer = -Thread::get_hrtime_updated();
+        api_timer = -ink_get_hrtime();
         HTTP_SM_SET_DEFAULT_HANDLER(&HttpSM::state_api_callout);
         ink_release_assert(pending_action.empty());
         pending_action = this_ethread()->schedule_in(this, HRTIME_MSECONDS(10));
@@ -1558,13 +1414,13 @@ plugins required to work with sni_routing.
       cur_hook = nullptr;
 
       if (!api_timer) {
-        api_timer = Thread::get_hrtime();
+        api_timer = ink_get_hrtime();
       }
 
       hook->invoke(TS_EVENT_HTTP_READ_REQUEST_HDR + static_cast<int>(cur_hook_id), this);
       if (api_timer > 0) { // true if the hook did not call TxnReenable()
         this->milestone_update_api_time();
-        api_timer = -Thread::get_hrtime(); // set in order to track non-active callout duration
+        api_timer = -ink_get_hrtime(); // set in order to track non-active callout duration
         // which means that if we get back from the invoke with api_timer < 0 we're already
         // tracking a non-complete callout from a chain so just let it ride. It will get cleaned
         // up in state_api_callback when the plugin re-enables this transaction.
@@ -1677,8 +1533,8 @@ HttpSM::handle_api_return()
 {
   switch (t_state.api_next_action) {
   case HttpTransact::SM_ACTION_API_SM_START: {
-    NetVConnection *netvc = ua_txn->get_netvc();
-    auto *tts             = dynamic_cast<TLSTunnelSupport *>(netvc);
+    NetVConnection *netvc = _ua.get_txn()->get_netvc();
+    auto *tts             = netvc->get_service<TLSTunnelSupport>();
     bool forward_dest     = tts != nullptr && tts->is_decryption_needed();
     if (t_state.client_info.port_attribute == HttpProxyPort::TRANSPORT_BLIND_TUNNEL || forward_dest) {
       setup_blind_tunnel_port();
@@ -1712,8 +1568,8 @@ HttpSM::handle_api_return()
     return;
   case HttpTransact::SM_ACTION_API_SEND_RESPONSE_HDR:
     // Set back the inactivity timeout
-    if (ua_txn) {
-      ua_txn->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
+    if (_ua.get_txn()) {
+      _ua.get_txn()->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
     }
 
     // We only follow 3xx when redirect_in_process == false. Otherwise the redirection has already been launched (in
@@ -1752,12 +1608,12 @@ HttpSM::handle_api_return()
           initial_data = server_txn->get_remote_reader();
         }
 
-        if (ua_txn) {
+        if (_ua.get_txn()) {
           SMDebug("http_websocket",
                   "(client session) Setting websocket active timeout=%" PRId64 "s and inactive timeout=%" PRId64 "s",
                   t_state.txn_conf->websocket_active_timeout, t_state.txn_conf->websocket_inactive_timeout);
-          ua_txn->set_active_timeout(HRTIME_SECONDS(t_state.txn_conf->websocket_active_timeout));
-          ua_txn->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->websocket_inactive_timeout));
+          _ua.get_txn()->set_active_timeout(HRTIME_SECONDS(t_state.txn_conf->websocket_active_timeout));
+          _ua.get_txn()->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->websocket_inactive_timeout));
         }
 
         if (server_txn) {
@@ -1818,13 +1674,12 @@ HttpSM::handle_api_return()
 }
 
 PoolableSession *
-HttpSM::create_server_session(NetVConnection *netvc, MIOBuffer *netvc_read_buffer, IOBufferReader *netvc_reader)
+HttpSM::create_server_session(NetVConnection &netvc, MIOBuffer *netvc_read_buffer, IOBufferReader *netvc_reader)
 {
   // Figure out what protocol was negotiated
-  int proto_index      = SessionProtocolNameRegistry::INVALID;
-  auto const *sslnetvc = dynamic_cast<ALPNSupport *>(netvc);
-  if (sslnetvc) {
-    proto_index = sslnetvc->get_negotiated_protocol_id();
+  int proto_index = SessionProtocolNameRegistry::INVALID;
+  if (auto const alpn = netvc.get_service<ALPNSupport>(); alpn) {
+    proto_index = alpn->get_negotiated_protocol_id();
   }
   // No ALPN occurred. Assume it was HTTP/1.x and hope for the best
   if (proto_index == SessionProtocolNameRegistry::INVALID) {
@@ -1836,14 +1691,12 @@ HttpSM::create_server_session(NetVConnection *netvc, MIOBuffer *netvc_read_buffe
   retval->sharing_pool  = static_cast<TSServerSessionSharingPoolType>(t_state.http_config_param->server_session_sharing_pool);
   retval->sharing_match = static_cast<TSServerSessionSharingMatchMask>(t_state.txn_conf->server_session_sharing_match);
   retval->attach_hostname(t_state.current.server->name);
-  retval->new_connection(netvc, netvc_read_buffer, netvc_reader);
+  retval->new_connection(&netvc, netvc_read_buffer, netvc_reader);
 
   ATS_PROBE1(new_origin_server_connection, t_state.current.server->name);
   retval->set_active();
 
-  if (netvc) {
-    ats_ip_copy(&t_state.server_info.src_addr, netvc->get_local_addr());
-  }
+  ats_ip_copy(&t_state.server_info.src_addr, netvc.get_local_addr());
 
   // If origin_max_connections or origin_min_keep_alive_connections is set then we are metering
   // the max and or min number of connections per host. Transfer responsibility for this to the
@@ -1896,7 +1749,7 @@ HttpSM::state_http_server_open(int event, void *data)
   if (event != NET_EVENT_OPEN) {
     pending_action = nullptr;
   }
-  milestones[TS_MILESTONE_SERVER_CONNECT_END] = Thread::get_hrtime();
+  milestones[TS_MILESTONE_SERVER_CONNECT_END] = ink_get_hrtime();
 
   switch (event) {
   case NET_EVENT_OPEN: {
@@ -1919,7 +1772,7 @@ HttpSM::state_http_server_open(int event, void *data)
 
     } else { // in the case of an intercept plugin don't to the connect timeout change
       SMDebug("http_connect", "not setting handler for connection handshake");
-      this->create_server_txn(this->create_server_session(_netvc, _netvc_read_buffer, _netvc_reader));
+      this->create_server_txn(this->create_server_session(*_netvc, _netvc_read_buffer, _netvc_reader));
       handle_http_server_open();
     }
     ink_assert(pending_action.empty());
@@ -1943,7 +1796,7 @@ HttpSM::state_http_server_open(int event, void *data)
   case VC_EVENT_WRITE_COMPLETE:
     // Update the time out to the regular connection timeout.
     SMDebug("http_ss", "Connection handshake complete");
-    this->create_server_txn(this->create_server_session(_netvc, _netvc_read_buffer, _netvc_reader));
+    this->create_server_txn(this->create_server_session(*_netvc, _netvc_read_buffer, _netvc_reader));
     t_state.current.server->clear_connect_fail();
     handle_http_server_open();
     return 0;
@@ -2049,14 +1902,14 @@ HttpSM::state_read_server_response_header(int event, void *data)
   //   the connect timeout when we set up to read the header
   //
   if (server_response_hdr_bytes == 0) {
-    milestones[TS_MILESTONE_SERVER_FIRST_READ] = Thread::get_hrtime();
+    milestones[TS_MILESTONE_SERVER_FIRST_READ] = ink_get_hrtime();
 
     server_txn->set_inactivity_timeout(get_server_inactivity_timeout());
 
     // For requests that contain a body, we can cancel the ua inactivity timeout.
-    if (ua_txn && ua_txn->has_request_body(t_state.hdr_info.request_content_length,
-                                           t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING)) {
-      ua_txn->cancel_inactivity_timeout();
+    if (_ua.get_txn() && _ua.get_txn()->has_request_body(t_state.hdr_info.request_content_length,
+                                                         t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING)) {
+      _ua.get_txn()->cancel_inactivity_timeout();
     }
   }
   /////////////////////
@@ -2083,7 +1936,7 @@ HttpSM::state_read_server_response_header(int event, void *data)
     // Disable further IO
     server_entry->read_vio->nbytes = server_entry->read_vio->ndone;
     http_parser_clear(&http_parser);
-    milestones[TS_MILESTONE_SERVER_READ_HEADER_DONE] = Thread::get_hrtime();
+    milestones[TS_MILESTONE_SERVER_READ_HEADER_DONE] = ink_get_hrtime();
 
     // Any other events to the end
     if (server_entry->vc_type == HTTP_SERVER_VC) {
@@ -2155,7 +2008,7 @@ HttpSM::state_read_server_response_header(int event, void *data)
     // case of transform plugin, this is after the transform
     // outputs the 1st byte, which can take a long time if the
     // plugin buffers the whole response.
-    ua_txn->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
+    _ua.get_txn()->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
 
     t_state.current.state         = HttpTransact::CONNECTION_ALIVE;
     t_state.transact_return_point = HttpTransact::HandleResponse;
@@ -2210,8 +2063,8 @@ HttpSM::state_send_server_request_header(int event, void *data)
       server_entry->write_buffer = nullptr;
       method                     = t_state.hdr_info.server_request.method_get_wksidx();
       if (!t_state.api_server_request_body_set && method != HTTP_WKSIDX_TRACE &&
-          ua_txn->has_request_body(t_state.hdr_info.request_content_length,
-                                   t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING)) {
+          _ua.get_txn()->has_request_body(t_state.hdr_info.request_content_length,
+                                          t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING)) {
         if (post_transform_info.vc) {
           setup_transform_to_server_transfer();
         } else {
@@ -2332,8 +2185,9 @@ HttpSM::add_to_existing_request()
   if (nullptr == ethread->connecting_pool) {
     initialize_thread_for_connecting_pools(ethread);
   }
-  auto my_nh = ((UnixNetVConnection *)(this)->ua_txn->get_netvc())->nh;
-  ink_release_assert(my_nh == nullptr /* PluginVC */ || my_nh == get_NetHandler(this_ethread()));
+  NetVConnection *vc = _ua.get_txn()->get_netvc();
+  ink_assert(dynamic_cast<UnixNetVConnection *>(vc) == nullptr /* PluginVC */ ||
+             dynamic_cast<UnixNetVConnection *>(vc)->nh == get_NetHandler(this_ethread()));
 
   HTTP_SM_SET_DEFAULT_HANDLER(&HttpSM::state_http_server_open);
 
@@ -2401,7 +2255,7 @@ HttpSM::process_hostdb_info(HostDBRecord *record)
   t_state.dns_info.set_active(nullptr);
 
   if (use_client_addr) {
-    NetVConnection *vc = ua_txn ? ua_txn->get_netvc() : nullptr;
+    NetVConnection *vc = _ua.get_txn() ? _ua.get_txn()->get_netvc() : nullptr;
     if (vc) {
       t_state.dns_info.set_upstream_address(vc->get_local_addr());
       t_state.dns_info.os_addr_style = ResolveInfo::OS_Addr::TRY_CLIENT;
@@ -2430,7 +2284,7 @@ HttpSM::process_hostdb_info(HostDBRecord *record)
     SMDebug("http", "[%" PRId64 "] resolution failed for '%s'", sm_id, t_state.dns_info.lookup_name);
   }
 
-  milestones[TS_MILESTONE_DNS_LOOKUP_END] = Thread::get_hrtime();
+  milestones[TS_MILESTONE_DNS_LOOKUP_END] = ink_get_hrtime();
 
   if (is_debug_tag_set("http_timeout")) {
     if (t_state.api_txn_dns_timeout_value != -1) {
@@ -2469,11 +2323,12 @@ HttpSM::state_hostdb_lookup(int event, void *data)
 
     char const *host_name = t_state.dns_info.is_srv() ? t_state.dns_info.record->name() : t_state.dns_info.lookup_name;
     HostDBProcessor::Options opt;
-    opt.port           = t_state.dns_info.is_srv() ? t_state.dns_info.srv_port : t_state.server_info.dst_addr.host_order_port();
-    opt.flags          = (t_state.cache_info.directives.does_client_permit_dns_storing) ? HostDBProcessor::HOSTDB_DO_NOT_FORCE_DNS :
-                                                                                          HostDBProcessor::HOSTDB_FORCE_DNS_RELOAD;
-    opt.timeout        = (t_state.api_txn_dns_timeout_value != -1) ? t_state.api_txn_dns_timeout_value : 0;
-    opt.host_res_style = ats_host_res_from(ua_txn->get_netvc()->get_local_addr()->sa_family, t_state.txn_conf->host_res_data.order);
+    opt.port    = t_state.dns_info.is_srv() ? t_state.dns_info.srv_port : t_state.server_info.dst_addr.host_order_port();
+    opt.flags   = (t_state.cache_info.directives.does_client_permit_dns_storing) ? HostDBProcessor::HOSTDB_DO_NOT_FORCE_DNS :
+                                                                                   HostDBProcessor::HOSTDB_FORCE_DNS_RELOAD;
+    opt.timeout = (t_state.api_txn_dns_timeout_value != -1) ? t_state.api_txn_dns_timeout_value : 0;
+    opt.host_res_style =
+      ats_host_res_from(_ua.get_txn()->get_netvc()->get_local_addr()->sa_family, t_state.txn_conf->host_res_data.order);
 
     pending_action = hostDBProcessor.getbyname_imm(this, (cb_process_result_pfn)&HttpSM::process_hostdb_info, host_name, 0, opt);
     if (pending_action.empty()) {
@@ -2497,7 +2352,7 @@ HttpSM::state_hostdb_reverse_lookup(int event, void *data)
   // REQ_FLAVOR_SCHEDULED_UPDATE can be transformed into
   // REQ_FLAVOR_REVPROXY
   ink_assert(t_state.req_flavor == HttpTransact::REQ_FLAVOR_SCHEDULED_UPDATE ||
-             t_state.req_flavor == HttpTransact::REQ_FLAVOR_REVPROXY || ua_entry->vc != nullptr);
+             t_state.req_flavor == HttpTransact::REQ_FLAVOR_REVPROXY || _ua.get_entry()->vc != nullptr);
 
   switch (event) {
   case EVENT_HOST_DB_LOOKUP:
@@ -2596,19 +2451,19 @@ HttpSM::state_cache_open_write(int event, void *data)
   STATE_ENTER(&HttpSM : state_cache_open_write, event);
 
   // Make sure we are on the "right" thread
-  if (ua_txn) {
-    pending_action = ua_txn->adjust_thread(this, event, data);
+  if (_ua.get_txn()) {
+    pending_action = _ua.get_txn()->adjust_thread(this, event, data);
     if (!pending_action.empty()) {
       HTTP_INCREMENT_DYN_STAT(http_cache_open_write_adjust_thread_stat);
       return 0; // Go away if we reschedule
     }
-    NetVConnection *vc = ua_txn->get_netvc();
+    NetVConnection *vc = _ua.get_txn()->get_netvc();
     ink_release_assert(vc && vc->thread == this_ethread());
   }
 
   pending_action.clear_if_action_is(reinterpret_cast<Action *>(data));
 
-  milestones[TS_MILESTONE_CACHE_OPEN_WRITE_END] = Thread::get_hrtime();
+  milestones[TS_MILESTONE_CACHE_OPEN_WRITE_END] = ink_get_hrtime();
   pending_action                                = nullptr;
 
   switch (event) {
@@ -2770,7 +2625,7 @@ HttpSM::state_cache_open_read(int event, void *data)
     break;
   }
 
-  milestones[TS_MILESTONE_CACHE_OPEN_READ_END] = Thread::get_hrtime();
+  milestones[TS_MILESTONE_CACHE_OPEN_READ_END] = ink_get_hrtime();
 
   return 0;
 }
@@ -2870,8 +2725,8 @@ HttpSM::tunnel_handler_post_or_put(HttpTunnelProducer *p)
     tunnel.reset();
     // When the ua completed sending it's data we must have
     //  removed it from the tunnel
-    ua_entry->in_tunnel     = false;
-    server_entry->in_tunnel = false;
+    _ua.get_entry()->in_tunnel = false;
+    server_entry->in_tunnel    = false;
 
     break;
   default:
@@ -2889,7 +2744,7 @@ HttpSM::tunnel_handler_post(int event, void *data)
 {
   STATE_ENTER(&HttpSM::tunnel_handler_post, event);
 
-  HttpTunnelProducer *p = ua_txn != nullptr ? tunnel.get_producer(ua_txn) : tunnel.get_producer(HT_HTTP_CLIENT);
+  HttpTunnelProducer *p = _ua.get_txn() != nullptr ? tunnel.get_producer(_ua.get_txn()) : tunnel.get_producer(HT_HTTP_CLIENT);
   if (!p) {
     return 0; // Cannot do anything if there is no producer
   }
@@ -2915,11 +2770,11 @@ HttpSM::tunnel_handler_post(int event, void *data)
   case VC_EVENT_EOS:                // SSLNetVC may callback EOS during write error (6.0.x or early)
   case VC_EVENT_ERROR:              // Send HTTP 408 error
   case VC_EVENT_WRITE_COMPLETE:     // tunnel_handler_post_ua has sent HTTP 408 response
-  case VC_EVENT_INACTIVITY_TIMEOUT: // ua_txn timeout during sending the HTTP 408 response
-  case VC_EVENT_ACTIVE_TIMEOUT:     // ua_txn timeout
-    if (ua_entry->write_buffer) {
-      free_MIOBuffer(ua_entry->write_buffer);
-      ua_entry->write_buffer = nullptr;
+  case VC_EVENT_INACTIVITY_TIMEOUT: // _ua.get_txn() timeout during sending the HTTP 408 response
+  case VC_EVENT_ACTIVE_TIMEOUT:     // _ua.get_txn() timeout
+    if (_ua.get_entry()->write_buffer) {
+      free_MIOBuffer(_ua.get_entry()->write_buffer);
+      _ua.get_entry()->write_buffer = nullptr;
     }
     if (!p->handler_state) {
       p->handler_state = HTTP_SM_POST_UA_FAIL;
@@ -3007,15 +2862,16 @@ HttpSM::tunnel_handler_trailer(int event, void *data)
   if (server_txn->is_read_closed()) {
     nbytes = start_bytes;
   }
-  // Signal the ua_txn to get ready for a trailer
-  ua_txn->set_expect_send_trailer();
+  // Signal the _ua.get_txn() to get ready for a trailer
+  _ua.get_txn()->set_expect_send_trailer();
   tunnel.reset();
   HttpTunnelProducer *p = tunnel.add_producer(server_entry->vc, nbytes, buf_start, &HttpSM::tunnel_handler_trailer_server,
                                               HT_HTTP_SERVER, "http server trailer");
-  tunnel.add_consumer(ua_entry->vc, server_entry->vc, &HttpSM::tunnel_handler_trailer_ua, HT_HTTP_CLIENT, "user agent trailer");
+  tunnel.add_consumer(_ua.get_entry()->vc, server_entry->vc, &HttpSM::tunnel_handler_trailer_ua, HT_HTTP_CLIENT,
+                      "user agent trailer");
 
-  ua_entry->in_tunnel     = true;
-  server_entry->in_tunnel = true;
+  _ua.get_entry()->in_tunnel = true;
+  server_entry->in_tunnel    = true;
 
   tunnel.tunnel_run(p);
 
@@ -3072,7 +2928,7 @@ HttpSM::tunnel_handler_100_continue(int event, void *data)
   // We're done sending the 100 continue.  If we succeeded,
   //   we set up to parse the next server response.  If we
   //   failed, shutdown the state machine
-  HttpTunnelConsumer *c = tunnel.get_consumer(ua_txn);
+  HttpTunnelConsumer *c = tunnel.get_consumer(_ua.get_txn());
 
   if (c->write_success) {
     // Note: we must use destroy() here since clear()
@@ -3112,7 +2968,7 @@ HttpSM::tunnel_handler_push(int event, void *data)
   ink_assert(data == &tunnel);
 
   // Check to see if the client is still around
-  HttpTunnelProducer *ua = (ua_txn) ? tunnel.get_producer(ua_txn) : tunnel.get_producer(HT_HTTP_CLIENT);
+  HttpTunnelProducer *ua = (_ua.get_txn()) ? tunnel.get_producer(_ua.get_txn()) : tunnel.get_producer(HT_HTTP_CLIENT);
 
   if (ua && !ua->read_success) {
     // Client failed to send the body, it's gone.  Kill the
@@ -3201,7 +3057,7 @@ HttpSM::tunnel_handler_server(int event, HttpTunnelProducer *p)
   // TS_MILESTONE_SERVER_CONNECT is set (non-zero), lest certain time
   // statistics are calculated from epoch time.
   if (0 != milestones[TS_MILESTONE_SERVER_CONNECT]) {
-    milestones[TS_MILESTONE_SERVER_CLOSE] = Thread::get_hrtime();
+    milestones[TS_MILESTONE_SERVER_CLOSE] = ink_get_hrtime();
   }
 
   bool close_connection = false;
@@ -3256,8 +3112,8 @@ HttpSM::tunnel_handler_server(int event, HttpTunnelProducer *p)
       // Note: This is a hack. The correct solution is for the UA session to signal back to the SM
       // when the UA is about to be destroyed and clean up the pointer there. That should be done once
       // the TS-3612 changes are in place (and similarly for the server session).
-      /*if (ua_entry->in_tunnel)
-        ua_txn = NULL; */
+      /*if (_ua.get_entry()->in_tunnel)
+        _ua.set_txn(nullptr); */
 
       t_state.current.server->abort      = HttpTransact::ABORTED;
       t_state.client_info.keep_alive     = HTTP_NO_KEEPALIVE;
@@ -3363,7 +3219,7 @@ HttpSM::tunnel_handler_server(int event, HttpTunnelProducer *p)
        propagate server closes back to the client. Part of that is
        disabling KeepAlive if the server closes.
     */
-    if (ua_txn && ua_txn->is_outbound_transparent() && t_state.http_config_param->use_client_source_port) {
+    if (_ua.get_txn() && _ua.get_txn()->is_outbound_transparent() && t_state.http_config_param->use_client_source_port) {
       t_state.client_info.keep_alive = HTTP_NO_KEEPALIVE;
     }
   } else {
@@ -3373,9 +3229,10 @@ HttpSM::tunnel_handler_server(int event, HttpTunnelProducer *p)
     // be placed into the shared pool if the next incoming request is for a different
     // origin server
     bool release_origin_connection = true;
-    if (t_state.txn_conf->attach_server_session_to_client == 1 && ua_txn && t_state.client_info.keep_alive == HTTP_KEEPALIVE) {
+    if (t_state.txn_conf->attach_server_session_to_client == 1 && _ua.get_txn() &&
+        t_state.client_info.keep_alive == HTTP_KEEPALIVE) {
       SMDebug("http", "attaching server session to the client");
-      if (ua_txn->attach_server_session(static_cast<PoolableSession *>(server_txn->get_proxy_ssn()))) {
+      if (_ua.get_txn()->attach_server_session(static_cast<PoolableSession *>(server_txn->get_proxy_ssn()))) {
         release_origin_connection = false;
       }
     }
@@ -3478,25 +3335,25 @@ HttpSM::tunnel_handler_100_continue_ua(int event, HttpTunnelConsumer *c)
 {
   STATE_ENTER(&HttpSM::tunnel_handler_100_continue_ua, event);
 
-  ink_assert(c->vc == ua_txn);
+  ink_assert(c->vc == _ua.get_txn());
 
   switch (event) {
   case VC_EVENT_EOS:
-    ua_entry->eos = true;
+    _ua.get_entry()->eos = true;
   // FALL-THROUGH
   case VC_EVENT_INACTIVITY_TIMEOUT:
   case VC_EVENT_ACTIVE_TIMEOUT:
   case VC_EVENT_ERROR:
     set_ua_abort(HttpTransact::ABORTED, event);
-    vc_table.remove_entry(ua_entry);
+    vc_table.remove_entry(_ua.get_entry());
     c->vc->do_io_close();
     break;
   case VC_EVENT_WRITE_COMPLETE:
     // mark the vc as no longer in tunnel
     //   so we don't get hosed if the ua abort before
     //   real response header is received
-    ua_entry->in_tunnel = false;
-    c->write_success    = true;
+    _ua.get_entry()->in_tunnel = false;
+    c->write_success           = true;
 
     // remove the buffer reader from the consumer's vc
     if (c->vc != nullptr) {
@@ -3564,12 +3421,12 @@ HttpSM::tunnel_handler_ua(int event, HttpTunnelConsumer *c)
   HttpTunnelConsumer *selfc = nullptr;
 
   STATE_ENTER(&HttpSM::tunnel_handler_ua, event);
-  ink_assert(c->vc == ua_txn);
-  milestones[TS_MILESTONE_UA_CLOSE] = Thread::get_hrtime();
+  ink_assert(c->vc == _ua.get_txn());
+  milestones[TS_MILESTONE_UA_CLOSE] = ink_get_hrtime();
 
   switch (event) {
   case VC_EVENT_EOS:
-    ua_entry->eos = true;
+    _ua.get_entry()->eos = true;
 
   // FALL-THROUGH
   case VC_EVENT_INACTIVITY_TIMEOUT:
@@ -3598,7 +3455,7 @@ HttpSM::tunnel_handler_ua(int event, HttpTunnelConsumer *c)
 
       // Even with the background fill, the client side should go down
       c->write_vio = nullptr;
-      vc_table.remove_entry(ua_entry);
+      vc_table.remove_entry(_ua.get_entry());
       c->vc->do_io_close(EHTTP_ERROR);
       c->alive = false;
 
@@ -3624,7 +3481,7 @@ HttpSM::tunnel_handler_ua(int event, HttpTunnelConsumer *c)
     c->write_success          = true;
     t_state.client_info.abort = HttpTransact::DIDNOT_ABORT;
     if (t_state.client_info.keep_alive == HTTP_KEEPALIVE) {
-      if (t_state.www_auth_content != HttpTransact::CACHE_AUTH_SERVE || ua_txn->get_server_session()) {
+      if (t_state.www_auth_content != HttpTransact::CACHE_AUTH_SERVE || _ua.get_txn()->get_server_session()) {
         // successful keep-alive
         close_connection = false;
       }
@@ -3671,22 +3528,22 @@ HttpSM::tunnel_handler_ua(int event, HttpTunnelConsumer *c)
     // Don't shutdown if we are still expecting a trailer
   } else if (close_connection) {
     // If the client could be pipelining or is doing a POST, we need to
-    //   set the ua_txn into half close mode
+    //   set the _ua.get_txn() into half close mode
 
     // only external POSTs should be subject to this logic; ruling out internal POSTs here
     bool is_eligible_post_request = ((t_state.method == HTTP_WKSIDX_POST) && !is_internal);
 
     if (is_eligible_post_request && c->producer->vc_type != HT_STATIC && event == VC_EVENT_WRITE_COMPLETE) {
-      ua_txn->set_half_close_flag(true);
+      _ua.get_txn()->set_half_close_flag(true);
     }
 
-    vc_table.remove_entry(this->ua_entry);
-    ink_release_assert(vc_table.find_entry(ua_txn) == nullptr);
-    ua_txn->do_io_close();
+    vc_table.remove_entry(this->_ua.get_entry());
+    ink_release_assert(vc_table.find_entry(_ua.get_txn()) == nullptr);
+    _ua.get_txn()->do_io_close();
   } else {
-    ink_assert(ua_txn->get_remote_reader() != nullptr);
-    vc_table.remove_entry(this->ua_entry);
-    ua_txn->release();
+    ink_assert(_ua.get_txn()->get_remote_reader() != nullptr);
+    vc_table.remove_entry(this->_ua.get_entry());
+    _ua.get_txn()->release();
   }
 
   return 0;
@@ -3699,12 +3556,12 @@ HttpSM::tunnel_handler_trailer_ua(int event, HttpTunnelConsumer *c)
   HttpTunnelConsumer *selfc = nullptr;
 
   STATE_ENTER(&HttpSM::tunnel_handler_trailer_ua, event);
-  ink_assert(c->vc == ua_txn);
-  milestones[TS_MILESTONE_UA_CLOSE] = Thread::get_hrtime();
+  ink_assert(c->vc == _ua.get_txn());
+  milestones[TS_MILESTONE_UA_CLOSE] = ink_get_hrtime();
 
   switch (event) {
   case VC_EVENT_EOS:
-    ua_entry->eos = true;
+    _ua.get_entry()->eos = true;
 
   // FALL-THROUGH
   case VC_EVENT_INACTIVITY_TIMEOUT:
@@ -3745,10 +3602,10 @@ HttpSM::tunnel_handler_trailer_ua(int event, HttpTunnelConsumer *c)
     break;
   }
 
-  ink_assert(ua_entry->vc == c->vc);
-  vc_table.remove_entry(this->ua_entry);
-  ua_txn->do_io_close();
-  ink_release_assert(vc_table.find_entry(ua_txn) == nullptr);
+  ink_assert(_ua.get_entry()->vc == c->vc);
+  vc_table.remove_entry(this->_ua.get_entry());
+  _ua.get_txn()->do_io_close();
+  ink_release_assert(vc_table.find_entry(_ua.get_txn()) == nullptr);
   return 0;
 }
 
@@ -3776,8 +3633,8 @@ HttpSM::tunnel_handler_ua_push(int event, HttpTunnelProducer *p)
   case VC_EVENT_READ_COMPLETE:
     //
     // The transfer completed successfully
-    p->read_success     = true;
-    ua_entry->in_tunnel = false;
+    p->read_success            = true;
+    _ua.get_entry()->in_tunnel = false;
     break;
 
   case VC_EVENT_READ_READY:
@@ -3900,13 +3757,13 @@ HttpSM::tunnel_handler_post_ua(int event, HttpTunnelProducer *p)
       p->handler_state = HTTP_SM_POST_UA_FAIL;
       set_ua_abort(HttpTransact::ABORTED, event);
 
-      SMDebug("http_tunnel", "send 408 response to client to vc %p, tunnel vc %p", ua_txn->get_netvc(), p->vc);
+      SMDebug("http_tunnel", "send 408 response to client to vc %p, tunnel vc %p", _ua.get_txn()->get_netvc(), p->vc);
 
       tunnel.chain_abort_all(p);
       // Reset the inactivity timeout, otherwise the InactivityCop will callback again in the next second.
-      ua_txn->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
+      _ua.get_txn()->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
       // if it is active timeout case, we need to give another chance to send 408 response;
-      ua_txn->set_active_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_active_timeout_in));
+      _ua.get_txn()->set_active_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_active_timeout_in));
 
       return 0;
     }
@@ -3924,22 +3781,22 @@ HttpSM::tunnel_handler_post_ua(int event, HttpTunnelProducer *p)
     //   it's consumer must already be set to true.  Previously
     //   we were setting it again to true but incorrectly in
     //   the case of a transform
-    hsm_release_assert(ua_entry->in_tunnel == true);
+    hsm_release_assert(_ua.get_entry()->in_tunnel == true);
     if (p->consumer_list.head && p->consumer_list.head->vc_type == HT_TRANSFORM) {
       hsm_release_assert(post_transform_info.entry->in_tunnel == true);
     } // server side may have completed before the user agent side, so it may no longer be in tunnel
 
     // In the error case, start to take down the client session. There should
     // be no reuse here
-    vc_table.remove_entry(this->ua_entry);
-    ua_txn->do_io_close();
+    vc_table.remove_entry(this->_ua.get_entry());
+    _ua.get_txn()->do_io_close();
     break;
 
   case VC_EVENT_READ_COMPLETE:
   case HTTP_TUNNEL_EVENT_PRECOMPLETE:
-    p->handler_state    = HTTP_SM_POST_SUCCESS;
-    p->read_success     = true;
-    ua_entry->in_tunnel = false;
+    p->handler_state           = HTTP_SM_POST_SUCCESS;
+    p->read_success            = true;
+    _ua.get_entry()->in_tunnel = false;
 
     if (p->do_dechunking || p->do_chunked_passthru) {
       if (p->chunked_handler.truncation) {
@@ -3951,13 +3808,13 @@ HttpSM::tunnel_handler_post_ua(int event, HttpTunnelProducer *p)
 
     // Now that we have communicated the post body, turn off the inactivity timeout
     // until the server starts sending data back
-    if (ua_txn) {
-      ua_txn->cancel_inactivity_timeout();
+    if (_ua.get_txn()) {
+      _ua.get_txn()->cancel_inactivity_timeout();
 
       // Initiate another read to catch aborts
-      ua_entry->vc_read_handler  = &HttpSM::state_watch_for_client_abort;
-      ua_entry->vc_write_handler = &HttpSM::state_watch_for_client_abort;
-      ua_entry->read_vio         = p->vc->do_io_read(this, INT64_MAX, ua_txn->get_remote_reader()->mbuf);
+      _ua.get_entry()->vc_read_handler  = &HttpSM::state_watch_for_client_abort;
+      _ua.get_entry()->vc_write_handler = &HttpSM::state_watch_for_client_abort;
+      _ua.get_entry()->read_vio         = p->vc->do_io_read(this, INT64_MAX, _ua.get_txn()->get_remote_reader()->mbuf);
     }
     break;
   default:
@@ -4066,21 +3923,21 @@ HttpSM::tunnel_handler_post_server(int event, HttpTunnelConsumer *c)
       ua_producer = c->producer;
     }
     ink_assert(ua_producer->vc_type == HT_HTTP_CLIENT);
-    ink_assert(ua_producer->vc == ua_txn);
-    ink_assert(ua_producer->vc == ua_entry->vc);
+    ink_assert(ua_producer->vc == _ua.get_txn());
+    ink_assert(ua_producer->vc == _ua.get_entry()->vc);
 
     // Before shutting down, initiate another read
     //  on the user agent in order to get timeouts
     //  coming to the state machine and not the tunnel
-    ua_entry->vc_read_handler  = &HttpSM::state_watch_for_client_abort;
-    ua_entry->vc_write_handler = &HttpSM::state_watch_for_client_abort;
+    _ua.get_entry()->vc_read_handler  = &HttpSM::state_watch_for_client_abort;
+    _ua.get_entry()->vc_write_handler = &HttpSM::state_watch_for_client_abort;
 
     // YTS Team, yamsat Plugin
     // When event is VC_EVENT_ERROR,and when redirection is enabled
     // do not shut down the client read
     if (enable_redirection) {
       if (ua_producer->vc_type == HT_STATIC && event != VC_EVENT_ERROR && event != VC_EVENT_EOS) {
-        ua_entry->read_vio = ua_producer->vc->do_io_read(this, INT64_MAX, ua_txn->get_remote_reader()->mbuf);
+        _ua.get_entry()->read_vio = ua_producer->vc->do_io_read(this, INT64_MAX, _ua.get_txn()->get_remote_reader()->mbuf);
         // ua_producer->vc->do_io_shutdown(IO_SHUTDOWN_READ);
       } else {
         if (ua_producer->vc_type == HT_STATIC && t_state.redirect_info.redirect_in_process) {
@@ -4088,7 +3945,7 @@ HttpSM::tunnel_handler_post_server(int event, HttpTunnelConsumer *c)
         }
       }
     } else {
-      ua_entry->read_vio = ua_producer->vc->do_io_read(this, INT64_MAX, ua_txn->get_remote_reader()->mbuf);
+      _ua.get_entry()->read_vio = ua_producer->vc->do_io_read(this, INT64_MAX, _ua.get_txn()->get_remote_reader()->mbuf);
       // we should not shutdown read side of the client here to prevent sending a reset
       // ua_producer->vc->do_io_shutdown(IO_SHUTDOWN_READ);
     } // end of added logic
@@ -4119,6 +3976,16 @@ HttpSM::tunnel_handler_ssl_producer(int event, HttpTunnelProducer *p)
   STATE_ENTER(&HttpSM::tunnel_handler_ssl_producer, event);
 
   switch (event) {
+  case VC_EVENT_READ_READY:
+    // This event is triggered when receiving DATA frames without the END_STREAM
+    // flag set in a HTTP/2 CONNECT request. Breaking as there are more DATA
+    // frames to come.
+    break;
+  case VC_EVENT_READ_COMPLETE:
+    // This event is triggered during an HTTP/2 CONNECT request when a DATA
+    // frame with the END_STREAM flag set is received, indicating the end of the
+    // stream.
+    [[fallthrough]];
   case VC_EVENT_EOS:
     // The write side of this connection is still alive
     //  so half-close the read
@@ -4150,7 +4017,6 @@ HttpSM::tunnel_handler_ssl_producer(int event, HttpTunnelProducer *p)
       }
     }
     break;
-  case VC_EVENT_READ_COMPLETE:
   case HTTP_TUNNEL_EVENT_PRECOMPLETE:
   // We should never get these event since we don't know
   //  how long the stream is
@@ -4442,12 +4308,13 @@ HttpSM::check_sni_host()
   int host_len;
   const char *host_name = t_state.hdr_info.client_request.host_get(&host_len);
   if (host_name && host_len) {
-    if (ua_txn->support_sni()) {
+    if (_ua.get_txn()->support_sni()) {
       int host_sni_policy   = t_state.http_config_param->http_host_sni_policy;
-      NetVConnection *netvc = ua_txn->get_netvc();
+      NetVConnection *netvc = _ua.get_txn()->get_netvc();
       if (netvc) {
         IpEndpoint ip = netvc->get_remote_endpoint();
-        if (SNIConfig::test_client_action(std::string{host_name, static_cast<size_t>(host_len)}.c_str(), ip, host_sni_policy) &&
+        if (SNIConfig::test_client_action(std::string{host_name, static_cast<size_t>(host_len)}.c_str(), netvc->get_local_port(),
+                                          ip, host_sni_policy) &&
             host_sni_policy > 0) {
           // In a SNI/Host mismatch where the Host would have triggered SNI policy, mark the transaction
           // to be considered for rejection after the remap phase passes.  Gives the opportunity to conf_remap
@@ -4462,8 +4329,8 @@ HttpSM::check_sni_host()
             Warning("No SNI for TLS request with hostname %.*s action=%s", host_len, host_name, action_value);
             SMDebug("ssl_sni", "No SNI for TLS request with hostname %.*s action=%s", host_len, host_name, action_value);
             if (host_sni_policy == 2) {
-              ts::bwprint(error_bw_buffer, "No SNI for TLS request: connecting to {} for host='{}', returning a 403",
-                          t_state.client_info.dst_addr, std::string_view{host_name, static_cast<size_t>(host_len)});
+              swoc::bwprint(error_bw_buffer, "No SNI for TLS request: connecting to {} for host='{}', returning a 403",
+                            t_state.client_info.dst_addr, std::string_view{host_name, static_cast<size_t>(host_len)});
               Log::error("%s", error_bw_buffer.c_str());
               this->t_state.client_connection_enabled = false;
             }
@@ -4471,8 +4338,8 @@ HttpSM::check_sni_host()
             Warning("SNI/hostname mismatch sni=%s host=%.*s action=%s", sni_value, host_len, host_name, action_value);
             SMDebug("ssl_sni", "SNI/hostname mismatch sni=%s host=%.*s action=%s", sni_value, host_len, host_name, action_value);
             if (host_sni_policy == 2) {
-              ts::bwprint(error_bw_buffer, "SNI/hostname mismatch: connecting to {} for host='{}' sni='{}', returning a 403",
-                          t_state.client_info.dst_addr, std::string_view{host_name, static_cast<size_t>(host_len)}, sni_value);
+              swoc::bwprint(error_bw_buffer, "SNI/hostname mismatch: connecting to {} for host='{}' sni='{}', returning a 403",
+                            t_state.client_info.dst_addr, std::string_view{host_name, static_cast<size_t>(host_len)}, sni_value);
               Log::error("%s", error_bw_buffer.c_str());
               this->t_state.client_connection_enabled = false;
             }
@@ -4534,7 +4401,7 @@ HttpSM::do_hostdb_lookup()
   ink_assert(t_state.dns_info.lookup_name != nullptr);
   ink_assert(pending_action.empty());
 
-  milestones[TS_MILESTONE_DNS_LOOKUP_BEGIN] = Thread::get_hrtime();
+  milestones[TS_MILESTONE_DNS_LOOKUP_BEGIN] = ink_get_hrtime();
 
   // If directed to not look up fqdns then mark as resolved
   if (t_state.txn_conf->no_dns_forward_to_parent && t_state.parent_result.result == PARENT_UNDEFINED) {
@@ -4564,7 +4431,7 @@ HttpSM::do_hostdb_lookup()
                                                                                      HostDBProcessor::HOSTDB_FORCE_DNS_RELOAD;
       opt.timeout = (t_state.api_txn_dns_timeout_value != -1) ? t_state.api_txn_dns_timeout_value : 0;
       opt.host_res_style =
-        ats_host_res_from(ua_txn->get_netvc()->get_local_addr()->sa_family, t_state.txn_conf->host_res_data.order);
+        ats_host_res_from(_ua.get_txn()->get_netvc()->get_local_addr()->sa_family, t_state.txn_conf->host_res_data.order);
 
       pending_action = hostDBProcessor.getbyname_imm(this, (cb_process_result_pfn)&HttpSM::process_hostdb_info, host_name, 0, opt);
       if (pending_action.empty()) {
@@ -4596,7 +4463,8 @@ HttpSM::do_hostdb_lookup()
                                                                                    HostDBProcessor::HOSTDB_FORCE_DNS_RELOAD;
     opt.timeout = (t_state.api_txn_dns_timeout_value != -1) ? t_state.api_txn_dns_timeout_value : 0;
 
-    opt.host_res_style = ats_host_res_from(ua_txn->get_netvc()->get_local_addr()->sa_family, t_state.txn_conf->host_res_data.order);
+    opt.host_res_style =
+      ats_host_res_from(_ua.get_txn()->get_netvc()->get_local_addr()->sa_family, t_state.txn_conf->host_res_data.order);
 
     pending_action = hostDBProcessor.getbyname_imm(this, (cb_process_result_pfn)&HttpSM::process_hostdb_info,
                                                    t_state.dns_info.lookup_name, 0, opt);
@@ -5038,7 +4906,7 @@ HttpSM::do_cache_lookup_and_read()
 
   HTTP_INCREMENT_DYN_STAT(http_cache_lookups_stat);
 
-  milestones[TS_MILESTONE_CACHE_OPEN_READ_BEGIN] = Thread::get_hrtime();
+  milestones[TS_MILESTONE_CACHE_OPEN_READ_BEGIN] = ink_get_hrtime();
   t_state.cache_lookup_result                    = HttpTransact::CACHE_LOOKUP_NONE;
   t_state.cache_info.lookup_count++;
   // YTS Team, yamsat Plugin
@@ -5089,7 +4957,7 @@ HttpSM::do_cache_delete_all_alts(Continuation *cont)
 inline void
 HttpSM::do_cache_prepare_write()
 {
-  milestones[TS_MILESTONE_CACHE_OPEN_WRITE_BEGIN] = Thread::get_hrtime();
+  milestones[TS_MILESTONE_CACHE_OPEN_WRITE_BEGIN] = ink_get_hrtime();
   do_cache_prepare_action(&cache_sm, t_state.cache_info.object_read, true);
 }
 
@@ -5232,30 +5100,137 @@ HttpSM::get_outbound_cert() const
 std::string_view
 HttpSM::get_outbound_sni() const
 {
-  using namespace ts::literals;
-  ts::TextView zret;
-  ts::TextView policy{t_state.txn_conf->ssl_client_sni_policy, ts::TextView::npos};
+  using namespace swoc::literals;
+  swoc::TextView zret;
+  swoc::TextView policy{t_state.txn_conf->ssl_client_sni_policy, swoc::TextView::npos};
 
-  if (ua_txn) {
-    if (const NetVConnection *netvc = ua_txn->get_netvc(); netvc->options.outbound_sni_policy) {
-      policy.assign(netvc->options.outbound_sni_policy.get(), ts::TextView::npos);
+  if (_ua.get_txn()) {
+    if (const NetVConnection *netvc = _ua.get_txn()->get_netvc(); netvc->options.outbound_sni_policy) {
+      policy.assign(netvc->options.outbound_sni_policy.get(), swoc::TextView::npos);
     }
   }
 
-  if (policy.empty() || !strcmp(policy, "host"_tv)) {
+  if (policy.empty() || policy == "host"_tv) {
     // By default the host header field value is used for the SNI.
     int len;
     char const *ptr = t_state.hdr_info.server_request.host_get(&len);
     zret.assign(ptr, len);
-  } else if (ua_txn && !strcmp(policy, "server_name"_tv)) {
-    zret.assign(ua_txn->get_netvc()->get_server_name(), ts::TextView::npos);
+  } else if (_ua.get_txn() && policy == "server_name"_tv) {
+    zret.assign(_ua.get_txn()->get_netvc()->get_server_name(), swoc::TextView::npos);
   } else if (policy.front() == '@') { // guaranteed non-empty from previous clause
     zret = policy.remove_prefix(1);
   } else {
     // If other is specified, like "remap" and "verify_with_name_source", the remapped origin name is used for the SNI value
-    zret.assign(t_state.server_info.name, ts::TextView::npos);
+    zret.assign(t_state.server_info.name, swoc::TextView::npos);
   }
   return zret;
+}
+
+bool
+HttpSM::apply_ip_allow_filter()
+{
+  bool result{true};
+  // Method allowed on dest IP address check
+  IpAllow::ACL acl = IpAllow::match(this->get_server_remote_addr(), IpAllow::DST_ADDR);
+
+  if (ip_allow_is_request_forbidden(acl)) {
+    ip_allow_deny_request(acl);
+    result = false;
+  } else if (HttpTransact::is_server_negative_cached(&t_state) == true &&
+             t_state.txn_conf->connect_attempts_max_retries_down_server <= 0) {
+    call_transact_and_set_next_state(HttpTransact::OriginDown);
+    result = false;
+  }
+
+  return result;
+}
+
+bool
+HttpSM::ip_allow_is_request_forbidden(const IpAllow::ACL &acl)
+{
+  bool result{false};
+  if (acl.isValid()) {
+    if (acl.isDenyAll()) {
+      result = true;
+    } else if (!acl.isAllowAll()) {
+      if (this->get_request_method_wksidx() != -1) {
+        result = !acl.isMethodAllowed(this->get_request_method_wksidx());
+      } else {
+        int method_str_len{};
+        auto method_str = t_state.hdr_info.server_request.method_get(&method_str_len);
+        result          = !acl.isNonstandardMethodAllowed(std::string_view(method_str, method_str_len));
+      }
+    }
+  }
+
+  return result;
+}
+
+void
+HttpSM::ip_allow_deny_request(const IpAllow::ACL &acl)
+{
+  if (is_debug_tag_set("ip_allow")) {
+    ip_text_buffer ipb;
+    const char *method_str{};
+    int method_str_len{};
+    method_str = t_state.hdr_info.client_request.method_get(&method_str_len);
+
+    const char *ntop_formatted = ats_ip_ntop(this->get_server_remote_addr(), ipb, sizeof(ipb));
+    Warning("server '%s' prohibited by ip-allow policy at line %d", ntop_formatted, acl.source_line());
+    SMDebug("ip_allow", "Line %d denial for '%.*s' from %s", acl.source_line(), method_str_len, method_str, ntop_formatted);
+  }
+
+  t_state.current.retry_attempts.maximize(
+    t_state.configured_connect_attempts_max_retries()); // prevent any more retries with this IP
+  call_transact_and_set_next_state(HttpTransact::Forbidden);
+}
+
+bool
+HttpSM::grab_pre_warmed_net_v_connection_if_possible(const TLSTunnelSupport &tts, int pid)
+{
+  bool result{false};
+
+  if (is_prewarm_enabled_or_sni_overridden(tts)) {
+    EThread *ethread = this_ethread();
+    _prewarm_sm      = ethread->prewarm_queue->dequeue(tts.create_dst(pid));
+
+    if (_prewarm_sm != nullptr) {
+      open_prewarmed_connection();
+      result = true;
+    } else {
+      SMDebug("http_ss", "no pre-warmed tunnel");
+    }
+  }
+
+  return result;
+}
+
+bool
+HttpSM::is_prewarm_enabled_or_sni_overridden(const TLSTunnelSupport &tts) const
+{
+  PreWarmConfig::scoped_config prewarm_conf;
+  bool result = prewarm_conf->enabled;
+
+  if (YamlSNIConfig::TunnelPreWarm sni_use_prewarm = tts.get_tunnel_prewarm_configuration();
+      sni_use_prewarm != YamlSNIConfig::TunnelPreWarm::UNSET) {
+    result = static_cast<bool>(sni_use_prewarm);
+  }
+
+  return result;
+}
+
+void
+HttpSM::open_prewarmed_connection()
+{
+  NetVConnection *netvc = _prewarm_sm->move_netvc();
+  ink_release_assert(_prewarm_sm->handler == &PreWarmSM::state_closed);
+
+  SMDebug("http_ss", "using pre-warmed tunnel netvc=%p", netvc);
+
+  t_state.current.retry_attempts.clear();
+
+  ink_release_assert(default_handler == HttpSM::default_handler);
+  handleEvent(NET_EVENT_OPEN, netvc);
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -5270,7 +5245,7 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
   auto fam_name = ats_ip_family_name(ip_family);
   SMDebug("http_track", "entered inside do_http_server_open ][%.*s]", static_cast<int>(fam_name.size()), fam_name.data());
 
-  NetVConnection *vc = ua_txn->get_netvc();
+  NetVConnection *vc = _ua.get_txn()->get_netvc();
   ink_release_assert(vc && vc->thread == this_ethread());
   pending_action = nullptr;
 
@@ -5285,10 +5260,10 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
     server_txn = nullptr;
   }
 
-  // ua_entry can be null if a scheduled update is also a reverse proxy
+  // _ua.get_entry() can be null if a scheduled update is also a reverse proxy
   // request. Added REVPROXY to the assert below, and then changed checks
-  // to be based on ua_txn != NULL instead of req_flavor value.
-  ink_assert(ua_entry != nullptr || t_state.req_flavor == HttpTransact::REQ_FLAVOR_SCHEDULED_UPDATE ||
+  // to be based on _ua.get_txn() != NULL instead of req_flavor value.
+  ink_assert(_ua.get_entry() != nullptr || t_state.req_flavor == HttpTransact::REQ_FLAVOR_SCHEDULED_UPDATE ||
              t_state.req_flavor == HttpTransact::REQ_FLAVOR_REVPROXY);
 
   ink_assert(pending_action.empty());
@@ -5301,7 +5276,7 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
   SMDebug("http_seq", "Sending request to server");
 
   // set the server first connect milestone here in case we return in the plugin_tunnel case that follows
-  milestones[TS_MILESTONE_SERVER_CONNECT] = Thread::get_hrtime();
+  milestones[TS_MILESTONE_SERVER_CONNECT] = ink_get_hrtime();
   if (milestones[TS_MILESTONE_SERVER_FIRST_CONNECT] == 0) {
     milestones[TS_MILESTONE_SERVER_FIRST_CONNECT] = milestones[TS_MILESTONE_SERVER_CONNECT];
   }
@@ -5319,56 +5294,13 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
   // Check for remap rule. If so, only apply ip_allow filter if it is activated (ip_allow_check_enabled_p set).
   // Otherwise, if no remap rule is defined, apply the ip_allow filter.
   if (!t_state.url_remap_success || t_state.url_map.getMapping()->ip_allow_check_enabled_p) {
-    // Method allowed on dest IP address check
-    sockaddr *server_ip    = &t_state.current.server->dst_addr.sa;
-    IpAllow::ACL acl       = IpAllow::match(server_ip, IpAllow::DST_ADDR);
-    bool deny_request      = false; // default is fail open.
-    int method             = t_state.hdr_info.server_request.method_get_wksidx();
-    int method_str_len     = 0;
-    const char *method_str = nullptr;
-
-    if (acl.isValid()) {
-      if (acl.isDenyAll()) {
-        deny_request = true;
-      } else if (!acl.isAllowAll()) {
-        if (method != -1) {
-          deny_request = !acl.isMethodAllowed(method);
-        } else {
-          method_str   = t_state.hdr_info.server_request.method_get(&method_str_len);
-          deny_request = !acl.isNonstandardMethodAllowed(std::string_view(method_str, method_str_len));
-        }
-      }
-    }
-
-    if (deny_request) {
-      if (is_debug_tag_set("ip_allow")) {
-        ip_text_buffer ipb;
-        if (method != -1) {
-          method_str     = hdrtoken_index_to_wks(method);
-          method_str_len = strlen(method_str);
-        } else if (!method_str) {
-          method_str = t_state.hdr_info.client_request.method_get(&method_str_len);
-        }
-        Warning("server '%s' prohibited by ip-allow policy at line %d", ats_ip_ntop(server_ip, ipb, sizeof(ipb)),
-                acl.source_line());
-        SMDebug("ip_allow", "Line %d denial for '%.*s' from %s", acl.source_line(), method_str_len, method_str,
-                ats_ip_ntop(server_ip, ipb, sizeof(ipb)));
-      }
-      t_state.current.retry_attempts.maximize(
-        t_state.configured_connect_attempts_max_retries()); // prevent any more retries with this IP
-      call_transact_and_set_next_state(HttpTransact::Forbidden);
-      return;
-    }
-
-    if (HttpTransact::is_server_negative_cached(&t_state) == true &&
-        t_state.txn_conf->connect_attempts_max_retries_down_server <= 0) {
-      call_transact_and_set_next_state(HttpTransact::OriginDown);
+    if (!apply_ip_allow_filter()) {
       return;
     }
   }
 
   // Check for self loop.
-  if (!ua_txn->is_outbound_transparent() && HttpTransact::will_this_request_self_loop(&t_state)) {
+  if (!_ua.get_txn()->is_outbound_transparent() && HttpTransact::will_this_request_self_loop(&t_state)) {
     call_transact_and_set_next_state(HttpTransact::SelfLoop);
     return;
   }
@@ -5408,13 +5340,13 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
   bool try_reuse = false;
   if ((raw == false) && TS_SERVER_SESSION_SHARING_MATCH_NONE != t_state.txn_conf->server_session_sharing_match &&
       (t_state.txn_conf->keep_alive_post_out == 1 || t_state.hdr_info.request_content_length <= 0) && !is_private() &&
-      ua_txn != nullptr) {
+      _ua.get_txn() != nullptr) {
     HSMresult_t shared_result;
     SMDebug("http_ss", "Try to acquire_session for %s", t_state.current.server->name);
     shared_result = httpSessionManager.acquire_session(this,                                 // state machine
                                                        &t_state.current.server->dst_addr.sa, // ip + port
                                                        t_state.current.server->name,         // hostname
-                                                       ua_txn                                // has ptr to bound ua sessions
+                                                       _ua.get_txn()                         // has ptr to bound ua sessions
     );
     try_reuse     = true;
 
@@ -5440,8 +5372,8 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
   // Avoid a problem where server session sharing is disabled and we have keep-alive, we are trying to open a new server
   // session when we already have an attached server session.
   else if ((TS_SERVER_SESSION_SHARING_MATCH_NONE == t_state.txn_conf->server_session_sharing_match || is_private()) &&
-           (ua_txn != nullptr)) {
-    PoolableSession *existing_ss = ua_txn->get_server_session();
+           (_ua.get_txn() != nullptr)) {
+    PoolableSession *existing_ss = _ua.get_txn()->get_server_session();
 
     if (existing_ss) {
       // [amc] Not sure if this is the best option, but we don't get here unless session sharing is disabled
@@ -5449,7 +5381,7 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
       // client has already exchanged a request with this specific origin server and has sent another one
       // shouldn't we just automatically keep the association?
       if (ats_ip_addr_port_eq(existing_ss->get_remote_addr(), &t_state.current.server->dst_addr.sa)) {
-        ua_txn->attach_server_session(nullptr);
+        _ua.get_txn()->attach_server_session(nullptr);
         existing_ss->set_active();
         this->create_server_txn(existing_ss);
         hsm_release_assert(server_txn != nullptr);
@@ -5460,19 +5392,19 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
         // the existing connection and call connect_re to get a new one
         existing_ss->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->keep_alive_no_activity_timeout_out));
         existing_ss->release(server_txn);
-        ua_txn->attach_server_session(nullptr);
+        _ua.get_txn()->attach_server_session(nullptr);
       }
     }
   }
   // Otherwise, we release the existing connection and call connect_re
   // to get a new one.
-  // ua_txn is null when t_state.req_flavor == REQ_FLAVOR_SCHEDULED_UPDATE
-  else if (ua_txn != nullptr) {
-    PoolableSession *existing_ss = ua_txn->get_server_session();
+  // _ua.get_txn() is null when t_state.req_flavor == REQ_FLAVOR_SCHEDULED_UPDATE
+  else if (_ua.get_txn() != nullptr) {
+    PoolableSession *existing_ss = _ua.get_txn()->get_server_session();
     if (existing_ss) {
       existing_ss->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->keep_alive_no_activity_timeout_out));
       existing_ss->release(server_txn);
-      ua_txn->attach_server_session(nullptr);
+      _ua.get_txn()->attach_server_session(nullptr);
     }
   }
 
@@ -5487,7 +5419,7 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
     } else if (raw) {
       HTTP_INCREMENT_DYN_STAT(http_origin_raw);
     } else {
-      ink_release_assert(ua_txn == nullptr);
+      ink_release_assert(_ua.get_txn() == nullptr);
     }
   }
 
@@ -5565,8 +5497,8 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
 
   int scheme_to_use = t_state.scheme; // get initial scheme
   bool tls_upstream = scheme_to_use == URL_WKSIDX_HTTPS;
-  if (ua_txn) {
-    auto *tts = dynamic_cast<TLSTunnelSupport *>(ua_txn->get_netvc());
+  if (_ua.get_txn()) {
+    auto tts = _ua.get_txn()->get_netvc()->get_service<TLSTunnelSupport>();
     if (tts && raw) {
       tls_upstream = tts->is_upstream_tls();
       _tunnel_type = tts->get_tunnel_type();
@@ -5574,7 +5506,7 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
       // ALPN on TLS Partial Blind Tunnel - set negotiated ALPN id
       int pid = SessionProtocolNameRegistry::INVALID;
       if (tts->get_tunnel_type() == SNIRoutingType::PARTIAL_BLIND) {
-        auto *alpns = dynamic_cast<ALPNSupport *>(ua_txn->get_netvc());
+        auto alpns = _ua.get_txn()->get_netvc()->get_service<ALPNSupport>();
         ink_assert(alpns);
         pid = alpns->get_negotiated_protocol_id();
         if (pid != SessionProtocolNameRegistry::INVALID) {
@@ -5582,49 +5514,17 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
         }
       }
 
-      //
-      // Grab pre-warmed NetVConnection if possible
-      //
-      PreWarmConfig::scoped_config prewarm_conf;
-      bool use_prewarm = prewarm_conf->enabled;
-
-      // override "proxy.config.tunnel.prewarm" by "tunnel_prewarm" in sni.yaml
-      if (YamlSNIConfig::TunnelPreWarm sni_use_prewarm = tts->get_tunnel_prewarm_configuration();
-          sni_use_prewarm != YamlSNIConfig::TunnelPreWarm::UNSET) {
-        use_prewarm = static_cast<bool>(sni_use_prewarm);
-      }
-
-      if (use_prewarm) {
-        // TODO: avoid copy of string -> make map key std::variant
-        PreWarm::SPtrConstDst dst =
-          std::make_shared<const PreWarm::Dst>(tts->get_tunnel_host(), tts->get_tunnel_port(),
-                                               tls_upstream ? SNIRoutingType::PARTIAL_BLIND : SNIRoutingType::FORWARD, pid);
-
-        EThread *ethread = this_ethread();
-        _prewarm_sm      = ethread->prewarm_queue->dequeue(dst);
-
-        if (_prewarm_sm != nullptr) {
-          NetVConnection *netvc = _prewarm_sm->move_netvc();
-          ink_release_assert(_prewarm_sm->handler == &PreWarmSM::state_closed);
-
-          SMDebug("http_ss", "using pre-warmed tunnel netvc=%p", netvc);
-
-          t_state.current.retry_attempts.clear();
-
-          ink_release_assert(default_handler == HttpSM::default_handler);
-          handleEvent(NET_EVENT_OPEN, netvc);
-          return;
-        }
-        SMDebug("http_ss", "no pre-warmed tunnel");
+      if (grab_pre_warmed_net_v_connection_if_possible(*tts, pid)) {
+        return;
       }
     }
-    opt.local_port = ua_txn->get_outbound_port();
+    opt.local_port = _ua.get_txn()->get_outbound_port();
 
-    const IpAddr &outbound_ip = AF_INET6 == opt.ip_family ? ua_txn->get_outbound_ip6() : ua_txn->get_outbound_ip4();
+    const IpAddr &outbound_ip = AF_INET6 == opt.ip_family ? _ua.get_txn()->get_outbound_ip6() : _ua.get_txn()->get_outbound_ip4();
     if (outbound_ip.isValid()) {
       opt.addr_binding = NetVCOptions::INTF_ADDR;
       opt.local_ip     = outbound_ip;
-    } else if (ua_txn->is_outbound_transparent()) {
+    } else if (_ua.get_txn()->is_outbound_transparent()) {
       opt.addr_binding = NetVCOptions::FOREIGN_ADDR;
       opt.local_ip     = t_state.client_info.src_addr;
       /* If the connection is server side transparent, we can bind to the
@@ -5633,7 +5533,7 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
          configuration parameter.
       */
 
-      NetVConnection *client_vc = ua_txn->get_netvc();
+      NetVConnection *client_vc = _ua.get_txn()->get_netvc();
       if (t_state.http_config_param->use_client_source_port && nullptr != client_vc) {
         opt.local_port = client_vc->get_remote_port();
       }
@@ -5682,7 +5582,7 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
       SMDebug("http_ss", "Queue multiplexed request");
       new_entry          = new ConnectingEntry();
       new_entry->mutex   = this->mutex;
-      new_entry->ua_txn  = ua_txn;
+      new_entry->ua_txn  = _ua.get_txn();
       new_entry->handler = (ContinuationHandler)&ConnectingEntry::state_http_server_open;
       new_entry->ipaddr.assign(&t_state.current.server->dst_addr.sa);
       new_entry->hostname            = t_state.current.server->name;
@@ -5721,12 +5621,12 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
 
     pending_action = sslNetProcessor.connect_re(cont,                                 // state machine or ConnectingEntry
                                                 &t_state.current.server->dst_addr.sa, // addr + port
-                                                &opt);
+                                                opt);
   } else {
     SMDebug("http", "calling netProcessor.connect_re");
     pending_action = netProcessor.connect_re(cont,                                 // state machine or ConnectingEntry
                                              &t_state.current.server->dst_addr.sa, // addr + port
-                                             &opt);
+                                             opt);
   }
 
   return;
@@ -5768,7 +5668,7 @@ HttpSM::do_api_callout_internal()
     break;
   case HttpTransact::SM_ACTION_API_SEND_RESPONSE_HDR:
     cur_hook_id                             = TS_HTTP_SEND_RESPONSE_HDR_HOOK;
-    milestones[TS_MILESTONE_UA_BEGIN_WRITE] = Thread::get_hrtime();
+    milestones[TS_MILESTONE_UA_BEGIN_WRITE] = ink_get_hrtime();
     break;
   case HttpTransact::SM_ACTION_API_SM_SHUTDOWN:
     if (callout_state == HTTP_API_IN_CALLOUT || callout_state == HTTP_API_DEFERED_SERVER_ERROR) {
@@ -5783,7 +5683,7 @@ HttpSM::do_api_callout_internal()
     ink_assert(!"not reached");
   }
 
-  hook_state.init(cur_hook_id, http_global_hooks, ua_txn ? ua_txn->feature_hooks() : nullptr, &api_hooks);
+  hook_state.init(cur_hook_id, http_global_hooks, _ua.get_txn() ? _ua.get_txn()->feature_hooks() : nullptr, &api_hooks);
   cur_hook  = nullptr;
   cur_hooks = 0;
   return state_api_callout(0, nullptr);
@@ -5849,9 +5749,9 @@ HttpSM::mark_host_failure(ResolveInfo *info, ts_time time_down)
             int host_len;
             const char *host_name_ptr = t_state.unmapped_url.host_get(&host_len);
             std::string_view host_name{host_name_ptr, size_t(host_len)};
-            ts::bwprint(error_bw_buffer, "CONNECT : {::s} connecting to {} for host='{}' url='{}' marking down",
-                        ts::bwf::Errno(t_state.current.server->connect_result), t_state.current.server->dst_addr, host_name,
-                        ts::bwf::FirstOf(url_str, "<none>"));
+            swoc::bwprint(error_bw_buffer, "CONNECT : {::s} connecting to {} for host='{}' url='{}' marking down",
+                          swoc::bwf::Errno(t_state.current.server->connect_result), t_state.current.server->dst_addr, host_name,
+                          swoc::bwf::FirstOf(url_str, "<none>"));
             Log::error("%s", error_bw_buffer.c_str());
 
             if (url_str) {
@@ -5946,7 +5846,7 @@ HttpSM::release_server_session(bool serve_from_cache)
       // an authenticated server connection - attach to the local client
       // we are serving from cache for the current transaction
       t_state.www_auth_content = HttpTransact::CACHE_AUTH_SERVE;
-      ua_txn->attach_server_session(static_cast<PoolableSession *>(server_txn->get_proxy_ssn()), false);
+      _ua.get_txn()->attach_server_session(static_cast<PoolableSession *>(server_txn->get_proxy_ssn()), false);
     }
   } else {
     server_txn->do_io_close();
@@ -5991,7 +5891,7 @@ HttpSM::handle_post_failure()
 {
   STATE_ENTER(&HttpSM::handle_post_failure, VC_EVENT_NONE);
 
-  ink_assert(ua_entry->vc == ua_txn);
+  ink_assert(_ua.get_entry()->vc == _ua.get_txn());
   ink_assert(is_waiting_for_full_body || server_entry->eos == true);
 
   if (is_waiting_for_full_body) {
@@ -6004,10 +5904,10 @@ HttpSM::handle_post_failure()
   // client read (for abort watching purposes), we need to stop
   // the read
   if (false == t_state.redirect_info.redirect_in_process) {
-    ua_entry->read_vio = ua_txn->do_io_read(this, 0, nullptr);
+    _ua.get_entry()->read_vio = _ua.get_txn()->do_io_read(this, 0, nullptr);
   }
-  ua_entry->in_tunnel     = false;
-  server_entry->in_tunnel = false;
+  _ua.get_entry()->in_tunnel = false;
+  server_entry->in_tunnel    = false;
 
   // disable redirection in case we got a partial response and then EOS, because the buffer might not
   // have the full post and it's deallocating the post buffers here
@@ -6109,11 +6009,11 @@ HttpSM::handle_server_setup_error(int event, void *data)
       // Do we need to do additional clean up in the c == NULL case?
       if (c != nullptr) {
         HttpTunnelProducer *ua_producer = c->producer;
-        ink_assert(ua_entry->vc == ua_producer->vc);
+        ink_assert(_ua.get_entry()->vc == ua_producer->vc);
 
-        ua_entry->vc_read_handler  = &HttpSM::state_watch_for_client_abort;
-        ua_entry->vc_write_handler = &HttpSM::state_watch_for_client_abort;
-        ua_entry->read_vio         = ua_producer->vc->do_io_read(this, INT64_MAX, c->producer->read_buffer);
+        _ua.get_entry()->vc_read_handler  = &HttpSM::state_watch_for_client_abort;
+        _ua.get_entry()->vc_write_handler = &HttpSM::state_watch_for_client_abort;
+        _ua.get_entry()->read_vio         = ua_producer->vc->do_io_read(this, INT64_MAX, c->producer->read_buffer);
         ua_producer->vc->do_io_shutdown(IO_SHUTDOWN_READ);
 
         ua_producer->alive         = false;
@@ -6244,7 +6144,7 @@ void
 HttpSM::do_drain_request_body(HTTPHdr &response)
 {
   int64_t content_length = t_state.hdr_info.client_request.get_content_length();
-  int64_t avail          = ua_txn->get_remote_reader()->read_avail();
+  int64_t avail          = _ua.get_txn()->get_remote_reader()->read_avail();
 
   if (t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING) {
     SMDebug("http", "Chunked body, setting the response to non-keepalive");
@@ -6256,7 +6156,7 @@ HttpSM::do_drain_request_body(HTTPHdr &response)
       SMDebug("http", "entire body is in the buffer, consuming");
       int64_t act_on            = (avail < content_length) ? avail : content_length;
       client_request_body_bytes = act_on;
-      ua_txn->get_remote_reader()->consume(act_on);
+      _ua.get_txn()->get_remote_reader()->consume(act_on);
     } else {
       SMDebug("http", "entire body is not in the buffer, setting the response to non-keepalive");
       goto close_connection;
@@ -6266,7 +6166,7 @@ HttpSM::do_drain_request_body(HTTPHdr &response)
 
 close_connection:
   t_state.client_info.keep_alive = HTTP_NO_KEEPALIVE;
-  ua_txn->set_close_connection(response);
+  _ua.get_txn()->set_close_connection(response);
 }
 
 void
@@ -6318,8 +6218,8 @@ HttpSM::do_setup_post_tunnel(HttpVC_t to_vc_type)
 
     // Next order of business if copy the remaining data from the
     //  header buffer into new buffer
-    int64_t num_body_bytes =
-      post_buffer->write(ua_txn->get_remote_reader(), chunked ? ua_txn->get_remote_reader()->read_avail() : post_bytes);
+    int64_t num_body_bytes = post_buffer->write(_ua.get_txn()->get_remote_reader(),
+                                                chunked ? _ua.get_txn()->get_remote_reader()->read_avail() : post_bytes);
 
     // If is_using_post_buffer has been used, then client_request_body_bytes
     // will have already been set in wait_for_full_body and there will be
@@ -6328,22 +6228,22 @@ HttpSM::do_setup_post_tunnel(HttpVC_t to_vc_type)
     if (client_request_body_bytes == 0) {
       client_request_body_bytes = num_body_bytes;
     }
-    ua_txn->get_remote_reader()->consume(num_body_bytes);
+    _ua.get_txn()->get_remote_reader()->consume(num_body_bytes);
     // The user agent has already sent all it has
-    if (ua_txn->is_read_closed()) {
+    if (_ua.get_txn()->is_read_closed()) {
       post_bytes = num_body_bytes;
     }
-    p = tunnel.add_producer(ua_entry->vc, post_bytes - transfered_bytes, buf_start, &HttpSM::tunnel_handler_post_ua, HT_HTTP_CLIENT,
-                            "user agent post");
+    p = tunnel.add_producer(_ua.get_entry()->vc, post_bytes - transfered_bytes, buf_start, &HttpSM::tunnel_handler_post_ua,
+                            HT_HTTP_CLIENT, "user agent post");
   }
-  ua_entry->in_tunnel = true;
+  _ua.get_entry()->in_tunnel = true;
 
   switch (to_vc_type) {
   case HTTP_TRANSFORM_VC:
     HTTP_SM_SET_DEFAULT_HANDLER(&HttpSM::state_request_wait_for_transform_read);
     ink_assert(post_transform_info.entry != nullptr);
     ink_assert(post_transform_info.entry->vc == post_transform_info.vc);
-    tunnel.add_consumer(post_transform_info.entry->vc, ua_entry->vc, &HttpSM::tunnel_handler_transform_write, HT_TRANSFORM,
+    tunnel.add_consumer(post_transform_info.entry->vc, _ua.get_entry()->vc, &HttpSM::tunnel_handler_transform_write, HT_TRANSFORM,
                         "post transform");
     post_transform_info.entry->in_tunnel = true;
     break;
@@ -6358,7 +6258,8 @@ HttpSM::do_setup_post_tunnel(HttpVC_t to_vc_type)
                           "redirect http server post");
     } else {
       HTTP_SM_SET_DEFAULT_HANDLER(&HttpSM::tunnel_handler_post);
-      tunnel.add_consumer(server_entry->vc, ua_entry->vc, &HttpSM::tunnel_handler_post_server, HT_HTTP_SERVER, "http server post");
+      tunnel.add_consumer(server_entry->vc, _ua.get_entry()->vc, &HttpSM::tunnel_handler_post_server, HT_HTTP_SERVER,
+                          "http server post");
     }
     server_entry->in_tunnel = true;
     break;
@@ -6371,7 +6272,7 @@ HttpSM::do_setup_post_tunnel(HttpVC_t to_vc_type)
 
   // The user agent and origin  may support chunked (HTTP/1.1) or not (HTTP/2)
   if (chunked) {
-    if (ua_txn->is_chunked_encoding_supported()) {
+    if (_ua.get_txn()->is_chunked_encoding_supported()) {
       if (server_txn->is_chunked_encoding_supported()) {
         tunnel.set_producer_chunking_action(p, 0, TCA_PASSTHRU_CHUNKED_CONTENT);
       } else {
@@ -6388,7 +6289,7 @@ HttpSM::do_setup_post_tunnel(HttpVC_t to_vc_type)
     }
   }
 
-  ua_txn->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
+  _ua.get_txn()->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
   server_txn->set_inactivity_timeout(get_server_inactivity_timeout());
 
   tunnel.tunnel_run(p);
@@ -6396,7 +6297,7 @@ HttpSM::do_setup_post_tunnel(HttpVC_t to_vc_type)
   // If we're half closed, we got a FIN from the client. Forward it on to the origin server
   // now that we have the tunnel operational.
   // HttpTunnel could broken due to bad chunked data and close all vc by chain_abort_all().
-  if (p->handler_state != HTTP_SM_POST_UA_FAIL && ua_txn->get_half_close_flag()) {
+  if (p->handler_state != HTTP_SM_POST_UA_FAIL && _ua.get_txn()->get_half_close_flag()) {
     p->vc->do_io_shutdown(IO_SHUTDOWN_READ);
   }
 }
@@ -6574,9 +6475,9 @@ HttpSM::attach_server_session()
   }
 
   // Propagate the per client IP debugging
-  if (ua_txn) {
+  if (_ua.get_txn()) {
     server_txn->get_netvc()->control_flags.set_flags(get_cont_flags().get_flags());
-  } else { // If there is no ua_txn no sense in continuing to attach the server session
+  } else { // If there is no _ua.get_txn() no sense in continuing to attach the server session
     return;
   }
 
@@ -6595,12 +6496,11 @@ HttpSM::attach_server_session()
   UnixNetVConnection *server_vc = static_cast<UnixNetVConnection *>(server_txn->get_netvc());
 
   // set flag for server session is SSL
-  TLSBasicSupport *tbs = dynamic_cast<TLSBasicSupport *>(server_vc);
-  if (tbs) {
+  if (server_vc->get_service<TLSBasicSupport>()) {
     server_connection_is_ssl = true;
   }
 
-  if (auto tsrs = dynamic_cast<TLSSessionResumptionSupport *>(server_vc)) {
+  if (auto tsrs = server_vc->get_service<TLSSessionResumptionSupport>(); tsrs) {
     server_ssl_reused = tsrs->getSSLOriginSessionCacheHit();
   }
 
@@ -6636,8 +6536,8 @@ HttpSM::attach_server_session()
   server_txn->set_active_timeout(get_server_active_timeout());
 
   // Do we need Transfer_Encoding?
-  if (ua_txn->has_request_body(t_state.hdr_info.request_content_length,
-                               t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING)) {
+  if (_ua.get_txn()->has_request_body(t_state.hdr_info.request_content_length,
+                                      t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING)) {
     if (server_txn->is_chunked_encoding_supported()) {
       // See if we need to insert a chunked header
       if (!t_state.hdr_info.server_request.presence(MIME_PRESENCE_CONTENT_LENGTH) &&
@@ -6697,7 +6597,7 @@ HttpSM::setup_server_send_request()
     server_request_body_bytes  = msg_len;
   }
 
-  milestones[TS_MILESTONE_SERVER_BEGIN_WRITE] = Thread::get_hrtime();
+  milestones[TS_MILESTONE_SERVER_BEGIN_WRITE] = ink_get_hrtime();
   server_entry->write_vio                     = server_entry->vc->do_io_write(this, hdr_length, buf_start);
 
   // Make sure the VC is using correct timeouts.  We may be reusing a previously used server session
@@ -6713,7 +6613,7 @@ HttpSM::setup_server_read_response_header()
   ink_assert(server_txn != nullptr);
   ink_assert(server_entry != nullptr);
   // REQ_FLAVOR_SCHEDULED_UPDATE can be transformed in REQ_FLAVOR_REVPROXY
-  ink_assert(ua_txn != nullptr || t_state.req_flavor == HttpTransact::REQ_FLAVOR_SCHEDULED_UPDATE ||
+  ink_assert(_ua.get_txn() != nullptr || t_state.req_flavor == HttpTransact::REQ_FLAVOR_SCHEDULED_UPDATE ||
              t_state.req_flavor == HttpTransact::REQ_FLAVOR_REVPROXY);
 
   ink_assert(server_txn != nullptr && server_txn->get_remote_reader() != nullptr);
@@ -6785,7 +6685,7 @@ HttpSM::setup_cache_read_transfer()
 
   HttpTunnelProducer *p = tunnel.add_producer(cache_sm.cache_read_vc, doc_size, buf_start, &HttpSM::tunnel_handler_cache_read,
                                               HT_CACHE_READ, "cache read");
-  tunnel.add_consumer(ua_entry->vc, cache_sm.cache_read_vc, &HttpSM::tunnel_handler_ua, HT_HTTP_CLIENT, "user agent");
+  tunnel.add_consumer(_ua.get_entry()->vc, cache_sm.cache_read_vc, &HttpSM::tunnel_handler_ua, HT_HTTP_CLIENT, "user agent");
   // if size of a cached item is not known, we'll do chunking for keep-alive HTTP/1.1 clients
   // this only applies to read-while-write cases where origin server sends a dynamically generated chunked content
   // w/o providing a Content-Length header
@@ -6793,8 +6693,8 @@ HttpSM::setup_cache_read_transfer()
     tunnel.set_producer_chunking_action(p, client_response_hdr_bytes, TCA_CHUNK_CONTENT);
     tunnel.set_producer_chunking_size(p, t_state.txn_conf->http_chunking_size);
   }
-  ua_entry->in_tunnel    = true;
-  cache_sm.cache_read_vc = nullptr;
+  _ua.get_entry()->in_tunnel = true;
+  cache_sm.cache_read_vc     = nullptr;
   return p;
 }
 
@@ -6868,12 +6768,12 @@ HttpSM::setup_100_continue_transfer()
   // Setup the tunnel to the client
   HttpTunnelProducer *p = tunnel.add_producer(HTTP_TUNNEL_STATIC_PRODUCER, client_response_hdr_bytes, buf_start,
                                               (HttpProducerHandler) nullptr, HT_STATIC, "internal msg - 100 continue");
-  tunnel.add_consumer(ua_entry->vc, HTTP_TUNNEL_STATIC_PRODUCER, &HttpSM::tunnel_handler_100_continue_ua, HT_HTTP_CLIENT,
+  tunnel.add_consumer(_ua.get_entry()->vc, HTTP_TUNNEL_STATIC_PRODUCER, &HttpSM::tunnel_handler_100_continue_ua, HT_HTTP_CLIENT,
                       "user agent");
 
   // Make sure the half_close is not set.
-  ua_txn->set_half_close_flag(false);
-  ua_entry->in_tunnel = true;
+  _ua.get_txn()->set_half_close_flag(false);
+  _ua.get_entry()->in_tunnel = true;
   tunnel.tunnel_run(p);
 
   // Set up the header response read again.  Already processed the 100 response
@@ -6909,9 +6809,9 @@ HttpSM::setup_error_transfer()
     do_api_callout();
   } else {
     SMDebug("http", "Now closing connection ...");
-    vc_table.cleanup_entry(ua_entry);
-    ua_entry = nullptr;
-    // ua_txn     = NULL;
+    vc_table.cleanup_entry(_ua.get_entry());
+    _ua.set_entry(nullptr);
+    // _ua.get_txn()     = NULL;
     terminate_sm   = true;
     t_state.source = HttpTransact::SOURCE_INTERNAL;
   }
@@ -6996,7 +6896,7 @@ HttpSM::setup_internal_transfer(HttpSMHandler handler_arg)
 
   HTTP_SM_SET_DEFAULT_HANDLER(handler_arg);
 
-  if (ua_entry && ua_entry->vc) {
+  if (_ua.get_entry() && _ua.get_entry()->vc) {
     // Clear the decks before we setup the new producers
     // As things stand, we cannot have two static producers operating at
     // once
@@ -7005,9 +6905,9 @@ HttpSM::setup_internal_transfer(HttpSMHandler handler_arg)
     // Setup the tunnel to the client
     HttpTunnelProducer *p =
       tunnel.add_producer(HTTP_TUNNEL_STATIC_PRODUCER, nbytes, buf_start, (HttpProducerHandler) nullptr, HT_STATIC, "internal msg");
-    tunnel.add_consumer(ua_entry->vc, HTTP_TUNNEL_STATIC_PRODUCER, &HttpSM::tunnel_handler_ua, HT_HTTP_CLIENT, "user agent");
+    tunnel.add_consumer(_ua.get_entry()->vc, HTTP_TUNNEL_STATIC_PRODUCER, &HttpSM::tunnel_handler_ua, HT_HTTP_CLIENT, "user agent");
 
-    ua_entry->in_tunnel = true;
+    _ua.get_entry()->in_tunnel = true;
     tunnel.tunnel_run(p);
   } else {
     (this->*default_handler)(HTTP_TUNNEL_EVENT_DONE, &tunnel);
@@ -7138,10 +7038,10 @@ HttpSM::setup_transfer_from_transform()
                                               HT_TRANSFORM, "transform read");
   tunnel.chain(c, p);
 
-  tunnel.add_consumer(ua_entry->vc, transform_info.vc, &HttpSM::tunnel_handler_ua, HT_HTTP_CLIENT, "user agent");
+  tunnel.add_consumer(_ua.get_entry()->vc, transform_info.vc, &HttpSM::tunnel_handler_ua, HT_HTTP_CLIENT, "user agent");
 
   transform_info.entry->in_tunnel = true;
-  ua_entry->in_tunnel             = true;
+  _ua.get_entry()->in_tunnel      = true;
 
   this->setup_client_response_plugin_agents(p, client_response_hdr_bytes);
 
@@ -7231,10 +7131,10 @@ HttpSM::setup_server_transfer()
   HttpTunnelProducer *p =
     tunnel.add_producer(server_entry->vc, nbytes, buf_start, &HttpSM::tunnel_handler_server, HT_HTTP_SERVER, "http server");
 
-  tunnel.add_consumer(ua_entry->vc, server_entry->vc, &HttpSM::tunnel_handler_ua, HT_HTTP_CLIENT, "user agent");
+  tunnel.add_consumer(_ua.get_entry()->vc, server_entry->vc, &HttpSM::tunnel_handler_ua, HT_HTTP_CLIENT, "user agent");
 
-  ua_entry->in_tunnel     = true;
-  server_entry->in_tunnel = true;
+  _ua.get_entry()->in_tunnel = true;
+  server_entry->in_tunnel    = true;
 
   this->setup_client_response_plugin_agents(p, client_response_hdr_bytes);
 
@@ -7256,11 +7156,11 @@ HttpSM::setup_push_transfer_to_cache()
   nbytes = t_state.hdr_info.request_content_length - pushed_response_hdr_bytes;
   ink_release_assert(nbytes >= 0);
 
-  if (ua_entry->eos == true) {
+  if (_ua.get_entry()->eos == true) {
     // The ua has shutdown on us already so the only data
     //  we'll get is already in the buffer.  Make sure it
     //  fulfills the stated length
-    int64_t avail = ua_txn->get_remote_reader()->read_avail();
+    int64_t avail = _ua.get_txn()->get_remote_reader()->read_avail();
 
     if (avail < nbytes) {
       // Client failed to send the body, it's gone.  Kill the
@@ -7271,17 +7171,17 @@ HttpSM::setup_push_transfer_to_cache()
   }
   // Next order of business is copy the remaining data from the
   //  header buffer into new buffer.
-  pushed_response_body_bytes = buf->write(ua_txn->get_remote_reader(), nbytes);
-  ua_txn->get_remote_reader()->consume(pushed_response_body_bytes);
+  pushed_response_body_bytes = buf->write(_ua.get_txn()->get_remote_reader(), nbytes);
+  _ua.get_txn()->get_remote_reader()->consume(pushed_response_body_bytes);
   client_request_body_bytes += pushed_response_body_bytes;
 
   HTTP_SM_SET_DEFAULT_HANDLER(&HttpSM::tunnel_handler_push);
 
   HttpTunnelProducer *p =
-    tunnel.add_producer(ua_entry->vc, nbytes, buf_start, &HttpSM::tunnel_handler_ua_push, HT_HTTP_CLIENT, "user_agent");
-  setup_cache_write_transfer(&cache_sm, ua_entry->vc, &t_state.cache_info.object_store, 0, "cache write");
+    tunnel.add_producer(_ua.get_entry()->vc, nbytes, buf_start, &HttpSM::tunnel_handler_ua_push, HT_HTTP_CLIENT, "user_agent");
+  setup_cache_write_transfer(&cache_sm, _ua.get_entry()->vc, &t_state.cache_info.object_store, 0, "cache write");
 
-  ua_entry->in_tunnel = true;
+  _ua.get_entry()->in_tunnel = true;
   return p;
 }
 
@@ -7297,7 +7197,7 @@ HttpSM::setup_blind_tunnel(bool send_response_hdr, IOBufferReader *initial)
   IOBufferReader *r_from = from_ua_buf->alloc_reader();
   IOBufferReader *r_to   = to_ua_buf->alloc_reader();
 
-  milestones[TS_MILESTONE_SERVER_BEGIN_WRITE] = Thread::get_hrtime();
+  milestones[TS_MILESTONE_SERVER_BEGIN_WRITE] = ink_get_hrtime();
   if (send_response_hdr) {
     client_response_hdr_bytes = write_response_header_into_buffer(&t_state.hdr_info.client_response, to_ua_buf);
     if (initial && initial->read_avail()) {
@@ -7311,15 +7211,15 @@ HttpSM::setup_blind_tunnel(bool send_response_hdr, IOBufferReader *initial)
 
   int64_t nbytes = 0;
   if (t_state.txn_conf->proxy_protocol_out >= 0) {
-    nbytes = do_outbound_proxy_protocol(from_ua_buf, static_cast<NetVConnection *>(server_entry->vc), ua_txn->get_netvc(),
+    nbytes = do_outbound_proxy_protocol(from_ua_buf, static_cast<NetVConnection *>(server_entry->vc), _ua.get_txn()->get_netvc(),
                                         t_state.txn_conf->proxy_protocol_out);
   }
 
   client_request_body_bytes = nbytes;
-  if (ua_raw_buffer_reader != nullptr) {
-    client_request_body_bytes += from_ua_buf->write(ua_raw_buffer_reader, client_request_hdr_bytes);
-    ua_raw_buffer_reader->dealloc();
-    ua_raw_buffer_reader = nullptr;
+  if (_ua.get_raw_buffer_reader() != nullptr) {
+    client_request_body_bytes += from_ua_buf->write(_ua.get_raw_buffer_reader(), client_request_hdr_bytes);
+    _ua.get_raw_buffer_reader()->dealloc();
+    _ua.set_raw_buffer_reader(nullptr);
   }
 
   // if pre-warmed connection is used and it has data from origin server, forward it to ua
@@ -7330,33 +7230,34 @@ HttpSM::setup_blind_tunnel(bool send_response_hdr, IOBufferReader *initial)
 
   // Next order of business if copy the remaining data from the
   //  header buffer into new buffer
-  client_request_body_bytes += from_ua_buf->write(ua_txn->get_remote_reader());
+  client_request_body_bytes += from_ua_buf->write(_ua.get_txn()->get_remote_reader());
 
   HTTP_SM_SET_DEFAULT_HANDLER(&HttpSM::tunnel_handler);
 
   p_os =
     tunnel.add_producer(server_entry->vc, -1, r_to, &HttpSM::tunnel_handler_ssl_producer, HT_HTTP_SERVER, "http server - tunnel");
 
-  c_ua = tunnel.add_consumer(ua_entry->vc, server_entry->vc, &HttpSM::tunnel_handler_ssl_consumer, HT_HTTP_CLIENT,
+  c_ua = tunnel.add_consumer(_ua.get_entry()->vc, server_entry->vc, &HttpSM::tunnel_handler_ssl_consumer, HT_HTTP_CLIENT,
                              "user agent - tunnel");
 
-  p_ua = tunnel.add_producer(ua_entry->vc, -1, r_from, &HttpSM::tunnel_handler_ssl_producer, HT_HTTP_CLIENT, "user agent - tunnel");
+  p_ua = tunnel.add_producer(_ua.get_entry()->vc, -1, r_from, &HttpSM::tunnel_handler_ssl_producer, HT_HTTP_CLIENT,
+                             "user agent - tunnel");
 
-  c_os = tunnel.add_consumer(server_entry->vc, ua_entry->vc, &HttpSM::tunnel_handler_ssl_consumer, HT_HTTP_SERVER,
+  c_os = tunnel.add_consumer(server_entry->vc, _ua.get_entry()->vc, &HttpSM::tunnel_handler_ssl_consumer, HT_HTTP_SERVER,
                              "http server - tunnel");
 
   // Make the tunnel aware that the entries are bi-directional
   tunnel.chain(c_os, p_os);
   tunnel.chain(c_ua, p_ua);
 
-  ua_entry->in_tunnel     = true;
-  server_entry->in_tunnel = true;
+  _ua.get_entry()->in_tunnel = true;
+  server_entry->in_tunnel    = true;
 
   tunnel.tunnel_run();
 
   // If we're half closed, we got a FIN from the client. Forward it on to the origin server
   // now that we have the tunnel operational.
-  if (ua_txn && ua_txn->get_half_close_flag()) {
+  if (_ua.get_txn() && _ua.get_txn()->get_half_close_flag()) {
     p_ua->vc->do_io_shutdown(IO_SHUTDOWN_READ);
   }
 }
@@ -7411,25 +7312,19 @@ HttpSM::plugin_agents_cleanup()
   // the VC table and cleaned up there. This handles the case where
   // something went wrong early.
   if (!has_active_response_plugin_agents) {
-    std::vector<APIHook *> agent_lists;
-    agent_lists.push_back(txn_hook_get(TS_HTTP_RESPONSE_CLIENT_HOOK));
-    for (auto &agent : agent_lists) {
-      while (agent) {
-        INKVConnInternal *contp = static_cast<INKVConnInternal *>(agent->m_cont);
-        contp->do_io_close();
-        agent = agent->next();
-      }
+    APIHook *agent = txn_hook_get(TS_HTTP_RESPONSE_CLIENT_HOOK);
+    while (agent) {
+      INKVConnInternal *contp = static_cast<INKVConnInternal *>(agent->m_cont);
+      contp->do_io_close();
+      agent = agent->next();
     }
   }
   if (!has_active_request_plugin_agents) {
-    std::vector<APIHook *> agent_lists;
-    agent_lists.push_back(txn_hook_get(TS_HTTP_REQUEST_CLIENT_HOOK));
-    for (auto &agent : agent_lists) {
-      while (agent) {
-        INKVConnInternal *contp = static_cast<INKVConnInternal *>(agent->m_cont);
-        contp->do_io_close();
-        agent = agent->next();
-      }
+    APIHook *agent = txn_hook_get(TS_HTTP_REQUEST_CLIENT_HOOK);
+    while (agent) {
+      INKVConnInternal *contp = static_cast<INKVConnInternal *>(agent->m_cont);
+      contp->do_io_close();
+      agent = agent->next();
     }
   }
 }
@@ -7554,8 +7449,8 @@ HttpSM::kill_this()
       server_txn->transaction_done();
       server_txn = nullptr;
     }
-    if (ua_txn) {
-      ua_txn->transaction_done();
+    if (_ua.get_txn()) {
+      _ua.get_txn()->transaction_done();
     }
 
     // In the async state, the plugin could have been
@@ -7590,7 +7485,7 @@ HttpSM::kill_this()
 void
 HttpSM::update_stats()
 {
-  milestones[TS_MILESTONE_SM_FINISH] = Thread::get_hrtime();
+  milestones[TS_MILESTONE_SM_FINISH] = ink_get_hrtime();
 
   if (is_action_tag_set("bad_length_state_dump")) {
     if (t_state.hdr_info.client_response.valid() && t_state.hdr_info.client_response.status_get() == HTTP_STATUS_OK) {
@@ -7619,7 +7514,7 @@ HttpSM::update_stats()
   // ua_close will not be assigned properly in some exceptional situation.
   // TODO: Assign ua_close with suitable value when HttpTunnel terminates abnormally.
   if (milestones[TS_MILESTONE_UA_CLOSE] == 0 && milestones[TS_MILESTONE_UA_READ_HEADER_DONE] > 0) {
-    milestones[TS_MILESTONE_UA_CLOSE] = Thread::get_hrtime();
+    milestones[TS_MILESTONE_UA_CLOSE] = ink_get_hrtime();
   }
 
   // request_process_time  = The time after the header is parsed to the completion of the transaction
@@ -7673,8 +7568,8 @@ HttpSM::update_stats()
     // set the fd for the request
     int fd             = 0;
     NetVConnection *vc = nullptr;
-    if (ua_txn != nullptr) {
-      vc = ua_txn->get_netvc();
+    if (_ua.get_txn() != nullptr) {
+      vc = _ua.get_txn()->get_netvc();
       if (vc != nullptr) {
         fd = vc->get_socket();
       } else {
@@ -7719,9 +7614,10 @@ HttpSM::update_stats()
           "sm_finish: %.3f "
           "plugin_active: %.3f "
           "plugin_total: %.3f",
-          sm_id, client_ip, t_state.client_info.src_addr.host_order_port(), ua_txn ? ua_txn->get_protocol_string() : "-1",
-          url_string, status, unique_id_string, redirection_tries, client_response_body_bytes, fd, t_state.client_info.state,
-          t_state.server_info.state, milestones.difference_sec(TS_MILESTONE_TLS_HANDSHAKE_START, TS_MILESTONE_TLS_HANDSHAKE_END),
+          sm_id, client_ip, t_state.client_info.src_addr.host_order_port(),
+          _ua.get_txn() ? _ua.get_txn()->get_protocol_string() : "-1", url_string, status, unique_id_string, redirection_tries,
+          client_response_body_bytes, fd, t_state.client_info.state, t_state.server_info.state,
+          milestones.difference_sec(TS_MILESTONE_TLS_HANDSHAKE_START, TS_MILESTONE_TLS_HANDSHAKE_END),
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_BEGIN),
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_FIRST_READ),
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_READ_HEADER_DONE),
@@ -7903,7 +7799,7 @@ HttpSM::set_next_state()
                               t_state.parent_result.result != PARENT_SPECIFIED &&                    // no parent.
                               t_state.client_info.is_transparent &&                                  // inbound transparent
                               t_state.dns_info.os_addr_style == ResolveInfo::OS_Addr::TRY_DEFAULT && // haven't tried anything yet.
-                              ats_is_ip(addr = ua_txn->get_netvc()->get_local_addr()))               // valid inbound remote address
+                              ats_is_ip(addr = _ua.get_txn()->get_netvc()->get_local_addr()))        // valid inbound remote address
     {
       /* If the connection is client side transparent and the URL was not remapped/directed to
        * parent proxy, we can use the client destination IP address instead of doing a DNS lookup.
@@ -7959,10 +7855,11 @@ HttpSM::set_next_state()
       // light of this dependency, TS must ensure that the client finishes
       // sending its request and for this reason, the inactivity timeout
       // cannot be cancelled.
-      if (ua_txn && !ua_txn->has_request_body(t_state.hdr_info.request_content_length,
-                                              t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING)) {
-        ua_txn->cancel_inactivity_timeout();
-      } else if (!ua_txn || ua_txn->get_netvc() == nullptr) {
+      if (_ua.get_txn() &&
+          !_ua.get_txn()->has_request_body(t_state.hdr_info.request_content_length,
+                                           t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING)) {
+        _ua.get_txn()->cancel_inactivity_timeout();
+      } else if (!_ua.get_txn() || _ua.get_txn()->get_netvc() == nullptr) {
         terminate_sm = true;
         return; // Give up if there is no session
       }
@@ -8006,10 +7903,11 @@ HttpSM::set_next_state()
       // light of this dependency, TS must ensure that the client finishes
       // sending its request and for this reason, the inactivity timeout
       // cannot be cancelled.
-      if (ua_txn && !ua_txn->has_request_body(t_state.hdr_info.request_content_length,
-                                              t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING)) {
-        ua_txn->cancel_inactivity_timeout();
-      } else if (!ua_txn) {
+      if (_ua.get_txn() &&
+          !_ua.get_txn()->has_request_body(t_state.hdr_info.request_content_length,
+                                           t_state.client_info.transfer_encoding == HttpTransact::CHUNKED_ENCODING)) {
+        _ua.get_txn()->cancel_inactivity_timeout();
+      } else if (!_ua.get_txn()) {
         terminate_sm = true;
         return; // Give up if there is no session
       }
@@ -8379,13 +8277,13 @@ HttpSM::redirect_request(const char *arg_redirect_url, const int arg_redirect_le
       // The redirect URL did not begin with a slash, so we parsed some or all
       // of the relative URI path as the host.
       // Prepend a slash and parse again.
-      char redirect_url_leading_slash[arg_redirect_len + 1];
+      std::string redirect_url_leading_slash(arg_redirect_len + 1, '\0');
       redirect_url_leading_slash[0] = '/';
       if (arg_redirect_len > 0) {
-        memcpy(redirect_url_leading_slash + 1, arg_redirect_url, arg_redirect_len);
+        memcpy(redirect_url_leading_slash.data() + 1, arg_redirect_url, arg_redirect_len);
       }
       url_nuke_proxy_stuff(redirectUrl.m_url_impl);
-      redirectUrl.parse(redirect_url_leading_slash, arg_redirect_len + 1);
+      redirectUrl.parse(redirect_url_leading_slash.c_str(), arg_redirect_len + 1);
     }
   }
 
@@ -8649,8 +8547,8 @@ HttpSM::populate_client_protocol(std::string_view *result, int n) const
     std::string_view proto = HttpSM::find_proto_string(t_state.hdr_info.client_request.version_get());
     if (!proto.empty()) {
       result[retval++] = proto;
-      if (n > retval && ua_txn) {
-        retval += ua_txn->populate_protocol(result + retval, n - retval);
+      if (n > retval && _ua.get_txn()) {
+        retval += _ua.get_txn()->populate_protocol(result + retval, n - retval);
       }
     }
   }
@@ -8667,8 +8565,8 @@ HttpSM::client_protocol_contains(std::string_view tag_prefix) const
     std::string_view prefix(tag_prefix);
     if (prefix.size() <= proto.size() && 0 == strncmp(proto.data(), prefix.data(), prefix.size())) {
       retval = proto.data();
-    } else if (ua_txn) {
-      retval = ua_txn->protocol_contains(prefix);
+    } else if (_ua.get_txn()) {
+      retval = _ua.get_txn()->protocol_contains(prefix);
     }
   }
   return retval;
@@ -8815,7 +8713,7 @@ HttpSM::milestone_update_api_time()
     // Zero or negative time is a problem because we want to signal *something* happened
     // vs. no API activity at all. This can happen due to graininess or real time
     // clock adjustment.
-    delta     = std::max<ink_hrtime>(1, Thread::get_hrtime_updated() - api_timer);
+    delta     = std::max<ink_hrtime>(1, ink_get_hrtime() - api_timer);
     api_timer = 0;
 
     if (0 == milestones[TS_MILESTONE_PLUGIN_TOTAL]) {

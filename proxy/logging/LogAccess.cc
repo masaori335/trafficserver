@@ -29,6 +29,7 @@
 #include "I_Machine.h"
 #include "LogFormat.h"
 #include "LogBuffer.h"
+#include "tscore/Encoding.h"
 
 extern AppVersionInfo appVersionInfo;
 
@@ -75,7 +76,7 @@ LogAccess::init()
     m_client_req_url_str[m_client_req_url_len] = '\0';
 
     m_client_req_url_canon_str =
-      LogUtils::escapify_url(&m_arena, m_client_req_url_str, m_client_req_url_len, &m_client_req_url_canon_len);
+      Encoding::escapify_url(&m_arena, m_client_req_url_str, m_client_req_url_len, &m_client_req_url_canon_len);
     m_client_req_url_path_str = m_client_request->path_get(&m_client_req_url_path_len);
   }
 
@@ -1578,7 +1579,7 @@ LogAccess::validate_unmapped_url()
 
       if (unmapped_url && unmapped_url[0] != 0) {
         m_client_req_unmapped_url_canon_str =
-          LogUtils::escapify_url(&m_arena, unmapped_url, unmapped_url_len, &m_client_req_unmapped_url_canon_len);
+          Encoding::escapify_url(&m_arena, unmapped_url, unmapped_url_len, &m_client_req_unmapped_url_canon_len);
       }
     }
   }
@@ -1639,7 +1640,7 @@ LogAccess::validate_lookup_url()
       char *lookup_url = m_http_sm->t_state.cache_info.lookup_url_storage.string_get_ref(&lookup_url_len);
 
       if (lookup_url && lookup_url[0] != 0) {
-        m_cache_lookup_url_canon_str = LogUtils::escapify_url(&m_arena, lookup_url, lookup_url_len, &m_cache_lookup_url_canon_len);
+        m_cache_lookup_url_canon_str = Encoding::escapify_url(&m_arena, lookup_url, lookup_url_len, &m_cache_lookup_url_canon_len);
       }
     }
   }
@@ -1873,7 +1874,7 @@ LogAccess::marshal_client_req_http_version(char *buf)
 int
 LogAccess::marshal_client_req_protocol_version(char *buf)
 {
-  const char *protocol_str = m_http_sm->client_protocol;
+  const char *protocol_str = m_http_sm->get_user_agent().get_client_protocol();
   int len                  = LogAccess::strlen(protocol_str);
 
   // Set major & minor versions when protocol_str is not "http/2".
@@ -1983,7 +1984,7 @@ int
 LogAccess::marshal_client_req_tcp_reused(char *buf)
 {
   if (buf) {
-    marshal_int(buf, m_http_sm->client_tcp_reused ? 1 : 0);
+    marshal_int(buf, m_http_sm->get_user_agent().get_client_tcp_reused() ? 1 : 0);
   }
   return INK_MIN_ALIGN;
 }
@@ -1992,7 +1993,7 @@ int
 LogAccess::marshal_client_req_is_ssl(char *buf)
 {
   if (buf) {
-    marshal_int(buf, m_http_sm->client_connection_is_ssl ? 1 : 0);
+    marshal_int(buf, m_http_sm->get_user_agent().get_client_connection_is_ssl() ? 1 : 0);
   }
   return INK_MIN_ALIGN;
 }
@@ -2001,7 +2002,7 @@ int
 LogAccess::marshal_client_req_ssl_reused(char *buf)
 {
   if (buf) {
-    marshal_int(buf, m_http_sm->client_ssl_reused ? 1 : 0);
+    marshal_int(buf, m_http_sm->get_user_agent().get_client_ssl_reused() ? 1 : 0);
   }
   return INK_MIN_ALIGN;
 }
@@ -2124,7 +2125,7 @@ LogAccess::marshal_client_tx_error_code(char *buf)
 int
 LogAccess::marshal_client_security_protocol(char *buf)
 {
-  const char *proto = m_http_sm->client_sec_protocol;
+  const char *proto = m_http_sm->get_user_agent().get_client_sec_protocol();
   int round_len     = LogAccess::strlen(proto);
 
   if (buf) {
@@ -2137,7 +2138,7 @@ LogAccess::marshal_client_security_protocol(char *buf)
 int
 LogAccess::marshal_client_security_cipher_suite(char *buf)
 {
-  const char *cipher = m_http_sm->client_cipher_suite;
+  const char *cipher = m_http_sm->get_user_agent().get_client_cipher_suite();
   int round_len      = LogAccess::strlen(cipher);
 
   if (buf) {
@@ -2150,7 +2151,7 @@ LogAccess::marshal_client_security_cipher_suite(char *buf)
 int
 LogAccess::marshal_client_security_curve(char *buf)
 {
-  const char *curve = m_http_sm->client_curve;
+  const char *curve = m_http_sm->get_user_agent().get_client_curve();
   int round_len     = LogAccess::strlen(curve);
 
   if (buf) {
@@ -2164,9 +2165,9 @@ int
 LogAccess::marshal_client_security_alpn(char *buf)
 {
   const char *alpn = "-";
-  if (const int alpn_id = m_http_sm->client_alpn_id; alpn_id != SessionProtocolNameRegistry::INVALID) {
-    ts::TextView client_sec_alpn = globalSessionProtocolNameRegistry.nameFor(alpn_id);
-    alpn                         = client_sec_alpn.data();
+  if (const int alpn_id = m_http_sm->get_user_agent().get_client_alpn_id(); alpn_id != SessionProtocolNameRegistry::INVALID) {
+    swoc::TextView client_sec_alpn = globalSessionProtocolNameRegistry.nameFor(alpn_id);
+    alpn                           = client_sec_alpn.data();
   }
 
   int round_len = LogAccess::strlen(alpn);
@@ -3134,7 +3135,7 @@ LogAccess::marshal_http_header_field_escapify(LogField::Container container, cha
       int running_len = 0;
       while (fld) {
         str     = const_cast<char *>(fld->value_get(&actual_len));
-        new_str = LogUtils::escapify_url(&m_arena, str, actual_len, &new_len);
+        new_str = Encoding::escapify_url(&m_arena, str, actual_len, &new_len);
         if (buf) {
           memcpy(buf, new_str, new_len);
           buf += new_len;

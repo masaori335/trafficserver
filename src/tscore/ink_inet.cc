@@ -23,6 +23,9 @@
 
 #include <fstream>
 
+#include "swoc/TextView.h"
+#include "swoc/bwf_ip.h"
+
 #include "tscore/ink_platform.h"
 #include "tscore/ink_defs.h"
 #include "tscore/ink_inet.h"
@@ -30,10 +33,7 @@
 #include "tscore/CryptoHash.h"
 #include "tscore/ink_assert.h"
 #include "ts/apidefs.h"
-#include "tscpp/util/TextView.h"
 #include "tscore/ink_inet.h"
-
-#include "swoc/TextView.h"
 
 IpAddr const IpAddr::INVALID;
 
@@ -58,79 +58,6 @@ const std::string_view IP_PROTO_TAG_HTTP_QUIC_D29("hq-29"sv); // HTTP/0.9 over Q
 const std::string_view IP_PROTO_TAG_HTTP_3_D29("h3-29"sv);    // HTTP/3 over QUIC (draft-29)
 
 const std::string_view UNIX_PROTO_TAG{"unix"sv};
-
-uint32_t
-ink_inet_addr(const char *s)
-{
-  uint32_t u[4];
-  uint8_t *pc   = (uint8_t *)s;
-  int n         = 0;
-  uint32_t base = 10;
-
-  if (nullptr == s) {
-    return htonl(static_cast<uint32_t>(-1));
-  }
-
-  while (n < 4) {
-    u[n] = 0;
-    base = 10;
-
-    // handle hex, octal
-
-    if (*pc == '0') {
-      if (*++pc == 'x' || *pc == 'X') {
-        base = 16, pc++;
-      } else {
-        base = 8;
-      }
-    }
-    // handle hex, octal, decimal
-
-    while (*pc) {
-      if (ParseRules::is_digit(*pc)) {
-        u[n] = u[n] * base + (*pc++ - '0');
-        continue;
-      }
-      if (base == 16 && ParseRules::is_hex(*pc)) {
-        u[n] = u[n] * 16 + ParseRules::ink_tolower(*pc++) - 'a' + 10;
-        continue;
-      }
-      break;
-    }
-
-    n++;
-    if (*pc == '.') {
-      pc++;
-    } else {
-      break;
-    }
-  }
-
-  if (*pc && !ParseRules::is_wslfcr(*pc)) {
-    return htonl(static_cast<uint32_t>(-1));
-  }
-
-  switch (n) {
-  case 1:
-    return htonl(u[0]);
-  case 2:
-    if (u[0] > 0xff || u[1] > 0xffffff) {
-      return htonl(static_cast<uint32_t>(-1));
-    }
-    return htonl((u[0] << 24) | u[1]);
-  case 3:
-    if (u[0] > 0xff || u[1] > 0xff || u[2] > 0xffff) {
-      return htonl(static_cast<uint32_t>(-1));
-    }
-    return htonl((u[0] << 24) | (u[1] << 16) | u[2]);
-  case 4:
-    if (u[0] > 0xff || u[1] > 0xff || u[2] > 0xff || u[3] > 0xff) {
-      return htonl(static_cast<uint32_t>(-1));
-    }
-    return htonl((u[0] << 24) | (u[1] << 16) | (u[2] << 8) | u[3]);
-  }
-  return htonl(static_cast<uint32_t>(-1));
-}
 
 const char *
 ats_ip_ntop(const struct sockaddr *addr, char *dst, size_t size)
@@ -717,13 +644,13 @@ ats_tcp_somaxconn()
   return value;
 }
 
-namespace ts
+namespace swoc
 {
 BufferWriter &
-bwformat(BufferWriter &w, BWFSpec const &spec, in_addr_t addr)
+bwformat(BufferWriter &w, bwf::Spec const &spec, in_addr_t addr)
 {
   uint8_t *ptr = reinterpret_cast<uint8_t *>(&addr);
-  BWFSpec local_spec{spec}; // Format for address elements.
+  bwf::Spec local_spec{spec}; // Format for address elements.
   bool align_p = false;
 
   if (spec._ext.size()) {
@@ -738,7 +665,7 @@ bwformat(BufferWriter &w, BWFSpec const &spec, in_addr_t addr)
 
   if (align_p) {
     local_spec._min   = 3;
-    local_spec._align = BWFSpec::Align::RIGHT;
+    local_spec._align = bwf::Spec::Align::RIGHT;
   } else {
     local_spec._min = 0;
   }
@@ -754,77 +681,9 @@ bwformat(BufferWriter &w, BWFSpec const &spec, in_addr_t addr)
 }
 
 BufferWriter &
-bwformat(BufferWriter &w, BWFSpec const &spec, in6_addr const &addr)
+bwformat(BufferWriter &w, bwf::Spec const &spec, IpAddr const &addr)
 {
-  using QUAD = uint16_t const;
-  BWFSpec local_spec{spec}; // Format for address elements.
-  uint8_t const *ptr   = addr.s6_addr;
-  uint8_t const *limit = ptr + sizeof(addr.s6_addr);
-  QUAD *lower          = nullptr; // the best zero range
-  QUAD *upper          = nullptr;
-  bool align_p         = false;
-
-  if (spec._ext.size()) {
-    if (spec._ext.front() == '=') {
-      align_p          = true;
-      local_spec._fill = '0';
-    } else if (spec._ext.size() > 1 && spec._ext[1] == '=') {
-      align_p          = true;
-      local_spec._fill = spec._ext[0];
-    }
-  }
-
-  if (align_p) {
-    local_spec._min   = 4;
-    local_spec._align = BWFSpec::Align::RIGHT;
-  } else {
-    local_spec._min = 0;
-    // do 0 compression if there's no internal fill.
-    for (QUAD *spot = reinterpret_cast<QUAD *>(ptr), *last = reinterpret_cast<QUAD *>(limit), *current = nullptr; spot < last;
-         ++spot) {
-      if (0 == *spot) {
-        if (current) {
-          // If there's no best, or this is better, remember it.
-          if (!lower || (upper - lower < spot - current)) {
-            lower = current;
-            upper = spot;
-          }
-        } else {
-          current = spot;
-        }
-      } else {
-        current = nullptr;
-      }
-    }
-  }
-
-  if (!local_spec.has_numeric_type()) {
-    local_spec._type = 'x';
-  }
-
-  for (; ptr < limit; ptr += 2) {
-    if (reinterpret_cast<uint8_t const *>(lower) <= ptr && ptr <= reinterpret_cast<uint8_t const *>(upper)) {
-      if (ptr == addr.s6_addr) {
-        w.write(':'); // only if this is the first quad.
-      }
-      if (ptr == reinterpret_cast<uint8_t const *>(upper)) {
-        w.write(':');
-      }
-    } else {
-      uint16_t f = (ptr[0] << 8) + ptr[1];
-      bwformat(w, local_spec, f);
-      if (ptr != limit - 2) {
-        w.write(':');
-      }
-    }
-  }
-  return w;
-}
-
-BufferWriter &
-bwformat(BufferWriter &w, BWFSpec const &spec, IpAddr const &addr)
-{
-  BWFSpec local_spec{spec}; // Format for address elements and port.
+  bwf::Spec local_spec{spec}; // Format for address elements and port.
   bool addr_p{true};
   bool family_p{false};
 
@@ -876,9 +735,9 @@ bwformat(BufferWriter &w, BWFSpec const &spec, IpAddr const &addr)
 }
 
 BufferWriter &
-bwformat(BufferWriter &w, BWFSpec const &spec, sockaddr const *addr)
+bwformat(BufferWriter &w, bwf::Spec const &spec, sockaddr const *addr)
 {
-  BWFSpec local_spec{spec}; // Format for address elements and port.
+  bwf::Spec local_spec{spec}; // Format for address elements and port.
   bool port_p{true};
   bool addr_p{true};
   bool family_p{false};
@@ -948,7 +807,7 @@ bwformat(BufferWriter &w, BWFSpec const &spec, sockaddr const *addr)
     if (local_numeric_fill_p) {
       local_spec._min   = 5;
       local_spec._fill  = local_numeric_fill_char;
-      local_spec._align = BWFSpec::Align::RIGHT;
+      local_spec._align = bwf::Spec::Align::RIGHT;
     } else {
       local_spec._min = 0;
     }
@@ -968,4 +827,4 @@ bwformat(BufferWriter &w, BWFSpec const &spec, sockaddr const *addr)
   return w;
 }
 
-} // namespace ts
+} // namespace swoc

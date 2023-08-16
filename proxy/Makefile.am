@@ -16,7 +16,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-include $(top_srcdir)/build/tidy.mk
+include $(top_srcdir)/mk/tidy.mk
 
 include private/Makefile.inc
 
@@ -37,8 +37,6 @@ AM_CPPFLAGS += \
 	-I$(abs_srcdir)/logging \
 	-I$(abs_srcdir)/http/remap \
 	-I$(abs_srcdir)/hdrs \
-	-I$(abs_top_srcdir)/mgmt \
-	-I$(abs_top_srcdir)/mgmt/utils \
 	@SWOC_INCLUDES@ \
 	@YAMLCPP_INCLUDES@ \
 	$(TS_INCLUDES)

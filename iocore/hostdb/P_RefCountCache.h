@@ -25,7 +25,8 @@
 #include <I_EventSystem.h>
 #include <P_EventSystem.h> // TODO: less? just need ET_TASK
 
-#include "tscore/IntrusiveHashMap.h"
+#include "swoc/IntrusiveHashMap.h"
+
 #include "tscore/PriorityQueue.h"
 
 #include "tscore/List.h"
@@ -33,6 +34,7 @@
 
 #include "tscore/I_Version.h"
 #include "tscpp/util/TsSharedMutex.h"
+#include <cstdint>
 #include <unistd.h>
 
 #define REFCOUNT_CACHE_EVENT_SYNC REFCOUNT_CACHE_EVENT_EVENTS_START
@@ -136,7 +138,7 @@ struct RefCountCacheLinkage {
   {
     return key;
   }
-  static key_type
+  static uint64_t
   key_of(value_type *v)
   {
     return v->meta.key;
@@ -159,7 +161,7 @@ protected:
 template <class C> class RefCountCachePartition : private RefCountCacheBase
 {
 public:
-  using hash_type = IntrusiveHashMap<RefCountCacheLinkage>;
+  using hash_type = swoc::IntrusiveHashMap<RefCountCacheLinkage>;
 
   RefCountCachePartition(unsigned int part_num, uint64_t max_size, unsigned int max_items, RecRawStatBlock *rsb = nullptr);
   Ptr<C> get(uint64_t key);
@@ -365,7 +367,7 @@ RefCountCachePartition<C>::metric_inc(RefCountCache_Stats metric_enum, int64_t d
 }
 
 template <class C>
-IntrusiveHashMap<RefCountCacheLinkage> &
+swoc::IntrusiveHashMap<RefCountCacheLinkage> &
 RefCountCachePartition<C>::get_map()
 {
   return this->item_map;

@@ -31,17 +31,8 @@
  ****************************************************************************/
 #pragma once
 
-#include <memory>
-
 #include "tscore/ink_platform.h"
 #include "ts/apidefs.h"
-#include <string_view>
-#include <cstring>
-#include <memory>
-
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-#include <openssl/objects.h>
 
 #include "P_EventSystem.h"
 #include "P_UnixNetVConnection.h"
@@ -55,6 +46,15 @@
 #include "TLSCertSwitchSupport.h"
 #include "P_SSLUtils.h"
 #include "P_SSLConfig.h"
+
+#include <netinet/in.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <openssl/objects.h>
+
+#include <cstring>
+#include <memory>
+#include <string_view>
 
 // These are included here because older OpenSSL libraries don't have them.
 // Don't copy these defines, or use their values directly, they are merely
@@ -112,7 +112,7 @@ class SSLNetVConnection : public UnixNetVConnection,
 public:
   int sslStartHandShake(int event, int &err) override;
   void clear() override;
-  void free(EThread *t) override;
+  void free_thread(EThread *t) override;
 
   bool
   trackFirstHandshake() override
@@ -408,7 +408,9 @@ protected:
     return local_addr;
   }
 
+  // TLSSNISupport
   void _fire_ssl_servername_event() override;
+  in_port_t _get_local_port() override;
 
   bool _isTryingRenegotiation() const override;
   shared_SSL_CTX _lookupContextByName(const std::string &servername, SSLCertContextType ctxType) override;
@@ -461,7 +463,7 @@ private:
   std::unique_ptr<char[]> _ca_cert_file;
   std::unique_ptr<char[]> _ca_cert_dir;
 
-  EventIO async_ep{};
+  ReadWriteEventIO async_ep{};
 
   // early data related stuff
 #if TS_HAS_TLS_EARLY_DATA

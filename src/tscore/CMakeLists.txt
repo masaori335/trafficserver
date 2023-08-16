@@ -29,22 +29,21 @@ add_custom_command(
 
 add_custom_target(ParseRules ALL DEPENDS ParseRulesCType ParseRulesCTypeToUpper ParseRulesCTypeToLower)
 
-add_library(tscore SHARED
+add_library(tscore STATIC
         AcidPtr.cc
         AcidPtr.cc
         Arena.cc
         ArgParser.cc
         BaseLogFile.cc
-        BufferWriterFormat.cc
         ConsistentHash.cc
         ContFlags.cc
         CryptoHash.cc
         DbgCtl.cc
         Diags.cc
+        Encoding.cc
         Errata.cc
         EventNotify.cc
         Extendible.cc
-        HKDF_openssl.cc
         Hash.cc
         HashFNV.cc
         HashSip.cc
@@ -57,7 +56,6 @@ add_library(tscore SHARED
         MatcherUtils.cc
         ParseRules.cc
         Random.cc
-        RbTree.cc
         Regex.cc
         Regression.cc
         SourceLocation.cc
@@ -101,43 +99,50 @@ add_library(tscore SHARED
         runroot.cc
         signals.cc
 )
-add_dependencies(tscore ParseRules tscpputil)
-target_include_directories(tscore PRIVATE
-        ${CMAKE_CURRENT_BINARY_DIR}
-        ${YAML_INCLUDE_DIRS}
-)
+add_library(ts::tscore ALIAS tscore)
+
+# Some plugins link against ts::tscore and therefore need it to be compiled as
+# position independent.
+set_target_properties(tscore PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+
+if(OPENSSL_IS_BORINGSSL)
+    target_sources(tscore PRIVATE HKDF_boringssl.cc)
+elseif(OPENSSL_IS_OPENSSL3)
+    target_sources(tscore PRIVATE HKDF_openssl3.cc)
+else()
+    target_sources(tscore PRIVATE HKDF_openssl.cc)
+endif()
+
 target_link_libraries(tscore
     PUBLIC
-        libswoc
-        ${OPENSSL_LIBRARIES}
-        ${PCRE_LIBRARIES}
-        resolv
-        tscpputil
+        OpenSSL::Crypto
+        PCRE::PCRE
     PRIVATE
         yaml-cpp::yaml-cpp
 )
-if(TS_USE_HWLOC)
-    target_link_libraries(tscore PUBLIC hwloc::hwloc)
-endif()
-if(TS_HAS_128BIT_CAS AND TS_NEEDS_MCX16_FOR_CAS)
-    target_compile_options(tscore PUBLIC "-mcx16")
-endif()
+
 if(TS_USE_POSIX_CAP)
     target_link_libraries(tscore PUBLIC cap::cap)
+endif()
+
+add_dependencies(tscore ParseRules)
+target_include_directories(tscore PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}
+)
+if(TS_HAS_128BIT_CAS AND TS_NEEDS_MCX16_FOR_CAS)
+    target_compile_options(tscore PUBLIC "-mcx16")
 endif()
 
 add_executable(test_tscore
         unit_tests/test_AcidPtr.cc
         unit_tests/test_ArgParser.cc
-        unit_tests/test_BufferWriter.cc
-        unit_tests/test_BufferWriterFormat.cc
         unit_tests/test_CryptoHash.cc
         unit_tests/test_Errata.cc
         unit_tests/test_Extendible.cc
+        unit_tests/test_Encoding.cc
         unit_tests/test_HKDF.cc
         unit_tests/test_Histogram.cc
         unit_tests/test_History.cc
-        unit_tests/test_IntrusiveHashMap.cc
         unit_tests/test_IntrusivePtr.cc
         unit_tests/test_List.cc
         unit_tests/test_MMH.cc
@@ -160,7 +165,12 @@ add_executable(test_tscore
 target_link_libraries(test_tscore
     PRIVATE
         libswoc
-        tscore
+        ts::tscore
+        yaml-cpp::yaml-cpp
+        resolv
+        ts::tscpputil
+        OpenSSL::Crypto
+        OpenSSL::SSL
 )
 if(TS_USE_HWLOC)
     target_link_libraries(test_tscore PRIVATE hwloc::hwloc)
@@ -168,5 +178,3 @@ endif()
 target_include_directories(test_tscore PRIVATE ${CMAKE_SOURCE_DIR}/include ${CATCH_INCLUDE_DIR})
 
 add_test(NAME test_tscore COMMAND $<TARGET_FILE:test_tscore>)
-
-install(TARGETS tscore)

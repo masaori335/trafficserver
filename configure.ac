@@ -37,9 +37,9 @@ m4_define([TS_VERSION_N],[10000000])
 
 AC_INIT([Apache Traffic Server],[TS_VERSION_S()],[dev@trafficserver.apache.org],[trafficserver],[https://trafficserver.apache.org])
 AC_PREREQ([2.69])
-AC_CONFIG_AUX_DIR([build/_aux])
+AC_CONFIG_AUX_DIR([m4/_aux])
 AC_CONFIG_SRCDIR([src/traffic_server/traffic_server.cc])
-AC_CONFIG_MACRO_DIR([build])
+AC_CONFIG_MACRO_DIR([m4])
 
 # NOTE: we turn off portability warnings because the clang-tidy targets use
 # GNU make extensions to filter the sources list.
@@ -1390,7 +1390,7 @@ AC_CHECK_FUNCS([clock_gettime kqueue epoll_ctl posix_fadvise posix_madvise posix
 AC_CHECK_FUNCS([port_create strlcpy strlcat sysconf sysctlbyname getpagesize])
 AC_CHECK_FUNCS([getreuid getresuid getresgid setreuid setresuid getpeereid getpeerucred])
 AC_CHECK_FUNCS([strsignal psignal psiginfo accept4])
-AC_CHECK_FUNCS([sendmmsg])
+AC_CHECK_FUNCS([sendmmsg recvmmsg])
 
 # Check for eventfd() and sys/eventfd.h (both must exist ...)
 AC_CHECK_HEADERS([sys/eventfd.h], [
@@ -1441,9 +1441,6 @@ AC_SUBST(use_quic)
 AC_SUBST(has_quiche)
 AM_CONDITIONAL([ENABLE_QUIC], [test "x$enable_quic" = "xyes"])
 
-# Check for optional WAVM library
-TS_CHECK_WAVM
-
 #
 # Enable experimental/uri_signing plugin
 # This is here, instead of above, because it needs to know if PCRE is available.
@@ -1473,7 +1470,7 @@ TS_CHECK_LIBSWOC
 AM_CONDITIONAL([BUILD_SWOC], [test "$has_libswoc" = "no"])
 
 TS_CHECK_SWOC_HEADERS_EXPORT
-AM_CONDITIONAL([EXPORT_SWOC_HEADERS], [test x"$enable_swoc_headers" = x"yes"])
+AM_CONDITIONAL([EXPORT_SWOC_HEADERS], [test ! x"$enable_swoc_headers" = x"no"])
 
 # Check for optional hiredis library
 TS_CHECK_HIREDIS
@@ -1879,8 +1876,7 @@ AM_CONDITIONAL([HAS_WASM], [test "x${has_wasm}" = "x1" ])
 AM_CONDITIONAL([BUILD_HEALTHCHECK_PLUGIN], [ test "$ac_cv_func_inotify_init" = "yes" ])
 
 #
-# Check for tcmalloc, jemalloc and mimalloc
-TS_CHECK_TCMALLOC
+# Check for jemalloc and mimalloc
 TS_CHECK_JEMALLOC
 TS_CHECK_MIMALLOC
 
@@ -1963,7 +1959,7 @@ AC_CHECK_HEADERS([sys/types.h \
 # On OpenBSD, pthread.h must be included before pthread_np.h
 AC_CHECK_HEADERS([pthread_np.h], [], [], [#include <pthread.h>])
 AC_CHECK_HEADERS([sys/statfs.h sys/statvfs.h sys/disk.h sys/disklabel.h])
-AC_CHECK_HEADERS([linux/hdreg.h linux/major.h])
+AC_CHECK_HEADERS([linux/major.h])
 
 AC_CHECK_HEADERS([sys/sysctl.h], [], [],
                  [[#ifdef HAVE_SYS_PARAM_H
@@ -2383,9 +2379,6 @@ AC_CONFIG_FILES([
   lib/swoc/Makefile
   lib/yamlcpp/Makefile
   mgmt/Makefile
-  mgmt/api/Makefile
-  mgmt/api/include/Makefile
-  mgmt/utils/Makefile
   mgmt/rpc/Makefile
   mgmt/config/Makefile
   plugins/Makefile
@@ -2404,9 +2397,11 @@ AC_CONFIG_FILES([
   src/tscpp/util/Makefile
   src/tscore/Makefile
   src/records/Makefile
+  src/api/Makefile
   tools/Makefile
   tools/trafficserver.pc
   tools/tsxs
+  tools/benchmark/Makefile
   tests/Makefile
 ])
 
@@ -2427,10 +2422,10 @@ AC_MSG_NOTICE([Build option summary:
     CXXFLAGS:           $CXXFLAGS
     CPPFLAGS:           $CPPFLAGS
     LDFLAGS:            $LDFLAGS
-    AM@&t@_CFLAGS:      $AM_CFLAGS
-    AM@&t@_CXXFLAGS:    $AM_CXXFLAGS
-    AM@&t@_CPPFLAGS:    $AM_CPPFLAGS
-    AM@&t@_LDFLAGS:     $AM_LDFLAGS
+    AM@&t@_CFLAGS:          $AM_CFLAGS
+    AM@&t@_CXXFLAGS:        $AM_CXXFLAGS
+    AM@&t@_CPPFLAGS:        $AM_CPPFLAGS
+    AM@&t@_LDFLAGS:         $AM_LDFLAGS
     TS_INCLUDES:        $TS_INCLUDES
     OPENSSL_LDFLAGS:    $OPENSSL_LDFLAGS
     OPENSSL_INCLUDES:   $OPENSSL_INCLUDES

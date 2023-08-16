@@ -100,7 +100,7 @@ public:
      copies data from a buffer.
 
      @param to  address of where to send packet
-     @param when ink_hrtime relative to ink_get_hrtime_internal()
+     @param when ink_hrtime relative to ink_get_hrtime()
      @param buf IOBufferBlock chain of data to use
      @param segment_size Segment size
   */
@@ -110,7 +110,7 @@ public:
      Create a new packet to be delivered to application.
      Internal function only
   */
-  static UDPPacket *new_incoming_UDPPacket(struct sockaddr *from, struct sockaddr *to, Ptr<IOBufferBlock> &block);
+  static UDPPacket *new_incoming_UDPPacket(struct sockaddr *from, struct sockaddr *to, Ptr<IOBufferBlock> block);
 
 private:
   SLINK(UDPPacket, alink); // atomic link

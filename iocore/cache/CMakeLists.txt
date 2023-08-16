@@ -31,26 +31,38 @@ add_library(inkcache STATIC
     RamCacheLRU.cc
     Store.cc
 )
+add_library(ts::inkcache ALIAS inkcache)
+
 if(BUILD_REGRESSION_TESTING)
     target_sources(inkcache PRIVATE CacheTest.cc)
+    target_link_libraries(inkcache PRIVATE ts::proxy)
 endif()
-target_link_libraries(inkcache PRIVATE ZLIB::ZLIB)
-if(HAVE_LZMA_H)
-    target_link_libraries(inkcache PRIVATE LibLZMA::LibLZMA)
-endif()
-target_include_directories(inkcache PRIVATE
-        ${CMAKE_SOURCE_DIR}/iocore/eventsystem
+
+target_include_directories(inkcache
+    PUBLIC
+        ${CMAKE_SOURCE_DIR}/iocore/cache
+    PRIVATE
         ${CMAKE_SOURCE_DIR}/iocore/io_uring
         ${CMAKE_SOURCE_DIR}/iocore/dns
-        ${CMAKE_SOURCE_DIR}/iocore/aio
         ${CMAKE_SOURCE_DIR}/iocore/net
-        ${CMAKE_SOURCE_DIR}/iocore/cache
         ${CMAKE_SOURCE_DIR}/iocore/hostdb
-        ${CMAKE_SOURCE_DIR}/proxy
         ${CMAKE_SOURCE_DIR}/proxy/http
         ${CMAKE_SOURCE_DIR}/proxy/http/remap
         ${CMAKE_SOURCE_DIR}/proxy/hdrs
-        ${CMAKE_SOURCE_DIR}/mgmt
-        ${CMAKE_SOURCE_DIR}/mgmt/utils
         ${CMAKE_SOURCE_DIR}/lib
 )
+
+target_link_libraries(inkcache
+    PUBLIC
+        ts::aio
+        ts::inkevent
+        ts::tscore
+    PRIVATE
+        ts::proxy
+        fastlz
+        ZLIB::ZLIB
+)
+
+if(HAVE_LZMA_H)
+    target_link_libraries(inkcache PRIVATE LibLZMA::LibLZMA)
+endif()

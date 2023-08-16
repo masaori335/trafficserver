@@ -15,5 +15,10 @@
 #
 #######################
 
-add_definitions(-DOPENSSL_API_COMPAT=10002)
 add_atsplugin(certifier certifier.cc)
+
+target_link_libraries(certifier
+    PRIVATE
+        OpenSSL::Crypto
+        OpenSSL::SSL
+)

@@ -23,8 +23,6 @@ AM_CPPFLAGS += \
 	-I$(abs_top_srcdir)/proxy \
 	-I$(abs_top_srcdir)/proxy/http \
 	-I$(abs_top_srcdir)/proxy/hdrs \
-	-I$(abs_top_srcdir)/mgmt \
-	-I$(abs_top_srcdir)/mgmt/utils \
 	@SWOC_INCLUDES@ \
 	$(TS_INCLUDES)
 
@@ -33,6 +31,7 @@ noinst_LIBRARIES = libinkdns.a
 libinkdns_a_SOURCES = \
 	DNS.cc \
 	DNSConnection.cc \
+	DNSEventIO.cc \
 	I_DNS.h \
 	I_DNSProcessor.h \
 	I_SplitDNS.h \
@@ -50,7 +49,7 @@ libinkdns_a_SOURCES = \
 #  test_I_DNS.cc \
 #  test_P_DNS.cc
 
-include $(top_srcdir)/build/tidy.mk
+include $(top_srcdir)/mk/tidy.mk
 
 clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

@@ -26,7 +26,7 @@
 #include <cctype>
 
 #include <string_view>
-#include "tscpp/util/TextView.h"
+#include "swoc/TextView.h"
 
 #include <HttpConfig.h>
 
@@ -37,12 +37,12 @@ class BadOptionsErrMsg
 public:
   // Construct with reference to string that will contain error message.
   //
-  BadOptionsErrMsg(ts::FixedBufferWriter &err) : _err(err), _count(0) {}
+  BadOptionsErrMsg(swoc::FixedBufferWriter &err) : _err(err), _count(0) {}
 
   // Add a bad option.
   //
   void
-  add(ts::TextView badOpt)
+  add(swoc::TextView badOpt)
   {
     if (_count == 0) {
       _err << "\"Forwarded\" configuration: ";
@@ -81,14 +81,14 @@ public:
 
 private:
   void
-  _addQuoted(ts::TextView sv)
+  _addQuoted(swoc::TextView sv)
   {
     _err << '\"' << sv << '\"';
   }
 
-  ts::FixedBufferWriter &_err;
+  swoc::FixedBufferWriter &_err;
 
-  ts::TextView _saveLast;
+  swoc::TextView _saveLast;
 
   int _count;
 };
@@ -96,7 +96,7 @@ private:
 // Compare a TextView to a nul-termimated string, converting the TextView to lower case and ignoring whitespace in it.
 //
 bool
-eqIgnoreCaseWs(ts::TextView sv, const char *target)
+eqIgnoreCaseWs(swoc::TextView sv, const char *target)
 {
   const char *s = sv.data();
 
@@ -121,15 +121,15 @@ eqIgnoreCaseWs(ts::TextView sv, const char *target)
 namespace HttpForwarded
 {
 OptionBitSet
-optStrToBitset(std::string_view optConfigStr, ts::FixedBufferWriter &error)
+optStrToBitset(std::string_view optConfigStr, swoc::FixedBufferWriter &error)
 {
-  const ts::TextView Delimiters(":|");
+  const swoc::TextView Delimiters(":|");
 
   OptionBitSet optBS;
 
   // Convert to TS TextView to be able to use parsing members.
   //
-  ts::TextView oCS{optConfigStr};
+  swoc::TextView oCS{optConfigStr};
 
   if (eqIgnoreCaseWs(oCS, "none")) {
     return OptionBitSet();
@@ -138,7 +138,7 @@ optStrToBitset(std::string_view optConfigStr, ts::FixedBufferWriter &error)
   BadOptionsErrMsg em(error);
 
   do {
-    ts::TextView optStr = oCS.take_prefix_at(Delimiters);
+    swoc::TextView optStr = oCS.take_prefix_at(Delimiters);
 
     if (eqIgnoreCaseWs(optStr, "for")) {
       optBS.set(FOR);

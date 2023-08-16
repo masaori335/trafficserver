@@ -53,7 +53,7 @@
 
 #include "tscore/ink_apidefs.h"
 
-#include "MgmtDefs.h"
+#include "tscore/MgmtDefs.h"
 
 #define PERIODIC_TASKS_INTERVAL_FALLBACK 5
 
@@ -387,11 +387,6 @@ Log::init_fields()
                        &LogAccess::unmarshal_int_to_time_str);
   global_field_list.add(field, false);
   field_symbol_hash.emplace("cqtt", field);
-
-  field =
-    new LogField("client_req_text", "cqtx", LogField::STRING, &LogAccess::marshal_client_req_text, &LogAccess::unmarshal_http_text);
-  global_field_list.add(field, false);
-  field_symbol_hash.emplace("cqtx", field);
 
   field = new LogField("client_req_http_method", "cqhm", LogField::STRING, &LogAccess::marshal_client_req_http_method,
                        &LogAccess::unmarshal_str);
@@ -1409,11 +1404,11 @@ Log::flush_thread_main(void * /* args ATS_UNUSED */)
 
     // Time to work on periodic events??
     //
-    now = Thread::get_hrtime_updated() / HRTIME_SECOND;
+    now = ink_get_hrtime() / HRTIME_SECOND;
     if (now >= last_time + periodic_tasks_interval) {
       Debug("log-preproc", "periodic tasks for %" PRId64, (int64_t)now);
       periodic_tasks(now);
-      last_time = Thread::get_hrtime() / HRTIME_SECOND;
+      last_time = ink_get_hrtime() / HRTIME_SECOND;
     }
 
     // wait for more work; a spurious wake-up is ok since we'll just

@@ -37,8 +37,6 @@ CryptoContext::HashType CryptoContext::Setting = CryptoContext::SHA256;
 CryptoContext::HashType CryptoContext::Setting = CryptoContext::MD5;
 #endif
 
-ats::CryptoHash const ats::CRYPTO_HASH_ZERO; // default constructed is correct.
-
 CryptoContext::CryptoContext()
 {
   switch (Setting) {
@@ -102,15 +100,15 @@ CryptoHash::toHexStr(char buffer[(CRYPTO_HASH_SIZE * 2) + 1]) const
   return ink_code_to_hex_str(buffer, u8);
 }
 
-namespace ats
+namespace ts
 {
-ts::BufferWriter &
-bwformat(ts::BufferWriter &w, ts::BWFSpec const &spec, ats::CryptoHash const &hash)
+swoc::BufferWriter &
+bwformat(swoc::BufferWriter &w, swoc::bwf::Spec const &spec, ts::CryptoHash const &hash)
 {
-  ts::BWFSpec local_spec{spec};
+  swoc::bwf::Spec local_spec{spec};
   if ('X' != local_spec._type) {
     local_spec._type = 'x';
   }
   return bwformat(w, local_spec, std::string_view(reinterpret_cast<const char *>(hash.u8), CRYPTO_HASH_SIZE));
 }
-} // namespace ats
+} // namespace ts

@@ -27,12 +27,11 @@ target_include_directories(traffic_ctl PRIVATE
         ${IOCORE_INCLUDE_DIRS}
         ${PROXY_INCLUDE_DIRS}
         ${CMAKE_SOURCE_DIR}/mgmt
-        ${CMAKE_SOURCE_DIR}/mgmt/utils
         )
 target_link_libraries(traffic_ctl
-        tscore
-        yaml-cpp
+        ts::tscore
         libswoc
-        )
+        yaml-cpp::yaml-cpp
+)
 
-install(TARGETS traffic_server)
+install(TARGETS traffic_ctl)

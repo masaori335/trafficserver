@@ -30,16 +30,29 @@
 #pragma once
 
 #include "tscore/ink_platform.h"
-#include "tscore/ink_defs.h"
-
 #include "tscore/ink_apidefs.h"
 
-int safe_setsockopt(int s, int level, int optname, const void *optval, int optlevel);
-int safe_getsockopt(int s, int level, int optname, void *optval, int *optlevel);
 int safe_bind(int s, struct sockaddr const *name, int namelen);
 int safe_listen(int s, int backlog);
 int safe_getsockname(int s, struct sockaddr *name, int *namelen);
 int safe_getpeername(int s, struct sockaddr *name, int *namelen);
+
+int safe_setsockopt(int s, int level, int optname, const void *optval, int optlen);
+int safe_getsockopt(int s, int level, int optname, void *optval, int *optlen);
+
+static inline int
+setsockopt_on(int s, int level, int optname)
+{
+  int on = 1;
+  return safe_setsockopt(s, level, optname, &on, sizeof(on));
+}
+
+static inline int
+setsockopt_off(int s, int level, int optname)
+{
+  int on = 0;
+  return safe_setsockopt(s, level, optname, &on, sizeof(on));
+}
 
 /** Repeat write calls to fd until all len bytes are written.
  *
@@ -90,7 +103,5 @@ int fd_read_line(int fd, char *s, int len);
 int close_socket(int s);
 int write_socket(int s, const char *buffer, int length);
 int read_socket(int s, char *buffer, int length);
-
-uint32_t ink_inet_addr(const char *s);
 
 int bind_unix_domain_socket(const char *path, mode_t mode);

@@ -16,7 +16,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-include $(top_srcdir)/build/tidy.mk
+include $(top_srcdir)/mk/tidy.mk
 
 SUBDIRS = remap
 
@@ -25,8 +25,6 @@ AM_CPPFLAGS += \
 	-I$(abs_top_srcdir)/proxy \
 	-I$(abs_top_srcdir)/include \
 	-I$(abs_top_srcdir)/lib \
-	-I$(abs_top_srcdir)/mgmt \
-	-I$(abs_top_srcdir)/mgmt/utils \
 	-I$(abs_top_srcdir)/proxy/hdrs \
 	-I$(abs_top_srcdir)/proxy/shared \
 	-I$(abs_top_srcdir)/proxy/http/remap \
@@ -80,9 +78,11 @@ libhttp_a_SOURCES = \
 	HttpTransactHeaders.h \
 	HttpTunnel.cc \
 	HttpTunnel.h \
+	HttpUserAgent.h \
+	HttpVCTable.cc \
+	HttpVCTable.h \
 	ForwardedConfig.cc \
-	PreWarmConfig.cc \
-	PreWarmManager.cc
+	PreWarmConfig.cc
 
 if BUILD_TESTS
 libhttp_a_SOURCES += RegressionHttpTransact.cc
@@ -104,26 +104,32 @@ test_proxy_http_SOURCES = \
 	HttpBodyFactory.h
 
 test_proxy_http_LDADD = \
-	$(top_builddir)/src/tscore/libtscore.la \
 	$(top_builddir)/proxy/hdrs/libhdrs.a \
 	$(top_builddir)/proxy/logging/liblogging.a \
 	$(top_builddir)/src/records/librecords_p.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/iocore/utils/libinkutils.a \
+	$(top_builddir)/src/tscore/libtscore.a \
+	$(top_builddir)/src/api/libtsapi.la \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	@SWOC_LIBS@ @HWLOC_LIBS@ \
 	@LIBCAP@ \
-	@YAMLCPP_LIBS@
+	@YAMLCPP_LIBS@ \
+	@LIBPCRE@ \
+	@OPENSSL_LIBS@
 
 test_PreWarm_CPPFLAGS = \
 	$(AM_CPPFLAGS) \
 	-I$(abs_top_srcdir)/lib/catch2
 
+test_PreWarm_LDFLAGS = $(AM_LDFLAGS) @YAMLCPP_LDFLAGS@
+
 test_PreWarm_LDADD = \
-	$(top_builddir)/src/tscore/libtscore.la \
+	$(top_builddir)/src/tscore/libtscore.a \
 	@YAMLCPP_LIBS@
 
 test_PreWarm_SOURCES = \
+	unit_tests/unit_test_main.cc \
 	unit_tests/test_PreWarm.cc
 
 test_HttpTransact_CPPFLAGS = \
@@ -148,14 +154,20 @@ test_HttpTransact_LDADD  =  \
 	$(top_builddir)/iocore/cache/libinkcache.a \
 	$(top_builddir)/lib/fastlz/libfastlz.a \
 	$(top_builddir)/iocore/aio/libinkaio.a \
-	$(top_builddir)/src/tscore/libtscore.la \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/proxy/libproxy.a \
 	$(top_builddir)/iocore/net/libinknet.a \
 	$(top_builddir)/src/records/librecords_p.a \
+	$(top_builddir)/src/tscore/libtscore.a \
+	$(top_builddir)/src/api/libtsapi.la \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	-lz -llzma -lcrypto -lresolv -lssl \
-	@LIBPCRE@ @HWLOC_LIBS@ @SWOC_LIBS@ @YAMLCPP_LIBS@
+	@LIBPCRE@ @HWLOC_LIBS@ @SWOC_LIBS@ @YAMLCPP_LIBS@ @LIBCAP@
+
+if ENABLE_QUIC
+test_HttpTransact_LDADD += \
+	$(top_builddir)/iocore/net/quic/libquic.a
+endif
 
 test_HttpTransact_SOURCES = \
 	../../iocore/cache/test/stub.cc \

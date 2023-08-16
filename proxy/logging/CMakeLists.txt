@@ -32,11 +32,19 @@ add_library(logging STATIC
         YamlLogConfig.cc
         YamlLogConfigDecoders.cc
 )
+add_library(ts::logging ALIAS logging)
+
 target_include_directories(logging PRIVATE
         ${IOCORE_INCLUDE_DIRS}
         ${PROXY_INCLUDE_DIRS}
-        ${CMAKE_SOURCE_DIR}/mgmt
-        ${CMAKE_SOURCE_DIR}/mgmt/utils
-        ${YAML_INCLUDE_DIRS}
         ${SWOC_INCLUDE_DIR}
+)
+
+target_link_libraries(logging
+    PUBLIC
+        ts::inkevent
+        ts::inkutils
+        ts::proxy
+        ts::tscore
+        yaml-cpp::yaml-cpp
 )

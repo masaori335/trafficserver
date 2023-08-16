@@ -29,10 +29,19 @@ add_library(http2 STATIC
         Http2SessionAccept.cc
         Http2ServerSession.cc
 )
+add_library(ts::http2 ALIAS http2)
+
 target_include_directories(http2 PRIVATE
         ${IOCORE_INCLUDE_DIRS}
         ${PROXY_INCLUDE_DIRS}
-        ${CMAKE_SOURCE_DIR}/mgmt
-        ${CMAKE_SOURCE_DIR}/mgmt/utils
         ${YAMLCPP_INCLUDE_DIR}
+)
+
+target_link_libraries(http2
+    PUBLIC
+        ts::inkevent
+        ts::proxy
+        ts::tscore
+    PRIVATE
+        ts::inkutils
 )

@@ -22,7 +22,8 @@
 
 #pragma once
 
-#include "tscore/BufferWriter.h"
+#include "tscpp/util/ts_bw_format.h"
+#include "ink_memory.h"
 #include <openssl/evp.h>
 #include <string_view>
 
@@ -35,7 +36,7 @@
 #endif
 #define CRYPTO_HEX_SIZE ((CRYPTO_HASH_SIZE * 2) + 1)
 
-namespace ats
+namespace ts
 {
 /// Crypto hash output.
 union CryptoHash {
@@ -63,7 +64,7 @@ union CryptoHash {
   bool
   operator==(CryptoHash const &that) const
   {
-    return memcmp(this, &that, sizeof(*this)) == 0;
+    return ::memcmp(this, &that, sizeof(*this)) == 0;
   }
 
   /// Equality - bitwise identical.
@@ -90,6 +91,7 @@ union CryptoHash {
   {
     return u64[i];
   }
+
   /// Access 64 bit slice.
   /// @note Identical to @ operator[] but included for symmetry.
   uint64_t
@@ -107,9 +109,20 @@ union CryptoHash {
 
   /// Fast conversion to hex in fixed sized string.
   char *toHexStr(char buffer[(CRYPTO_HASH_SIZE * 2) + 1]) const;
-};
 
-extern CryptoHash const CRYPTO_HASH_ZERO;
+  bool
+  is_zero() const
+  {
+    constexpr uint8_t z64[sizeof(u64)] = {0};
+    return ::memcmp(u64, z64, sizeof(z64)) == 0;
+  }
+
+  void
+  clear()
+  {
+    ink_zero(u64);
+  }
+};
 
 class CryptoContext
 {
@@ -137,6 +150,7 @@ public:
   };
 
   CryptoContext();
+
   /// Update the hash with @a data of @a length bytes.
   bool update(void const *data, int length);
 
@@ -193,10 +207,9 @@ inline CryptoContext::~CryptoContext()
   std::destroy_at(reinterpret_cast<Hasher *>(_base));
 }
 
-ts::BufferWriter &bwformat(ts::BufferWriter &w, ts::BWFSpec const &spec, ats::CryptoHash const &hash);
+swoc::BufferWriter &bwformat(swoc::BufferWriter &w, swoc::bwf::Spec const &spec, ts::CryptoHash const &hash);
 
-} // namespace ats
+} // namespace ts
 
-using ats::CryptoHash;
-using ats::CryptoContext;
-using ats::CRYPTO_HASH_ZERO;
+using ts::CryptoHash;
+using ts::CryptoContext;

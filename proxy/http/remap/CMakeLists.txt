@@ -34,11 +34,20 @@ add_library(http_remap STATIC
         UrlMappingPathIndex.cc
         UrlRewrite.cc
 )
+add_library(ts::http_remap ALIAS http_remap)
+
 target_include_directories(http_remap PRIVATE
         ${IOCORE_INCLUDE_DIRS}
         ${PROXY_INCLUDE_DIRS}
-        ${CMAKE_SOURCE_DIR}/mgmt
-        ${CMAKE_SOURCE_DIR}/mgmt/utils
         ${CMAKE_SOURCE_DIR}/src/records
-        ${YAML_INCLUDE_DIRS}
         )
+
+target_link_libraries(http_remap
+    PUBLIC
+        ts::proxy
+        ts::tscore
+    PRIVATE
+        ts::inkevent
+        ts::inkutils
+        yaml-cpp::yaml-cpp
+)

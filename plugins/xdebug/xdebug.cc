@@ -35,7 +35,7 @@
 #include "ts/experimental.h"
 #include "tscore/ink_defs.h"
 #include "tscpp/util/PostScript.h"
-#include "tscpp/util/TextView.h"
+#include "swoc/TextView.h"
 #include "tscpp/api/Cleanup.h"
 
 namespace
@@ -433,7 +433,11 @@ InjectEffectiveURLHeader(TSHttpTxn txn, TSMBuffer buffer, TSMLoc hdr)
   if (strval.ptr != nullptr && strval.len > 0) {
     TSMLoc dst = FindOrMakeHdrField(buffer, hdr, "X-Effective-URL", lengthof("X-Effective-URL"));
     if (dst != TS_NULL_MLOC) {
-      TSReleaseAssert(TSMimeHdrFieldValueStringInsert(buffer, hdr, dst, -1 /* idx */, strval.ptr, strval.len) == TS_SUCCESS);
+      char buf[16 * 1024];
+      int len = snprintf(buf, sizeof(buf), "\"%s\"", strval.ptr);
+      if (len == strval.len + 2 && len <= static_cast<int>(sizeof(buf)) - 1) { // Only copy back if len expected and within buffer.
+        TSReleaseAssert(TSMimeHdrFieldValueStringInsert(buffer, hdr, dst, -1 /* idx */, buf, len) == TS_SUCCESS);
+      }
       TSHandleMLocRelease(buffer, hdr, dst);
     }
   }
@@ -606,13 +610,13 @@ done:
 static bool
 isFwdFieldValue(std::string_view value, intmax_t &fwdCnt)
 {
-  static const ts::TextView paramName("fwd");
+  static const swoc::TextView paramName("fwd");
 
   if (value.size() < paramName.size()) {
     return false;
   }
 
-  ts::TextView tvVal(value);
+  swoc::TextView tvVal(value);
 
   if (strcasecmp(paramName, tvVal.prefix(paramName.size())) != 0) {
     return false;
@@ -638,7 +642,7 @@ isFwdFieldValue(std::string_view value, intmax_t &fwdCnt)
   tvVal.ltrim(httpSpace);
 
   size_t sz  = tvVal.size();
-  intmax_t i = ts::svtoi(tvVal, &tvVal);
+  intmax_t i = swoc::svtoi(tvVal, &tvVal);
 
   if ((tvVal.size() != sz) or (i < 0)) {
     // There were crud characters after the number, or the number was negative.

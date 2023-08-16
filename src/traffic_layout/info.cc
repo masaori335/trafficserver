@@ -25,7 +25,7 @@
 #include <openssl/crypto.h>
 #include "tscore/I_Layout.h"
 #include "tscore/Filenames.h"
-#include "tscore/BufferWriter.h"
+#include "tscpp/util/ts_bw.h"
 #include "records/I_RecProcess.h"
 #include "records/I_RecordsConfig.h"
 #include "info.h"
@@ -93,7 +93,6 @@ produce_features(bool json)
   print_feature("TS_HAS_PIPE_BUFFER_SIZE_CONFIG", 0, json);
 #endif /* F_GETPIPE_SZ */
   print_feature("TS_HAS_JEMALLOC", TS_HAS_JEMALLOC, json);
-  print_feature("TS_HAS_TCMALLOC", TS_HAS_TCMALLOC, json);
   print_feature("TS_HAS_IN6_IS_ADDR_UNSPECIFIED", TS_HAS_IN6_IS_ADDR_UNSPECIFIED, json);
   print_feature("TS_HAS_BACKTRACE", TS_HAS_BACKTRACE, json);
   print_feature("TS_HAS_PROFILER", TS_HAS_PROFILER, json);
@@ -173,7 +172,7 @@ produce_layout(bool json)
 void
 produce_versions(bool json)
 {
-  using LBW = ts::LocalBufferWriter<128>;
+  using LBW = swoc::LocalBufferWriter<128>;
   [[maybe_unused]] static const std::string_view undef{"undef"};
 
   if (json) {

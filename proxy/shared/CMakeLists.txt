@@ -17,10 +17,12 @@
 
 
 add_library(diagsconfig STATIC DiagsConfig.cc)
+add_library(ts::diagsconfig ALIAS diagsconfig)
+
 target_include_directories(diagsconfig PRIVATE
         ${IOCORE_INCLUDE_DIRS}
         ${PROXY_INCLUDE_DIRS}
-        ${CMAKE_SOURCE_DIR}/mgmt
-        ${CMAKE_SOURCE_DIR}/mgmt/utils
         ${YAMLCPP_INCLUDE_DIR}
 )
+
+target_link_libraries(diagsconfig PUBLIC ts::tscore)

@@ -16,7 +16,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-include $(top_srcdir)/build/tidy.mk
+include $(top_srcdir)/mk/tidy.mk
 
 check_PROGRAMS = test_librecords test_librecords_on_eventsystem
 
@@ -71,8 +71,9 @@ test_librecords_LDADD = \
 	$(top_builddir)/src/records/librecords_p.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
-	$(top_builddir)/src/tscore/libtscore.la \
-	@SWOC_LIBS@ @HWLOC_LIBS@ @LIBCAP@ @YAMLCPP_LIBS@
+	$(top_builddir)/src/tscore/libtscore.a \
+	$(top_builddir)/src/api/libtsapi.la \
+	@SWOC_LIBS@ @HWLOC_LIBS@ @LIBCAP@ @YAMLCPP_LIBS@ @LIBPCRE@ @OPENSSL_LIBS@
 
 test_librecords_on_eventsystem_CPPFLAGS = $(AM_CPPFLAGS)\
 	-I$(abs_top_srcdir)/lib/catch2
@@ -85,8 +86,9 @@ test_librecords_on_eventsystem_LDADD = \
 	$(top_builddir)/src/records/librecords_p.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
-	$(top_builddir)/src/tscore/libtscore.la \
-	@HWLOC_LIBS@ @LIBCAP@ @YAMLCPP_LIBS@ @SWOC_LIBS@
+	$(top_builddir)/src/tscore/libtscore.a \
+	$(top_builddir)/src/api/libtsapi.la \
+	@HWLOC_LIBS@ @LIBCAP@ @YAMLCPP_LIBS@ @SWOC_LIBS@ @LIBPCRE@ @OPENSSL_LIBS@
 
 clang-tidy-local: $(sort $(DIST_SOURCES))
 	$(CXX_Clang_Tidy)

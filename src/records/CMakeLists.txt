@@ -15,7 +15,7 @@
 #
 #######################
 
-add_library(records_p SHARED
+add_library(records STATIC
         P_RecCore.cc
         RecConfigParse.cc
         RecCore.cc
@@ -30,13 +30,19 @@ add_library(records_p SHARED
         RecordsConfigUtils.cc
         RecRawStats.cc
         )
+add_library(ts::records ALIAS records)
 
-target_include_directories(records_p PRIVATE
-        ${CMAKE_SOURCE_DIR}/mgmt
-        ${CMAKE_SOURCE_DIR}/mgmt/api/include
-        ${CMAKE_SOURCE_DIR}/mgmt/utils
-        ${CMAKE_SOURCE_DIR}/iocore/eventsystem
-        ${CMAKE_SOURCE_DIR}/iocore/utils
-        )
-target_link_libraries(records_p tscore libswoc yaml-cpp::yaml-cpp)
-install(TARGETS records_p)
+target_include_directories(records
+    PUBLIC
+        "${PROJECT_SOURCE_DIR}/include"
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/mgmt"
+        "${CMAKE_SOURCE_DIR}/iocore/utils"
+)
+
+target_link_libraries(records
+    PUBLIC
+        ts::inkevent
+        ts::tscore
+        yaml-cpp::yaml-cpp
+)

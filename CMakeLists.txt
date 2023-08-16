@@ -16,7 +16,13 @@
 #######################
 
 cmake_minimum_required(VERSION 3.20)
-project(ats)
+project(ats VERSION 10.0.0)
+
+set(TS_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+set(TS_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+set(TS_VERSION_MICRO ${PROJECT_VERSION_PATCH})
+set(TS_VERSION_STRING  ${TS_VERSION_MAJOR}.${TS_VERSION_MINOR}.${TS_VERSION_MICRO})
+math(EXPR TS_VERSION_NUMBER "${TS_VERSION_MAJOR} * 1000000 + ${TS_VERSION_MINOR} * 1000 + ${TS_VERSION_MICRO}")
 
 enable_testing()
 set(CMAKE_CXX_STANDARD 17)
@@ -25,6 +31,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 list(APPEND CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
+
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_compile_definitions(DEBUG _DEBUG)
+endif()
 
 # ATS uses "unix" for variable names.  Make sure its not defined
 remove_definitions(-Dunix)
@@ -37,17 +47,24 @@ execute_process(COMMAND id -ng OUTPUT_VARIABLE BUILD_GROUP OUTPUT_STRIP_TRAILING
 execute_process(COMMAND uname -n OUTPUT_VARIABLE BUILD_MACHINE OUTPUT_STRIP_TRAILING_WHITESPACE)
 
 # Options
+option(ENABLE_ASAN "Use address sanitizer (default OFF)")
 option(BUILD_REGRESSION_TESTING "Build regression tests (default ON)" ON)
+option(BUILD_EXPERIMENTAL_PLUGINS "Build the experimental plugins (default OFF)")
 set(DEFAULT_STACK_SIZE 1048576 CACHE STRING "Default stack size (default 1048576)")
 option(ENABLE_FAST_SDK "Use fast SDK APIs (default OFF)")
 option(ENABLE_JEMALLOC "Use jemalloc (default OFF)")
+option(ENABLE_LUAJIT   "Use LuaJIT (default OFF)")
 option(ENABLE_MIMALLOC "Use mimalloc (default OFF)")
+
+if(CMAKE_SYSTEM_NAME STREQUAL Linux)
+    set(DEFAULT_POSIX_CAP ON)
+endif()
 option(ENABLE_POSIX_CAP
-    "Use POSIX capabilities, turn OFF to use id switching. (default ON)"
-    ON
+    "Use POSIX capabilities, turn OFF to use id switching. (default ON for Linux)"
+    "${DEFAULT_POSIX_CAP}"
 )
+
 option(ENABLE_PROFILER "Use gperftools profiler (default OFF)")
-option(ENABLE_TCMALLOC "Use TCMalloc (default OFF)")
 set(ENABLE_TPROXY
     "AUTO"
     CACHE
@@ -59,6 +76,7 @@ set(ENABLE_TPROXY
         'X' where X is a number to use as the IP_TRANSPARENT sockopt,
         anything else to enable."
 )
+option(ENABLE_QUICHE   "Use quiche (default OFF)")
 option(ENABLE_UNWIND   "Use libunwind if found on system (default ON)" ON)
 option(ENABLE_WCCP     "Use WCCP v2 (default OFF)")
 set(TS_MAX_HOST_NAME_LEN 256 CACHE STRING "Max host name length (default 256)")
@@ -80,13 +98,6 @@ option(TS_USE_HWLOC "Use hwloc (default OFF)")
 
 set(TS_USE_FAST_SDK ${ENABLE_FAST_SDK})
 
-set(TS_VERSION_MAJOR 10)
-set(TS_VERSION_MINOR 0)
-set(TS_VERSION_MICRO 0)
-set(TS_LIBTOOL_MAJOR ${TS_VERSION_MAJOR}${TS_VERSION_MINOR})
-set(TS_LIBTOOL_VERSION ${TS_LIBTOOL_MAJOR}:${TS_VERSION_MICRO}:${TS_VERSION_MINOR})
-set(TS_VERSION_STRING TS_VERSION_S)
-set(TS_VERSION_NUMBER TS_VERSION_N)
 
 set(TS_HAS_WCCP ${ENABLE_WCCP})
 set(TS_MAX_NUMBER_EVENT_THREADS ${MAX_EVENT_THREADS})
@@ -104,7 +115,6 @@ CHECK_INCLUDE_FILE(stdlib.h HAVE_STDLIB_H)
 CHECK_INCLUDE_FILE(stdint.h HAVE_STDINT_H)
 CHECK_INCLUDE_FILE(inttypes.h HAVE_INTTYPES_H)
 CHECK_INCLUDE_FILE(string.h HAVE_STRING_H)
-CHECK_INCLUDE_FILE(linux/hdreg.h HAVE_LINUX_HDREG_H)
 CHECK_INCLUDE_FILE(linux/major.h HAVE_LINUX_MAJOR_H)
 CHECK_INCLUDE_FILE(sys/disk.h HAVE_SYS_DISK_H)
 CHECK_INCLUDE_FILE(sys/disklabel.h HAVE_SYS_DISKLABEL_H)
@@ -127,6 +137,7 @@ CHECK_INCLUDE_FILE(arpa/inet.h HAVE_ARPA_INET_H)
 CHECK_INCLUDE_FILE(arpa/nameser.h HAVE_ARPA_NAMESER_H)
 CHECK_INCLUDE_FILE(arpa/nameser_compat.h HAVE_ARPA_NAMESER_COMPAT_H)
 CHECK_INCLUDE_FILE(siginfo.h HAVE_SIGINFO_H)
+CHECK_INCLUDE_FILE(endian.h HAVE_ENDIAN_H)
 
 # Find libraries
 find_package(Backtrace)
@@ -137,6 +148,10 @@ endif()
 find_package(brotli)
 if(brotli_FOUND)
     set(HAVE_BROTLI_ENCODE_H TRUE)
+endif()
+
+if(ENABLE_LUAJIT)
+    find_package(LuaJIT REQUIRED)
 endif()
 
 if(ENABLE_POSIX_CAP)
@@ -164,10 +179,16 @@ if(LibLZMA_FOUND)
         set(HAVE_LZMA_H TRUE)
 endif()
 
-find_package(PCRE)
+find_package(PCRE REQUIRED)
 
-include(FindOpenSSL)
-find_package(OpenSSL)
+include(CheckOpenSSLIsBoringSSL)
+find_package(OpenSSL REQUIRED)
+check_openssl_is_boringssl(OPENSSL_IS_BORINGSSL "${OPENSSL_INCLUDE_DIR}")
+
+if(OPENSSL_VERSION VERSION_GREATER_EQUAL "3.0.0")
+    set(OPENSSL_IS_OPENSSL3 TRUE)
+    add_compile_definitions(OPENSSL_API_COMPAT=10002 OPENSSL_IS_OPENSSL3)
+endif()
 
 if(ENABLE_PROFILER)
     find_package(profiler REQUIRED)
@@ -187,6 +208,22 @@ if(ENABLE_UNWIND)
     set(TS_USE_REMOTE_UNWINDING ${unwind_FOUND})
 endif()
 
+if(ENABLE_QUICHE)
+    find_package(quiche REQUIRED)
+
+    set(TS_HAS_QUICHE ${quiche_FOUND})
+    set(TS_USE_QUIC ${TS_HAS_QUICHE})
+
+    if(NOT OPENSSL_IS_BORINGSSL)
+        message(FATAL_ERROR "Use of BoringSSL is required if quiche is used.")
+    endif()
+endif()
+
+if(ENABLE_ASAN)
+    add_compile_options(-fsanitize=address)
+    add_link_options(-fsanitize=address)
+endif()
+
 find_package(ZLIB REQUIRED)
 
 include(Check128BitCas)
@@ -200,11 +237,10 @@ check_symbol_exists(IN6_IS_ADDR_UNSPECIFIED "netinet/in.h" TS_HAS_IN6_IS_ADDR_UN
 check_symbol_exists(IP_TOS "netinet/ip.h" TS_HAS_IP_TOS)
 check_symbol_exists(SO_MARK "sys/socket.h" TS_HAS_SO_MARK)
 check_symbol_exists(SO_PEERCRED "sys/socket.h" TS_HAS_SO_PEERCRED)
-check_symbol_exists(TLS1_3_VERSION "${OPENSSL_INCLUDE_DIR}/openssl/ssl.h" TS_USE_TLS13)
-check_symbol_exists(OPENSSL_NO_TLS1_3 "${OPENSSL_INCLUDE_DIR}/ssl.h" TS_NO_USE_TLS13)
 if(TS_NO_USE_TLS13)
     set(TS_USE_TLS13 FALSE CACHE)
 endif()
+check_symbol_exists(clock_gettime time.h HAVE_CLOCK_GETTIME)
 check_symbol_exists(epoll_create "sys/epoll.h" TS_USE_EPOLL)
 check_symbol_exists(kqueue "sys/event.h" TS_USE_KQUEUE)
 set(CMAKE_REQUIRED_LIBRARIES uring)
@@ -232,7 +268,10 @@ endif(HAVE_LIBAIO AND USE_LIBAIO)
 
 # Check ssl functionality
 list(APPEND CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIR})
-list(APPEND CMAKE_REQUIRED_LIBRARIES ${OPENSSL_CRYPTO_LIBRARY})
+list(APPEND CMAKE_REQUIRED_LIBRARIES
+    ${OPENSSL_SSL_LIBRARY}
+    ${OPENSSL_CRYPTO_LIBRARY}
+)
 check_symbol_exists(BIO_meth_new "openssl/bio.h" HAVE_BIO_METH_NEW)
 check_symbol_exists(BIO_set_data "openssl/bio.h" HAVE_BIO_SET_DATA)
 check_symbol_exists(BIO_get_data "openssl/bio.h" HAVE_BIO_GET_DATA)
@@ -240,8 +279,21 @@ check_symbol_exists(BIO_get_shutdown "openssl/bio.h" HAVE_BIO_GET_SHUTDOWN)
 check_symbol_exists(BIO_meth_get_ctrl "openssl/bio.h" HAVE_BIO_METH_GET_CTRL)
 check_symbol_exists(BIO_meth_get_create "openssl/bio.h" HAVE_BIO_METH_GET_CREATE)
 check_symbol_exists(BIO_meth_get_destroy "openssl/bio.h" HAVE_BIO_METH_GET_DESTROY)
+check_symbol_exists(HMAC_CTX_new "openssl/hmac.h" HAVE_HMAC_CTX_NEW)
 check_symbol_exists(DH_get_2048_256 "openssl/dh.h" TS_USE_GET_DH_2048_256)
-check_symbol_exists(SSL_CTX_set_tlsext_ticket_key_cb openssl/ssl.h HAVE_SSL_CTX_SET_TLSEXT_TICKET_KEY_CB)
+check_symbol_exists(OPENSSL_NO_TLS_3 "openssl/ssl.h" TS_NO_USE_TLS12)
+check_symbol_exists(SSL_CTX_set_client_hello_cb "openssl/ssl.h" TS_USE_HELLO_CB)
+check_symbol_exists(
+    SSL_CTX_set_keylog_callback
+    "openssl/ssl.h"
+    TS_HAS_TLS_KEYLOGGING
+)
+check_symbol_exists(
+    SSL_CTX_set_tlsext_ticket_key_cb
+    "openssl/ssl.h"
+    HAVE_SSL_CTX_SET_TLSEXT_TICKET_KEY_CB
+)
+check_symbol_exists(TLS1_3_VERSION "openssl/ssl.h" TS_USE_TLS13)
 
 # Catch2 for tests
 set(CATCH_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/lib/catch2)
@@ -270,21 +322,23 @@ set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 add_compile_definitions(${HOST_OS} PACKAGE_NAME="ats" PACKAGE_VERSION="${TS_VERSION_STRING}")
-add_compile_options(-Wno-invalid-offsetof)
+add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wno-invalid-offsetof>)
 
 # Common includes for everyone
 include_directories(
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_BINARY_DIR}/include
-        ${PCRE_INCLUDE_DIRS}
 )
 
-if (OPENSSL_FOUND)
-    include_directories(${OPENSSL_INCLUDE_DIR})
-    link_libraries(${OPENSSL_CRYPTO_LIBRARY})
-endif(OPENSSL_FOUND)
-
 add_subdirectory(lib)
+
+# Keep this after lib because lib is made up of third party libraries, so if
+# there are warnings, we can't do anything about it.
+# Note: -DCMAKE_COMPILE_WARNING_AS_ERROR=ON will turn warnings into errors.
+add_compile_options(-pipe -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-type)
+add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wno-noexcept-type;-Wsuggest-override>")
+add_compile_options("$<$<CXX_COMPILER_ID:GNU>:-Wno-format-truncation;-Wno-stringop-overflow>")
+
 include_directories(
         ${CMAKE_SOURCE_DIR}/lib/swoc/include
         ${YAML_CPP_SOURCE_DIR}/include
@@ -295,6 +349,16 @@ include(subproject_version)
 subproject_version(YAML_CPP YAMLCPP_LIB_VERSION)
 
 set(rel_cachedir var/trafficserver)
+
+if(EXISTS "${PROJECT_SOURCE_DIR}/include/ink_autoconf.h")
+    message(STATUS "Autoconf build detected in source tree. Removing autoconf headers.")
+endif()
+
+# In-tree autoconf configuration causes duplicate definitions of some symbols
+# in generated headers. If the files don't exist, no error is emitted.
+file(REMOVE "${PROJECT_SOURCE_DIR}/include/tscore/ink_config.h")
+file(REMOVE "${PROJECT_SOURCE_DIR}/include/ink_autoconf.h")
+
 configure_file(configs/storage.config.default.in configs/storage.config.default)
 configure_file(configs/records.yaml.default.in configs/records.yaml.default)
 configure_file(include/tscore/ink_config.h.cmake.in include/tscore/ink_config.h)
@@ -302,22 +366,25 @@ configure_file(include/ts/apidefs.h.in include/ts/apidefs.h)
 
 enable_testing()
 
+add_subdirectory(src/api)
 add_subdirectory(src/tscpp/util)
 add_subdirectory(src/tscpp/api)
 add_subdirectory(src/tscore)
 add_subdirectory(src/records)
 add_subdirectory(iocore)
 add_subdirectory(proxy)
-add_subdirectory(mgmt/utils)
 add_subdirectory(mgmt/config)
 add_subdirectory(mgmt/rpc)
+add_subdirectory(src/traffic_crashlog)
 add_subdirectory(src/traffic_server)
 add_subdirectory(src/traffic_ctl)
+add_subdirectory(src/traffic_layout)
 if(ENABLE_WCCP)
     add_subdirectory(src/wccp)
     add_subdirectory(src/traffic_wccp)
 endif()
 add_subdirectory(src/tests)
+add_subdirectory(tests)
 add_subdirectory(plugins)
 add_subdirectory(configs)
 
@@ -353,7 +420,7 @@ add_clang_format_target(tests)
 
 add_custom_target(clang-format
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        COMMENT "formatting all files"
+        COMMENT "formatting all C++ files"
         DEPENDS ${CLANG_FORMAT_TARGETS}
         VERBATIM
         )
@@ -362,6 +429,12 @@ add_custom_target(autopep8 ${CMAKE_SOURCE_DIR}/tools/autopep8.sh ${CMAKE_SOURCE_
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT "formatting python files"
         VERBATIM
+        )
+
+# Add a format target that depends upon both clang-format and autopep8.
+add_custom_target(format
+        DEPENDS clang-format autopep8
+        COMMENT "formatting all files"
         )
 
 if(NOT EXISTS ${CMAKE_SOURCE_DIR}/.git/hooks/pre-commit)
@@ -391,3 +464,4 @@ cmake_print_variables(BUILD_GROUP)
 cmake_print_variables(BUILD_MACHINE)
 cmake_print_variables(DEFAULT_STACK_SIZE)
 cmake_print_variables(CMAKE_INSTALL_RPATH)
+cmake_print_variables(OPENSSL_VERSION)

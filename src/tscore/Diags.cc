@@ -34,8 +34,7 @@
 
  ****************************************************************************/
 
-#include "tscore/BufferWriter.h"
-#include "tscore/bwf_std_format.h"
+#include "tscpp/util/ts_bw_format.h"
 #include "tscore/ink_platform.h"
 #include "tscore/ink_memory.h"
 #include "tscore/ink_defs.h"
@@ -47,9 +46,11 @@
 #include "tscore/Regression.h"
 #include "tscore/Diags.h"
 
-int diags_on_for_plugins          = 0;
-char ts_new_debug_on_flag_        = 0;
-int DiagsConfigState::_enabled[2] = {0, 0};
+int tsapi::c::diags_on_for_plugins      = 0;
+bool tsapi::c::TSDbgCtlDetail::debug_on = false;
+int DiagsConfigState::_enabled[2]       = {0, 0};
+
+using namespace swoc::literals;
 
 void
 DiagsConfigState::enabled(DiagsTagType dtt, int new_value)
@@ -60,8 +61,8 @@ DiagsConfigState::enabled(DiagsTagType dtt, int new_value)
   _enabled[dtt] = new_value;
 
   if (DiagsTagType_Debug == dtt) {
-    diags_on_for_plugins  = 1 == new_value;
-    ts_new_debug_on_flag_ = (1 & new_value) != 0;
+    diags_on_for_plugins     = 1 == new_value;
+    TSDbgCtlDetail::debug_on = (1 & new_value) != 0;
   }
 }
 
@@ -226,7 +227,7 @@ Diags::~Diags()
 //      parentheses if its value is not nullptr.  It takes a <diags_level>,
 //      which is converted to a prefix string.
 //      print_va takes an optional source location structure pointer <loc>,
-//      which can be nullptr.  If <loc> is not NULL, the source code location
+//      which can be nullptr.  If <loc> is not null, the source code location
 //      is converted to a string, and printed between angle brackets.
 //      Finally, it takes a printf format string <format_string>, and a
 //      va_list list of varargs.
@@ -246,12 +247,12 @@ Diags::print_va(const char *debug_tag, DiagsLevel diags_level, const SourceLocat
                 va_list ap) const
 {
   ink_release_assert(diags_level < DiagsLevel_Count);
-  ts::LocalBufferWriter<1024> format_writer;
+  swoc::LocalBufferWriter<1024> format_writer;
 
   // Save room for optional newline and terminating NUL bytes.
-  format_writer.clip(2);
+  format_writer.restrict(2);
 
-  format_writer.print("[{timestamp}] ");
+  format_writer.print("[{timestamp}] "_tv);
   auto timestamp_offset = format_writer.size();
 
   format_writer.print("{thread-name}");
@@ -267,7 +268,7 @@ Diags::print_va(const char *debug_tag, DiagsLevel diags_level, const SourceLocat
 
   format_writer.print("{}", format_string);
 
-  format_writer.extend(2);                   // restore the space for required termination.
+  format_writer.restore(2);                  // restore the space for required termination.
   if (format_writer.view().back() != '\n') { // safe because always some chars in the buffer.
     format_writer.write('\n');
   }

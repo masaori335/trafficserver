@@ -27,8 +27,6 @@ AM_CPPFLAGS += \
 	-I$(abs_top_srcdir)/proxy \
 	-I$(abs_top_srcdir)/proxy/hdrs \
 	-I$(abs_top_srcdir)/proxy/shared \
-	-I$(abs_top_srcdir)/mgmt \
-	-I$(abs_top_srcdir)/mgmt/utils \
 	-I$(abs_top_srcdir)/proxy/http \
 	-I$(abs_top_srcdir)/proxy/http/remap \
 	-I$(abs_top_srcdir)/src/traffic_server \
@@ -38,6 +36,7 @@ AM_CPPFLAGS += \
 	@SWOC_INCLUDES@
 
 TESTS = $(check_PROGRAMS)
+TESTS_ENVIRONMENT = LSAN_OPTIONS=suppressions=$(abs_top_srcdir)/ci/asan_leak_suppression/regression.txt
 
 check_PROGRAMS = test_certlookup test_UDPNet test_libinknet
 noinst_LIBRARIES = libinknet.a
@@ -53,12 +52,15 @@ test_certlookup_SOURCES = \
 	SSLCertLookup.cc
 
 test_certlookup_LDADD = \
-	@OPENSSL_LIBS@ \
-	$(top_builddir)/src/tscore/libtscore.la $(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
+	$(top_builddir)/src/tscore/libtscore.a \
+	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/proxy/ParentSelectionStrategy.o \
 	@YAMLCPP_LIBS@ \
-	@SWOC_LIBS@
+	@SWOC_LIBS@ \
+	@OPENSSL_LIBS@ \
+	@LIBPCRE@ \
+	@LIBCAP@
 
 test_UDPNet_CPPFLAGS = \
 	$(AM_CPPFLAGS) \
@@ -66,25 +68,33 @@ test_UDPNet_CPPFLAGS = \
 	-I$(abs_top_srcdir)/proxy \
 	-I$(abs_top_srcdir)/proxy/hdrs \
 	-I$(abs_top_srcdir)/proxy/http \
-	-I$(abs_top_srcdir)/mgmt \
-	-I$(abs_top_srcdir)/mgmt/utils \
 	@OPENSSL_INCLUDES@ \
-	@SWOC_INCLUDES@
+	@SWOC_INCLUDES@ \
+	@LIBPCRE@
+
 
 test_UDPNet_LDFLAGS = \
 	@AM_LDFLAGS@ \
 	@OPENSSL_LDFLAGS@ \
 	@YAMLCPP_LDFLAGS@ \
-	@SWOC_LDFLAGS@
+	@SWOC_LDFLAGS@ \
+	@LIBPCRE@
+
 
 test_UDPNet_LDADD = \
 	libinknet.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/src/records/librecords_p.a \
-	$(top_builddir)/src/tscore/libtscore.la $(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/proxy/hdrs/libhdrs.a \
+	$(top_builddir)/src/tscore/libtscore.a \
+	$(top_builddir)/src/tscpp/util/libtscpputil.la \
+	$(top_builddir)/src/api/libtsapi.la \
 	$(top_builddir)/proxy/ParentSelectionStrategy.o \
-	@HWLOC_LIBS@ @OPENSSL_LIBS@ @LIBPCRE@ @YAMLCPP_LIBS@ @SWOC_LIBS@
+	@HWLOC_LIBS@ @OPENSSL_LIBS@ @LIBPCRE@ @YAMLCPP_LIBS@ @SWOC_LIBS@ @LIBPCRE@ @LIBCAP@
+if ENABLE_QUIC
+test_UDPNet_LDADD += \
+	$(top_builddir)/iocore/net/quic/libquic.a
+endif
 
 test_UDPNet_SOURCES = \
 	libinknet_stub.cc \
@@ -92,7 +102,10 @@ test_UDPNet_SOURCES = \
 
 test_libinknet_SOURCES = \
 	libinknet_stub.cc \
-	unit_tests/test_ProxyProtocol.cc
+	unit_tests/unit_test_main.cc \
+	unit_tests/test_ProxyProtocol.cc \
+	unit_tests/test_SSLSNIConfig.cc \
+	unit_tests/test_YamlSNIConfig.cc
 
 test_libinknet_CPPFLAGS = \
 	$(AM_CPPFLAGS) \
@@ -101,8 +114,7 @@ test_libinknet_CPPFLAGS = \
 	-I$(abs_top_srcdir)/proxy \
 	-I$(abs_top_srcdir)/proxy/hdrs \
 	-I$(abs_top_srcdir)/proxy/http \
-	-I$(abs_top_srcdir)/mgmt \
-	-I$(abs_top_srcdir)/mgmt/utils \
+	-DLIBINKNET_UNIT_TEST_DIR="$(abs_top_srcdir)/iocore/net/unit_tests" \
 	@OPENSSL_INCLUDES@
 
 test_libinknet_LDFLAGS = \
@@ -116,18 +128,30 @@ test_libinknet_LDADD = \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/src/records/librecords_p.a \
 	$(top_builddir)/proxy/hdrs/libhdrs.a \
-	$(top_builddir)/src/tscore/libtscore.la \
+	$(top_builddir)/src/tscore/libtscore.a \
+	$(top_builddir)/src/api/libtsapi.la \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/proxy/ParentSelectionStrategy.o \
-	@HWLOC_LIBS@ @OPENSSL_LIBS@ @LIBPCRE@ @YAMLCPP_LIBS@ @SWOC_LIBS@
+	@HWLOC_LIBS@ @OPENSSL_LIBS@ @LIBPCRE@ @YAMLCPP_LIBS@ @SWOC_LIBS@ @LIBCAP@
+
+if ENABLE_QUIC
+test_libinknet_LDADD += \
+	$(top_builddir)/iocore/net/quic/libquic.a
+endif
 
 libinknet_a_SOURCES = \
+	AcceptOptions.cc \
+	AcceptOptions.h \
 	ALPNSupport.cc \
+	AsyncSignalEventIO.cc \
+	AsyncSignalEventIO.h \
 	BIO_fastopen.cc \
 	BIO_fastopen.h \
 	BoringSSLUtils.cc \
 	BoringSSLUtils.h \
 	Connection.cc \
+	EventIO.h \
+	EventIO.cc \
 	I_Net.h \
 	I_NetProcessor.h \
 	I_NetVConnection.h \
@@ -140,6 +164,12 @@ libinknet_a_SOURCES = \
 	YamlSNIConfig.h \
 	YamlSNIConfig.cc \
 	Net.cc \
+	NetAcceptEventIO.h \
+	NetAcceptEventIO.cc \
+	NetHandler.h \
+	NetHandler.cc \
+	NetVCOptions.h \
+	NetVCOptions.cc \
 	NetVConnection.cc \
 	P_ALPNSupport.h \
 	P_SNIActionPerformer.h \
@@ -172,8 +202,13 @@ libinknet_a_SOURCES = \
 	P_UnixNetVConnection.h \
 	P_UnixPollDescriptor.h \
 	P_UnixUDPConnection.h \
+	PollCont.h \
+	PollCont.cc \
+	PreWarmManager.cc \
 	ProxyProtocol.h \
 	ProxyProtocol.cc \
+	ReadWriteEventIO.h \
+	ReadWriteEventIO.cc \
 	Socks.cc \
 	SSLCertLookup.cc \
 	SSLClientCoordinator.cc \
@@ -201,6 +236,8 @@ libinknet_a_SOURCES = \
 	TLSSNISupport.cc \
 	TLSTunnelSupport.cc \
 	TLSCertSwitchSupport.cc \
+	UDPEventIO.h \
+	UDPEventIO.cc \
 	UDPIOEvent.cc \
 	UnixConnection.cc \
 	UnixNet.cc \
@@ -215,18 +252,18 @@ libinknet_a_SOURCES = \
 
 if ENABLE_QUIC
 libinknet_a_SOURCES += \
-  P_QUICClosedConCollector.h \
-  P_QUICPacketHandler.h \
-  P_QUICNetProcessor.h \
-  P_QUICNetVConnection.h \
-  P_QUICNextProtocolAccept.h \
-  QUICClosedConCollector.cc \
-  QUICMultiCertConfigLoader.cc \
-  QUICNet.cc \
-  QUICNetProcessor_quiche.cc \
-  QUICNetVConnection_quiche.cc \
-  QUICNextProtocolAccept_quiche.cc \
-  QUICPacketHandler_quiche.cc
+	P_QUICClosedConCollector.h \
+	P_QUICPacketHandler.h \
+	P_QUICNetProcessor.h \
+	P_QUICNetVConnection.h \
+	P_QUICNextProtocolAccept.h \
+	QUICClosedConCollector.cc \
+	QUICMultiCertConfigLoader.cc \
+	QUICNet.cc \
+	QUICNetProcessor_quiche.cc \
+	QUICNetVConnection_quiche.cc \
+	QUICNextProtocolAccept_quiche.cc \
+	QUICPacketHandler_quiche.cc
 endif
 
 if BUILD_TESTS
@@ -235,7 +272,7 @@ libinknet_a_SOURCES += \
 	P_NetVCTest.h
 endif
 
-include $(top_srcdir)/build/tidy.mk
+include $(top_srcdir)/mk/tidy.mk
 
 clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

@@ -20,7 +20,6 @@ include_directories(
         ${CMAKE_SOURCE_DIR}/mgmt/rpc
         ${IOCORE_INCLUDE_DIRS}
         ${CMAKE_SOURCE_DIR}/lib
-        ${CMAKE_SOURCE_DIR}/proxy
         ${CMAKE_SOURCE_DIR}/proxy/hdrs
         ${CMAKE_SOURCE_DIR}/proxy/http
 
@@ -31,6 +30,9 @@ add_library(jsonrpc_protocol STATIC
         jsonrpc/JsonRPCManager.cc
         jsonrpc/Context.cc
 )
+add_library(ts::jsonrpc_protocol ALIAS jsonrpc_protocol)
+
+target_link_libraries(jsonrpc_protocol PUBLIC ts::tscore)
 
 add_library(jsonrpc_server STATIC
         server/RPCServer.cc
@@ -38,6 +40,9 @@ add_library(jsonrpc_server STATIC
         server/IPCSocketServer.cc
         config/JsonRPCConfig.cc
 )
+add_library(ts::jsonrpc_server ALIAS jsonrpc_server)
+
+target_link_libraries(jsonrpc_server PUBLIC ts::tscore)
 
 add_library(rpcpublichandlers STATIC
         handlers/common/RecordsUtils.cc
@@ -46,4 +51,13 @@ add_library(rpcpublichandlers STATIC
         handlers/storage/Storage.cc
         handlers/server/Server.cc
         handlers/plugins/Plugins.cc
+)
+add_library(ts::rpcpublichandlers ALIAS rpcpublichandlers)
+
+target_link_libraries(rpcpublichandlers
+    PUBLIC
+        ts::tscore
+    PRIVATE
+        ts::inkcache
+        ts::proxy
 )

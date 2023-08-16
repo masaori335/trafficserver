@@ -15,7 +15,7 @@
 #
 #######################
 
-add_library(tscppapi STATIC
+add_library(tscppapi SHARED
         AsyncHttpFetch.cc
         AsyncTimer.cc
         CaseInsensitiveStringComparator.cc
@@ -41,4 +41,14 @@ add_library(tscppapi STATIC
         utils.cc
         utils_internal.cc
         )
+add_library(ts::tscppapi ALIAS tscppapi)
+target_link_libraries(tscppapi
+    PUBLIC
+    libswoc
+    yaml-cpp::yaml-cpp
+)
 install(TARGETS tscppapi)
+
+if(APPLE)
+  target_link_options(tscppapi PRIVATE -undefined dynamic_lookup)
+endif()

@@ -39,11 +39,14 @@
 #include "tscore/ink_memory.h"
 #include "tscore/I_Layout.h"
 
-#include "tscpp/util/TextView.h"
+#include "tscpp/util/ts_ip.h"
+
+#include <netinet/in.h>
 
 #include <sstream>
 #include <utility>
 #include <pcre.h>
+#include <algorithm>
 
 static constexpr int OVECSIZE{30};
 
@@ -59,7 +62,8 @@ NamedElement &
 NamedElement::operator=(NamedElement &&other)
 {
   if (this != &other) {
-    match = std::move(other.match);
+    match               = std::move(other.match);
+    inbound_port_ranges = std::move(other.inbound_port_ranges);
   }
   return *this;
 }
@@ -107,84 +111,75 @@ SNIConfigParams::get_property_config(const std::string &servername) const
   return nps;
 }
 
-int
+bool
 SNIConfigParams::load_sni_config()
 {
   for (auto &item : yaml_sni.items) {
-    auto ai = sni_action_list.emplace(sni_action_list.end());
-    ai->set_glob_name(item.fqdn);
+    auto &ai = sni_action_list.emplace_back();
+    ai.set_glob_name(item.fqdn);
+    ai.inbound_port_ranges = item.inbound_port_ranges;
     Debug("ssl", "name: %s", item.fqdn.data());
 
-    // set SNI based actions to be called in the ssl_servername_only callback
-    if (item.offer_h2.has_value()) {
-      ai->actions.push_back(std::make_unique<ControlH2>(item.offer_h2.value()));
+    item.populate_sni_actions(ai.actions);
+    if (!set_next_hop_properties(item)) {
+      return false;
     }
-    if (item.verify_client_level != 255) {
-      ai->actions.push_back(
-        std::make_unique<VerifyClient>(item.verify_client_level, item.verify_client_ca_file, item.verify_client_ca_dir));
-    }
-    if (item.host_sni_policy != 255) {
-      ai->actions.push_back(std::make_unique<HostSniPolicy>(item.host_sni_policy));
-    }
-    if (item.valid_tls_version_min_in >= 0 || item.valid_tls_version_max_in >= 0) {
-      ai->actions.push_back(std::make_unique<TLSValidProtocols>(item.valid_tls_version_min_in, item.valid_tls_version_max_in));
-    } else {
-      if (!item.protocol_unset) {
-        ai->actions.push_back(std::make_unique<TLSValidProtocols>(item.protocol_mask));
-      }
-    }
-    if (item.tunnel_destination.length() > 0) {
-      ai->actions.push_back(
-        std::make_unique<TunnelDestination>(item.tunnel_destination, item.tunnel_type, item.tunnel_prewarm, item.tunnel_alpn));
-    }
-    if (!item.client_sni_policy.empty()) {
-      ai->actions.push_back(std::make_unique<OutboundSNIPolicy>(item.client_sni_policy));
-    }
-    if (item.http2_buffer_water_mark.has_value()) {
-      ai->actions.push_back(std::make_unique<HTTP2BufferWaterMark>(item.http2_buffer_water_mark.value()));
-    }
+  }
 
-    ai->actions.push_back(std::make_unique<ServerMaxEarlyData>(item.server_max_early_data));
+  return true;
+}
 
-    ai->actions.push_back(std::make_unique<SNI_IpAllow>(item.ip_allow, item.fqdn));
+bool
+SNIConfigParams::set_next_hop_properties(YamlSNIConfig::Item const &item)
+{
+  auto &nps = next_hop_list.emplace_back();
+  if (!load_certs_if_client_cert_specified(item, nps)) {
+    return false;
+  };
 
-    // set the next hop properties
-    auto nps = next_hop_list.emplace(next_hop_list.end());
+  nps.set_glob_name(item.fqdn);
+  nps.prop.verify_server_policy     = item.verify_server_policy;
+  nps.prop.verify_server_properties = item.verify_server_properties;
 
+  return true;
+}
+
+bool
+SNIConfigParams::load_certs_if_client_cert_specified(YamlSNIConfig::Item const &item, NextHopItem &nps)
+{
+  if (!item.client_cert.empty()) {
     SSLConfig::scoped_config params;
-    // Load if we have at least specified the client certificate
-    if (!item.client_cert.empty()) {
-      nps->prop.client_cert_file = Layout::get()->relative_to(params->clientCertPathOnly, item.client_cert.data());
-      if (!item.client_key.empty()) {
-        nps->prop.client_key_file = Layout::get()->relative_to(params->clientKeyPathOnly, item.client_key.data());
-      }
-
-      auto ctx = params->getCTX(nps->prop.client_cert_file, nps->prop.client_key_file, params->clientCACertFilename,
-                                params->clientCACertPath);
-      if (ctx.get() == nullptr) {
-        return 1;
-      }
+    nps.prop.client_cert_file = Layout::get()->relative_to(params->clientCertPathOnly, item.client_cert.data());
+    if (!item.client_key.empty()) {
+      nps.prop.client_key_file = Layout::get()->relative_to(params->clientKeyPathOnly, item.client_key.data());
     }
 
-    nps->set_glob_name(item.fqdn);
-    nps->prop.verify_server_policy     = item.verify_server_policy;
-    nps->prop.verify_server_properties = item.verify_server_properties;
-  } // end for
+    auto ctx =
+      params->getCTX(nps.prop.client_cert_file, nps.prop.client_key_file, params->clientCACertFilename, params->clientCACertPath);
+    if (ctx.get() == nullptr) {
+      return false;
+    }
+  }
 
-  return 0;
+  return true;
 }
 
 std::pair<const ActionVector *, ActionItem::Context>
-SNIConfigParams::get(std::string_view servername) const
+SNIConfigParams::get(std::string_view servername, in_port_t dest_incoming_port) const
 {
   int ovector[OVECSIZE];
 
-  for (const auto &retval : sni_action_list) {
+  for (auto const &retval : sni_action_list) {
     int length = servername.length();
     if (retval.match == nullptr && length == 0) {
       return {&retval.actions, {}};
     } else if (auto offset = pcre_exec(retval.match.get(), nullptr, servername.data(), length, 0, 0, ovector, OVECSIZE);
                offset >= 0) {
+      if (std::none_of(
+            retval.inbound_port_ranges.begin(), retval.inbound_port_ranges.end(),
+            [dest_incoming_port](ts::port_range_t const &port_range) { return port_range.contains(dest_incoming_port); })) {
+        continue;
+      }
       if (offset == 1) {
         // first pair identify the portion of the subject string matched by the entire pattern
         if (ovector[0] == 0 && ovector[1] == length) {
@@ -214,11 +209,16 @@ SNIConfigParams::get(std::string_view servername) const
   return {nullptr, {}};
 }
 
-int
+bool
 SNIConfigParams::initialize()
 {
   std::string sni_filename = RecConfigReadConfigPath("proxy.config.ssl.servername.filename");
+  return initialize(sni_filename);
+}
 
+bool
+SNIConfigParams::initialize(std::string const &sni_filename)
+{
   Note("%s loading ...", sni_filename.c_str());
 
   struct stat sbuf;
@@ -226,7 +226,7 @@ SNIConfigParams::initialize()
     Note("%s failed to load", sni_filename.c_str());
     Warning("Loading SNI configuration - filename: %s doesn't exist", sni_filename.c_str());
 
-    return 0;
+    return true;
   }
 
   YamlSNIConfig yaml_sni_tmp;
@@ -239,7 +239,7 @@ SNIConfigParams::initialize()
     } else {
       Error("%s failed to load: %s", sni_filename.c_str(), errMsg.str().c_str());
     }
-    return 1;
+    return false;
   }
   yaml_sni = std::move(yaml_sni_tmp);
 
@@ -271,8 +271,8 @@ SNIConfig::reconfigure()
   Debug("ssl", "Reload SNI file");
   SNIConfigParams *params = new SNIConfigParams;
 
-  int retStatus = params->initialize();
-  if (!retStatus) {
+  bool retStatus = params->initialize();
+  if (retStatus) {
     _configid = configProcessor.set(_configid, params);
     prewarmManager.reconfigure();
   } else {
@@ -280,13 +280,13 @@ SNIConfig::reconfigure()
   }
 
   std::string sni_filename = RecConfigReadConfigPath("proxy.config.ssl.servername.filename");
-  if (!retStatus || TSSystemState::is_initializing()) {
+  if (retStatus || TSSystemState::is_initializing()) {
     Note("%s finished loading", sni_filename.c_str());
   } else {
     Error("%s failed to load", sni_filename.c_str());
   }
 
-  return !retStatus;
+  return retStatus ? 1 : 0;
 }
 
 SNIConfigParams *
@@ -306,12 +306,12 @@ SNIConfig::release(SNIConfigParams *params)
 // setting proxy.config.http.host_sni_policy and is possibly overridden if the sni policy
 // contains a host_sni_policy entry
 bool
-SNIConfig::test_client_action(const char *servername, const IpEndpoint &ep, int &host_sni_policy)
+SNIConfig::test_client_action(const char *servername, in_port_t dest_incoming_port, const IpEndpoint &ep, int &host_sni_policy)
 {
   bool retval = false;
   SNIConfig::scoped_config params;
 
-  const auto &actions = params->get(servername);
+  auto const &actions = params->get(servername, dest_incoming_port);
   if (actions.first) {
     for (auto &&item : *actions.first) {
       retval |= item->TestClientSNIAction(servername, ep, host_sni_policy);

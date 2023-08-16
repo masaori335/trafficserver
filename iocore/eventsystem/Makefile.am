@@ -63,8 +63,8 @@ libinkevent_a_SOURCES = \
 	Processor.cc \
 	ProtectedQueue.cc \
 	ProxyAllocator.cc \
-    RecProcess.cc \
-    RecRawStatsImpl.cc \
+	RecProcess.cc \
+	RecRawStatsImpl.cc \
 	SocketManager.cc \
 	Tasks.cc \
 	Thread.cc \
@@ -76,12 +76,11 @@ libinkevent_a_SOURCES = \
 
 check_PROGRAMS = test_IOBuffer \
 	test_EventSystem \
-	test_MIOBufferWriter \
-	benchmark_ProxyAllocator
+	test_MIOBufferWriter
 
 test_LD_FLAGS = \
 	@AM_LDFLAGS@ \
-	@OPENSSL_LDFLAGS@ @SWOC_LDFLAGS@ @YAMLCPP_LDFLAGS@
+	@OPENSSL_LDFLAGS@ @SWOC_LDFLAGS@ @YAMLCPP_LDFLAGS@ @LIBPCRE@
 
 test_CPP_FLAGS = \
 	$(AM_CPPFLAGS) \
@@ -90,8 +89,6 @@ test_CPP_FLAGS = \
 	-I$(abs_top_srcdir)/proxy/hdrs \
 	-I$(abs_top_srcdir)/proxy/http \
 	-I$(abs_top_srcdir)/proxy/logging \
-	-I$(abs_top_srcdir)/mgmt \
-	-I$(abs_top_srcdir)/mgmt/utils \
 	-I$(abs_top_srcdir)/lib/catch2 \
 	@OPENSSL_INCLUDES@ @SWOC_INCLUDES@
 
@@ -99,9 +96,10 @@ test_LD_ADD = \
 	libinkevent.a \
 	$(top_builddir)/src/records/librecords_p.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
-	$(top_builddir)/src/tscore/libtscore.la \
+	$(top_builddir)/src/tscore/libtscore.a \
+	$(top_builddir)/src/api/libtsapi.la \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
-	@HWLOC_LIBS@ @SWOC_LIBS@ @YAMLCPP_LIBS@
+	@HWLOC_LIBS@ @SWOC_LIBS@ @YAMLCPP_LIBS@ @LIBPCRE@ @LIBCAP@
 
 test_EventSystem_SOURCES = unit_tests/test_EventSystem.cc
 test_EventSystem_CPPFLAGS = $(test_CPP_FLAGS)
@@ -116,13 +114,9 @@ test_IOBuffer_LDADD = $(test_LD_ADD)
 test_MIOBufferWriter_SOURCES = unit_tests/test_MIOBufferWriter.cc
 test_MIOBufferWriter_CPPFLAGS = $(test_CPP_FLAGS)
 test_MIOBufferWriter_LDFLAGS = $(test_LD_FLAGS)
+test_MIOBufferWriter_LDADD = $(test_LD_ADD)
 
-benchmark_ProxyAllocator_SOURCES = unit_tests/benchmark_ProxyAllocator.cc
-benchmark_ProxyAllocator_CPPFLAGS = $(test_CPP_FLAGS)
-benchmark_ProxyAllocator_LDFLAGS = $(test_LD_FLAGS)
-benchmark_ProxyAllocator_LDADD = $(test_LD_ADD)
-
-include $(top_srcdir)/build/tidy.mk
+include $(top_srcdir)/mk/tidy.mk
 
 clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

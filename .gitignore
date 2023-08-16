@@ -37,14 +37,15 @@ Makefile.in
 /tags
 /_build
 
-build/_aux/
-build/libtool.m4
-build/ltoptions.m4
-build/ltsugar.m4
-build/ltversion.m4
-build/lt~obsolete.m4
+m4/_aux/
+m4/libtool.m4
+m4/ltoptions.m4
+m4/ltsugar.m4
+m4/ltversion.m4
+m4/lt~obsolete.m4
 
-BUILD
+# common directory name for out-of-tree CMake builds
+build
 
 Makefile
 Makefile-pl
@@ -86,13 +87,11 @@ src/tscore/ink_autoconf.h
 src/tscore/ink_autoconf.h.in
 include/tscore/ink_config.h
 include/ts/apidefs.h
-src/tscore/benchmark_shared_mutex
 src/tscore/CompileParseRules
 src/tscore/CompileParseRules.dSYM
 src/tscore/ParseRulesCType
 src/tscore/ParseRulesCTypeToLower
 src/tscore/ParseRulesCTypeToUpper
-src/tscore/freelist_benchmark
 src/tscore/mkdfa
 src/tscore/test_atomic
 src/tscore/test_freelist
@@ -103,6 +102,7 @@ src/tscore/test_tscore
 src/tscpp/util/test_tscpputil
 src/records/test_librecords
 src/records/test_librecords_on_eventsystem
+src/api/test_Metrics
 lib/perl/lib/Apache/TS.pm
 
 iocore/net/test_certlookup
@@ -113,7 +113,6 @@ iocore/aio/test_AIO
 iocore/eventsystem/test_IOBuffer
 iocore/eventsystem/test_EventSystem
 iocore/eventsystem/test_MIOBufferWriter
-iocore/eventsystem/benchmark_ProxyAllocator
 
 iocore/hostdb/test_RefCountCache
 iocore/hostdb/test_HostFile
@@ -124,6 +123,7 @@ proxy/hdrs/test_proxy_hdrs
 proxy/hdrs/test_hdr_heap
 proxy/hdrs/test_Huffmancode
 proxy/hdrs/test_XPACK
+proxy/http/test_HttpTransact
 proxy/http/remap/test_NextHopRoundRobin
 proxy/http/remap/test_NextHopStrategyFactory
 proxy/http/remap/test_PluginDso
@@ -162,16 +162,19 @@ plugins/esi/vars_test
 
 plugins/experimental/uri_signing/test_uri_signing
 
+tools/benchmark/benchmark_FreeList
+tools/benchmark/benchmark_ProxyAllocator
+tools/benchmark/benchmark_SharedMutex
+
 mgmt/rpc/overridable_txn_vars.cc
+mgmt/rpc/IPCSocketClient.cc
 mgmt/rpc/test_jsonrpc
 mgmt/rpc/test_jsonrpcserver
-mgmt/api/traffic_api_cli_remote
 mgmt/tools/traffic_mcast_snoop
 mgmt/tools/traffic_net_config
 mgmt/tools/traffic_shmem_clean
 mgmt/tools/traffic_time_config
 mgmt/tools/traffic_vip_config
-mgmt/api/api_cli_remote
 mgmt/tools/shmem_clean
 mgmt/utils/test_mgmt_utils
 

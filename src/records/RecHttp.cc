@@ -36,53 +36,61 @@
 #include <string_view>
 #include <unordered_set>
 
-using ts::TextView;
+using swoc::TextView;
 
 SessionProtocolNameRegistry globalSessionProtocolNameRegistry;
 
-/* Protocol session well-known protocol names.
-   These are also used for NPN setup.
-*/
+namespace tsapi
+{
+namespace c
+{
 
-const char *const TS_ALPN_PROTOCOL_HTTP_0_9      = IP_PROTO_TAG_HTTP_0_9.data();
-const char *const TS_ALPN_PROTOCOL_HTTP_1_0      = IP_PROTO_TAG_HTTP_1_0.data();
-const char *const TS_ALPN_PROTOCOL_HTTP_1_1      = IP_PROTO_TAG_HTTP_1_1.data();
-const char *const TS_ALPN_PROTOCOL_HTTP_2_0      = IP_PROTO_TAG_HTTP_2_0.data();
-const char *const TS_ALPN_PROTOCOL_HTTP_3        = IP_PROTO_TAG_HTTP_3.data();
-const char *const TS_ALPN_PROTOCOL_HTTP_QUIC     = IP_PROTO_TAG_HTTP_QUIC.data();
-const char *const TS_ALPN_PROTOCOL_HTTP_3_D29    = IP_PROTO_TAG_HTTP_3_D29.data();
-const char *const TS_ALPN_PROTOCOL_HTTP_QUIC_D29 = IP_PROTO_TAG_HTTP_QUIC_D29.data();
+  /* Protocol session well-known protocol names.
+     These are also used for NPN setup.
+  */
 
-const char *const TS_ALPN_PROTOCOL_GROUP_HTTP  = "http";
-const char *const TS_ALPN_PROTOCOL_GROUP_HTTP2 = "http2";
+  const char *const TS_ALPN_PROTOCOL_HTTP_0_9      = IP_PROTO_TAG_HTTP_0_9.data();
+  const char *const TS_ALPN_PROTOCOL_HTTP_1_0      = IP_PROTO_TAG_HTTP_1_0.data();
+  const char *const TS_ALPN_PROTOCOL_HTTP_1_1      = IP_PROTO_TAG_HTTP_1_1.data();
+  const char *const TS_ALPN_PROTOCOL_HTTP_2_0      = IP_PROTO_TAG_HTTP_2_0.data();
+  const char *const TS_ALPN_PROTOCOL_HTTP_3        = IP_PROTO_TAG_HTTP_3.data();
+  const char *const TS_ALPN_PROTOCOL_HTTP_QUIC     = IP_PROTO_TAG_HTTP_QUIC.data();
+  const char *const TS_ALPN_PROTOCOL_HTTP_3_D29    = IP_PROTO_TAG_HTTP_3_D29.data();
+  const char *const TS_ALPN_PROTOCOL_HTTP_QUIC_D29 = IP_PROTO_TAG_HTTP_QUIC_D29.data();
 
-const char *const TS_PROTO_TAG_HTTP_1_0      = TS_ALPN_PROTOCOL_HTTP_1_0;
-const char *const TS_PROTO_TAG_HTTP_1_1      = TS_ALPN_PROTOCOL_HTTP_1_1;
-const char *const TS_PROTO_TAG_HTTP_2_0      = TS_ALPN_PROTOCOL_HTTP_2_0;
-const char *const TS_PROTO_TAG_HTTP_3        = TS_ALPN_PROTOCOL_HTTP_3;
-const char *const TS_PROTO_TAG_HTTP_QUIC     = TS_ALPN_PROTOCOL_HTTP_QUIC;
-const char *const TS_PROTO_TAG_HTTP_3_D29    = TS_ALPN_PROTOCOL_HTTP_3_D29;
-const char *const TS_PROTO_TAG_HTTP_QUIC_D29 = TS_ALPN_PROTOCOL_HTTP_QUIC_D29;
-const char *const TS_PROTO_TAG_TLS_1_3       = IP_PROTO_TAG_TLS_1_3.data();
-const char *const TS_PROTO_TAG_TLS_1_2       = IP_PROTO_TAG_TLS_1_2.data();
-const char *const TS_PROTO_TAG_TLS_1_1       = IP_PROTO_TAG_TLS_1_1.data();
-const char *const TS_PROTO_TAG_TLS_1_0       = IP_PROTO_TAG_TLS_1_0.data();
-const char *const TS_PROTO_TAG_TCP           = IP_PROTO_TAG_TCP.data();
-const char *const TS_PROTO_TAG_UDP           = IP_PROTO_TAG_UDP.data();
-const char *const TS_PROTO_TAG_IPV4          = IP_PROTO_TAG_IPV4.data();
-const char *const TS_PROTO_TAG_IPV6          = IP_PROTO_TAG_IPV6.data();
+  const char *const TS_ALPN_PROTOCOL_GROUP_HTTP  = "http";
+  const char *const TS_ALPN_PROTOCOL_GROUP_HTTP2 = "http2";
 
-std::unordered_set<std::string_view> TSProtoTags;
+  const char *const TS_PROTO_TAG_HTTP_1_0      = TS_ALPN_PROTOCOL_HTTP_1_0;
+  const char *const TS_PROTO_TAG_HTTP_1_1      = TS_ALPN_PROTOCOL_HTTP_1_1;
+  const char *const TS_PROTO_TAG_HTTP_2_0      = TS_ALPN_PROTOCOL_HTTP_2_0;
+  const char *const TS_PROTO_TAG_HTTP_3        = TS_ALPN_PROTOCOL_HTTP_3;
+  const char *const TS_PROTO_TAG_HTTP_QUIC     = TS_ALPN_PROTOCOL_HTTP_QUIC;
+  const char *const TS_PROTO_TAG_HTTP_3_D29    = TS_ALPN_PROTOCOL_HTTP_3_D29;
+  const char *const TS_PROTO_TAG_HTTP_QUIC_D29 = TS_ALPN_PROTOCOL_HTTP_QUIC_D29;
+  const char *const TS_PROTO_TAG_TLS_1_3       = IP_PROTO_TAG_TLS_1_3.data();
+  const char *const TS_PROTO_TAG_TLS_1_2       = IP_PROTO_TAG_TLS_1_2.data();
+  const char *const TS_PROTO_TAG_TLS_1_1       = IP_PROTO_TAG_TLS_1_1.data();
+  const char *const TS_PROTO_TAG_TLS_1_0       = IP_PROTO_TAG_TLS_1_0.data();
+  const char *const TS_PROTO_TAG_TCP           = IP_PROTO_TAG_TCP.data();
+  const char *const TS_PROTO_TAG_UDP           = IP_PROTO_TAG_UDP.data();
+  const char *const TS_PROTO_TAG_IPV4          = IP_PROTO_TAG_IPV4.data();
+  const char *const TS_PROTO_TAG_IPV6          = IP_PROTO_TAG_IPV6.data();
 
-// Precomputed indices for ease of use.
-int TS_ALPN_PROTOCOL_INDEX_HTTP_0_9      = SessionProtocolNameRegistry::INVALID;
-int TS_ALPN_PROTOCOL_INDEX_HTTP_1_0      = SessionProtocolNameRegistry::INVALID;
-int TS_ALPN_PROTOCOL_INDEX_HTTP_1_1      = SessionProtocolNameRegistry::INVALID;
-int TS_ALPN_PROTOCOL_INDEX_HTTP_2_0      = SessionProtocolNameRegistry::INVALID;
-int TS_ALPN_PROTOCOL_INDEX_HTTP_3        = SessionProtocolNameRegistry::INVALID;
-int TS_ALPN_PROTOCOL_INDEX_HTTP_QUIC     = SessionProtocolNameRegistry::INVALID;
-int TS_ALPN_PROTOCOL_INDEX_HTTP_3_D29    = SessionProtocolNameRegistry::INVALID;
-int TS_ALPN_PROTOCOL_INDEX_HTTP_QUIC_D29 = SessionProtocolNameRegistry::INVALID;
+  std::unordered_set<std::string_view> TSProtoTags;
+
+  // Precomputed indices for ease of use.
+  int TS_ALPN_PROTOCOL_INDEX_HTTP_0_9      = SessionProtocolNameRegistry::INVALID;
+  int TS_ALPN_PROTOCOL_INDEX_HTTP_1_0      = SessionProtocolNameRegistry::INVALID;
+  int TS_ALPN_PROTOCOL_INDEX_HTTP_1_1      = SessionProtocolNameRegistry::INVALID;
+  int TS_ALPN_PROTOCOL_INDEX_HTTP_2_0      = SessionProtocolNameRegistry::INVALID;
+  int TS_ALPN_PROTOCOL_INDEX_HTTP_3        = SessionProtocolNameRegistry::INVALID;
+  int TS_ALPN_PROTOCOL_INDEX_HTTP_QUIC     = SessionProtocolNameRegistry::INVALID;
+  int TS_ALPN_PROTOCOL_INDEX_HTTP_3_D29    = SessionProtocolNameRegistry::INVALID;
+  int TS_ALPN_PROTOCOL_INDEX_HTTP_QUIC_D29 = SessionProtocolNameRegistry::INVALID;
+
+} // end namespace c
+} // end namespace tsapi
 
 // Predefined protocol sets for ease of use.
 SessionProtocolSet HTTP_PROTOCOL_SET;
@@ -796,7 +804,7 @@ SessionProtocolNameRegistry::convert_openssl_alpn_wire_format(int index)
 }
 
 int
-SessionProtocolNameRegistry::toIndex(ts::TextView name)
+SessionProtocolNameRegistry::toIndex(swoc::TextView name)
 {
   int zret = this->indexFor(name);
   if (INVALID == zret) {
@@ -832,15 +840,15 @@ SessionProtocolNameRegistry::toIndexConst(TextView name)
 int
 SessionProtocolNameRegistry::indexFor(TextView name) const
 {
-  const ts::TextView *end = m_names.begin() + m_n;
-  auto spot               = std::find(m_names.begin(), end, name);
+  const swoc::TextView *end = m_names.begin() + m_n;
+  auto spot                 = std::find(m_names.begin(), end, name);
   if (spot != end) {
     return static_cast<int>(spot - m_names.begin());
   }
   return INVALID;
 }
 
-ts::TextView
+swoc::TextView
 SessionProtocolNameRegistry::nameFor(int idx) const
 {
   return 0 <= idx && idx < m_n ? m_names[idx] : TextView{};

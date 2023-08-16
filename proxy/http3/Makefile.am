@@ -23,8 +23,6 @@ AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/proxy/api/ts \
   -I$(abs_top_srcdir)/lib \
   -I$(abs_top_srcdir)/src/records \
-  -I$(abs_top_srcdir)/mgmt \
-  -I$(abs_top_srcdir)/mgmt/utils \
   -I$(abs_top_srcdir)/proxy \
   -I$(abs_top_srcdir)/proxy/http \
   -I$(abs_top_srcdir)/proxy/hdrs \
@@ -52,6 +50,7 @@ libhttp3_a_SOURCES = \
   Http3DataFramer.cc \
   Http3HeaderVIOAdaptor.cc \
   Http3StreamDataVIOAdaptor.cc \
+  Http3ProtocolEnforcer.cc \
   QPACK.cc
 
 #
@@ -73,10 +72,12 @@ test_LDADD = \
   $(top_builddir)/iocore/net/TLSKeyLogger.o \
   $(top_builddir)/iocore/eventsystem/libinkevent.a \
   $(top_builddir)/src/records/librecords_p.a \
-  $(top_builddir)/src/tscore/libtscore.la \
+  $(top_builddir)/src/api/libtsapi.la \
   $(top_builddir)/src/tscpp/util/libtscpputil.la \
   $(top_builddir)/proxy/hdrs/libhdrs.a \
-  @LIBPCRE@ \
+  $(top_builddir)/src/tscore/libtscore.a \
+	@LIBPCRE@ \
+	@LIBCAP@ \
   @OPENSSL_LIBS@ \
   @HWLOC_LIBS@ @SWOC_LIBS@
 
@@ -86,6 +87,10 @@ test_libhttp3_LDADD = $(test_LDADD)
 test_libhttp3_SOURCES = \
   ./test/main.cc \
   ./test/test_Http3Frame.cc \
+  ./test/test_Http3FrameDispatcher.cc \
+  ./Http3ProtocolEnforcer.cc \
+  ./Http3FrameDispatcher.cc \
+  ./Http3DebugNames.cc \
   ./Http3Config.cc \
   ./Http3Frame.cc
 
@@ -101,7 +106,7 @@ test_qpack_SOURCES = \
 #
 # clang-tidy
 #
-include $(top_srcdir)/build/tidy.mk
+include $(top_srcdir)/mk/tidy.mk
 
 clang-tidy-local: $(libhttp3_a_SOURCES) \
 	$(CXX_Clang_Tidy)

@@ -42,11 +42,11 @@
 TEST_CASE("HdrTestHttpParse", "[proxy][hdrtest]")
 {
   struct Test {
-    ts::TextView msg;
+    swoc::TextView msg;
     int expected_result;
     int expected_bytes_consumed;
   };
-  static const std::array<Test, 23> tests = {
+  static const std::array<Test, 26> tests = {
     {
      {"GET /index.html HTTP/1.0\r\n", PARSE_RESULT_DONE, 26},
      {"GET /index.html HTTP/1.0\r\n\r\n***BODY****", PARSE_RESULT_DONE, 28},
@@ -68,6 +68,9 @@ TEST_CASE("HdrTestHttpParse", "[proxy][hdrtest]")
      {"GET /index.html HTTP/1.0\r\nUser-Agent: foobar\r\n", PARSE_RESULT_DONE, 46},
      {"GET /index.html HTTP/1.0\r\n", PARSE_RESULT_DONE, 26},
      {"GET /index.html hTTP/1.0\r\n", PARSE_RESULT_ERROR, 26},
+     {"POST /index.html HTTP/1.0\r\nContent-Length: 0\r\n\r\n", PARSE_RESULT_DONE, 48},
+     {"POST /index.html HTTP/1.0\r\nContent-Length: \r\n\r\n", PARSE_RESULT_ERROR, 47},
+     {"POST /index.html HTTP/1.0\r\nContent-Length:\r\n\r\n", PARSE_RESULT_ERROR, 46},
      {"CONNECT foo.example HTTP/1.1\r\n", PARSE_RESULT_DONE, 30},
      {"GET foo.example HTTP/1.1\r\n", PARSE_RESULT_ERROR, 26},
      {"", PARSE_RESULT_ERROR, 0},
@@ -99,10 +102,10 @@ TEST_CASE("HdrTestHttpParse", "[proxy][hdrtest]")
 
 TEST_CASE("MIMEScanner_fragments", "[proxy][mimescanner_fragments]")
 {
-  constexpr ts::TextView const message = "GET /index.html HTTP/1.0\r\n";
+  constexpr swoc::TextView const message = "GET /index.html HTTP/1.0\r\n";
 
   struct Fragment {
-    ts::TextView msg;
+    swoc::TextView msg;
     bool shares_input;
     int expected_result;
   };
@@ -115,10 +118,10 @@ TEST_CASE("MIMEScanner_fragments", "[proxy][mimescanner_fragments]")
   };
 
   MIMEScanner scanner;
-  ts::TextView output; // only set on last call
+  swoc::TextView output; // only set on last call
 
   for (auto const &frag : fragments) {
-    ts::TextView input          = frag.msg;
+    swoc::TextView input        = frag.msg;
     bool got_shares_input       = !frag.shares_input;
     constexpr bool const is_eof = false;
     ParseResult const got_res   = scanner.get(input, output, got_shares_input, is_eof, MIMEScanner::LINE);

@@ -21,10 +21,10 @@ Test prefetch.so plugin (simple mode).
 '''
 
 server = Test.MakeOriginServer("server")
-for i in range(4):
+for i in list(range(1, 1 + 3)):
     request_header = {
         "headers":
-            f"GET /texts/demo-{i + 1}.txt HTTP/1.1\r\n"
+            f"GET /texts/demo-{i}.txt HTTP/1.1\r\n"
             "Host: does.not.matter\r\n"  # But cannot be omitted.
             "\r\n",
             "timestamp": "1469733493.993",
@@ -37,7 +37,7 @@ for i in range(4):
             "Cache-control: max-age=85000\r\n"
             "\r\n",
         "timestamp": "1469733493.993",
-        "body": f"This is the body for demo-{i + 1}.txt.\n"
+        "body": f"This is the body for demo-{i}.txt.\n"
     }
     server.addResponse("sessionlog.json", request_header, response_header)
 

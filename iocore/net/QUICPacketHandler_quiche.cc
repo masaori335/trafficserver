@@ -207,7 +207,7 @@ QUICPacketHandlerIn::_recv_packet(int event, UDPPacket *udp_packet)
   int rc = quiche_header_info(buf, buf_len, QUICConnectionId::SCID_LEN, &version, &type, scid, &scid_len, dcid, &dcid_len, token,
                               &token_len);
   if (rc < 0) {
-    QUICDebug("Ignore packet - failed to parse header");
+    QUICDebug("Ignore packet - failed to parse header: '%d'", rc);
     udp_packet->free();
     return;
   }
@@ -305,7 +305,7 @@ QUICPacketHandlerIn::_recv_packet(int event, UDPPacket *udp_packet)
              quiche_con, this, &this->_ctable, ssl);
     vc->id = net_next_connection_number();
     vc->con.move(con);
-    vc->submit_time = Thread::get_hrtime();
+    vc->submit_time = ink_get_hrtime();
     vc->thread      = eth;
     vc->mutex       = new_ProxyMutex();
     vc->action_     = *this->action_;

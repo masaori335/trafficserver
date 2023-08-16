@@ -21,6 +21,7 @@
   limitations under the License.
  */
 
+#include "I_DNSProcessor.h"
 #include "HttpDebugNames.h"
 #include "P_EventSystem.h"
 #include "StatPages.h"
@@ -615,8 +616,8 @@ HttpDebugNames::get_api_hook_name(TSHttpHookID t)
   return "unknown hook";
 }
 
-ts::BufferWriter &
-bwformat(ts::BufferWriter &w, ts::BWFSpec const &spec, HttpTransact::ServerState_t state)
+swoc::BufferWriter &
+bwformat(swoc::BufferWriter &w, swoc::bwf::Spec const &spec, HttpTransact::ServerState_t state)
 {
   if (spec.has_numeric_type()) {
     return bwformat(w, spec, static_cast<uintmax_t>(state));
@@ -625,8 +626,8 @@ bwformat(ts::BufferWriter &w, ts::BWFSpec const &spec, HttpTransact::ServerState
   }
 }
 
-ts::BufferWriter &
-bwformat(ts::BufferWriter &w, ts::BWFSpec const &spec, HttpTransact::CacheAction_t state)
+swoc::BufferWriter &
+bwformat(swoc::BufferWriter &w, swoc::bwf::Spec const &spec, HttpTransact::CacheAction_t state)
 {
   if (spec.has_numeric_type()) {
     return bwformat(w, spec, static_cast<uintmax_t>(state));
@@ -635,8 +636,8 @@ bwformat(ts::BufferWriter &w, ts::BWFSpec const &spec, HttpTransact::CacheAction
   }
 }
 
-ts::BufferWriter &
-bwformat(ts::BufferWriter &w, ts::BWFSpec const &spec, HttpTransact::StateMachineAction_t state)
+swoc::BufferWriter &
+bwformat(swoc::BufferWriter &w, swoc::bwf::Spec const &spec, HttpTransact::StateMachineAction_t state)
 {
   if (spec.has_numeric_type()) {
     return bwformat(w, spec, static_cast<uintmax_t>(state));
@@ -645,8 +646,8 @@ bwformat(ts::BufferWriter &w, ts::BWFSpec const &spec, HttpTransact::StateMachin
   }
 }
 
-ts::BufferWriter &
-bwformat(ts::BufferWriter &w, ts::BWFSpec const &spec, TSHttpHookID id)
+swoc::BufferWriter &
+bwformat(swoc::BufferWriter &w, swoc::bwf::Spec const &spec, TSHttpHookID id)
 {
   if (spec.has_numeric_type()) {
     return bwformat(w, spec, static_cast<uintmax_t>(id));

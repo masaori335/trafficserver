@@ -26,7 +26,7 @@
 
 #include "tscore/ink_platform.h"
 #include "tscore/Arena.h"
-#include <tscpp/util/TextView.h>
+#include <swoc/TextView.h>
 
 class MIMEHdr;
 
@@ -50,10 +50,6 @@ char *timestamp_to_date_str(long timestamp);
 char *timestamp_to_time_str(long timestamp);
 unsigned ip_from_host(char *host);
 void strip_trailing_newline(char *buf);
-char *escapify_url(Arena *arena, char *url, size_t len_in, int *len_out, char *dst = nullptr, size_t dst_size = 0,
-                   const unsigned char *map = nullptr);
-char *pure_escapify_url(Arena *arena, char *url, size_t len_in, int *len_out, char *dst = nullptr, size_t dst_size = 0,
-                        const unsigned char *map = nullptr);
 char *int64_to_str(char *buf, unsigned int buf_size, int64_t val, unsigned int *total_chars, unsigned int req_width = 0,
                    char pad_char = '0');
 void remove_content_type_attributes(char *type_str, int *type_len);
@@ -76,7 +72,7 @@ int file_is_writeable(const char *full_filename, off_t *size_bytes = nullptr, bo
  * @return The unrolled filename if it looked like a rolled log file or the
  * input filename if it didn't.
  */
-ts::TextView get_unrolled_filename(ts::TextView rolled_filename);
+swoc::TextView get_unrolled_filename(swoc::TextView rolled_filename);
 
 // Marshals header tags and values together, with a single terminating nul character.  Returns buffer space required.  'buf' points
 // to where to put the marshaled data.  If 'buf' is null, no data is marshaled, but the function returns the amount of space that

@@ -108,15 +108,9 @@ public:
   const char *msg = nullptr;
 
 protected:
-  Http3Error(){};
+  Http3Error() : app_error_code(Http3ErrorCode::H3_NO_ERROR){};
   Http3Error(const Http3ErrorCode error_code, const char *error_msg = nullptr)
     : cls(Http3ErrorClass::APPLICATION), app_error_code(error_code), msg(error_msg){};
-};
-
-class Http3NoError : public Http3Error
-{
-public:
-  Http3NoError() : Http3Error() {}
 };
 
 class Http3ConnectionError : public Http3Error
@@ -142,6 +136,4 @@ public:
   Http3Stream *stream;
 };
 
-using Http3ErrorUPtr           = std::unique_ptr<Http3Error>;
-using Http3ConnectionErrorUPtr = std::unique_ptr<Http3ConnectionError>;
-using Http3StreamErrorUPtr     = std::unique_ptr<Http3StreamError>;
+using Http3ErrorUPtr = std::unique_ptr<Http3Error>;

@@ -25,8 +25,6 @@ AM_CPPFLAGS += \
 	-I$(abs_top_srcdir)/proxy/http \
 	-I$(abs_top_srcdir)/proxy/shared \
 	-I$(abs_top_srcdir)/proxy/http/remap \
-	-I$(abs_top_srcdir)/mgmt \
-	-I$(abs_top_srcdir)/mgmt/utils \
 	@SWOC_INCLUDES@
 	$(TS_INCLUDES)
 
@@ -80,19 +78,17 @@ test_CPPFLAGS = \
 	-I$(abs_top_srcdir)/proxy/http/remap \
 	-I$(abs_top_srcdir)/proxy/hdrs \
 	-I$(abs_top_srcdir)/proxy/shared \
-	-I$(abs_top_srcdir)/mgmt \
-	-I$(abs_top_srcdir)/mgmt/utils \
 	-I$(abs_top_srcdir)/lib/catch2 \
 	@SWOC_INCLUDES@ \
 	$(TS_INCLUDES) \
 	@OPENSSL_INCLUDES@
 
 test_LDADD = \
-	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/iocore/cache/libinkcache.a \
 	$(top_builddir)/proxy/libproxy.a \
 	$(top_builddir)/proxy/http/libhttp.a \
 	$(top_builddir)/proxy/http/remap/libhttp_remap.a \
+	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/proxy/libproxy.a \
 	$(top_builddir)/iocore/net/libinknet.a \
 	$(top_builddir)/iocore/dns/libinkdns.a \
@@ -102,10 +98,12 @@ test_LDADD = \
 	$(top_builddir)/proxy/shared/libdiagsconfig.a \
 	$(top_builddir)/iocore/utils/libinkutils.a \
 	$(top_builddir)/iocore/aio/libinkaio.a \
-	$(top_builddir)/src/tscore/libtscore.la \
 	$(top_builddir)/src/records/librecords_p.a \
+	$(top_builddir)/src/api/libtsapi.la \
+	$(top_builddir)/src/tscore/libtscore.a \
 	$(top_builddir)/lib/fastlz/libfastlz.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
+	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	@SWOC_LIBS@ \
 	@HWLOC_LIBS@ \
 	@LIBPCRE@ \
@@ -115,7 +113,13 @@ test_LDADD = \
 	@LIBPROFILER@ \
 	@OPENSSL_LIBS@ \
 	@YAMLCPP_LIBS@ \
+	@LIBCAP@ \
 	-lm
+
+if ENABLE_QUIC
+test_LDADD += \
+  $(top_builddir)/iocore/net/quic/libquic.a
+endif
 
 check_PROGRAMS = \
   test_Cache \
@@ -212,7 +216,7 @@ test_Update_header_SOURCES = \
   $(test_main_SOURCES) \
   ./test/test_Update_header.cc
 
-include $(top_srcdir)/build/tidy.mk
+include $(top_srcdir)/mk/tidy.mk
 
 clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

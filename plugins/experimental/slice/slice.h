@@ -19,14 +19,9 @@
 #pragma once
 
 #include "ts/ts.h"
-#include "ts/experimental.h"
 
 #include <cstring>
 #include <string_view>
-
-#ifndef SLICE_EXPORT
-#define SLICE_EXPORT extern "C" tsapi
-#endif
 
 #ifndef PLUGIN_NAME
 #define PLUGIN_NAME "slice"

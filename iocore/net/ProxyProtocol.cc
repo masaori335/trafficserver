@@ -26,24 +26,24 @@
 #include "I_EventSystem.h"
 #include "I_NetVConnection.h"
 
-#include "tscore/BufferWriter.h"
+#include "tscpp/util/ts_bw.h"
 #include "tscore/ink_assert.h"
 #include "tscore/ink_string.h"
 #include "tscore/ink_inet.h"
-#include "tscpp/util/TextView.h"
+#include "swoc/TextView.h"
 
 namespace
 {
 using namespace std::literals;
 
-constexpr ts::TextView PPv1_CONNECTION_PREFACE = "PROXY"sv;
-constexpr ts::TextView PPv2_CONNECTION_PREFACE = "\x0D\x0A\x0D\x0A\x00\x0D\x0A\x51\x55\x49\x54\x0A"sv;
+constexpr swoc::TextView PPv1_CONNECTION_PREFACE = "PROXY"sv;
+constexpr swoc::TextView PPv2_CONNECTION_PREFACE = "\x0D\x0A\x0D\x0A\x00\x0D\x0A\x51\x55\x49\x54\x0A"sv;
 
 constexpr size_t PPv1_CONNECTION_HEADER_LEN_MIN = 15;
 
-constexpr ts::TextView PPv1_PROTO_UNKNOWN = "UNKNOWN"sv;
-constexpr ts::TextView PPv1_PROTO_TCP4    = "TCP4"sv;
-constexpr ts::TextView PPv1_PROTO_TCP6    = "TCP6"sv;
+constexpr swoc::TextView PPv1_PROTO_UNKNOWN = "UNKNOWN"sv;
+constexpr swoc::TextView PPv1_PROTO_TCP4    = "TCP4"sv;
+constexpr swoc::TextView PPv1_PROTO_TCP6    = "TCP6"sv;
 
 constexpr std::string_view PPv1_DELIMITER = " "sv;
 
@@ -62,7 +62,7 @@ constexpr uint16_t PPv2_ADDR_LEN_INET  = 4 + 4 + 2 + 2;
 constexpr uint16_t PPv2_ADDR_LEN_INET6 = 16 + 16 + 2 + 2;
 constexpr uint16_t PPv2_ADDR_LEN_UNIX  = 108 + 108;
 
-const ts::BWFSpec ADDR_ONLY_FMT{"::a"};
+const swoc::bwf::Spec ADDR_ONLY_FMT{"::a"};
 
 struct PPv2Hdr {
   uint8_t sig[12]; ///< preface
@@ -98,12 +98,12 @@ struct PPv2Hdr {
    @return read length
  */
 size_t
-proxy_protocol_v1_parse(ProxyProtocol *pp_info, ts::TextView hdr)
+proxy_protocol_v1_parse(ProxyProtocol *pp_info, swoc::TextView hdr)
 {
   ink_release_assert(hdr.size() >= PPv1_CONNECTION_HEADER_LEN_MIN);
 
   // Find the terminating newline
-  ts::TextView::size_type pos = hdr.find('\n');
+  swoc::TextView::size_type pos = hdr.find('\n');
   if (pos == hdr.npos) {
     Debug("proxyprotocol_v1", "ssl_has_proxy_v1: LF not found");
     return 0;
@@ -114,7 +114,7 @@ proxy_protocol_v1_parse(ProxyProtocol *pp_info, ts::TextView hdr)
     return 0;
   }
 
-  ts::TextView token;
+  swoc::TextView token;
 
   // All the cases are special and sequence, might as well unroll them.
 
@@ -128,21 +128,21 @@ proxy_protocol_v1_parse(ProxyProtocol *pp_info, ts::TextView hdr)
   Debug("proxyprotocol_v1", "proxy_protov1_parse: [%.*s] = PREFACE", static_cast<int>(token.size()), token.data());
 
   // The INET protocol family - TCP4, TCP6 or UNKNOWN
-  if (PPv1_PROTO_UNKNOWN.isPrefixOf(hdr)) {
+  if (hdr.starts_with(PPv1_PROTO_UNKNOWN)) {
     Debug("proxyprotocol_v1", "proxy_protov1_parse: [UNKNOWN] = INET Family");
 
     // Ignore anything presented before the CRLF
     pp_info->version = ProxyProtocolVersion::V1;
 
     return pos + 1;
-  } else if (PPv1_PROTO_TCP4.isPrefixOf(hdr)) {
+  } else if (hdr.starts_with(PPv1_PROTO_TCP4)) {
     token = hdr.split_prefix_at(' ');
     if (0 == token.size()) {
       return 0;
     }
 
     pp_info->ip_family = AF_INET;
-  } else if (PPv1_PROTO_TCP6.isPrefixOf(hdr)) {
+  } else if (hdr.starts_with(PPv1_PROTO_TCP6)) {
     token = hdr.split_prefix_at(' ');
     if (0 == token.size()) {
       return 0;
@@ -183,7 +183,7 @@ proxy_protocol_v1_parse(ProxyProtocol *pp_info, ts::TextView hdr)
   }
   Debug("proxyprotocol_v1", "proxy_protov1_parse: [%.*s] = Source Port", static_cast<int>(token.size()), token.data());
 
-  in_port_t src_port = ts::svtoi(token);
+  in_port_t src_port = swoc::svtoi(token);
   if (src_port == 0) {
     Debug("proxyprotocol_v1", "proxy_protov1_parse: src port [%d] token [%.*s] failed to parse", src_port,
           static_cast<int>(token.size()), token.data());
@@ -199,7 +199,7 @@ proxy_protocol_v1_parse(ProxyProtocol *pp_info, ts::TextView hdr)
   }
   Debug("proxyprotocol_v1", "proxy_protov1_parse: [%.*s] = Destination Port", static_cast<int>(token.size()), token.data());
 
-  in_port_t dst_port = ts::svtoi(token);
+  in_port_t dst_port = swoc::svtoi(token);
   if (dst_port == 0) {
     Debug("proxyprotocol_v1", "proxy_protov1_parse: dst port [%d] token [%.*s] failed to parse", dst_port,
           static_cast<int>(token.size()), token.data());
@@ -220,7 +220,7 @@ proxy_protocol_v1_parse(ProxyProtocol *pp_info, ts::TextView hdr)
    @return read length
  */
 size_t
-proxy_protocol_v2_parse(ProxyProtocol *pp_info, const ts::TextView &msg)
+proxy_protocol_v2_parse(ProxyProtocol *pp_info, const swoc::TextView &msg)
 {
   ink_release_assert(msg.size() >= PPv2_CONNECTION_HEADER_LEN);
 
@@ -319,7 +319,7 @@ proxy_protocol_v1_build(uint8_t *buf, size_t max_buf_len, const ProxyProtocol &p
     return 0;
   }
 
-  ts::FixedBufferWriter bw{reinterpret_cast<char *>(buf), max_buf_len};
+  swoc::FixedBufferWriter bw{reinterpret_cast<char *>(buf), max_buf_len};
 
   // preface
   bw.write(PPv1_CONNECTION_PREFACE);
@@ -345,15 +345,15 @@ proxy_protocol_v1_build(uint8_t *buf, size_t max_buf_len, const ProxyProtocol &p
 
   // TCP source port
   {
-    size_t len = ink_small_itoa(ats_ip_port_host_order(pp_info.src_addr), bw.auxBuffer(), bw.remaining());
-    bw.fill(len);
+    size_t len = ink_small_itoa(ats_ip_port_host_order(pp_info.src_addr), bw.aux_data(), bw.remaining());
+    bw.commit(len);
     bw.write(PPv1_DELIMITER);
   }
 
   // TCP destination port
   {
-    size_t len = ink_small_itoa(ats_ip_port_host_order(pp_info.dst_addr), bw.auxBuffer(), bw.remaining());
-    bw.fill(len);
+    size_t len = ink_small_itoa(ats_ip_port_host_order(pp_info.dst_addr), bw.aux_data(), bw.remaining());
+    bw.commit(len);
   }
 
   Debug("proxyprotocol_v1", "Proxy Protocol v1: %.*s", static_cast<int>(bw.size()), bw.data());
@@ -374,7 +374,7 @@ proxy_protocol_v2_build(uint8_t *buf, size_t max_buf_len, const ProxyProtocol &p
     return 0;
   }
 
-  ts::FixedBufferWriter bw{reinterpret_cast<char *>(buf), max_buf_len};
+  swoc::FixedBufferWriter bw{reinterpret_cast<char *>(buf), max_buf_len};
 
   // # proxy_hdr_v2
   // ## preface
@@ -403,7 +403,7 @@ proxy_protocol_v2_build(uint8_t *buf, size_t max_buf_len, const ProxyProtocol &p
 
   // ## len field. this will be set at the end of this function
   const size_t len_field_offset = bw.size();
-  bw.fill(2);
+  bw.commit(2);
 
   ink_release_assert(bw.size() == PPv2_CONNECTION_HEADER_LEN);
 
@@ -428,7 +428,7 @@ proxy_protocol_v2_build(uint8_t *buf, size_t max_buf_len, const ProxyProtocol &p
   }
   case AF_UNIX: {
     // unsupported yet
-    bw.fill(PPv2_ADDR_LEN_UNIX);
+    bw.commit(PPv2_ADDR_LEN_UNIX);
     break;
   }
   default:
@@ -452,15 +452,15 @@ proxy_protocol_v2_build(uint8_t *buf, size_t max_buf_len, const ProxyProtocol &p
    PROXY Protocol Parser
  */
 size_t
-proxy_protocol_parse(ProxyProtocol *pp_info, ts::TextView tv)
+proxy_protocol_parse(ProxyProtocol *pp_info, swoc::TextView tv)
 {
   size_t len = 0;
 
   // Parse the TextView before moving the bytes in the buffer
-  if (tv.size() >= PPv1_CONNECTION_HEADER_LEN_MIN && PPv1_CONNECTION_PREFACE.isPrefixOf(tv)) {
+  if (tv.size() >= PPv1_CONNECTION_HEADER_LEN_MIN && tv.starts_with(PPv1_CONNECTION_PREFACE)) {
     // Client must send at least 15 bytes to get a reasonable match.
     len = proxy_protocol_v1_parse(pp_info, tv);
-  } else if (tv.size() >= PPv2_CONNECTION_HEADER_LEN && PPv2_CONNECTION_PREFACE.isPrefixOf(tv)) {
+  } else if (tv.size() >= PPv2_CONNECTION_HEADER_LEN && tv.starts_with(PPv2_CONNECTION_PREFACE)) {
     len = proxy_protocol_v2_parse(pp_info, tv);
   } else {
     // if we don't have the PROXY preface, we don't have a ProxyProtocol header

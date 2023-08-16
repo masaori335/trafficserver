@@ -25,7 +25,6 @@
 
 #include "P_SSLUtils.h"
 
-#include "tscpp/util/TextView.h"
 #include "tscore/ink_config.h"
 #include "tscore/ink_platform.h"
 #include "tscore/SimpleTokenizer.h"
@@ -2165,7 +2164,7 @@ get_verify_str(SSL *ssl)
       break;
     }
 
-    ts::bwprint(verify_str, "{}:{}", policy_str.c_str(), property_str.c_str());
+    swoc::bwprint(verify_str, "{}:{}", policy_str.c_str(), property_str.c_str());
   }
 
   return verify_str;
@@ -2432,7 +2431,7 @@ SSLMultiCertConfigLoader::load_certs(SSL_CTX *ctx, const std::vector<std::string
     }
 
     if (secret_key_data.empty()) {
-      Note("Empty private key for public key %.*s", int(secret_data.size()), secret_data.data());
+      Dbg(dbg_ctl_ssl_load, "empty private key for public key %s", cert_names_list[i].c_str());
       secret_key_data = secret_data;
     }
     if (!SSLPrivateKeyHandler(ctx, params, keyPath.c_str(), secret_key_data.data(), secret_key_data.size())) {

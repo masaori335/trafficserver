@@ -309,9 +309,9 @@ public:
 
     this->_fsm = FetchSMAllocator.alloc();
     if (use_post) {
-      this->_fsm->ext_init(this, "POST", uri, "HTTP/1.1", reinterpret_cast<sockaddr *>(&sin), 0);
+      this->_fsm->ext_init(this, "POST", uri, "HTTP/1.1", reinterpret_cast<sockaddr *>(&sin), TS_FETCH_FLAGS_SKIP_REMAP);
     } else {
-      this->_fsm->ext_init(this, "GET", uri, "HTTP/1.1", reinterpret_cast<sockaddr *>(&sin), 0);
+      this->_fsm->ext_init(this, "GET", uri, "HTTP/1.1", reinterpret_cast<sockaddr *>(&sin), TS_FETCH_FLAGS_SKIP_REMAP);
     }
   }
 
@@ -1001,7 +1001,7 @@ query_responder(const char *uri, const char *user_agent, TS_OCSP_REQUEST *req, i
   ink_hrtime start, end;
   TS_OCSP_RESPONSE *resp = nullptr;
 
-  start = Thread::get_hrtime();
+  start = ink_get_hrtime();
   end   = ink_hrtime_add(start, ink_hrtime_from_sec(req_timeout));
 
   HTTPRequest httpreq;
@@ -1037,7 +1037,7 @@ query_responder(const char *uri, const char *user_agent, TS_OCSP_REQUEST *req, i
   // Wait until the request completes
   do {
     ink_hrtime_sleep(HRTIME_MSECONDS(1));
-  } while (!httpreq.is_done() && (Thread::get_hrtime() < end));
+  } while (!httpreq.is_done() && (ink_get_hrtime() < end));
 
   if (!httpreq.is_done()) {
     Error("OCSP request was timed out; uri=%s", uri);

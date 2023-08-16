@@ -32,6 +32,7 @@
 
 #include "tscore/ink_platform.h"
 #include "I_UDPNet.h"
+#include "PollCont.h"
 
 // added by YTS Team, yamsat
 static inline PollCont *get_UDPPollCont(EThread *);
@@ -53,6 +54,10 @@ public:
 
   off_t pollCont_offset;
   off_t udpNetHandler_offset;
+
+private:
+  void read_single_message_from_net(UDPNetHandler *nh, UDPConnection *uc);
+  void read_multiple_messages_from_net(UDPNetHandler *nh, UDPConnection *xuc);
 };
 
 extern UDPNetProcessorInternal udpNetInternal;
@@ -82,7 +87,7 @@ public:
   init()
   {
     now_slot       = 0;
-    ink_hrtime now = ink_get_hrtime_internal();
+    ink_hrtime now = ink_get_hrtime();
     int i          = now_slot;
     int j          = 0;
     while (j < N_SLOTS) {
@@ -309,6 +314,11 @@ void initialize_thread_for_udp_net(EThread *thread);
 class UDPNetHandler : public Continuation, public EThread::LoopTailHandler
 {
 public:
+  struct Cfg {
+    // Segmentation offload.
+    bool enable_gso{true};
+    bool enable_gro{true};
+  };
   // engine for outgoing packets
   UDPQueue udpOutQueue;
 
@@ -332,10 +342,15 @@ public:
   int waitForActivity(ink_hrtime timeout) override;
   void signalActivity() override;
 
-  UDPNetHandler(bool enable_gso);
+  UDPNetHandler(Cfg &&cfg);
+
+  // GRO
+  bool is_gro_enabled() const;
+
+private:
+  Cfg _cfg; // Note: may not be the best place to put this, but for now is ok.
 };
 
-struct PollCont;
 static inline PollCont *
 get_UDPPollCont(EThread *t)
 {

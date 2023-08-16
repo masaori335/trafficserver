@@ -1,6 +1,6 @@
 ^BUILDS$
 ^autom4te\.cache$
-^build$
+^m4$
 ^build-aux$
 ^body_factory$
 ^config\.log$
@@ -9,7 +9,7 @@
 ^libtool$
 ^blib$
 ^stamp-h1$
-.*\.txt$
+.*(?<!CMakeLists)\.txt$
 .*\.cfg$
 .*\.in$
 .*\.dot$

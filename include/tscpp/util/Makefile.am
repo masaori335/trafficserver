@@ -19,14 +19,14 @@
 library_includedir=$(includedir)/tscpp/util
 
 library_include_HEADERS = \
-        ts_diag_levels.h \
-        ts_ip.h \
-	IntrusiveDList.h \
+	ts_bw.h \
+	ts_bw_format.h \
+	ts_diag_levels.h \
+	ts_ip.h \
 	LocalBuffer.h \
 	PostScript.h \
 	Strerror.h \
-	TextView.h \
 	TsSharedMutex.h \
 	ts_unit_parser.h \
 	ts_time_parser.h \
-        YamlCfg.h
+	YamlCfg.h

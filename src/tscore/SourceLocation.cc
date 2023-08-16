@@ -25,8 +25,9 @@
 #include <cstring>
 #include "tscore/SourceLocation.h"
 #include "tscore/ink_defs.h"
-#include "tscore/BufferWriter.h"
-#include "tscore/bwf_std_format.h"
+#include "tscpp/util/ts_bw_format.h"
+
+using namespace swoc::literals;
 
 // This method takes a SourceLocation source location data structure and
 // converts it to a human-readable representation, in the buffer <buf>
@@ -56,15 +57,12 @@ SourceLocation::str(char *buf, int buflen) const
   return (buf);
 }
 
-ts::BufferWriter &
-SourceLocation::print(ts::BufferWriter &w, ts::BWFSpec const &) const
+swoc::BufferWriter &
+SourceLocation::print(swoc::BufferWriter &w, swoc::bwf::Spec const &) const
 {
   if (this->valid()) {
-    ts::TextView base{
-      ts::TextView{file, strlen(file)}
-      .take_suffix_at('/')
-    };
-    w.print("{}:{}{}", base, line, ts::bwf::OptionalAffix(func, ")"_sv, " ("_sv));
+    auto base = swoc::TextView{file, strlen(file)}.take_suffix_at('/');
+    w.print("{}:{}{}", base, line, swoc::bwf::If(func, " ({})"_tv, func));
   };
   return w;
 }

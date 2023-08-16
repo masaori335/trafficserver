@@ -15,6 +15,16 @@
 #
 #######################
 
+add_library(inkcont STATIC InkContInternal.cc)
+add_library(ts::inkcont ALIAS inkcont)
+
+target_link_libraries(inkcont
+  PRIVATE
+    ts::http_remap
+    ts::inkevent
+    ts::tscore
+)
+
 add_executable(traffic_server
         Crash.cc
         EventName.cc
@@ -31,46 +41,53 @@ target_include_directories(traffic_server PRIVATE
         ${IOCORE_INCLUDE_DIRS}
         ${PROXY_INCLUDE_DIRS}
         ${CMAKE_SOURCE_DIR}/mgmt
-        ${CMAKE_SOURCE_DIR}/mgmt/utils
 )
 target_link_libraries(traffic_server
     PRIVATE
-        http
-        http_remap
-        http2
-        logging
-        hdrs
-        configmanager
-        diagsconfig
-        utils_p
-        inkutils
-        inkdns
-        inkhostdb
-        inkcache
-        fastlz
-        aio
-        tscore
-        tscpputil
-        proxy
-        inknet
-        records_p
-        inkevent
-        yaml-cpp
+        ts::tscore
+        ts::tsapi
+        ts::inkcont
+        ts::http
+        ts::http_remap
+        ts::http2
+        ts::logging
+        ts::hdrs
+        ts::configmanager
+        ts::diagsconfig
+        ts::inkutils
+        ts::inkdns
+        ts::inkhostdb
+        ts::inkcache
+        ts::aio
+        ts::proxy
+        ts::inknet
+        ts::records
+        ts::inkevent
         libswoc
-        jsonrpc_protocol
-        jsonrpc_server
-        rpcpublichandlers
+        ts::jsonrpc_protocol
+        ts::jsonrpc_server
+        ts::rpcpublichandlers
 )
+
+if(TS_USE_QUIC)
+    target_link_libraries(traffic_server
+        PRIVATE
+            ts::http3
+            ts::quic
+    )
+endif()
 
 if(TS_HAS_PROFILER)
     target_link_libraries(traffic_server PRIVATE gperftools::profiler)
 endif()
 
 if (TS_USE_LINUX_IO_URING)
-    target_link_libraries(traffic_server inkuring uring)
+    target_link_libraries(traffic_server PRIVATE inkuring uring)
 endif (TS_USE_LINUX_IO_URING)
 if (TS_USE_LINUX_NATIVE_AIO)
-    target_link_libraries(traffic_server aio)
+    target_link_libraries(traffic_server PRIVATE aio)
 endif (TS_USE_LINUX_NATIVE_AIO)
+
+set_target_properties(traffic_server PROPERTIES ENABLE_EXPORTS ON)
 
 install(TARGETS traffic_server)

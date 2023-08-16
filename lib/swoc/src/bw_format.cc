@@ -709,11 +709,11 @@ bwformat(BufferWriter &w, bwf::Spec const &spec, bwf::HexDump const &hex) {
 }
 
 BufferWriter &
-bwformat(BufferWriter &w, bwf::Spec const &spec, MemSpan<void> const &span) {
+bwformat(BufferWriter &w, bwf::Spec const &spec, MemSpan<void const> const &span) {
   if ('x' == spec._type || 'X' == spec._type) {
     const char *digits =  ('X' == spec._type) ? bwf::UPPER_DIGITS : bwf::LOWER_DIGITS;
     size_t block       = spec._prec > 0 ? spec._prec : span.size();
-    TextView view{span.rebind<char>()};
+    TextView view{span.rebind<char const>()};
     bool space_p = false;
     while (view) {
       if (space_p)
@@ -899,7 +899,7 @@ bwformat(BufferWriter &w, bwf::Spec const &spec, bwf::Errno const &e) {
       if (short_p) {
         w.write(": ");
       }
-      w.write(strerror(e._e));
+      w.write(TextView(strerror(e._e), TextView::npos));
     }
     if (spec._type != 's' && spec._type != 'S') {
       w.write(' ');
@@ -960,10 +960,10 @@ bwformat(BufferWriter &w, bwf::Spec const &spec, bwf::Pattern const &pattern) {
   return w;
 }
 
-swoc::BufferWriter &
-bwformat(swoc::BufferWriter &w, swoc::bwf::Spec const &spec, std::error_code const &ec) {
-  static const auto GENERIC_CATEGORY = &std::generic_category();
-  static const auto SYSTEM_CATEGORY  = &std::system_category();
+BufferWriter &
+bwformat(BufferWriter &w, bwf::Spec const &spec, std::error_code const &ec) {
+  static const auto G_CAT = &std::generic_category();
+  static const auto S_CAT  = &std::system_category();
 
   // This provides convenient safe access to the errno short name array.
   static const swoc::bwf::Format number_fmt{"[{}]"_sv}; // numeric value format.
@@ -971,15 +971,26 @@ bwformat(swoc::BufferWriter &w, swoc::bwf::Spec const &spec, std::error_code con
     // if numeric type, print just the numeric part.
     bwformat(w, spec, ec.value());
   } else {
-    if ((&ec.category() == GENERIC_CATEGORY || &ec.category() == SYSTEM_CATEGORY) && swoc::ERRNO_RANGE.contains(ec.value())) {
+    if ((&ec.category() == G_CAT || &ec.category() == S_CAT) && swoc::ERRNO_RANGE.contains(ec.value())) {
       bwformat(w, spec, swoc::ERRNO_SHORT_NAME[ec.value()]);
     } else {
       w.write(ec.message());
     }
     if (spec._type != 's' && spec._type != 'S') {
-      w.write(' ');
-      w.print(number_fmt, ec.value());
+      bwformat(w, spec, ec.value());
+      w.write(' ').write('[').format(spec, ec.value()).write(']');
     }
+  }
+  return w;
+}
+
+BufferWriter&
+bwformat(BufferWriter &w, bwf::Spec const& spec, bwf::UnHex const& obj) {
+  auto span { obj._span };
+  size_t limit = spec._max;
+  while (span.size() >= 2 && limit--) {
+    auto b = svto_radix<16>(span.clip_prefix(2).rebind<char const>());
+    w.write(b);
   }
   return w;
 }

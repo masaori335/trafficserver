@@ -22,6 +22,7 @@
  */
 
 #include "Http3HeaderVIOAdaptor.h"
+#include "hdrs/HeaderValidator.h"
 
 #include "I_VIO.h"
 #include "HTTP.h"
@@ -46,7 +47,7 @@ Http3HeaderVIOAdaptor::interests()
 }
 
 Http3ErrorUPtr
-Http3HeaderVIOAdaptor::handle_frame(std::shared_ptr<const Http3Frame> frame)
+Http3HeaderVIOAdaptor::handle_frame(std::shared_ptr<const Http3Frame> frame, int32_t /* frame_seq */, Http3StreamType /* s_type */)
 {
   ink_assert(frame->type() == Http3FrameType::HEADERS);
   const Http3HeadersFrame *hframe = dynamic_cast<const Http3HeadersFrame *>(frame.get());
@@ -64,7 +65,7 @@ Http3HeaderVIOAdaptor::handle_frame(std::shared_ptr<const Http3Frame> frame)
     ink_abort("should not be here");
   }
 
-  return Http3ErrorUPtr(new Http3NoError());
+  return Http3ErrorUPtr(nullptr);
 }
 
 bool
@@ -95,6 +96,13 @@ Http3HeaderVIOAdaptor::event_handler(int event, Event *data)
 int
 Http3HeaderVIOAdaptor::_on_qpack_decode_complete()
 {
+  // Currently trailer support for h3 is not implemented.
+  constexpr static bool NON_TRAILER = false;
+  if (!HeaderValidator::is_h2_h3_header_valid(this->_header, http_hdr_type_get(this->_header.m_http) == HTTP_TYPE_RESPONSE,
+                                              NON_TRAILER)) {
+    Debug("http3", "Header is invalid");
+    return -1;
+  }
   int res = this->_hvc.convert(this->_header, 3, 1);
   if (res != 0) {
     Debug("http3", "PARSE_RESULT_ERROR");

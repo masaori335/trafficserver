@@ -32,6 +32,8 @@
 #include "HttpDebugNames.h"
 #include "HttpSM.h"
 
+#include "TLSSNISupport.h"
+
 #include "tscore/ink_assert.h"
 #include "tscpp/util/PostScript.h"
 #include "tscpp/util/LocalBuffer.h"
@@ -1096,7 +1098,15 @@ Http2ConnectionState::_get_configured_initial_window_size() const
   if (this->session->is_outbound()) {
     return Http2::initial_window_size_out;
   } else {
-    return Http2::initial_window_size_in;
+    uint32_t initial_window_size_in = Http2::initial_window_size_in;
+    if (this->session) {
+      if (auto snis = session->get_netvc()->get_service<TLSSNISupport>();
+          snis && snis->hints_from_sni.http2_initial_window_size_in.has_value()) {
+        initial_window_size_in = snis->hints_from_sni.http2_initial_window_size_in.value();
+      }
+    }
+
+    return initial_window_size_in;
   }
 }
 
@@ -1198,6 +1208,7 @@ Http2ConnectionState::init(Http2CommonSession *ssn)
     this->_local_rwnd              = configured_session_window;
     this->_local_rwnd_is_shrinking = false;
   }
+  Http2ConDebug(session, "initial _local_rwnd: %zd", this->_local_rwnd);
 
   local_hpack_handle = new HpackHandle(HTTP2_HEADER_TABLE_SIZE);
   peer_hpack_handle  = new HpackHandle(HTTP2_HEADER_TABLE_SIZE);
@@ -1717,7 +1728,7 @@ Http2ConnectionState::restart_streams()
     // Call send_response_body() for each streams
     while (s != end) {
       Http2Stream *next = static_cast<Http2Stream *>(s->link.next ? s->link.next : stream_list.head);
-      if (std::min(this->get_peer_rwnd(), s->get_peer_rwnd()) > 0) {
+      if (this->get_peer_rwnd() > 0 && s->get_peer_rwnd() > 0) {
         SCOPED_MUTEX_LOCK(lock, s->mutex, this_ethread());
         s->restart_sending();
       }
@@ -1727,7 +1738,7 @@ Http2ConnectionState::restart_streams()
 
     // The above stopped at end, so we need to call send_response_body() one
     // last time for the stream pointed to by end.
-    if (std::min(this->get_peer_rwnd(), s->get_peer_rwnd()) > 0) {
+    if (this->get_peer_rwnd() > 0 && s->get_peer_rwnd() > 0) {
       SCOPED_MUTEX_LOCK(lock, s->mutex, this_ethread());
       s->restart_sending();
     }

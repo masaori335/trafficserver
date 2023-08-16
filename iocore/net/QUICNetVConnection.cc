@@ -357,7 +357,7 @@ QUICNetVConnection::acceptEvent(int event, Event *e)
 
   // Send this NetVC to NetHandler and start to polling read & write event.
   if (h->startIO(this) < 0) {
-    free(t);
+    this->free_thread(t);
     return EVENT_DONE;
   }
 
@@ -397,7 +397,7 @@ QUICNetVConnection::startEvent(int event, Event *e)
   if (!action_.cancelled) {
     this->connectUp(e->ethread, NO_FD);
   } else {
-    this->free(e->ethread);
+    this->free_thread(e->ethread);
   }
 
   return EVENT_DONE;
@@ -486,7 +486,7 @@ QUICNetVConnection::start()
 }
 
 void
-QUICNetVConnection::free(EThread *t)
+QUICNetVConnection::free_thread(EThread *t)
 {
   QUICConDebug("Free connection");
 
@@ -519,7 +519,7 @@ QUICNetVConnection::free(EThread *t)
 void
 QUICNetVConnection::free()
 {
-  this->free(this_ethread());
+  this->free_thread(this_ethread());
 }
 
 // called by ET_UDP
@@ -1013,7 +1013,7 @@ QUICNetVConnection::state_connection_closed(int event, Event *data)
     if (this->nh) {
       this->nh->free_netevent(this);
     } else {
-      this->free(this->mutex->thread_holding);
+      this->free_thread(this->mutex->thread_holding);
     }
     break;
   }
@@ -1515,7 +1515,7 @@ QUICNetVConnection::_state_common_send_packet()
         this->_context->trigger(QUICContext::CallbackEvent::PACKET_SEND, packet.get());
 
         packet_info->packet_number = packet->packet_number();
-        packet_info->time_sent     = Thread::get_hrtime();
+        packet_info->time_sent     = ink_get_hrtime();
         packet_info->ack_eliciting = packet->is_ack_eliciting();
         packet_info->in_flight     = true;
         if (packet_info->ack_eliciting) {

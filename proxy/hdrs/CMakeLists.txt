@@ -28,7 +28,21 @@ add_library(hdrs STATIC
         VersionConverter.cc
         HuffmanCodec.cc
         XPACK.cc
+        HeaderValidator.cc
 )
-target_include_directories(hdrs PRIVATE
+add_library(ts::hdrs ALIAS hdrs)
+
+target_include_directories(hdrs
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+    PRIVATE
         ${IOCORE_INCLUDE_DIRS}
+)
+
+target_link_libraries(hdrs
+    PUBLIC
+        libswoc
+        ts::tscore
+    PRIVATE
+        ts::inkevent
 )

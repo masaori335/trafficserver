@@ -26,6 +26,8 @@
 #include "QUICMultiCertConfigLoader.h"
 #include "quic/QUICStream_quiche.h"
 #include "quic/QUICGlobals.h"
+
+#include <netinet/in.h>
 #include <quiche.h>
 
 static constexpr ink_hrtime WRITE_READY_INTERVAL = HRTIME_MSECONDS(2);
@@ -35,7 +37,14 @@ static constexpr ink_hrtime WRITE_READY_INTERVAL = HRTIME_MSECONDS(2);
 
 ClassAllocator<QUICNetVConnection> quicNetVCAllocator("quicNetVCAllocator");
 
-QUICNetVConnection::QUICNetVConnection() {}
+QUICNetVConnection::QUICNetVConnection()
+{
+  this->_set_service(static_cast<ALPNSupport *>(this));
+  this->_set_service(static_cast<TLSBasicSupport *>(this));
+  this->_set_service(static_cast<TLSCertSwitchSupport *>(this));
+  this->_set_service(static_cast<TLSSNISupport *>(this));
+  this->_set_service(static_cast<TLSSessionResumptionSupport *>(this));
+}
 
 QUICNetVConnection::~QUICNetVConnection() {}
 
@@ -72,7 +81,7 @@ QUICNetVConnection::init(QUICVersion version, QUICConnectionId peer_cid, QUICCon
 void
 QUICNetVConnection::free()
 {
-  this->free(this_ethread());
+  this->free_thread(this_ethread());
 }
 
 // called by ET_UDP
@@ -103,7 +112,7 @@ QUICNetVConnection::set_local_addr()
 }
 
 void
-QUICNetVConnection::free(EThread *t)
+QUICNetVConnection::free_thread(EThread *t)
 {
   QUICConDebug("Free connection");
 
@@ -175,6 +184,10 @@ QUICNetVConnection::state_handshake(int event, Event *data)
 int
 QUICNetVConnection::state_established(int event, Event *data)
 {
+  if (!this->_quiche_con) {
+    // Connection has been closed.
+    return EVENT_DONE;
+  }
   switch (event) {
   case QUIC_EVENT_PACKET_READ_READY:
     this->_handle_read_ready();
@@ -287,7 +300,7 @@ QUICNetVConnection::acceptEvent(int event, Event *e)
 
   // Send this NetVC to NetHandler and start to polling read & write event.
   if (h->startIO(this) < 0) {
-    free(t);
+    this->free_thread(t);
     return EVENT_DONE;
   }
 
@@ -743,6 +756,12 @@ QUICNetVConnection::_get_tls_curve() const
 void
 QUICNetVConnection::_fire_ssl_servername_event()
 {
+}
+
+in_port_t
+QUICNetVConnection::_get_local_port()
+{
+  return this->get_local_port();
 }
 
 const IpEndpoint &

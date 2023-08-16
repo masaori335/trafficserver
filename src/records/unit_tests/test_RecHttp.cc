@@ -25,12 +25,12 @@
 
 #include "catch.hpp"
 
-#include "tscore/BufferWriter.h"
+#include "tscpp/util/ts_bw.h"
 #include "records/I_RecHttp.h"
 #include "test_Diags.h"
 #include "tscore/ink_defs.h"
 
-using ts::TextView;
+using swoc::TextView;
 
 TEST_CASE("RecHttp", "[librecords][RecHttp]")
 {

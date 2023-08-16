@@ -36,15 +36,20 @@
 #include "include/proxy-wasm/context.h"
 
 #include "ts/ts.h"
-#include "ts/experimental.h"
 
 #define WASM_DEBUG_TAG "wasm"
 
 namespace ats_wasm
 {
+const unsigned int LOCAL_IP_ADDRESS = 0x0100007f;
+const int LOCAL_PORT                = 8080;
+const int FETCH_EVENT_ID_BASE       = 10000;
+
 using proxy_wasm::ContextBase;
 using proxy_wasm::PluginBase;
+using proxy_wasm::WasmBase;
 using proxy_wasm::WasmResult;
+using proxy_wasm::WasmStreamType;
 using proxy_wasm::BufferInterface;
 using proxy_wasm::BufferBase;
 using proxy_wasm::WasmHeaderMapType;
@@ -134,6 +139,55 @@ struct HeaderMap {
   }
 };
 
+// extended BufferBase
+class Buffer : public BufferBase
+{
+public:
+  Buffer() { owned_data_str_ = ""; }
+  ~Buffer() override = default;
+
+  size_t
+  size() const override
+  {
+    if (owned_data_str_ != "") {
+      return owned_data_str_.size();
+    }
+    return BufferBase::size();
+  }
+
+  WasmResult copyTo(WasmBase *wasm, size_t start, size_t length, uint64_t ptr_ptr, uint64_t size_ptr) const override;
+
+  WasmResult
+  copyFrom(size_t start, size_t length, std::string_view data) override
+  {
+    owned_data_str_.replace(start, length, data);
+    return WasmResult::Ok;
+  }
+
+  void
+  clear() override
+  {
+    owned_data_str_ = "";
+    BufferBase::clear();
+  }
+
+  BufferBase *
+  set(std::string data)
+  {
+    owned_data_str_ = owned_data_str_ + data;
+    return this;
+  }
+
+  std::string
+  get()
+  {
+    return owned_data_str_;
+  }
+
+private:
+  std::string owned_data_str_;
+};
+
 class Context : public ContextBase
 {
 public:
@@ -174,6 +228,57 @@ public:
 
   BufferInterface *getBuffer(WasmBufferType type) override;
 
+  WasmResult httpCall(std::string_view target, const Pairs &request_headers, std::string_view request_body,
+                      const Pairs &request_trailers, int timeout_millisconds, uint32_t *token_ptr) override;
+
+  // Call result functions
+  void
+  setHttpCallResult(TSMBuffer buf, TSMLoc loc, const void *body, size_t size, TSEvent result)
+  {
+    cr_hdr_buf_   = buf;
+    cr_hdr_loc_   = loc;
+    cr_body_      = body;
+    cr_body_size_ = size;
+    cr_result_    = result;
+  }
+
+  void
+  resetHttpCallResult()
+  {
+    cr_hdr_buf_   = nullptr;
+    cr_hdr_loc_   = nullptr;
+    cr_body_      = nullptr;
+    cr_body_size_ = 0;
+    cr_result_    = (TSEvent)(FETCH_EVENT_ID_BASE + 1);
+  }
+
+  // transform result functions
+  void
+  clearTransformResult()
+  {
+    transform_result_.clear();
+  }
+
+  void
+  setTransformResult(const char *body, size_t body_size)
+  {
+    if (body == nullptr || body_size == 0) {
+      std::string s("");
+      transform_result_.set(s);
+    } else {
+      std::string s(body, body_size);
+      transform_result_.set(s);
+    }
+  }
+
+  const char *
+  getTransformResult(size_t *body_size)
+  {
+    std::string s = transform_result_.get();
+    *body_size    = s.size();
+    return s.c_str();
+  }
+
   // Metrics
   WasmResult defineMetric(uint32_t metric_type, std::string_view name, uint32_t *metric_id_ptr) override;
   WasmResult incrementMetric(uint32_t metric_id, int64_t offset) override;
@@ -186,8 +291,32 @@ public:
   WasmResult setProperty(std::string_view key, std::string_view serialized_value) override;
 
   // send a premade response
+  WasmResult continueStream(WasmStreamType stream_type) override;
+  WasmResult closeStream(WasmStreamType stream_type) override;
   WasmResult sendLocalResponse(uint32_t response_code, std::string_view body_text, Pairs additional_headers,
                                GrpcStatusCode /* grpc_status */, std::string_view details) override;
+
+  // check stream
+  bool
+  isTxnReenable()
+  {
+    return reenable_txn_;
+  }
+  void
+  setTxnReenable()
+  {
+    reenable_txn_ = true;
+  }
+  void
+  resetTxnReenable()
+  {
+    reenable_txn_ = false;
+  }
+  bool
+  isLocalReply()
+  {
+    return local_reply_;
+  }
 
   WasmResult getSharedData(std::string_view key, std::pair<std::string, uint32_t /* cas */> *data) override;
 
@@ -209,11 +338,51 @@ private:
   TSHttpTxn txnp_{nullptr};
   TSCont scheduler_cont_{nullptr};
 
+  // continue/close stream?
+  bool reenable_txn_ = false;
+
+  // local reply
   Pairs local_reply_headers_{};
   std::string local_reply_details_ = "";
   bool local_reply_                = false;
 
+  // buffer for result (don't set to null as default)
   BufferBase buffer_;
+
+  // Call result
+  TSEvent cr_result_    = (TSEvent)(FETCH_EVENT_ID_BASE + 1);
+  const void *cr_body_  = nullptr;
+  size_t cr_body_size_  = 0;
+  TSMBuffer cr_hdr_buf_ = nullptr;
+  TSMLoc cr_hdr_loc_    = nullptr;
+
+  // transform result
+  Buffer transform_result_;
+};
+
+// local struct representing info for async transaction
+struct AsyncInfo {
+  uint32_t token;
+  Context *root_context;
+};
+
+// local struct representing info for transform
+struct TransformInfo {
+  TSVIO output_vio;
+  TSIOBuffer output_buffer;
+  TSIOBufferReader output_reader;
+
+  TSVIO reserved_vio;
+  TSIOBuffer reserved_buffer;
+  TSIOBufferReader reserved_reader;
+
+  int64_t upstream_bytes;
+  int64_t downstream_bytes;
+  int64_t total;
+
+  Context *context;
+
+  bool request;
 };
 
 } // namespace ats_wasm

@@ -16,14 +16,12 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-include $(top_srcdir)/build/tidy.mk
+include $(top_srcdir)/mk/tidy.mk
 
 AM_CPPFLAGS += \
 	$(iocore_include_dirs) \
 	-I$(abs_top_srcdir)/include \
 	-I$(abs_top_srcdir)/lib \
-	-I$(abs_top_srcdir)/mgmt \
-	-I$(abs_top_srcdir)/mgmt/utils \
 	-I$(abs_top_srcdir)/proxy \
 	-I$(abs_top_srcdir)/proxy/http \
 	-I$(abs_top_srcdir)/proxy/hdrs \
@@ -74,12 +72,13 @@ test_libhttp2_LDADD = \
 	Http2Frame.o \
 	HPACK.o \
 	$(top_builddir)/src/records/librecords_p.a \
+	$(top_builddir)/src/api/libtsapi.la \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
-	$(top_builddir)/src/tscore/libtscore.la \
 	$(top_builddir)/proxy/hdrs/libhdrs.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
+	$(top_builddir)/src/tscore/libtscore.a \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
-	@SWOC_LIBS@ @HWLOC_LIBS@
+	@SWOC_LIBS@ @HWLOC_LIBS@ @LIBPCRE@ @OPENSSL_LIBS@ @LIBCAP@
 
 if OS_LINUX
 test_libhttp2_LDFLAGS = $(AM_LDFLAGS)\
@@ -88,7 +87,6 @@ else
 test_libhttp2_LDFLAGS = $(AM_LDFLAGS)\
     -Wl,-undefined -Wl,suppress -Wl,-flat_namespace -Wl,-dead_strip
 endif
-
 test_libhttp2_CPPFLAGS = $(AM_CPPFLAGS)\
 	-I$(abs_top_srcdir)/lib/catch2
 
@@ -99,7 +97,7 @@ test_libhttp2_SOURCES = \
 	unit_tests/main.cc
 
 test_Http2DependencyTree_LDADD = \
-	$(top_builddir)/src/tscore/libtscore.la \
+	$(top_builddir)/src/tscore/libtscore.a \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	@SWOC_LIBS@
 
@@ -112,9 +110,11 @@ test_Http2DependencyTree_SOURCES = \
 
 test_Http2FrequencyCounter_LDADD = \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
-	$(top_builddir)/src/tscore/libtscore.la \
+	$(top_builddir)/src/tscore/libtscore.a \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
-	@SWOC_LIBS@
+	@SWOC_LIBS@ \
+	@LIBPCRE@ \
+	@LIBCAP@
 
 test_Http2FrequencyCounter_CPPFLAGS = $(AM_CPPFLAGS)\
 	-I$(abs_top_srcdir)/lib/catch2
@@ -126,11 +126,12 @@ test_Http2FrequencyCounter_SOURCES = \
 
 test_HPACK_LDADD = \
 	$(top_builddir)/proxy/hdrs/libhdrs.a \
-	$(top_builddir)/src/tscore/libtscore.la \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/src/records/librecords_p.a \
-	@SWOC_LIBS@ @HWLOC_LIBS@
+	$(top_builddir)/src/tscore/libtscore.a \
+	$(top_builddir)/src/api/libtsapi.la \
+	@SWOC_LIBS@ @HWLOC_LIBS@ @LIBPCRE@ @OPENSSL_LIBS@ @YAMLCPP_LIBS@ @LIBCAP@
 
 test_HPACK_SOURCES = \
 	test_HPACK.cc \

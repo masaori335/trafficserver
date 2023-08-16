@@ -32,8 +32,7 @@
 #include "I_ProtectedQueue.h"
 #include "tscpp/util/Histogram.h"
 
-// TODO: This would be much nicer to have "run-time" configurable (or something),
-// perhaps based on proxy.config.stat_api.max_stats_allowed or other configs. XXX
+// TODO: This would be much nicer to have "run-time" configurable (or something)
 #define PER_THREAD_DATA (1024 * 1024)
 
 // This is not used by the cache anymore, it uses proxy.config.cache.mutex_retry_delay
@@ -293,7 +292,7 @@ public:
 
   Event *schedule_local(Event *e);
 
-  InkRand generator = static_cast<uint64_t>(Thread::get_hrtime_updated() ^ reinterpret_cast<uintptr_t>(this));
+  InkRand generator = static_cast<uint64_t>(ink_get_hrtime() ^ reinterpret_cast<uintptr_t>(this));
 
   /*-------------------------------------------------------*\
   |  UNIX Interface                                         |
@@ -368,7 +367,7 @@ public:
     int
     waitForActivity(ink_hrtime timeout) override
     {
-      _q.wait(Thread::get_hrtime() + timeout);
+      _q.wait(ink_get_hrtime() + timeout);
       return 0;
     }
     void
@@ -507,7 +506,7 @@ public:
 
     /// Base name for event loop histogram stats.
     /// The actual stats are determined by the @c Histogram properties.
-    static constexpr ts::TextView LOOP_HISTOGRAM_STAT_STEM = "proxy.process.eventloop.time.";
+    static constexpr swoc::TextView LOOP_HISTOGRAM_STAT_STEM = "proxy.process.eventloop.time.";
     /// Base bucket size for @c Graph
     static constexpr ts_milliseconds LOOP_HISTOGRAM_BUCKET_SIZE{5};
 
@@ -516,7 +515,7 @@ public:
     Graph _loop_timing; ///< Event loop timings.
     /// Base name for event loop histogram stats.
     /// The actual stats are determined by the @c Histogram properties.
-    static constexpr ts::TextView API_HISTOGRAM_STAT_STEM = "proxy.process.api.time.";
+    static constexpr swoc::TextView API_HISTOGRAM_STAT_STEM = "proxy.process.api.time.";
     /// Base bucket size in milliseconds for plugin API timings.
     static constexpr ts_milliseconds API_HISTOGRAM_BUCKET_SIZE{1};
     Graph _api_timing; ///< Plugin API callout timings.

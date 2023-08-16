@@ -49,29 +49,6 @@ net_next_connection_number()
 
 NetProcessor::AcceptOptions const NetProcessor::DEFAULT_ACCEPT_OPTIONS;
 
-NetProcessor::AcceptOptions &
-NetProcessor::AcceptOptions::reset()
-{
-  local_port = 0;
-  local_ip.invalidate();
-  accept_threads        = -1;
-  ip_family             = AF_INET;
-  etype                 = ET_NET;
-  localhost_only        = false;
-  frequent_accept       = true;
-  recv_bufsize          = 0;
-  send_bufsize          = 0;
-  sockopt_flags         = 0;
-  packet_mark           = 0;
-  packet_tos            = 0;
-  packet_notsent_lowat  = 0;
-  tfo_queue_length      = 0;
-  f_inbound_transparent = false;
-  f_mptcp               = false;
-  f_proxy_protocol      = false;
-  return *this;
-}
-
 Action *
 UnixNetProcessor::accept(Continuation *cont, AcceptOptions const &opt)
 {
@@ -184,25 +161,21 @@ UnixNetProcessor::stop_accept()
 }
 
 Action *
-UnixNetProcessor::connect_re(Continuation *cont, sockaddr const *target, NetVCOptions *opt)
+UnixNetProcessor::connect_re(Continuation *cont, sockaddr const *target, NetVCOptions const &opt)
 {
   if (TSSystemState::is_event_system_shut_down()) {
     return nullptr;
   }
 
-  EThread *t             = eventProcessor.assign_affinity_by_type(cont, opt->etype);
+  EThread *t             = eventProcessor.assign_affinity_by_type(cont, opt.etype);
   UnixNetVConnection *vc = (UnixNetVConnection *)this->allocate_vc(t);
 
-  if (opt) {
-    vc->options = *opt;
-  } else {
-    opt = &vc->options;
-  }
+  vc->options = opt;
 
   vc->set_context(NET_VCONNECTION_OUT);
 
-  const bool using_socks = (socks_conf_stuff->socks_needed && opt->socks_support != NO_SOCKS &&
-                            (opt->socks_version != SOCKS_DEFAULT_VERSION ||
+  const bool using_socks = (socks_conf_stuff->socks_needed && opt.socks_support != NO_SOCKS &&
+                            (opt.socks_version != SOCKS_DEFAULT_VERSION ||
                              /* This implies we are tunnelling.
                               * we need to connect using socks server even
                               * if this ip is in no_socks list.
@@ -212,7 +185,7 @@ UnixNetProcessor::connect_re(Continuation *cont, sockaddr const *target, NetVCOp
   SocksEntry *socksEntry = nullptr;
 
   vc->id          = net_next_connection_number();
-  vc->submit_time = Thread::get_hrtime();
+  vc->submit_time = ink_get_hrtime();
   vc->mutex       = cont->mutex;
   Action *result  = &vc->action_;
   // Copy target to con.addr,
@@ -225,7 +198,7 @@ UnixNetProcessor::connect_re(Continuation *cont, sockaddr const *target, NetVCOp
     socksEntry = socksAllocator.alloc();
     // The socksEntry->init() will get the origin server addr by vc->get_remote_addr(),
     //   and save it to socksEntry->req_data.dest_ip.
-    socksEntry->init(cont->mutex, vc, opt->socks_support, opt->socks_version); /*XXXX remove last two args */
+    socksEntry->init(cont->mutex, vc, opt.socks_support, opt.socks_version); /*XXXX remove last two args */
     socksEntry->action_ = cont;
     cont                = socksEntry;
     if (!ats_is_ip(&socksEntry->server_addr)) {
