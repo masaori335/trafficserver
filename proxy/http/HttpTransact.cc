@@ -21,6 +21,7 @@
   limitations under the License.
  */
 
+#include "tscore/ink_inet.h"
 #include "tscpp/util/ts_bw_format.h"
 
 #include "ts/parentselectdefs.h"
@@ -1829,8 +1830,8 @@ HttpTransact::PPDNSLookup(State *s)
     s->parent_info.dst_addr.network_order_port() = htons(s->parent_result.port);
     get_ka_info_from_host_db(s, &s->parent_info, &s->client_info, s->dns_info.active);
 
-    char addrbuf[INET6_ADDRSTRLEN];
-    TxnDebug("http_trans", "DNS lookup for successful IP: %s", ats_ip_ntop(&s->parent_info.dst_addr.sa, addrbuf, sizeof(addrbuf)));
+    ip_port_text_buffer addrbuf;
+    TxnDebug("http_trans", "DNS lookup for successful IP: %s", ats_ip_nptop(&s->parent_info.dst_addr.sa, addrbuf, sizeof(addrbuf)));
   }
 
   // Since this function can be called several times while retrying
@@ -1961,9 +1962,9 @@ HttpTransact::OSDNSLookup(State *s)
   ats_ip_copy(&s->request_data.dest_ip, &s->server_info.dst_addr);
   get_ka_info_from_host_db(s, &s->server_info, &s->client_info, s->dns_info.active);
 
-  char addrbuf[INET6_ADDRSTRLEN];
+  ip_port_text_buffer addrbuf;
   TxnDebug("http_trans", "DNS lookup for O.S. successful IP: %s",
-           ats_ip_ntop(&s->server_info.dst_addr.sa, addrbuf, sizeof(addrbuf)));
+           ats_ip_nptop(&s->server_info.dst_addr.sa, addrbuf, sizeof(addrbuf)));
 
   if (s->redirect_info.redirect_in_process) {
     // If dns lookup was not successful, the code below will handle the error.
@@ -1989,7 +1990,7 @@ HttpTransact::OSDNSLookup(State *s)
       } else {
         // Invalid server response, since we can't copy it we are going to reject
         TxnDebug("http_trans", "Invalid server response. Rejecting.");
-        Error("Invalid server response. Rejecting. IP: %s", ats_ip_ntop(&s->server_info.dst_addr.sa, addrbuf, sizeof(addrbuf)));
+        Error("Invalid server response. Rejecting. IP: %s", ats_ip_nptop(&s->server_info.dst_addr.sa, addrbuf, sizeof(addrbuf)));
       }
       build_error_response(s, HTTP_STATUS_FORBIDDEN, nullptr, "request#syntax_error");
       SET_VIA_STRING(VIA_DETAIL_TUNNEL, VIA_DETAIL_TUNNEL_NO_FORWARD);
@@ -3628,9 +3629,9 @@ HttpTransact::handle_response_from_parent(State *s)
       s->state_machine->do_hostdb_update_if_necessary();
     }
 
-    char addrbuf[INET6_ADDRSTRLEN];
+    ip_port_text_buffer addrbuf;
     TxnDebug("http_trans", "[%d] failed to connect to parent %s", s->current.retry_attempts.get(),
-             ats_ip_ntop(&s->current.server->dst_addr.sa, addrbuf, sizeof(addrbuf)));
+             ats_ip_nptop(&s->current.server->dst_addr.sa, addrbuf, sizeof(addrbuf)));
 
     // If the request is not retryable, just give up!
     if (!is_request_retryable(s)) {
@@ -3815,9 +3816,9 @@ HttpTransact::handle_response_from_server(State *s)
 void
 HttpTransact::error_log_connection_failure(State *s, ServerState_t conn_state)
 {
-  char addrbuf[INET6_ADDRSTRLEN];
+  ip_port_text_buffer addrbuf;
   TxnDebug("http_trans", "[%d] failed to connect [%d] to %s", s->current.retry_attempts.get(), conn_state,
-           ats_ip_ntop(&s->current.server->dst_addr.sa, addrbuf, sizeof(addrbuf)));
+           ats_ip_nptop(&s->current.server->dst_addr.sa, addrbuf, sizeof(addrbuf)));
 
   if (s->current.server->had_connect_fail()) {
     char *url_str             = s->hdr_info.client_request.url_string_get(&s->arena);
@@ -8851,37 +8852,40 @@ HttpTransact::update_size_and_time_stats(State *s, ink_hrtime total_time, ink_hr
   }
 
   // update milestones stats
-  HTTP_SUM_DYN_STAT(http_ua_begin_time_stat, milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_BEGIN));
-  HTTP_SUM_DYN_STAT(http_ua_first_read_time_stat, milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_FIRST_READ));
+  HTTP_SUM_DYN_STAT(http_ua_begin_time_stat, milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_BEGIN, 0));
+  HTTP_SUM_DYN_STAT(http_ua_first_read_time_stat, milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_FIRST_READ, 0));
   HTTP_SUM_DYN_STAT(http_ua_read_header_done_time_stat,
-                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_READ_HEADER_DONE));
-  HTTP_SUM_DYN_STAT(http_ua_begin_write_time_stat, milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_BEGIN_WRITE));
-  HTTP_SUM_DYN_STAT(http_ua_close_time_stat, milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_CLOSE));
+                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_READ_HEADER_DONE, 0));
+  HTTP_SUM_DYN_STAT(http_ua_begin_write_time_stat,
+                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_BEGIN_WRITE, 0));
+  HTTP_SUM_DYN_STAT(http_ua_close_time_stat, milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_CLOSE, 0));
   HTTP_SUM_DYN_STAT(http_server_first_connect_time_stat,
-                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_FIRST_CONNECT));
-  HTTP_SUM_DYN_STAT(http_server_connect_time_stat, milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_CONNECT));
+                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_FIRST_CONNECT, 0));
+  HTTP_SUM_DYN_STAT(http_server_connect_time_stat,
+                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_CONNECT, 0));
   HTTP_SUM_DYN_STAT(http_server_connect_end_time_stat,
-                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_CONNECT_END));
+                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_CONNECT_END, 0));
   HTTP_SUM_DYN_STAT(http_server_begin_write_time_stat,
-                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_BEGIN_WRITE));
+                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_BEGIN_WRITE, 0));
   HTTP_SUM_DYN_STAT(http_server_first_read_time_stat,
-                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_FIRST_READ));
+                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_FIRST_READ, 0));
   HTTP_SUM_DYN_STAT(http_server_read_header_done_time_stat,
-                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_READ_HEADER_DONE));
-  HTTP_SUM_DYN_STAT(http_server_close_time_stat, milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_CLOSE));
+                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_READ_HEADER_DONE, 0));
+  HTTP_SUM_DYN_STAT(http_server_close_time_stat, milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_CLOSE, 0));
   HTTP_SUM_DYN_STAT(http_cache_open_read_begin_time_stat,
-                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_READ_BEGIN));
+                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_READ_BEGIN, 0));
   HTTP_SUM_DYN_STAT(http_cache_open_read_end_time_stat,
-                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_READ_END));
+                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_READ_END, 0));
   HTTP_SUM_DYN_STAT(http_cache_open_write_begin_time_stat,
-                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_WRITE_BEGIN));
+                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_WRITE_BEGIN, 0));
   HTTP_SUM_DYN_STAT(http_cache_open_write_end_time_stat,
-                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_WRITE_END));
+                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_WRITE_END, 0));
   HTTP_SUM_DYN_STAT(http_dns_lookup_begin_time_stat,
-                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_DNS_LOOKUP_BEGIN));
-  HTTP_SUM_DYN_STAT(http_dns_lookup_end_time_stat, milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_DNS_LOOKUP_END));
-  HTTP_SUM_DYN_STAT(http_sm_start_time_stat, milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SM_START));
-  HTTP_SUM_DYN_STAT(http_sm_finish_time_stat, milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SM_FINISH));
+                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_DNS_LOOKUP_BEGIN, 0));
+  HTTP_SUM_DYN_STAT(http_dns_lookup_end_time_stat,
+                    milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_DNS_LOOKUP_END, 0));
+  HTTP_SUM_DYN_STAT(http_sm_start_time_stat, milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SM_START, 0));
+  HTTP_SUM_DYN_STAT(http_sm_finish_time_stat, milestones.difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SM_FINISH, 0));
 }
 
 void
