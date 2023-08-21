@@ -114,7 +114,7 @@ BuildRoot:	%{_tmppath}/%{name}-%{version}-root
 # NOTE: If adding/removing bazinga BuildRequires, increment/decrement the grep/count in install section
 BuildRequires: autoconf, automake, libtool
 BuildRequires: bazinga-llvm
-BuildRequires:	bazinga-jemalloc-devel >= 4.3.1, bazinga-brotli-devel, perl-URI
+BuildRequires:	bazinga-jemalloc-devel >= 4.3.1, bazinga-brotli-devel
 BuildRequires:	expat-devel, pcre-devel, zlib-devel, xz-devel, hwloc-devel
 BuildRequires:	libcurl-devel, ncurses-devel, libcap-devel
 %if "%{dist}" == ".el7"
@@ -289,9 +289,6 @@ rm -rf $RPM_BUILD_ROOT%{_prefix}/share
 rm -rf $RPM_BUILD_ROOT%{_prefix}/lib64
 rmdir $RPM_BUILD_ROOT/var/trafficserver
 
-# Needed for devel package
-mkdir $RPM_BUILD_ROOT%{_prefix}/lib/perl
-cp -r lib/perl/lib/* $RPM_BUILD_ROOT%{_prefix}/lib/perl/
 
 # The clean section is only needed for EPEL and Fedora < 13
 # http://fedoraproject.org/wiki/PackagingGuidelines#.25clean
@@ -328,8 +325,6 @@ rm -rf $RPM_BUILD_ROOT
 %{_prefix}/include
 %attr(0755,root,root) %{_prefix}/bin/tsxs
 %attr(0755,root,root) %dir %{_prefix}/lib
-%attr(0755,root,root) %dir %{_prefix}/lib/perl
-%attr(0755,root,root) %{_prefix}/lib/perl/*
 
 %files internal
 %{_prefix}/include/internal
