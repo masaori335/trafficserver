@@ -22,6 +22,19 @@ if (( $# )); then
     set -- "${@[0,end_opts-1]}" "${@[end_opts+1,-1]}"
 fi
 
+# this will only work on rhel-derived-linuxes
+if grep -q "release 9" /etc/redhat-release; then
+  OSRELEASE="9"
+else
+  OSRELEASE="7"
+fi
+
+if [ "$OSRELEASE" = "9" ]; then
+  BORINGSSL_VERSION=25.20230727-4.el9
+else
+  BORINGSSL_VERSION=25.20230726-39.el7
+fi
+LIBURING_VERSION=2.4
 BUILD=${#BUILD}
 PRB=${#PRB}
 TAGBUILD=${#TAGBUILD}
@@ -41,6 +54,11 @@ echo VARIATION: $VARIATION
 RIO_BUILD_NUMBER=${RIO_BUILD_NUMBER:-1}
 
 # Setup tree
+if [ ! -f trafficserver/configure.ac ]; then
+  git clone -q git@github.pie.apple.com:ats/trafficserver.git
+fi
+
+cd trafficserver
 git checkout $BRANCH
 
 if [[ ! -z $PR_ID && $PR_ID -gt 0 ]]; then
@@ -48,13 +66,14 @@ if [[ ! -z $PR_ID && $PR_ID -gt 0 ]]; then
   git merge FETCH_HEAD -m 'Auto Merge: PR ${PR_ID}'
 fi
 
-VERSION=$(grep '\[TS_VERSION_S\]' configure.ac | head -n 1 | perl -pe 's{^.*\],\[(\d+.\d+.\d+).*$}{$1}')
-VERSION_MAJOR=$(echo $VERSION | cut -d . -f 1)
+cd ..
+
+VERSION=$(grep '\[TS_VERSION_S\]' trafficserver/configure.ac | head -n 1 | perl -pe 's{^.*\],\[(\d+.\d+.\d+).*$}{$1}')
+COMMIT_TREE_LENGTH=$(git --git-dir=trafficserver/.git rev-list HEAD 2>/dev/null | wc -l)
 if [ -z ${BREAK_FIX} ]; then
-  COMMIT_TREE_LENGTH=$(git rev-list HEAD 2>/dev/null | wc -l)
   BUILD_VERSION="${RIO_BUILD_NUMBER}.${COMMIT_TREE_LENGTH}"
 else
-  BUILD_VERSION=${BREAK_FIX}-${RIO_BUILD_NUMBER}
+  BUILD_VERSION=${BREAK_FIX}.${RIO_BUILD_NUMBER}
 fi
 export BUILD_VERSION
 
@@ -63,16 +82,21 @@ if [ $PRB -eq 1 ]; then
     export GIT_TAG=prb/$VERSION/$BUILD_VERSION
 fi
 
-if [ "$VARIATION" = "-boringssl" ]; then
-    LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-boringssl bazinga-boringocsp
+if [ "$VARIATION" != "-llvm" ]; then
+    export GIT_TAG=bazinga/$VERSION/${VARIATION:1}.$BUILD_VERSION
+fi
+
+if [[ "$VARIATION" =~ .*boringssl.* ]]; then
+    LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-boringssl-${BORINGSSL_VERSION}
     LD_LIBRARY_PATH=/lib64 yum erase -d1 -y bazinga-openssl-devel
 fi
 
-if [ "$VARIATION" = "-io_uring" || "$VERSION_MAJOR" = "10" ]; then
-    LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-liburing bazinga-liburing-devel
-fi
+# Master builds enable io_uring for 10
+LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-liburing-devel-${LIBURING_VERSION}
 
 if [ $BUILD -eq 1 ]; then
+  export LIBURING_VERSION
+  export BORINGSSL_VERSION
   if [[ ! -z $PR_ID && $PR_ID -gt 0 ]]; then
      ./apple/build.sh $BUILD_VERSION $PR_ID
   else
@@ -84,17 +108,24 @@ fi
 if [[ $PRB -ne 1 && $TEST -ne 1 ]]; then
   # Stage build
   mv build/rpmbuild/RPMS/* build/rpmbuild/
-  ci stage-lib build/rpmbuild/x86_64,ci/el/7/x86_64
-  ci stage-lib build/rpmbuild/SRPMS,ci/el/7/SRPMS
+  ci stage-lib build/rpmbuild/x86_64,ci/el/$OSRELEASE/x86_64
+  ci stage-lib build/rpmbuild/SRPMS,ci/el/$OSRELEASE/SRPMS
 fi
 
 if [ $TAGBUILD -eq 1 ]; then
   cd trafficserver
+  export GIT_TAG=$GIT_TAG-el$OSRELEASE
   git tag $GIT_TAG
   SSH_AUTH_SOCK=${SSH_AUTH_SOCK_TRAFFICSERVER} git push origin $GIT_TAG
   cd ..
 fi
 
 if [ $TEST -eq 1 ]; then
-  scl enable rh-python38 "./apple/run_autest.sh '$TEST_FILTER'"
+  export BORINGSSL_VERSION
+  if [ "$OSRELEASE" = "9" ]; then
+    update-crypto-policies --set DEFAULT:SHA1
+    ./apple/run_autest.sh "$TEST_FILTER"
+  else
+    scl enable rh-python38 "./apple/run_autest.sh '$TEST_FILTER'"
+  fi
 fi

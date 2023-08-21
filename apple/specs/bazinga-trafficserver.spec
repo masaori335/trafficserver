@@ -68,10 +68,8 @@
 %if %{?_with_boringssl:1}%{!?_with_boringssl:0}
 %define boring_release_prefix boringssl.
 %define ssl_library /opt/bazinga/boringssl
-%define _enable_boringocsp --with-boringocsp=/opt/bazinga/include:/opt/bazinga/lib64
 %else
 %define ssl_library /opt/bazinga
-%define _enable_boringocsp %{nil}
 %endif
 
 %if %{?_with_pr:1}%{!?_with_pr:0}
@@ -91,6 +89,13 @@
 %{!?_archive: %define _archive %{srcdir}.tar.gz}
 %{!?_commit: %define _commit UNKNOWN}
 %{!?_gittag: %define _gittag UNKNOWN}
+%if "%{dist}" == ".el7"
+%{!?_boringssl_version %define _boringssl_version 25.20230726-39.el7}
+%else
+%{!?_boringssl_version %define _boringssl_version 25.20230727-4.el9}
+%endif
+%{!?_liburing_version %define _liburing_version 2.4}
+
 
 %define release %{?boring_release_prefix}%{?asan_release_prefix}%{?debug_release_prefix}%{?pr_release_prefix}%{_release}
 
@@ -112,10 +117,16 @@ BuildRequires: bazinga-llvm
 BuildRequires:	bazinga-jemalloc-devel >= 4.3.1, bazinga-brotli-devel, perl-URI
 BuildRequires:	expat-devel, pcre-devel, zlib-devel, xz-devel, hwloc-devel
 BuildRequires:	libcurl-devel, ncurses-devel, libcap-devel
+%if "%{dist}" == ".el7"
 BuildRequires:	bazinga-luajit-devel
-%{?_with_boringssl:BuildRequires: bazinga-boringssl}
+%else
+BuildRequires:	luajit-devel
+%endif
+
+%{?_with_boringssl:BuildRequires: bazinga-boringssl = %{_boringssl_version}}
 %{!?_with_boringssl:BuildRequires: bazinga-openssl-devel}
 BuildRequires: bazinga-llvm-lld
+%{?_with_io_uring:BuildRequires: bazinga-liburing-devel = %{_liburing_version}}
 
 # trafficserver fails to build on ppc and others, TS-1131, see lib/ts/ink_queue.h
 ExclusiveArch:	%{ix86} x86_64 ia64 %{arm}
@@ -132,6 +143,8 @@ Requires:	initscripts, zlib, pcre, expat, xz
 Requires:	libcurl, ncurses-libs, libcap, hwloc, libmaxminddb
 Requires:	bazinga-jemalloc >= 4.3.1
 Requires:	bazinga-brotli >= 1.0.6
+%{?_with_io_uring:Requires: bazinga-liburing = %{_liburing_version}}
+%{?_with_boringssl:Requires: bazinga-boringssl  = %{_boringssl_version}}
 %{!?_with_boringssl:Requires: bazinga-openssl-libs >= 1.1.1a}
 Requires(post):	chkconfig
 Requires(preun): chkconfig initscripts
@@ -201,7 +214,6 @@ export LIBRARY_PATH=/opt/bazinga/lib64
 %endif
      --with-brotli=/opt/bazinga/include:/opt/bazinga/lib64 \
      --with-openssl=%{ssl_library} \
-     %{?_enable_boringocsp} \
      %{?_enable_debug} \
      %{?_enable_asan} \
      %{?_enable_io_uring} \
@@ -222,6 +234,15 @@ sed -i -e 's/-lstdc++ //g' libtool
 sed -i -e 's/-fuse-linker-plugin/-fuse-ld=*/g' libtool
 
 make %{?_smp_mflags} %{make_verbose}
+
+%check
+
+# Temporal hack to build ASan variant
+%if %{?_with_asan:1}%{!?_with_asan:0}
+export ASAN_OPTIONS=detect_leaks=0
+%endif
+
+make check %{?_smp_mflags} %{make_verbose}
 
 %install
 rm -rf $RPM_BUILD_ROOT
@@ -251,6 +272,7 @@ cp -r %{_builddir}/%{srcdir}/include/shared $RPM_BUILD_ROOT%{_prefix}/include/in
 cp -r %{_builddir}/%{srcdir}/include/ts $RPM_BUILD_ROOT%{_prefix}/include/internal
 cp -r %{_builddir}/%{srcdir}/include/tscore $RPM_BUILD_ROOT%{_prefix}/include/internal
 cp -r %{_builddir}/%{srcdir}/include/tscpp $RPM_BUILD_ROOT%{_prefix}/include/internal
+
 # Selectively take proxy and iocore headers and flatten for easier inclusion
 find %{_builddir}/%{srcdir}/proxy -name \*.h -type f | cpio -pdmv $RPM_BUILD_ROOT%{_prefix}/include/internal
 find %{_builddir}/%{srcdir}/iocore -name \*.h -type f | cpio -pdmv $RPM_BUILD_ROOT%{_prefix}/include/internal

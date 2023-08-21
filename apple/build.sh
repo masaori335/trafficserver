@@ -13,7 +13,7 @@ INTERNAL_GITHUB_PR=$2
 # VARIATION (eg -boringssl)
 # SUBPROJECT (eg -plugins )
 TS_BUILD_REPO=${TS_BUILD_REPO:-.}  # https://code.edge.apple.com/trafficserver-build
-SRC_REPO=${SRC_REPO:-.}  # https://gitlab.sd.apple.com/trafficserver/trafficserver
+SRC_REPO=${SRC_REPO:-trafficserver}  # https://gitlab.sd.apple.com/trafficserver/trafficserver
 
 GIT_VERSION=notgit
 if [ -d ${SRC_REPO}/.git ]; then
@@ -31,8 +31,6 @@ fi
 
 VERSION_MAJOR=$(echo $VERSION | cut -d . -f 1)
 
-DOCKER_IMAGE=trafficserver-builder${SUBPROJECT}${TS_PLUGIN_VERSION}${VARIATION}
-
 buildroot=build  # directory where the build is done, artifacts stored.
 
 # it is important that the tarball, when unpacked, produce a $srcdir top-directory
@@ -42,8 +40,8 @@ mkdir -p $buildroot
 
 if [ "$SUBPROJECT" == "-plugins" ];then
     BZ_DEVEL_PKG=bazinga-trafficserver-devel$TS_VERSION
-    if [ "$VARIATION" == "-asan" ];then
-        BZ_DEVEL_PKG=bazinga-trafficserver$VARIATION-devel$TS_VERSION
+    if [ "$VARIATION" =~ .*-asan.* ];then
+        BZ_DEVEL_PKG=bazinga-trafficserverasan-devel$TS_VERSION
     fi
 
     sudo yum -y install $BZ_DEVEL_PKG --enablerepo=bazinga-testing
@@ -74,19 +72,32 @@ else
 fi
 
 RPMBUILD_FLAGS=()
-if [ "$VARIATION" != "" ]; then
-    X=$(echo $VARIATION | sed -e 's/^-//g')
-    RPMBUILD_FLAGS+="--with $X"
-fi
 
 # -asan requires llvm
-if [ "$VARIATION" == "-asan" ];then
+if [[ "$VARIATION" =~ .*asan.* ]];then
+    RPMBUILD_FLAGS+=" --with asan"
     RPMBUILD_FLAGS+=" --with llvm"
 fi
 
-# -quiche requires boringssl
-if [ "$VARIATION" == "-quiche" ];then
+# skip check for io_uring as it doesn't currently work in rio
+if [[ "$VARIATION" =~ .*io_uring.* ]];then
+    RPMBUILD_FLAGS+=" --with io_uring"
+    RPMBUILD_FLAGS+=" --nocheck"
+fi
+
+# -boringssl requires boringssl
+if [[ "$VARIATION" =~ .*boringssl.* ]];then
     RPMBUILD_FLAGS+=" --with boringssl"
+fi
+
+# -quiche requires boringssl
+if [[ "$VARIATION" =~ .*quiche.* ]];then
+    RPMBUILD_FLAGS+=" --with quiche"
+    RPMBUILD_FLAGS+=" --with boringssl"
+fi
+
+if [[ "$VARIATION" =~ .*debug.* ]];then
+    RPMBUILD_FLAGS+=" --with debug"
 fi
 
 if [ "$INTERNAL_GITHUB_PR" != "" ]; then
@@ -108,5 +119,7 @@ rpmbuild $RPMBUILD_MODE $buildroot/$specfilename \
          --define "_commit ${GIT_VERSION}" \
          --define "_gittag ${GIT_TAG}" \
          --define "_topdir `pwd`/$buildroot/rpmbuild" \
-         --define "_pr_id ${INTERNAL_GITHUB_PR}" \
+         --define "_pr_id ${INTERNAL_GITHUB_PR:-'%{nil}'}" \
+         --define "_boringssl_version ${BORINGSSL_VERSION:-25.20230726-39}" \
+         --define "_liburing_version ${LIBURING_VERSION:-2.4}" \
          ${RPMBUILD_FLAGS}
