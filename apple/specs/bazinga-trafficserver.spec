@@ -191,8 +191,8 @@ echo PR: %{_pr_id}
 %endif
 
 # hackity hack for lld
-sed -i -e 's/-Wl,--add-needed //g' build/jemalloc.m4
-sed -i -e 's/ -Wl,--no-as-needed//g' build/jemalloc.m4
+sed -i -e 's/-Wl,--add-needed //g' m4/jemalloc.m4
+sed -i -e 's/ -Wl,--no-as-needed//g' m4/jemalloc.m4
 
 autoreconf -if
 export LD_LIBRARY_PATH=/opt/bazinga/lib64
