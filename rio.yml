@@ -141,7 +141,7 @@ builds:
   build:
     template: freestyle:v4:publish
     steps:
-    - ./apple/rio.sh --build --branch master --variation -llvm --tagbuild
+    - ./apple/rio.sh --build --branch master --variation -boringssl --tagbuild
   trigger:
     gitPush: false
   finally:
@@ -164,7 +164,7 @@ builds:
   build:
     template: freestyle:v4:publish
     steps:
-    - ./apple/rio.sh --build --branch master --variation -llvm --tagbuild
+    - ./apple/rio.sh --build --branch master --variation -boringssl --tagbuild
   trigger:
     gitPush: false
   finally:
