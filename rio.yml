@@ -134,6 +134,51 @@ builds:
   jenkins:
     concurrentBuild: true
 
+- branchName: master
+  group: release
+  version: regular
+  <<: *build_machine
+  build:
+    template: freestyle:v4:publish
+    steps:
+    - ./apple/rio.sh --build --branch master --variation -llvm --tagbuild
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+  secrets:
+    names:
+    - TRAFFICSERVER
+  package:
+    freeform:
+      - publish:
+        - repo: yum:cdn-edge
+  jenkins:
+    concurrentBuild: true
+
+- branchName: master
+  group: release
+  version: regular-el9
+  <<: *build_machine_el9
+  build:
+    template: freestyle:v4:publish
+    steps:
+    - ./apple/rio.sh --build --branch master --variation -llvm --tagbuild
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+  secrets:
+    names:
+    - TRAFFICSERVER
+  package:
+    freeform:
+      - publish:
+        - repo: yum:cdn-edge
+  jenkins:
+    concurrentBuild: true
 
 #########
 # 9.2.x
