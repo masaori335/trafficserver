@@ -4,3 +4,4 @@ leak:libcrypto.so.1.1
 leak:CRYPTO_malloc
 leak:CRYPTO_realloc
 leak:ConsCell
+leak:pcre_jit_stack_alloc
