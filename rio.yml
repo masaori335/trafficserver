@@ -147,6 +147,9 @@ builds:
   finally:
     tag:
       enabled: false
+    pipelineChain:
+      - project: ist-gns-edge-trafficserver-plugins
+        pipeline: release-master-publish-10.x-el7
   secrets:
     names:
     - TRAFFICSERVER
@@ -170,6 +173,9 @@ builds:
   finally:
     tag:
       enabled: false
+    pipelineChain:
+      - project: ist-gns-edge-trafficserver-plugins
+        pipeline: release-master-publish-10.x-el9
   secrets:
     names:
     - TRAFFICSERVER
