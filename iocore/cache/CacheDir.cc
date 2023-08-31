@@ -382,7 +382,7 @@ dir_clean_bucket(Dir *b, int s, Vol *vol)
     }
 #endif
     if (!dir_valid(vol, e) || !dir_offset(e)) {
-      if (is_dbg_ctl_enabled(dbg_ctl_dir_clean)) {
+      if (dbg_ctl_dir_clean.on()) {
         Dbg(dbg_ctl_dir_clean, "cleaning Vol:%s: %p tag %X boffset %" PRId64 " b %p p %p bucket len %d", vol->hash_text.get(), e,
             dir_tag(e), dir_offset(e), b, p, dir_bucket_length(b, s, vol));
       }
@@ -1103,7 +1103,7 @@ Lrestart:
 
   if (event == AIO_EVENT_DONE) {
     // AIO Thread
-    if (io.aio_result != static_cast<int64_t>(io.aiocb.aio_nbytes)) {
+    if (!io.ok()) {
       Warning("vol write error during directory sync '%s'", gvol[vol_idx]->hash_text.get());
       event = EVENT_NONE;
       goto Ldone;

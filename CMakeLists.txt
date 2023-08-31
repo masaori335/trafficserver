@@ -56,6 +56,25 @@ option(ENABLE_JEMALLOC "Use jemalloc (default OFF)")
 option(ENABLE_LUAJIT   "Use LuaJIT (default OFF)")
 option(ENABLE_MIMALLOC "Use mimalloc (default OFF)")
 option(ENABLE_DOCS "Build docs (default OFF)")
+option(ENABLE_BENCHMARKS "Build benchmarks (default OFF)")
+
+# Setup user
+# NOTE: this is the user trafficserver runs as
+set(WITH_USER nobody CACHE STRING "The system user (default nobody)")
+# NOTE: I can't tell that this is used at all besides being printed
+set(WITH_GROUP nobody CACHE STRING "The system group (default nobody, or specified user's group)")
+
+if(WITH_GROUP STREQUAL nobody)
+  execute_process(COMMAND id -ng ${WITH_USER} OUTPUT_VARIABLE TS_PKGSYSGROUP OUTPUT_STRIP_TRAILING_WHITESPACE)
+else()
+  set(TS_PKGSYSGROUP ${WITH_GROUP})
+endif()
+set(TS_PKGSYSUSER ${WITH_USER})
+
+# Setup default install directory
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  set(CMAKE_INSTALL_PREFIX /usr/local/trafficserver CACHE PATH "Default install path" FORCE)
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL Linux)
     set(DEFAULT_POSIX_CAP ON)
@@ -262,7 +281,7 @@ check_symbol_exists(eventfd sys/eventfd.h HAVE_EVENTFD)
 
 option(USE_IOURING "Use experimental io_uring (linux only)" 0)
 if (HAVE_IOURING AND USE_IOURING)
-    message(Using io_uring)
+    message(STATUS "Using io_uring")
     set(TS_USE_LINUX_IO_URING 1)
 endif(HAVE_IOURING AND USE_IOURING)
 
@@ -302,13 +321,10 @@ if(ENABLE_DOCS)
   find_program(PipEnv pipenv REQUIRED)
 endif()
 
-# Catch2 for tests
-set(CATCH_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/lib/catch2)
-
 include(CTest)
 set(TS_HAS_TESTS ${BUILD_REGRESSION_TESTING})
 
-message("Configuring for ${HOST_OS}")
+message(STATUS "Configuring for ${HOST_OS}")
 
 if(HOST_OS STREQUAL "linux")
     set(CMAKE_THREAD_LIBS_INIT "-lpthread")
@@ -409,6 +425,11 @@ if(ENABLE_DOCS)
     add_subdirectory(doc)
 endif()
 
+if(ENABLE_BENCHMARKS)
+    message(STATUS "Building benchmarks in tools/benchmark")
+    add_subdirectory(tools/benchmark)
+endif()
+
 add_custom_target(clang-format-install
         COMMAND ${CMAKE_SOURCE_DIR}/tools/clang-format.sh --install
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -459,7 +480,7 @@ add_custom_target(format
         )
 
 if(NOT EXISTS ${CMAKE_SOURCE_DIR}/.git/hooks/pre-commit)
-    message("Installing github hook")
+    message(STATUS "Installing github hook")
     configure_file(${CMAKE_SOURCE_DIR}/tools/git/pre-commit ${CMAKE_SOURCE_DIR}/.git/hooks/pre-commit COPYONLY)
 endif()
 
@@ -469,7 +490,7 @@ install(DIRECTORY DESTINATION var/trafficserver)
 
 # Display build summary
 include(CMakePrintHelpers)
-message("Build Summary:")
+message(STATUS "Build Summary:")
 cmake_print_variables(CMAKE_SYSTEM_NAME)
 cmake_print_variables(CMAKE_SYSTEM_VERSION)
 cmake_print_variables(CMAKE_SYSTEM_PROCESSOR)
@@ -482,6 +503,8 @@ cmake_print_variables(CMAKE_CXX_FLAGS)
 cmake_print_variables(CMAKE_C_FLAGS)
 cmake_print_variables(BUILD_PERSON)
 cmake_print_variables(BUILD_GROUP)
+cmake_print_variables(TS_PKGSYSUSER)
+cmake_print_variables(TS_PKGSYSGROUP)
 cmake_print_variables(BUILD_MACHINE)
 cmake_print_variables(DEFAULT_STACK_SIZE)
 cmake_print_variables(CMAKE_INSTALL_RPATH)
