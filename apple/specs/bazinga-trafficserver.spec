@@ -2,7 +2,7 @@
 %define compiler_CXX /opt/bazinga/bin/clang++
 
 # Don't strip binaries for ASAN builds
-%if %{?_with_asan:1}%{!?_with_asan:0}
+%if %{?_with_asan:1}%{!?_with_asan:0} || %{?_with_lsan:1}%{!?_with_lsan:0}
 %global _enable_debug_package 0
 %global debug_package %{nil}
 %global __os_install_post /usr/lib/rpm/brp-compress %{nil}
@@ -38,8 +38,11 @@
 %if %{?_with_asan:1}%{!?_with_asan:0}
 %define asan_release_prefix asan.
 %define _enable_asan --enable-asan
-%else
-%define _enable_asan %{nil}
+%endif
+
+%if %{?_with_lsan:1}%{!?_with_lsan:0}
+%define lsan_release_prefix lsan.
+%define _enable_lsan --enable-lsan
 %endif
 
 %if %{?_with_io_uring:1}%{!?_with_io_uring:0}
@@ -97,7 +100,7 @@
 %{!?_liburing_version %define _liburing_version 2.4}
 
 
-%define release %{?boring_release_prefix}%{?asan_release_prefix}%{?debug_release_prefix}%{?pr_release_prefix}%{_release}
+%define release %{?boring_release_prefix}%{?asan_release_prefix}%{?lsan_release_prefix}%{?debug_release_prefix}%{?pr_release_prefix}%{_release}
 
 Summary:	Apache Traffic Server, a reverse, forward and transparent HTTP proxy cache
 Vendor:		GNS Edge Services, Apple Inc.
@@ -201,7 +204,7 @@ export LIBRARY_PATH=/opt/bazinga/lib64
      --with-build-number=%{release} \
      %{?_enable_layout} \
      --prefix=%{_prefix} \
-%if %{?_with_asan:1}%{!?_with_asan:0}
+%if %{?_with_asan:1}%{!?_with_asan:0} || %{?_with_lsan:1}%{!?_with_lsan:0}
 %else
      --with-jemalloc=/opt/bazinga/include:/opt/bazinga/lib64 \
 %endif
@@ -216,6 +219,7 @@ export LIBRARY_PATH=/opt/bazinga/lib64
      --with-openssl=%{ssl_library} \
      %{?_enable_debug} \
      %{?_enable_asan} \
+     %{?_enable_lsan} \
      %{?_enable_io_uring} \
      %{?_enable_tests} \
      %{?_enable_malloc_allocator} \
@@ -251,7 +255,7 @@ make DESTDIR=$RPM_BUILD_ROOT install
 # Currently we have 5 or 4 "bazinga" libraries we link against.
 # If the next line fails check the output of ldd and see if we're missing something (did compiler image change?)
 ldd $RPM_BUILD_ROOT/opt/bazinga/bin/traffic_server
-%if %{?_with_asan:1}%{!?_with_asan:0}
+%if %{?_with_asan:1}%{!?_with_asan:0} || %{?_with_lsan:1}%{!?_with_lsan:0}
 # jemalloc and asan is orthogonal
 [ $(ldd $RPM_BUILD_ROOT/opt/bazinga/bin/traffic_server | grep bazinga | egrep -E 'crypto.so|libc\+\+.so|libc\+\+abi.so|ssl.so' | wc -l) -eq 4 ]
 %else

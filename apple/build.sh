@@ -79,6 +79,12 @@ if [[ "$VARIATION" =~ .*asan.* ]];then
     RPMBUILD_FLAGS+=" --with llvm"
 fi
 
+# -lsan requires llvm
+if [[ "$VARIATION" =~ .*lsan.* ]];then
+    RPMBUILD_FLAGS+=" --with lsan"
+    RPMBUILD_FLAGS+=" --with llvm"
+fi
+
 # skip check for io_uring as it doesn't currently work in rio
 if [[ "$VARIATION" =~ .*io_uring.* ]];then
     RPMBUILD_FLAGS+=" --with io_uring"

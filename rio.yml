@@ -479,7 +479,7 @@ builds:
     buildParameters:
     - parameter: variation
       defaultValue: boringssl
-      description: Build variation [boringssl (deault), llvm, asan, io_uring, or debug]
+      description: Build variation [boringssl (deault), llvm, asan, lsan, io_uring, or debug]
     - parameter: test_filter
       description: Tests to run
       defaultValue: '*'
