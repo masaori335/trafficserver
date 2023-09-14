@@ -21,7 +21,8 @@ AM_CPPFLAGS += \
 	-I$(abs_top_srcdir)/iocore/io_uring \
 	-I$(abs_top_srcdir)/include \
 	-I$(abs_top_srcdir)/lib \
-	@SWOC_INCLUDES@
+	@HWLOC_INCLUDES@ \
+	@SWOC_INCLUDES@ \
 	$(TS_INCLUDES)
 
 TESTS = test_AIO.sample
@@ -55,8 +56,8 @@ test_AIO_CPPFLAGS = \
 
 test_AIO_LDADD = \
 	libinkaio.a \
-	$(top_builddir)/src/records/librecords_p.a \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
+	$(top_builddir)/src/records/librecords_p.a \
 	$(top_builddir)/src/tscore/libtscore.a \
 	$(top_builddir)/src/api/libtsapicore.a \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
