@@ -24,6 +24,7 @@
 #pragma once
 
 #include <array>
+#include <optional>
 #include <unordered_map>
 #include <tuple>
 #include <mutex>
@@ -76,7 +77,7 @@ public:
   {
     _blobs[0] = new MetricStorage();
     ink_release_assert(_blobs[0]);
-    ink_release_assert(0 == newMetric("proxy.node.api.metrics.bad_id")); // Reserve slot 0 for errors, this should always be 0
+    ink_release_assert(0 == newMetric("proxy.process.api.metrics.bad_id")); // Reserve slot 0 for errors, this should always be 0
   }
 
   // Singleton
@@ -87,6 +88,16 @@ public:
   IdType newMetric(const std::string_view name);
   IdType lookup(const std::string_view name) const;
   IntType *lookup(IdType id, std::string_view *name = nullptr) const;
+
+  std::optional<IntType *>
+  lookupPtr(const std::string_view name) const
+  {
+    IdType id = lookup(name);
+    if (id != NOT_FOUND) {
+      return lookup(id);
+    }
+    return std::nullopt;
+  }
 
   // A bit of a convenience, since we use the ptr to the atomic frequently in the core
   IntType *

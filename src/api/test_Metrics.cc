@@ -34,7 +34,7 @@ TEST_CASE("Metrics", "[libtsapi][Metrics]")
   {
     auto [name, value] = *m.begin();
     REQUIRE(value == 0);
-    REQUIRE(name == "proxy.node.api.metrics.bad_id");
+    REQUIRE(name == "proxy.process.api.metrics.bad_id");
 
     REQUIRE(m.begin() != m.end());
     REQUIRE(++m.begin() == m.end());
@@ -61,5 +61,18 @@ TEST_CASE("Metrics", "[libtsapi][Metrics]")
     m[0].store(42);
 
     REQUIRE(m[0].load() == 42);
+  }
+
+  SECTION("lookup")
+  {
+    auto nm = m.lookupPtr("notametric");
+    REQUIRE(!nm);
+
+    auto mid = m.newMetric("ametric");
+    auto fm  = m.lookupPtr("ametric");
+    REQUIRE(fm.has_value());
+    REQUIRE(fm.value());
+    REQUIRE(fm.value() == m.lookup(mid));
+    REQUIRE(m.lookup("ametric") == mid);
   }
 }
