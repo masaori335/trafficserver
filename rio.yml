@@ -19,6 +19,28 @@ schemaVersion: '2.0'
 timeout: 60
 
 builds:
+- branchName: master
+  group: sync
+  <<: *build_machine
+  build:
+    template: freestyle:v4:build
+    steps:
+    - git remote add asf https://github.com/apache/trafficserver.git || true
+    - git fetch asf
+    - 'git merge -m "Merge remote-tracking branch ''asf/master'' into master" -m "($PIPELINE_SPEC_ID $RIO_BUILD_NUMBER)" --no-ff asf/master'
+    - SSH_AUTH_SOCK=${SSH_AUTH_SOCK_TRAFFICSERVER} git push origin master
+  trigger:
+    timer: '@weekly'
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+  secrets:
+    names:
+    - TRAFFICSERVER
+  jenkins:
+    concurrentBuild: false
+
 #########
 # master - 10.x.x
 #########
