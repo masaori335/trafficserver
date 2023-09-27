@@ -1313,8 +1313,6 @@ APIHooks::clear()
   }
 }
 
-HttpHookState::HttpHookState() : _id(TS_HTTP_LAST_HOOK) {}
-
 void
 HttpHookState::init(TSHttpHookID id, HttpAPIHooks const *global, HttpAPIHooks const *ssn, HttpAPIHooks const *txn)
 {
@@ -7448,40 +7446,6 @@ tsapi::c::TSStatFindName(const char *name, int *idp)
   }
 }
 
-/**************************   Tracing API   ****************************/
-// returns 1 or 0 to indicate whether TS is being run with a debug tag.
-int
-tsapi::c::TSIsDebugTagSet(const char *t)
-{
-  return diags()->on_for_TSDebug(t);
-}
-
-void
-tsapi::c::TSDebugSpecific(int debug_flag, const char *tag, const char *format_str, ...)
-{
-  if ((debug_flag && diags()->on_for_TSDebug()) || diags()->on_for_TSDebug(tag)) {
-    va_list ap;
-
-    va_start(ap, format_str);
-    diags()->print_va(tag, DL_Diag, nullptr, format_str, ap);
-    va_end(ap);
-  }
-}
-
-// Plugins would use TSDebug just as the TS internal uses Debug
-// e.g. TSDebug("plugin-cool", "Snoopy is a cool guy even after %d requests.", num_reqs);
-void
-tsapi::c::TSDebug(const char *tag, const char *format_str, ...)
-{
-  if (diags()->on_for_TSDebug() && diags()->tag_activated(tag)) {
-    va_list ap;
-
-    va_start(ap, format_str);
-    diags()->print_va(tag, DL_Diag, nullptr, format_str, ap);
-    va_end(ap);
-  }
-}
-
 /**************************   Logging API   ****************************/
 
 TSReturnCode
@@ -10145,4 +10109,22 @@ tsapi::c::TSRecYAMLConfigParse(TSYaml node, TSYAMLRecNodeHandler handler, void *
   }
 
   return err.empty() ? TS_SUCCESS : TS_ERROR;
+}
+
+TSTxnType
+tsapi::c::TSHttpTxnTypeGet(TSHttpTxn txnp)
+{
+  sdk_assert(sdk_sanity_check_txn(txnp) == TS_SUCCESS);
+  HttpSM *sm       = (HttpSM *)txnp;
+  TSTxnType retval = TS_TXN_TYPE_UNKNOWN;
+  if (sm != nullptr) {
+    if (sm->t_state.transparent_passthrough) {
+      retval = TS_TXN_TYPE_TR_PASS_TUNNEL;
+    } else if (sm->t_state.client_info.port_attribute == HttpProxyPort::TRANSPORT_BLIND_TUNNEL) {
+      retval = TS_TXN_TYPE_EXPLICIT_TUNNEL;
+    } else {
+      retval = TS_TXN_TYPE_HTTP;
+    }
+  }
+  return retval;
 }
