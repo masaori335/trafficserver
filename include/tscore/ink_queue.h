@@ -88,8 +88,8 @@ union head_p {
   typedef int64_t version_type;
   typedef __int128_t data_type;
 #else
-  typedef int64_t version_type;
-  typedef int64_t data_type;
+  using version_type = int64_t;
+  using data_type    = int64_t;
 #endif
 
   struct {
@@ -158,7 +158,7 @@ union head_p {
 #endif
 
 #define FREELIST_VERSION(_x)                     ((((intptr_t)(_x).data) & 0x7FFF000000000000LL) >> 48)
-#define SET_FREELIST_POINTER_VERSION(_x, _p, _v) (_x).data = ((((intptr_t)(_p)) & 0x8000FFFFFFFFFFFFLL) | (((_v)&0x7FFFLL) << 48))
+#define SET_FREELIST_POINTER_VERSION(_x, _p, _v) (_x).data = ((((intptr_t)(_p)) & 0x8000FFFFFFFFFFFFLL) | (((_v) & 0x7FFFLL) << 48))
 #elif defined(__aarch64__)
 /* Layout of FREELIST_POINTER
  *
@@ -177,7 +177,7 @@ union head_p {
 #endif
 
 #define FREELIST_VERSION(_x)                     ((((intptr_t)(_x).data) & 0x7FF0000000000000LL) >> 52)
-#define SET_FREELIST_POINTER_VERSION(_x, _p, _v) (_x).data = ((((intptr_t)(_p)) & 0x800FFFFFFFFFFFFFLL) | (((_v)&0x7FFLL) << 52))
+#define SET_FREELIST_POINTER_VERSION(_x, _p, _v) (_x).data = ((((intptr_t)(_p)) & 0x800FFFFFFFFFFFFFLL) | (((_v) & 0x7FFLL) << 52))
 #else
 #error "unsupported processor"
 #endif
@@ -192,8 +192,8 @@ struct _InkFreeList {
   int advice;
 };
 
-typedef struct ink_freelist_ops InkFreeListOps;
-typedef struct _InkFreeList InkFreeList;
+using InkFreeListOps = struct ink_freelist_ops;
+using InkFreeList    = struct _InkFreeList;
 
 const InkFreeListOps *ink_freelist_malloc_ops();
 const InkFreeListOps *ink_freelist_freelist_ops();

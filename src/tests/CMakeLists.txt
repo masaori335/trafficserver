@@ -23,6 +23,7 @@ include_directories(
 )
 
 link_libraries(
+        inkcache
         http
         http_remap
         http2
@@ -42,7 +43,6 @@ link_libraries(
         hdrs
         http_remap
         logging
-        inkcache
         fastlz
         aio
         records
@@ -52,9 +52,10 @@ link_libraries(
         proxy
         inknet
         inkevent
-        yaml-cpp
+        yaml-cpp::yaml-cpp
         libswoc
         catch2::catch2
+        jsonrpc_protocol
 )
 if (TS_USE_LINUX_IO_URING)
     link_libraries(inkuring uring)

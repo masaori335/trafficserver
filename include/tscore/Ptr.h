@@ -111,7 +111,11 @@ public:
   }
 
   // Making this explicit avoids unwanted conversions.  See https://en.wikibooks.org/wiki/More_C%2B%2B_Idioms/Safe_bool .
-  explicit operator bool() const { return m_ptr != nullptr; }
+  explicit
+  operator bool() const
+  {
+    return m_ptr != nullptr;
+  }
 
   bool
   operator==(const T *p)
@@ -241,8 +245,9 @@ inline void
 Ptr<T>::clear()
 {
   if (m_ptr) {
-    if (!m_ptr->refcount_dec())
+    if (!m_ptr->refcount_dec()) {
       m_ptr->free();
+    }
     m_ptr = nullptr;
   }
 }
