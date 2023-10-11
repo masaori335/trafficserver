@@ -16,6 +16,7 @@
 #######################
 
 add_subdirectory(access_control)
+add_subdirectory(block_errors)
 add_subdirectory(cache_fill)
 add_subdirectory(cert_reporting_tool)
 add_subdirectory(cookie_remap)

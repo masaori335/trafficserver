@@ -551,8 +551,8 @@ Http2ConnectionState::rcv_priority_frame(const Http2Frame &frame)
   // Update PRIORITY frame count per minute
   this->increment_received_priority_frame_count();
   // Close this connection if its priority frame count received exceeds a limit
-  if (Http2::max_priority_frames_per_minute != 0 &&
-      this->get_received_priority_frame_count() > Http2::max_priority_frames_per_minute) {
+  if (configured_max_priority_frames_per_minute != 0 &&
+      this->get_received_priority_frame_count() > configured_max_priority_frames_per_minute) {
     Metrics::increment(http2_rsb.max_priority_frames_per_minute_exceeded);
     Http2StreamDebug(this->session, stream_id, "Observed too frequent priority changes: %u priority changes within a last minute",
                      this->get_received_priority_frame_count());
@@ -606,6 +606,13 @@ Http2ConnectionState::rcv_rst_stream_frame(const Http2Frame &frame)
                       "reset access stream with invalid id");
   }
 
+  // A RST_STREAM frame with a length other than 4 octets MUST be treated
+  // as a connection error (Section 5.4.1) of type FRAME_SIZE_ERROR.
+  if (frame.header().length != HTTP2_RST_STREAM_LEN) {
+    return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_CONNECTION, Http2ErrorCode::HTTP2_ERROR_FRAME_SIZE_ERROR,
+                      "reset frame wrong length");
+  }
+
   Http2Stream *stream = this->find_stream(stream_id);
   if (stream == nullptr) {
     if (this->is_valid_streamid(stream_id)) {
@@ -616,11 +623,16 @@ Http2ConnectionState::rcv_rst_stream_frame(const Http2Frame &frame)
     }
   }
 
-  // A RST_STREAM frame with a length other than 4 octets MUST be treated
-  // as a connection error (Section 5.4.1) of type FRAME_SIZE_ERROR.
-  if (frame.header().length != HTTP2_RST_STREAM_LEN) {
-    return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_CONNECTION, Http2ErrorCode::HTTP2_ERROR_FRAME_SIZE_ERROR,
-                      "reset frame wrong length");
+  // Update RST_STREAM frame count per minute
+  this->increment_received_rst_stream_frame_count();
+  // Close this connection if its RST_STREAM frame count exceeds a limit
+  if (configured_max_rst_stream_frames_per_minute != 0 &&
+      this->get_received_rst_stream_frame_count() > configured_max_rst_stream_frames_per_minute) {
+    Metrics::increment(http2_rsb.max_rst_stream_frames_per_minute_exceeded);
+    Http2StreamDebug(this->session, stream_id, "Observed too frequent RST_STREAM frames: %u frames within a last minute",
+                     this->get_received_rst_stream_frame_count());
+    return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_CONNECTION, Http2ErrorCode::HTTP2_ERROR_ENHANCE_YOUR_CALM,
+                      "reset too frequent RST_STREAM frames");
   }
 
   if (stream == nullptr || !stream->change_state(frame.header().type, frame.header().flags)) {
@@ -663,7 +675,8 @@ Http2ConnectionState::rcv_settings_frame(const Http2Frame &frame)
   // Update SETTINGS frame count per minute
   this->increment_received_settings_frame_count();
   // Close this connection if its SETTINGS frame count exceeds a limit
-  if (this->get_received_settings_frame_count() > Http2::max_settings_frames_per_minute) {
+  if (configured_max_settings_frames_per_minute != 0 &&
+      this->get_received_settings_frame_count() > configured_max_settings_frames_per_minute) {
     Metrics::increment(http2_rsb.max_settings_frames_per_minute_exceeded);
     Http2StreamDebug(this->session, stream_id, "Observed too frequent SETTINGS frames: %u frames within a last minute",
                      this->get_received_settings_frame_count());
@@ -798,7 +811,7 @@ Http2ConnectionState::rcv_ping_frame(const Http2Frame &frame)
   // Update PING frame count per minute
   this->increment_received_ping_frame_count();
   // Close this connection if its ping count received exceeds a limit
-  if (this->get_received_ping_frame_count() > Http2::max_ping_frames_per_minute) {
+  if (configured_max_ping_frames_per_minute != 0 && this->get_received_ping_frame_count() > configured_max_ping_frames_per_minute) {
     Metrics::increment(http2_rsb.max_ping_frames_per_minute_exceeded);
     Http2StreamDebug(this->session, stream_id, "Observed too frequent PING frames: %u PING frames within a last minute",
                      this->get_received_ping_frame_count());
@@ -1007,8 +1020,10 @@ Http2ConnectionState::rcv_continuation_frame(const Http2Frame &frame)
                       "header blocks too large");
   }
 
-  stream->header_blocks = static_cast<uint8_t *>(ats_realloc(stream->header_blocks, stream->header_blocks_length));
-  frame.reader()->memcpy(stream->header_blocks + header_blocks_offset, payload_length);
+  if (payload_length > 0) {
+    stream->header_blocks = static_cast<uint8_t *>(ats_realloc(stream->header_blocks, stream->header_blocks_length));
+    frame.reader()->memcpy(stream->header_blocks + header_blocks_offset, payload_length);
+  }
 
   if (frame.header().flags & HTTP2_FLAGS_HEADERS_END_HEADERS) {
     // NOTE: If there are END_HEADERS flag, decode stored Header Blocks.
@@ -1218,6 +1233,25 @@ Http2ConnectionState::init(Http2CommonSession *ssn)
   peer_hpack_handle  = new HpackHandle(HTTP2_HEADER_TABLE_SIZE);
   if (Http2::stream_priority_enabled) {
     dependency_tree = new DependencyTree(this->_get_configured_max_concurrent_streams());
+  }
+
+  configured_max_settings_frames_per_minute   = Http2::max_settings_frames_per_minute;
+  configured_max_ping_frames_per_minute       = Http2::max_ping_frames_per_minute;
+  configured_max_priority_frames_per_minute   = Http2::max_priority_frames_per_minute;
+  configured_max_rst_stream_frames_per_minute = Http2::max_rst_stream_frames_per_minute;
+  if (auto snis = session->get_netvc()->get_service<TLSSNISupport>(); snis) {
+    if (snis->hints_from_sni.http2_max_settings_frames_per_minute.has_value()) {
+      configured_max_settings_frames_per_minute = snis->hints_from_sni.http2_max_settings_frames_per_minute.value();
+    }
+    if (snis->hints_from_sni.http2_max_ping_frames_per_minute.has_value()) {
+      configured_max_ping_frames_per_minute = snis->hints_from_sni.http2_max_ping_frames_per_minute.value();
+    }
+    if (snis->hints_from_sni.http2_max_priority_frames_per_minute.has_value()) {
+      configured_max_priority_frames_per_minute = snis->hints_from_sni.http2_max_priority_frames_per_minute.value();
+    }
+    if (snis->hints_from_sni.http2_max_rst_stream_frames_per_minute.has_value()) {
+      configured_max_rst_stream_frames_per_minute = snis->hints_from_sni.http2_max_rst_stream_frames_per_minute.value();
+    }
   }
 
   _cop = ActivityCop<Http2Stream>(this->mutex, &stream_list, 1);
@@ -2574,6 +2608,18 @@ uint32_t
 Http2ConnectionState::get_received_priority_frame_count()
 {
   return this->_received_priority_frame_counter.get_count();
+}
+
+void
+Http2ConnectionState::increment_received_rst_stream_frame_count()
+{
+  this->_received_rst_stream_frame_counter.increment();
+}
+
+uint32_t
+Http2ConnectionState::get_received_rst_stream_frame_count()
+{
+  return this->_received_rst_stream_frame_counter.get_count();
 }
 
 // Return min_concurrent_streams_in when current client streams number is larger than max_active_streams_in.
