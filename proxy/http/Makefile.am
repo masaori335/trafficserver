@@ -72,8 +72,6 @@ libhttp_a_SOURCES = \
 	HttpSessionManager.h \
 	HttpTransact.cc \
 	HttpTransact.h \
-	HttpTransactCache.cc \
-	HttpTransactCache.h \
 	HttpTransactHeaders.cc \
 	HttpTransactHeaders.h \
 	HttpTunnel.cc \
@@ -82,7 +80,8 @@ libhttp_a_SOURCES = \
 	HttpVCTable.cc \
 	HttpVCTable.h \
 	ForwardedConfig.cc \
-	PreWarmConfig.cc
+	PreWarmConfig.cc \
+	PreWarmManager.cc
 
 if BUILD_TESTS
 libhttp_a_SOURCES += RegressionHttpTransact.cc

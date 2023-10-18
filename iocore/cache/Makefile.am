@@ -34,13 +34,18 @@ libinkcache_a_SOURCES = \
 	Cache.cc \
 	CacheDir.cc \
 	CacheDisk.cc \
+	CacheEvacuateDocVC.cc \
+	CacheEvacuateDocVC.h \
 	CacheHosting.cc \
 	CacheHttp.cc \
 	CachePages.cc \
 	CachePagesInternal.cc \
 	CacheRead.cc \
+	CacheVC.cc \
 	CacheVol.cc \
 	CacheWrite.cc \
+	HttpTransactCache.cc \
+	HttpTransactcache.h \
 	I_Cache.h \
 	I_CacheDefs.h \
 	I_Store.h \
@@ -55,7 +60,8 @@ libinkcache_a_SOURCES = \
 	P_RamCache.h \
 	RamCacheCLFUS.cc \
 	RamCacheLRU.cc \
-	Store.cc
+	Store.cc \
+	Vol.cc
 
 if BUILD_TESTS
 libinkcache_a_SOURCES += \

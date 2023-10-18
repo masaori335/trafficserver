@@ -72,6 +72,7 @@ check_PROGRAMS = \
 	test_XPACK
 
 TESTS = $(check_PROGRAMS)
+TESTS_ENVIRONMENT = LSAN_OPTIONS=suppressions=$(abs_top_srcdir)/ci/asan_leak_suppression/unit_tests.txt
 
 test_proxy_hdrs_CPPFLAGS = $(AM_CPPFLAGS) \
 	-I$(abs_top_srcdir)/lib/catch2
@@ -91,6 +92,7 @@ test_proxy_hdrs_LDADD = \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/src/records/librecords_p.a \
 	$(top_builddir)/src/tscore/libtscore.a \
+	$(top_builddir)/src/api/libtsapicore.a \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/src/api/libtsapicore.a \
 	@SWOC_LIBS@ @YAMLCPP_LIBS@ @HWLOC_LIBS@ @LIBPCRE@ @OPENSSL_LIBS@ @LIBCAP@
@@ -107,6 +109,7 @@ test_hdr_heap_LDADD = \
 	$(top_builddir)/iocore/eventsystem/libinkevent.a \
 	$(top_builddir)/src/records/librecords_p.a \
 	$(top_builddir)/src/tscore/libtscore.a \
+	$(top_builddir)/src/api/libtsapicore.a \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	$(top_builddir)/src/api/libtsapicore.a \
 	@SWOC_LIBS@ @HWLOC_LIBS@ \
@@ -118,6 +121,7 @@ test_XPACK_CPPFLAGS = \
 
 test_XPACK_LDADD = \
 	$(top_builddir)/src/tscore/libtscore.a \
+	$(top_builddir)/src/api/libtsapicore.a \
 	$(top_builddir)/src/tscpp/util/libtscpputil.la \
 	@SWOC_LIBS@ @LIBPCRE@ @LIBCAP@
 

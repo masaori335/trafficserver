@@ -23,11 +23,13 @@
 
 #pragma once
 
-#include <atomic>
+#include "P_CacheDir.h"
+#include "P_CacheStats.h"
+#include "P_RamCache.h"
 
 #include "tscore/CryptoHash.h"
 
-#include "P_Cache.h"
+#include <atomic>
 
 #define CACHE_BLOCK_SHIFT        9
 #define CACHE_BLOCK_SIZE         (1 << CACHE_BLOCK_SHIFT) // 512, smallest sector size
@@ -76,6 +78,7 @@ struct CacheDisk;
 struct VolInitInfo;
 struct DiskVol;
 struct CacheVol;
+class CacheEvacuateDocVC;
 
 struct VolHeaderFooter {
   unsigned int magic;
@@ -118,7 +121,7 @@ struct EvacuationBlock {
   Dir new_dir;
   // we need to have a list of evacuationkeys because of collision.
   EvacuationKey evac_frags;
-  CacheVC *earliest_evacuator;
+  CacheEvacuateDocVC *earliest_evacuator;
   LINK(EvacuationBlock, link);
 };
 
@@ -158,7 +161,7 @@ struct Vol : public Continuation {
   int evacuate_size              = 0;
   DLL<EvacuationBlock> *evacuate = nullptr;
   DLL<EvacuationBlock> lookaside[LOOKASIDE_SIZE];
-  CacheVC *doc_evacuator = nullptr;
+  CacheEvacuateDocVC *doc_evacuator = nullptr;
 
   VolInitInfo *init_info = nullptr;
 
@@ -217,7 +220,7 @@ struct Vol : public Continuation {
   int aggWrite(int event, void *e);
   void agg_wrap();
 
-  int evacuateWrite(CacheVC *evacuator, int event, Event *e);
+  int evacuateWrite(CacheEvacuateDocVC *evacuator, int event, Event *e);
   int evacuateDocReadDone(int event, Event *e);
   int evacuateDoc(int event, Event *e);
 
