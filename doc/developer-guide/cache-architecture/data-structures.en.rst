@@ -58,15 +58,15 @@ Data Structures
 
       The cache volumes that are part of this cache host record.
 
-   .. member:: Stripe ** vols
+   .. member:: Stripe ** stripes
 
       The stripes that are part of the cache volumes. This is the union over the stripes of
       :member:`CacheHostRecord::cp`
 
-   .. member:: unsigned short * vol_hash_table
+   .. member:: unsigned short * stripe_hash_table
 
       The stripe assignment table. This is an array of indices in to
-      :member:`CacheHostRecord::vols`.
+      :member:`CacheHostRecord::stripes`.
 
    .. see: :class:`CacheHostTable`.
 
@@ -147,13 +147,13 @@ Data Structures
 
    .. member:: off_t segments
 
-      The number of segments in the volume. This will be roughly the total
+      The number of segments in the stripe. This will be roughly the total
       number of entries divided by the number of entries in a segment. It will
       be rounded up to cover all entries.
 
    .. member:: off_t buckets
 
-      The number of buckets in the volume. This will be roughly the number of
+      The number of buckets in the stripe. This will be roughly the number of
       entries in a segment divided by ``DIR_DEPTH``. For currently defined
       values this is around 16,384 (2^16 / 4). Buckets are used as the targets
       of the index hash.
@@ -252,7 +252,7 @@ Data Structures
 
       Holds a magic value :code:``DISK_HEADER_MAGIC`` to indicate the span is valid and initialized.
 
-   .. member:: unsigned int num_volumes
+   .. member:: unsigned int num_stripes
 
       Number of cache volumes containing stripes in this span.
 
@@ -264,17 +264,17 @@ Data Structures
 
       The number of span blocks in use by stripes.
 
-   .. member:: unsigned int num_diskvol_blks
+   .. member:: unsigned int num_disk_stripe_blks
 
       The number of span blocks.
 
    .. member:: uint64_t num_blocks
 
-      The number of volume blocks in the span.
+      The number of stripe blocks in the span.
 
-   .. member:: DiskStripeBlock vol_info[1]
+   .. member:: DiskStripeBlock stripe_info[1]
 
-      A flexible array. The actual length of this array is :code:`num_diskvol_blks` and each element describes
+      A flexible array. The actual length of this array is :code:`num_disk_stripe_blks` and each element describes
       a span block.
 
 .. class:: DiskStripeBlock
@@ -306,7 +306,7 @@ Data Structures
 
    .. member:: unsigned int magic
 
-      Container for a magic value, ``VOL_MAGIC``, to indicate the instance is valid.
+      Container for a magic value, ``STRIPE_MAGIC``, to indicate the instance is valid.
 
    .. member:: VersionNumber version
 
@@ -363,14 +363,14 @@ Data Structures
 
 .. class:: DiskStripe
 
-   Describes the Disk that contains the stripe identified by vol_number. This class also contains the queue
+   Describes the Disk that contains the stripe identified by stripe_number. This class also contains the queue
    containing all the DiskStripeBlock
 
-   .. member:: int num_volblocks
+   .. member:: int num_stripe_blocks
 
-      Number of blocks in the stripe identified by vol_number
+      Number of blocks in the stripe identified by stripe_number
 
-   .. member:: int vol_number
+   .. member:: int stripe_number
 
       Identification number of the stripe (:class:`Stripe`)
 
@@ -405,17 +405,17 @@ Data Structures
    .. member:: off_t size
 
 
-   .. member:: int num_vols
+   .. member:: int num_stripes
 
-      Number of stripes(:class:`Stripe`) contained in this volume
+      Number of :class:`Stripe` contained in this volume
 
-   .. member:: Stripe** vols
+   .. member:: Stripe** stripes
 
-      :class:`Stripe` represents a single stripe in the disk. vols contains all the stripes this volume is made up of
+      :class:`Stripe` represents a single stripe in the disk. This contains all the stripes this volume is made up of
 
-   .. member:: DiskStripe** disk_vols
+   .. member:: DiskStripe** disk_stripes
 
-      disk_vols contain references to the disks of all the stripes in this volume
+      This contain references to the disks of all the stripes in this volume
 
    .. member:: LINK<CacheVol> link
 
@@ -462,12 +462,12 @@ Data Structures
       A generic class:`CacheHostRecord` that contains all cache volumes that are not explicitly
       assigned in :file:`hosting.config`.
 
-   .. function:: Stripe * key_to_vol(const char * key, const char * host, int host_len)
+   .. function:: Stripe * key_to_stripe(const char * key, const char * host, int host_len)
 
       Compute the stripe (:code:`Stripe *`) for a cache :arg:`key` and :arg:`host`. The :arg:`host` is
       used to find the appropriate :class:`CacheHostRecord` instance. From there the stripe
       assignment slot is determined by taking bits 64..83 (20 bits) of the cache :arg:`key` modulo
-      the stripe assignment array count (:code:`VOL_HASH_TABLE_SIZE`). These bits are the third 32
+      the stripe assignment array count (:code:`STRIPE_HASH_TABLE_SIZE`). These bits are the third 32
       bit slice of the :arg:`key` less the bottom :code:`DIR_TAG_WIDTH` (12) bits.
 
 .. rubric:: Footnotes

@@ -486,10 +486,10 @@ Cache::loadSpanDirect(swoc::file::path const &path, int vol_idx, const Bytes &si
         Stripe *stripe                 = new Stripe(span.get(), raw.offset, raw.len);
         stripe->_idx                   = i;
         if (raw.free == 0) {
-          stripe->_vol_idx = raw.vol_idx;
-          stripe->_type    = raw.type;
-          _volumes[stripe->_vol_idx]._stripes.push_back(stripe);
-          _volumes[stripe->_vol_idx]._size += stripe->_len;
+          stripe->_stripe_idx = raw.stripe_idx;
+          stripe->_type       = raw.type;
+          _volumes[stripe->_stripe_idx]._stripes.push_back(stripe);
+          _volumes[stripe->_stripe_idx]._size += stripe->_len;
           stripe->vol_init_data();
         } else {
           span->_free_space += stripe->_len;
@@ -497,7 +497,7 @@ Cache::loadSpanDirect(swoc::file::path const &path, int vol_idx, const Bytes &si
         span->_stripes.push_back(stripe);
         globalVec_stripe.push_back(stripe);
       }
-      span->_vol_idx = vol_idx;
+      span->_stripe_idx = vol_idx;
     } else {
       span->clear();
     }
@@ -604,7 +604,7 @@ Cache::dumpSpans(SpanDumpDepth depth)
         for (auto stripe : span->_stripes) {
           std::cout << "\n>>>>>>>>> Stripe " << static_cast<int>(stripe->_idx) << " @ " << stripe->_start
                     << " len=" << stripe->_len.count() << " blocks "
-                    << " vol=" << static_cast<int>(stripe->_vol_idx) << " type=" << static_cast<int>(stripe->_type) << " "
+                    << " vol=" << static_cast<int>(stripe->_stripe_idx) << " type=" << static_cast<int>(stripe->_type) << " "
                     << (stripe->isFree() ? "free" : "in-use") << std::endl;
 
           std::cout << "      " << stripe->_segments << " segments with " << stripe->_buckets << " buckets per segment for "
@@ -786,15 +786,15 @@ Span::allocStripe(int vol_idx, const CacheStripeBlocks &len)
       if (len < stripe->_len) {
         // If the remains would be less than a stripe block, just take it all.
         if (stripe->_len <= (len + CacheStripeBlocks(1))) {
-          stripe->_vol_idx = vol_idx;
-          stripe->_type    = 1;
+          stripe->_stripe_idx = vol_idx;
+          stripe->_type       = 1;
           return stripe;
         } else {
-          Stripe *ns      = new Stripe(this, stripe->_start, len);
-          stripe->_start += len;
-          stripe->_len   -= len;
-          ns->_vol_idx    = vol_idx;
-          ns->_type       = 1;
+          Stripe *ns       = new Stripe(this, stripe->_start, len);
+          stripe->_start  += len;
+          stripe->_len    -= len;
+          ns->_stripe_idx  = vol_idx;
+          ns->_type        = 1;
           _stripes.insert(spot, ns);
           return ns;
         }
@@ -807,7 +807,7 @@ Span::allocStripe(int vol_idx, const CacheStripeBlocks &len)
 bool
 Span::isEmpty() const
 {
-  return std::all_of(_stripes.begin(), _stripes.end(), [](Stripe *s) { return s->_vol_idx == 0; });
+  return std::all_of(_stripes.begin(), _stripes.end(), [](Stripe *s) { return s->_stripe_idx == 0; });
 }
 
 Errata
@@ -851,12 +851,12 @@ Span::updateHeader()
 
   sd = hdr->stripes;
   for (auto stripe : _stripes) {
-    sd->offset               = stripe->_start;
-    sd->len                  = stripe->_len;
-    sd->vol_idx              = stripe->_vol_idx;
-    sd->type                 = stripe->_type;
-    volume_mask[sd->vol_idx] = true;
-    if (sd->vol_idx == 0) {
+    sd->offset                  = stripe->_start;
+    sd->len                     = stripe->_len;
+    sd->stripe_idx              = stripe->_stripe_idx;
+    sd->type                    = stripe->_type;
+    volume_mask[sd->stripe_idx] = true;
+    if (sd->stripe_idx == 0) {
       sd->free = true;
       ++(hdr->num_free);
     } else {
@@ -910,13 +910,13 @@ Span::clearPermanently()
   }
 }
 
-// explicit pair for random table in build_vol_hash_table
+// explicit pair for random table in build_stripe_hash_table
 struct rtable_pair {
   unsigned int rval; ///< relative value, used to sort.
   unsigned int idx;  ///< volume mapping table index.
 };
 
-// comparison operator for random table in build_vol_hash_table
+// comparison operator for random table in build_stripe_hash_table
 // sorts based on the randomly assigned rval
 static int
 cmprtable(const void *aa, const void *bb)
@@ -949,7 +949,7 @@ Cache::build_stripe_hash_table()
   unsigned int *forvol         = static_cast<unsigned int *>(ats_malloc(sizeof(unsigned int) * num_stripes));
   unsigned int *gotvol         = static_cast<unsigned int *>(ats_malloc(sizeof(unsigned int) * num_stripes));
   unsigned int *rnd            = static_cast<unsigned int *>(ats_malloc(sizeof(unsigned int) * num_stripes));
-  unsigned short *ttable       = static_cast<unsigned short *>(ats_malloc(sizeof(unsigned short) * VOL_HASH_TABLE_SIZE));
+  unsigned short *ttable       = static_cast<unsigned short *>(ats_malloc(sizeof(unsigned short) * STRIPE_HASH_TABLE_SIZE));
   unsigned int *rtable_entries = static_cast<unsigned int *>(ats_malloc(sizeof(unsigned int) * num_stripes));
   unsigned int rtable_size     = 0;
   int i                        = 0;
@@ -968,20 +968,20 @@ Cache::build_stripe_hash_table()
   }
   i = 0;
   for (auto &elt : globalVec_stripe) {
-    forvol[i]  = total ? static_cast<int64_t>(VOL_HASH_TABLE_SIZE * elt->_len) / total : 0;
+    forvol[i]  = total ? static_cast<int64_t>(STRIPE_HASH_TABLE_SIZE * elt->_len) / total : 0;
     used      += forvol[i];
     gotvol[i]  = 0;
     i++;
   }
 
   // spread around the excess
-  int extra = VOL_HASH_TABLE_SIZE - used;
+  int extra = STRIPE_HASH_TABLE_SIZE - used;
   for (int i = 0; i < extra; i++) {
     forvol[i % num_stripes]++;
   }
 
   // initialize table to "empty"
-  for (int i = 0; i < VOL_HASH_TABLE_SIZE; i++) {
+  for (int i = 0; i < STRIPE_HASH_TABLE_SIZE; i++) {
     ttable[i] = VOL_HASH_EMPTY;
   }
 
@@ -998,11 +998,11 @@ Cache::build_stripe_hash_table()
   assert(rindex == (int)rtable_size);
   // sort (rand #, vol $ pairs)
   qsort(rtable, rtable_size, sizeof(rtable_pair), cmprtable);
-  unsigned int width = (1LL << 32) / VOL_HASH_TABLE_SIZE;
+  unsigned int width = (1LL << 32) / STRIPE_HASH_TABLE_SIZE;
   unsigned int pos; // target position to allocate
   // select vol with closest random number for each bucket
   i = 0; // index moving through the random numbers
-  for (int j = 0; j < VOL_HASH_TABLE_SIZE; j++) {
+  for (int j = 0; j < STRIPE_HASH_TABLE_SIZE; j++) {
     pos = width / 2 + j * width; // position to select closest to
     while (pos > rtable[i].rval && i < static_cast<int>(rtable_size) - 1) {
       i++;
@@ -1011,7 +1011,7 @@ Cache::build_stripe_hash_table()
     gotvol[rtable[i].idx]++;
   }
   for (int i = 0; i < num_stripes; i++) {
-    printf("build_vol_hash_table index %d mapped to %d requested %d got %d\n", i, i, forvol[i], gotvol[i]);
+    printf("build_stripe_hash_table index %d mapped to %d requested %d got %d\n", i, i, forvol[i], gotvol[i]);
   }
   stripes_hash_table = ttable;
 
@@ -1025,7 +1025,7 @@ Cache::build_stripe_hash_table()
 Stripe *
 Cache::key_to_stripe(CryptoHash *key, const char *hostname, int host_len)
 {
-  uint32_t h = (key->slice32(2) >> DIR_TAG_WIDTH) % VOL_HASH_TABLE_SIZE;
+  uint32_t h = (key->slice32(2) >> DIR_TAG_WIDTH) % STRIPE_HASH_TABLE_SIZE;
   return globalVec_stripe[stripes_hash_table[h]];
 }
 

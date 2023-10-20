@@ -429,15 +429,15 @@ force_link_CacheTest()
 
 REGRESSION_TEST(cache_disk_replacement_stability)(RegressionTest *t, int level, int *pstatus)
 {
-  static int const MAX_VOLS           = 26; // maximum values used in any test.
+  static int const MAX_STRIPES        = 26; // maximum values used in any test.
   static uint64_t DEFAULT_SKIP        = 8192;
   static uint64_t DEFAULT_STRIPE_SIZE = 1024ULL * 1024 * 1024 * 911; // 911G
   CacheDisk disk;                                                    // Only need one because it's just checked for failure.
   CacheHostRecord hr1, hr2;
   Stripe *sample;
   static int const sample_idx = 16;
-  Stripe vols[MAX_VOLS];
-  Stripe *vol_ptrs[MAX_VOLS]; // array of pointers.
+  Stripe stripes[MAX_STRIPES];
+  Stripe *stripe_ptrs[MAX_STRIPES]; // array of pointers.
   char buff[2048];
 
   // Only run at the highest levels.
@@ -450,41 +450,41 @@ REGRESSION_TEST(cache_disk_replacement_stability)(RegressionTest *t, int level, 
 
   disk.num_errors = 0;
 
-  for (int i = 0; i < MAX_VOLS; ++i) {
-    vol_ptrs[i]  = vols + i;
-    vols[i].disk = &disk;
-    vols[i].len  = DEFAULT_STRIPE_SIZE;
-    snprintf(buff, sizeof(buff), "/dev/sd%c %" PRIu64 ":%" PRIu64, 'a' + i, DEFAULT_SKIP, vols[i].len);
-    CryptoContext().hash_immediate(vols[i].hash_id, buff, strlen(buff));
+  for (int i = 0; i < MAX_STRIPES; ++i) {
+    stripe_ptrs[i]  = stripes + i;
+    stripes[i].disk = &disk;
+    stripes[i].len  = DEFAULT_STRIPE_SIZE;
+    snprintf(buff, sizeof(buff), "/dev/sd%c %" PRIu64 ":%" PRIu64, 'a' + i, DEFAULT_SKIP, stripes[i].len);
+    CryptoContext().hash_immediate(stripes[i].hash_id, buff, strlen(buff));
   }
 
-  hr1.vol_hash_table = nullptr;
-  hr1.vols           = vol_ptrs;
-  hr1.num_vols       = MAX_VOLS;
-  build_vol_hash_table(&hr1);
+  hr1.stripe_hash_table = nullptr;
+  hr1.stripes           = stripe_ptrs;
+  hr1.num_stripes       = MAX_STRIPES;
+  build_stripe_hash_table(&hr1);
 
-  hr2.vol_hash_table = nullptr;
-  hr2.vols           = vol_ptrs;
-  hr2.num_vols       = MAX_VOLS;
+  hr2.stripe_hash_table = nullptr;
+  hr2.stripes           = stripe_ptrs;
+  hr2.num_stripes       = MAX_STRIPES;
 
-  sample      = vols + sample_idx;
+  sample      = stripes + sample_idx;
   sample->len = 1024ULL * 1024 * 1024 * (1024 + 128); // 1.1 TB
   snprintf(buff, sizeof(buff), "/dev/sd%c %" PRIu64 ":%" PRIu64, 'a' + sample_idx, DEFAULT_SKIP, sample->len);
   CryptoContext().hash_immediate(sample->hash_id, buff, strlen(buff));
-  build_vol_hash_table(&hr2);
+  build_stripe_hash_table(&hr2);
 
   // See what the difference is
   int to = 0, from = 0;
   int then = 0, now = 0;
-  for (int i = 0; i < VOL_HASH_TABLE_SIZE; ++i) {
-    if (hr1.vol_hash_table[i] == sample_idx) {
+  for (int i = 0; i < STRIPE_HASH_TABLE_SIZE; ++i) {
+    if (hr1.stripe_hash_table[i] == sample_idx) {
       ++then;
     }
-    if (hr2.vol_hash_table[i] == sample_idx) {
+    if (hr2.stripe_hash_table[i] == sample_idx) {
       ++now;
     }
-    if (hr1.vol_hash_table[i] != hr2.vol_hash_table[i]) {
-      if (hr1.vol_hash_table[i] == sample_idx) {
+    if (hr1.stripe_hash_table[i] != hr2.stripe_hash_table[i]) {
+      if (hr1.stripe_hash_table[i] == sample_idx) {
         ++from;
       } else {
         ++to;
@@ -494,11 +494,11 @@ REGRESSION_TEST(cache_disk_replacement_stability)(RegressionTest *t, int level, 
   rprintf(t,
           "Cache stability difference - "
           "delta = %d of %d : %d to, %d from, originally %d slots, now %d slots (net gain = %d/%d)\n",
-          to + from, VOL_HASH_TABLE_SIZE, to, from, then, now, now - then, to - from);
+          to + from, STRIPE_HASH_TABLE_SIZE, to, from, then, now, now - then, to - from);
   *pstatus = REGRESSION_TEST_PASSED;
 
-  hr1.vols = nullptr;
-  hr2.vols = nullptr;
+  hr1.stripes = nullptr;
+  hr2.stripes = nullptr;
 }
 
 static double zipf_alpha        = 1.2;
@@ -552,10 +552,10 @@ test_RamCache(RegressionTest *t, RamCache *cache, const char *name, int64_t cach
 {
   bool pass = true;
   CacheKey key;
-  Stripe *vol = theCache->key_to_vol(&key, "example.com", sizeof("example.com") - 1);
+  Stripe *stripe = theCache->key_to_stripe(&key, "example.com", sizeof("example.com") - 1);
   std::vector<Ptr<IOBufferData>> data;
 
-  cache->init(cache_size, vol);
+  cache->init(cache_size, stripe);
 
   for (int l = 0; l < 10; l++) {
     for (int i = 0; i < 200; i++) {

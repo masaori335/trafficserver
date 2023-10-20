@@ -45,22 +45,23 @@ struct CacheHostRecord {
 
   ~CacheHostRecord()
   {
-    ats_free(vols);
-    ats_free(vol_hash_table);
+    ats_free(stripes);
+    ats_free(stripe_hash_table);
     ats_free(cp);
   }
 
-  CacheType type                 = CACHE_NONE_TYPE;
-  Stripe **vols                  = nullptr;
-  int num_vols                   = 0;
-  unsigned short *vol_hash_table = nullptr;
-  CacheVol **cp                  = nullptr;
-  int num_cachevols              = 0;
+  CacheType type                    = CACHE_NONE_TYPE;
+  Stripe **stripes                  = nullptr;
+  int num_stripes                   = 0;
+  int num_initialized               = 0;
+  unsigned short *stripe_hash_table = nullptr;
+  CacheVol **cp                     = nullptr;
+  int num_cachevols                 = 0;
 
   CacheHostRecord() {}
 };
 
-void build_vol_hash_table(CacheHostRecord *cp);
+void build_stripe_hash_table(CacheHostRecord *cp);
 
 struct CacheHostResult {
   CacheHostRecord *record = nullptr;

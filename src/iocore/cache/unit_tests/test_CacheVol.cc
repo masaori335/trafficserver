@@ -50,14 +50,14 @@ DbgCtl dbg_ctl_matcher{"matcher"};
 DbgCtl dbg_ctl_cache_vol_test{"cache_vol_test"};
 
 /* Test the cache volume with different configurations */
-#define MEGS_128              (128 * 1024 * 1024)
-#define ROUND_TO_VOL_SIZE(_x) (((_x) + (MEGS_128 - 1)) & ~(MEGS_128 - 1))
+#define MEGS_128                 (128 * 1024 * 1024)
+#define ROUND_TO_STRIPE_SIZE(_x) (((_x) + (MEGS_128 - 1)) & ~(MEGS_128 - 1))
 static int configs = 4;
 
 Queue<CacheVol> saved_cp_list;
 int saved_cp_list_len;
 ConfigVolumes saved_config_volumes;
-int saved_gnvol;
+int saved_gnstripe;
 
 int ClearConfigVol(ConfigVolumes *configp);
 int ClearCacheVolList(Queue<CacheVol> *cpl, int len);
@@ -78,12 +78,12 @@ create_config(int num)
     for (i = 0; i < gndisks; i++) {
       CacheDisk *d = gdisks[i];
       int blocks   = d->num_usable_blocks;
-      if (blocks < STORE_BLOCKS_PER_VOL) {
+      if (blocks < STORE_BLOCKS_PER_STRIPE) {
         Warning("Cannot run Cache_vol regression: not enough disk space");
         return 0;
       }
       /* create 128 MB volumes */
-      for (; blocks >= STORE_BLOCKS_PER_VOL; blocks -= STORE_BLOCKS_PER_VOL) {
+      for (; blocks >= STORE_BLOCKS_PER_STRIPE; blocks -= STORE_BLOCKS_PER_STRIPE) {
         if (vol_num > 255) {
           break;
         }
@@ -111,8 +111,8 @@ create_config(int num)
     for (i = 0; i < gndisks; i++) {
       off_t vol_blocks = gdisks[i]->num_usable_blocks;
       /* round down the blocks to the nearest
-         multiple of STORE_BLOCKS_PER_VOL */
-      vol_blocks   = (vol_blocks / STORE_BLOCKS_PER_VOL) * STORE_BLOCKS_PER_VOL;
+         multiple of STORE_BLOCKS_PER_STRIPE */
+      vol_blocks   = (vol_blocks / STORE_BLOCKS_PER_STRIPE) * STORE_BLOCKS_PER_STRIPE;
       total_space += vol_blocks;
     }
 
@@ -157,8 +157,8 @@ create_config(int num)
     for (i = 0; i < gndisks; i++) {
       off_t vol_blocks = gdisks[i]->num_usable_blocks;
       /* round down the blocks to the nearest
-         multiple of STORE_BLOCKS_PER_VOL */
-      vol_blocks   = (vol_blocks / STORE_BLOCKS_PER_VOL) * STORE_BLOCKS_PER_VOL;
+         multiple of STORE_BLOCKS_PER_STRIPE */
+      vol_blocks   = (vol_blocks / STORE_BLOCKS_PER_STRIPE) * STORE_BLOCKS_PER_STRIPE;
       total_space += vol_blocks;
 
       if (num == 2) {
@@ -177,15 +177,15 @@ create_config(int num)
       if (vol_num > 255) {
         break;
       }
-      off_t modu = MAX_VOL_SIZE;
-      if (total_space < (MAX_VOL_SIZE >> STORE_BLOCK_SHIFT)) {
+      off_t modu = MAX_STRIPE_SIZE;
+      if (total_space < (MAX_STRIPE_SIZE >> STORE_BLOCK_SHIFT)) {
         modu = total_space * STORE_BLOCK_SIZE;
       }
 
       off_t random_size = (gen->random() % modu) + 1;
       /* convert to 128 megs multiple */
       CacheType scheme = (random_size % 2) ? CACHE_HTTP_TYPE : CACHE_RTSP_TYPE;
-      random_size      = ROUND_TO_VOL_SIZE(random_size);
+      random_size      = ROUND_TO_STRIPE_SIZE(random_size);
       off_t blocks     = random_size / STORE_BLOCK_SIZE;
       ink_assert(blocks <= (int)total_space);
       total_space -= blocks;
@@ -253,24 +253,24 @@ execute_and_verify()
         int d_no;
         int m_vols = 0;
         for (d_no = 0; d_no < gndisks; d_no++) {
-          if (cachep->disk_vols[d_no]) {
-            DiskStripe *dp = cachep->disk_vols[d_no];
+          if (cachep->disk_stripes[d_no]) {
+            DiskStripe *disk_stripe = cachep->disk_stripes[d_no];
             // DiskStripes and CacheVols should match
-            REQUIRE(dp->vol_number == cachep->vol_number);
+            REQUIRE(disk_stripe->vol_number == cachep->vol_number);
 
             /* check the diskvolblock queue */
-            DiskStripeBlockQueue *dpbq = dp->dpb_queue.head;
+            DiskStripeBlockQueue *dpbq = disk_stripe->dpb_queue.head;
             while (dpbq) {
               // DiskStripe and DiskStripeBlocks should match
               REQUIRE(dpbq->b->number == cachep->vol_number);
               dpbq = dpbq->link.next;
             }
 
-            m_vols += dp->num_volblocks;
+            m_vols += disk_stripe->num_stripe_blocks;
           }
         }
         // Num volumes in CacheVol and DiskStripe should match
-        REQUIRE(m_vols == cachep->num_vols);
+        REQUIRE(m_vols == cachep->num_stripes);
 
         matched++;
         break;
@@ -285,14 +285,14 @@ execute_and_verify()
   for (int i = 0; i < gndisks; i++) {
     CacheDisk *d = gdisks[i];
     if (dbg_ctl_cache_hosting.on()) {
-      Dbg(dbg_ctl_cache_hosting, "Disk: %d: Stripe Blocks: %u: Free space: %" PRIu64, i, d->header->num_diskvol_blks,
+      Dbg(dbg_ctl_cache_hosting, "Disk: %d: Stripe Blocks: %u: Free space: %" PRIu64, i, d->header->num_disk_stripe_blks,
           d->free_space);
-      for (int j = 0; j < static_cast<int>(d->header->num_volumes); j++) {
-        Dbg(dbg_ctl_cache_hosting, "\tStripe: %d Size: %" PRIu64, d->disk_vols[j]->vol_number, d->disk_vols[j]->size);
+      for (int j = 0; j < static_cast<int>(d->header->num_stripes); j++) {
+        Dbg(dbg_ctl_cache_hosting, "\tVolume: %d Size: %" PRIu64, d->disk_stripes[j]->vol_number, d->disk_stripes[j]->size);
       }
-      for (int j = 0; j < static_cast<int>(d->header->num_diskvol_blks); j++) {
-        Dbg(dbg_ctl_cache_hosting, "\tBlock No: %d Size: %" PRIu64 " Free: %u", d->header->vol_info[j].number,
-            d->header->vol_info[j].len, d->header->vol_info[j].free);
+      for (int j = 0; j < static_cast<int>(d->header->num_disk_stripe_blks); j++) {
+        Dbg(dbg_ctl_cache_hosting, "\tBlock No: %d Size: %" PRIu64 " Free: %u", d->header->stripe_info[j].number,
+            d->header->stripe_info[j].len, d->header->stripe_info[j].free);
       }
     }
   }
@@ -322,8 +322,8 @@ ClearCacheVolList(Queue<CacheVol> *cpl, int len)
   int i        = 0;
   CacheVol *cp = nullptr;
   while ((cp = cpl->dequeue())) {
-    ats_free(cp->disk_vols);
-    ats_free(cp->vols);
+    ats_free(cp->disk_stripes);
+    ats_free(cp->stripes);
     delete (cp);
     i++;
   }
@@ -341,10 +341,10 @@ save_state()
   saved_cp_list     = cp_list;
   saved_cp_list_len = cp_list_len;
   memcpy(&saved_config_volumes, &config_volumes, sizeof(ConfigVolumes));
-  saved_gnvol = gnvol;
+  saved_gnstripe = gnstripe;
   memset(static_cast<void *>(&cp_list), 0, sizeof(Queue<CacheVol>));
   memset(static_cast<void *>(&config_volumes), 0, sizeof(ConfigVolumes));
-  gnvol = 0;
+  gnstripe = 0;
 }
 
 void
@@ -353,7 +353,7 @@ restore_state()
   cp_list     = saved_cp_list;
   cp_list_len = saved_cp_list_len;
   memcpy(&config_volumes, &saved_config_volumes, sizeof(ConfigVolumes));
-  gnvol = saved_gnvol;
+  gnstripe = saved_gnstripe;
 }
 } // end anonymous namespace
 

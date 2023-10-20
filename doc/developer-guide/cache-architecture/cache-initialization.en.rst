@@ -72,22 +72,22 @@ is, all stripe header read operations have completed). There is an instance of
 (:member:`Cache::hosttable`) for all cache volumes that are not explicitly assigned. If
 :file:`hosting.config` is empty then all cache volumes will be in the generic record.
 
-:func:`build_vol_hash_table` in :ts:git:`iocore/cache/Cache.cc` does the work of setting up the
+:func:`build_stripe_hash_table` in :ts:git:`iocore/cache/Cache.cc` does the work of setting up the
 stripe assignment and is called for each :class:`CacheHostRecord` and the generic host record. The
-stripes to be assigned are in :member:`CacheHostRecord::vols`.
+stripes to be assigned are in :member:`CacheHostRecord::stripes`.
 
 .. figure:: images/cache-init-cachehostrecord.png
    :align: left
 
-   :member:`CacheHostRecord::vols` is the union of all the stripes in the :class:`CacheVol` instances in :member:`CacheHostRecord::cp`.
+   :member:`CacheHostRecord::stripes` is the union of all the stripes in the :class:`CacheVol` instances in :member:`CacheHostRecord::cp`.
 
 An indirect index mapping is created to account for stripes that are not available. The total size
-of the stripes is computed at the same time. The :code:`forvol` and :code:`getvol` arrays are used
+of the stripes is computed at the same time. The :code:`for_stripe` and :code:`get_stripe` arrays are used
 for debugging, they are not essential to the assignment setup. :code:`rtable_entries` is filled with
-stripe size divided by :code:`VOL_HASH_ALLOC_SIZE`. These values are used to determine the number of
+stripe size divided by :code:`STRIPE_HASH_ALLOC_SIZE`. These values are used to determine the number of
 assignment slots given to each stripe. For each stripe a seed for a 32 bit pseudo random number
 generator is created based on stripe properties. Another array of pairs of value and stripe index is
-filled using these. For each :code:`VOL_HASH_ALLOC_SIZE` amount of space in a stripe, a pair is
+filled using these. For each :code:`STRIPE_HASH_ALLOC_SIZE` amount of space in a stripe, a pair is
 generated containing the stripe index and the next random number from that stripe's generator. This
 array is then sorted in ascending order.
 
@@ -97,7 +97,7 @@ array is then sorted in ascending order.
    <http://random.org>`__ is used.
 
 The result is sampled in sections, the size of the sections selected to yield
-:code:`VOL_HASH_TABLE_SIZE` sections. For each section the sample value is the midpoint of the
+:code:`STRIPE_HASH_TABLE_SIZE` sections. For each section the sample value is the midpoint of the
 section.For the example, the number of sections is set to 17 (because the number of sections should
 be a prime number). This yields 17 sections each of width 15 with a sample value equal to 7 more
 than the initial value. The results of applying this to the :code:`rtable` is

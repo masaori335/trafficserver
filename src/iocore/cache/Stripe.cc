@@ -37,63 +37,63 @@ DbgCtl dbg_ctl_cache_init{"cache_init"};
 short int const CACHE_DB_MAJOR_VERSION_COMPATIBLE = 21;
 
 void
-vol_init_data_internal(Stripe *vol)
+vol_init_data_internal(Stripe *stripe)
 {
   // step1: calculate the number of entries.
-  off_t total_entries = (vol->len - (vol->start - vol->skip)) / cache_config_min_average_object_size;
+  off_t total_entries = (stripe->len - (stripe->start - stripe->skip)) / cache_config_min_average_object_size;
   // step2: calculate the number of buckets
   off_t total_buckets = total_entries / DIR_DEPTH;
   // step3: calculate the number of segments, no segment has more than 16384 buckets
-  vol->segments = (total_buckets + (((1 << 16) - 1) / DIR_DEPTH)) / ((1 << 16) / DIR_DEPTH);
+  stripe->segments = (total_buckets + (((1 << 16) - 1) / DIR_DEPTH)) / ((1 << 16) / DIR_DEPTH);
   // step4: divide total_buckets into segments on average.
-  vol->buckets = (total_buckets + vol->segments - 1) / vol->segments;
+  stripe->buckets = (total_buckets + stripe->segments - 1) / stripe->segments;
   // step5: set the start pointer.
-  vol->start = vol->skip + 2 * vol->dirlen();
+  stripe->start = stripe->skip + 2 * stripe->dirlen();
 }
 
 void
-vol_init_data(Stripe *vol)
+vol_init_data(Stripe *stripe)
 {
   // iteratively calculate start + buckets
-  vol_init_data_internal(vol);
-  vol_init_data_internal(vol);
-  vol_init_data_internal(vol);
+  vol_init_data_internal(stripe);
+  vol_init_data_internal(stripe);
+  vol_init_data_internal(stripe);
 }
 
 void
-vol_init_dir(Stripe *vol)
+vol_init_dir(Stripe *stripe)
 {
   int b, s, l;
 
-  for (s = 0; s < vol->segments; s++) {
-    vol->header->freelist[s] = 0;
-    Dir *seg                 = vol->dir_segment(s);
+  for (s = 0; s < stripe->segments; s++) {
+    stripe->header->freelist[s] = 0;
+    Dir *seg                    = stripe->dir_segment(s);
     for (l = 1; l < DIR_DEPTH; l++) {
-      for (b = 0; b < vol->buckets; b++) {
+      for (b = 0; b < stripe->buckets; b++) {
         Dir *bucket = dir_bucket(b, seg);
-        dir_free_entry(dir_bucket_row(bucket, l), s, vol);
+        dir_free_entry(dir_bucket_row(bucket, l), s, stripe);
       }
     }
   }
 }
 
 void
-vol_clear_init(Stripe *vol)
+vol_clear_init(Stripe *stripe)
 {
-  size_t dir_len = vol->dirlen();
-  memset(vol->raw_dir, 0, dir_len);
-  vol_init_dir(vol);
-  vol->header->magic          = VOL_MAGIC;
-  vol->header->version._major = CACHE_DB_MAJOR_VERSION;
-  vol->header->version._minor = CACHE_DB_MINOR_VERSION;
-  vol->scan_pos = vol->header->agg_pos = vol->header->write_pos = vol->start;
-  vol->header->last_write_pos                                   = vol->header->write_pos;
-  vol->header->phase                                            = 0;
-  vol->header->cycle                                            = 0;
-  vol->header->create_time                                      = time(nullptr);
-  vol->header->dirty                                            = 0;
-  vol->sector_size = vol->header->sector_size = vol->disk->hw_sector_size;
-  *vol->footer                                = *vol->header;
+  size_t dir_len = stripe->dirlen();
+  memset(stripe->raw_dir, 0, dir_len);
+  vol_init_dir(stripe);
+  stripe->header->magic          = STRIPE_MAGIC;
+  stripe->header->version._major = CACHE_DB_MAJOR_VERSION;
+  stripe->header->version._minor = CACHE_DB_MINOR_VERSION;
+  stripe->scan_pos = stripe->header->agg_pos = stripe->header->write_pos = stripe->start;
+  stripe->header->last_write_pos                                         = stripe->header->write_pos;
+  stripe->header->phase                                                  = 0;
+  stripe->header->cycle                                                  = 0;
+  stripe->header->create_time                                            = time(nullptr);
+  stripe->header->dirty                                                  = 0;
+  stripe->sector_size = stripe->header->sector_size = stripe->disk->hw_sector_size;
+  *stripe->footer                                   = *stripe->header;
 }
 
 int
@@ -105,13 +105,13 @@ compare_ushort(void const *a, void const *b)
 } // namespace
 
 int
-vol_dir_clear(Stripe *d)
+vol_dir_clear(Stripe *stripe)
 {
-  size_t dir_len = d->dirlen();
-  vol_clear_init(d);
+  size_t dir_len = stripe->dirlen();
+  vol_clear_init(stripe);
 
-  if (pwrite(d->fd, d->raw_dir, dir_len, d->skip) < 0) {
-    Warning("unable to clear cache directory '%s'", d->hash_text.get());
+  if (pwrite(stripe->fd, stripe->raw_dir, dir_len, stripe->skip) < 0) {
+    Warning("unable to clear cache directory '%s'", stripe->hash_text.get());
     return -1;
   }
   return 0;
@@ -119,23 +119,23 @@ vol_dir_clear(Stripe *d)
 
 struct StripeInitInfo {
   off_t recover_pos;
-  AIOCallbackInternal vol_aio[4];
-  char *vol_h_f;
+  AIOCallbackInternal aio[4];
+  char *h_f;
 
   StripeInitInfo()
   {
     recover_pos = 0;
-    vol_h_f     = static_cast<char *>(ats_memalign(ats_pagesize(), 4 * STORE_BLOCK_SIZE));
-    memset(vol_h_f, 0, 4 * STORE_BLOCK_SIZE);
+    h_f         = static_cast<char *>(ats_memalign(ats_pagesize(), 4 * STORE_BLOCK_SIZE));
+    memset(h_f, 0, 4 * STORE_BLOCK_SIZE);
   }
 
   ~StripeInitInfo()
   {
-    for (auto &i : vol_aio) {
+    for (auto &i : aio) {
       i.action = nullptr;
       i.mutex.clear();
     }
-    free(vol_h_f);
+    free(h_f);
   }
 };
 
@@ -244,7 +244,7 @@ Stripe::init(char *s, off_t blocks, off_t dir_skip, bool clear)
   dir_skip = ROUND_TO_STORE_BLOCK((dir_skip < START_POS ? START_POS : dir_skip));
   path     = ats_strdup(s);
   len      = blocks * STORE_BLOCK_SIZE;
-  ink_assert(len <= MAX_VOL_SIZE);
+  ink_assert(len <= MAX_STRIPE_SIZE);
   skip             = dir_skip;
   prev_recover_pos = 0;
 
@@ -259,7 +259,7 @@ Stripe::init(char *s, off_t blocks, off_t dir_skip, bool clear)
   evacuate      = static_cast<DLL<EvacuationBlock> *>(ats_malloc(evac_len));
   memset(static_cast<void *>(evacuate), 0, evac_len);
 
-  Dbg(dbg_ctl_cache_init, "Vol %s: allocating %zu directory bytes for a %lld byte volume (%lf%%)", hash_text.get(), dirlen(),
+  Dbg(dbg_ctl_cache_init, "Stripe %s: allocating %zu directory bytes for a %lld byte stripe (%lf%%)", hash_text.get(), dirlen(),
       (long long)this->len, (double)dirlen() / (double)this->len * 100.0);
 
   raw_dir = nullptr;
@@ -287,22 +287,22 @@ Stripe::init(char *s, off_t blocks, off_t dir_skip, bool clear)
 
   Dbg(dbg_ctl_cache_init, "reading directory '%s'", hash_text.get());
   SET_HANDLER(&Stripe::handle_header_read);
-  init_info->vol_aio[0].aiocb.aio_offset = as;
-  init_info->vol_aio[1].aiocb.aio_offset = as + footer_offset;
-  off_t bs                               = skip + this->dirlen();
-  init_info->vol_aio[2].aiocb.aio_offset = bs;
-  init_info->vol_aio[3].aiocb.aio_offset = bs + footer_offset;
+  init_info->aio[0].aiocb.aio_offset = as;
+  init_info->aio[1].aiocb.aio_offset = as + footer_offset;
+  off_t bs                           = skip + this->dirlen();
+  init_info->aio[2].aiocb.aio_offset = bs;
+  init_info->aio[3].aiocb.aio_offset = bs + footer_offset;
 
-  for (unsigned i = 0; i < countof(init_info->vol_aio); i++) {
-    AIOCallback *aio      = &(init_info->vol_aio[i]);
+  for (unsigned i = 0; i < countof(init_info->aio); i++) {
+    AIOCallback *aio      = &(init_info->aio[i]);
     aio->aiocb.aio_fildes = fd;
-    aio->aiocb.aio_buf    = &(init_info->vol_h_f[i * STORE_BLOCK_SIZE]);
+    aio->aiocb.aio_buf    = &(init_info->h_f[i * STORE_BLOCK_SIZE]);
     aio->aiocb.aio_nbytes = footerlen;
     aio->action           = this;
     aio->thread           = AIO_CALLBACK_THREAD_ANY;
-    aio->then             = (i < 3) ? &(init_info->vol_aio[i + 1]) : nullptr;
+    aio->then             = (i < 3) ? &(init_info->aio[i + 1]) : nullptr;
   }
-  ink_assert(ink_aio_read(init_info->vol_aio));
+  ink_assert(ink_aio_read(init_info->aio));
   return 0;
 }
 
@@ -350,12 +350,12 @@ Stripe::handle_dir_read(int event, void *data)
     }
   }
 
-  if (!(header->magic == VOL_MAGIC && footer->magic == VOL_MAGIC && CACHE_DB_MAJOR_VERSION_COMPATIBLE <= header->version._major &&
-        header->version._major <= CACHE_DB_MAJOR_VERSION)) {
+  if (!(header->magic == STRIPE_MAGIC && footer->magic == STRIPE_MAGIC &&
+        CACHE_DB_MAJOR_VERSION_COMPATIBLE <= header->version._major && header->version._major <= CACHE_DB_MAJOR_VERSION)) {
     Warning("bad footer in cache directory for '%s', clearing", hash_text.get());
-    Note("VOL_MAGIC %d\n header magic: %d\n footer_magic %d\n CACHE_DB_MAJOR_VERSION_COMPATIBLE %d\n major version %d\n"
+    Note("STRIPE_MAGIC %d\n header magic: %d\n footer_magic %d\n CACHE_DB_MAJOR_VERSION_COMPATIBLE %d\n major version %d\n"
          "CACHE_DB_MAJOR_VERSION %d\n",
-         VOL_MAGIC, header->magic, footer->magic, CACHE_DB_MAJOR_VERSION_COMPATIBLE, header->version._major,
+         STRIPE_MAGIC, header->magic, footer->magic, CACHE_DB_MAJOR_VERSION_COMPATIBLE, header->version._major,
          CACHE_DB_MAJOR_VERSION);
     Note("clearing cache directory '%s'", hash_text.get());
     clear_dir();
@@ -638,29 +638,29 @@ Ldone: {
   footer->sync_serial = header->sync_serial = next_sync_serial;
 
   for (int i = 0; i < 3; i++) {
-    AIOCallback *aio      = &(init_info->vol_aio[i]);
+    AIOCallback *aio      = &(init_info->aio[i]);
     aio->aiocb.aio_fildes = fd;
     aio->action           = this;
     aio->thread           = AIO_CALLBACK_THREAD_ANY;
-    aio->then             = (i < 2) ? &(init_info->vol_aio[i + 1]) : nullptr;
+    aio->then             = (i < 2) ? &(init_info->aio[i + 1]) : nullptr;
   }
   int footerlen = ROUND_TO_STORE_BLOCK(sizeof(StripteHeaderFooter));
   size_t dirlen = this->dirlen();
   int B         = header->sync_serial & 1;
   off_t ss      = skip + (B ? dirlen : 0);
 
-  init_info->vol_aio[0].aiocb.aio_buf    = raw_dir;
-  init_info->vol_aio[0].aiocb.aio_nbytes = footerlen;
-  init_info->vol_aio[0].aiocb.aio_offset = ss;
-  init_info->vol_aio[1].aiocb.aio_buf    = raw_dir + footerlen;
-  init_info->vol_aio[1].aiocb.aio_nbytes = dirlen - 2 * footerlen;
-  init_info->vol_aio[1].aiocb.aio_offset = ss + footerlen;
-  init_info->vol_aio[2].aiocb.aio_buf    = raw_dir + dirlen - footerlen;
-  init_info->vol_aio[2].aiocb.aio_nbytes = footerlen;
-  init_info->vol_aio[2].aiocb.aio_offset = ss + dirlen - footerlen;
+  init_info->aio[0].aiocb.aio_buf    = raw_dir;
+  init_info->aio[0].aiocb.aio_nbytes = footerlen;
+  init_info->aio[0].aiocb.aio_offset = ss;
+  init_info->aio[1].aiocb.aio_buf    = raw_dir + footerlen;
+  init_info->aio[1].aiocb.aio_nbytes = dirlen - 2 * footerlen;
+  init_info->aio[1].aiocb.aio_offset = ss + footerlen;
+  init_info->aio[2].aiocb.aio_buf    = raw_dir + dirlen - footerlen;
+  init_info->aio[2].aiocb.aio_nbytes = footerlen;
+  init_info->aio[2].aiocb.aio_offset = ss + dirlen - footerlen;
 
   SET_HANDLER(&Stripe::handle_recover_write_dir);
-  ink_assert(ink_aio_write(init_info->vol_aio));
+  ink_assert(ink_aio_write(init_info->aio));
   return EVENT_CONT;
 }
 
@@ -752,9 +752,9 @@ Stripe::dir_init_done(int /* event ATS_UNUSED */, void * /* data ATS_UNUSED */)
     eventProcessor.schedule_in(this, HRTIME_MSECONDS(5), ET_CALL);
     return EVENT_CONT;
   } else {
-    int vol_no = gnvol++;
-    ink_assert(!gvol[vol_no]);
-    gvol[vol_no] = this;
+    int i = gnstripe++;
+    ink_assert(!gstripe[i]);
+    gstripe[i] = this;
     SET_HANDLER(&Stripe::aggWrite);
     cache->vol_initialized(fd != -1);
     return EVENT_DONE;

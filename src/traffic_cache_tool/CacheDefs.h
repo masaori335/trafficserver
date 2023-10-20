@@ -114,7 +114,7 @@ public:
 struct CacheStripeDescriptor {
   Bytes offset;         // offset of start of stripe from start of span.
   CacheStoreBlocks len; // length of block.
-  uint32_t vol_idx;     ///< If in use, the volume index.
+  uint32_t stripe_idx;  ///< If in use, the stripe index.
   unsigned int type : 3;
   unsigned int free : 1;
 };
@@ -358,7 +358,7 @@ using ts::Doc;
 
 constexpr int ESTIMATED_OBJECT_SIZE     = 8000;
 constexpr int DEFAULT_HW_SECTOR_SIZE    = 512;
-constexpr int VOL_HASH_TABLE_SIZE       = 32707;
+constexpr int STRIPE_HASH_TABLE_SIZE    = 32707;
 constexpr unsigned short VOL_HASH_EMPTY = 65535;
 constexpr int DIR_TAG_WIDTH             = 12;
 constexpr int DIR_DEPTH                 = 4;
@@ -460,7 +460,7 @@ struct Span {
 
   swoc::file::path _path;   ///< File system location of span.
   ats_scoped_fd _fd;        ///< Open file descriptor for span.
-  int _vol_idx = 0;         ///< Forced volume.
+  int _stripe_idx = 0;      ///< Forced volume.
   CacheStoreBlocks _base;   ///< Offset to first usable byte.
   CacheStoreBlocks _offset; ///< Offset to first content byte.
   // The space between _base and _offset is where the span information is stored.
@@ -526,15 +526,15 @@ struct Stripe {
   /// Initialize the live data from the loaded serialized data.
   void updateLiveData(enum Copy c);
 
-  Span *_span;           ///< Hosting span.
-  CryptoHash hash_id;    /// hash_id
-  Bytes _start;          ///< Offset of first byte of stripe metadata.
-  Bytes _content;        ///< Start of content.
-  CacheStoreBlocks _len; ///< Length of stripe.
-  uint8_t _vol_idx = 0;  ///< Volume index.
-  uint8_t _type    = 0;  ///< Stripe type.
-  int8_t _idx      = -1; ///< Stripe index in span.
-  int agg_buf_pos  = 0;
+  Span *_span;              ///< Hosting span.
+  CryptoHash hash_id;       /// hash_id
+  Bytes _start;             ///< Offset of first byte of stripe metadata.
+  Bytes _content;           ///< Start of content.
+  CacheStoreBlocks _len;    ///< Length of stripe.
+  uint8_t _stripe_idx = 0;  ///< Stripe index.
+  uint8_t _type       = 0;  ///< Stripe type.
+  int8_t _idx         = -1; ///< Stripe index in span.
+  int agg_buf_pos     = 0;
 
   int64_t _buckets  = 0; ///< Number of buckets per segment.
   int64_t _segments = 0; ///< Number of segments.

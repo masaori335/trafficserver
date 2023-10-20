@@ -82,7 +82,7 @@ CacheVC::updateVector(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
   }
   int ret = 0;
   {
-    CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+    CACHE_TRY_LOCK(lock, stripe->mutex, mutex->thread_holding);
     if (!lock.is_locked() || od->writing_vec) {
       VC_SCHED_LOCK_RETRY();
     }
@@ -100,7 +100,7 @@ CacheVC::updateVector(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
           write_vector->remove(alternate_index, true);
           alternate_index = CACHE_ALT_REMOVED;
           if (!write_vector->count()) {
-            dir_delete(&first_key, vol, &od->first_dir);
+            dir_delete(&first_key, stripe, &od->first_dir);
           }
         }
         // the alternate is not there any more. somebody might have
@@ -246,10 +246,10 @@ CacheVC::handleWrite(int event, Event * /* e ATS_UNUSED */)
 
   set_agg_write_in_progress();
   POP_HANDLER;
-  agg_len             = vol->round_to_approx_size(write_len + header_len + frag_len + sizeof(Doc));
-  vol->agg_todo_size += agg_len;
-  bool agg_error      = (agg_len > AGG_SIZE || header_len + sizeof(Doc) > MAX_FRAG_SIZE ||
-                    (!f.readers && (vol->agg_todo_size > cache_config_agg_write_backlog + AGG_SIZE) && write_len));
+  agg_len                = stripe->round_to_approx_size(write_len + header_len + frag_len + sizeof(Doc));
+  stripe->agg_todo_size += agg_len;
+  bool agg_error         = (agg_len > AGG_SIZE || header_len + sizeof(Doc) > MAX_FRAG_SIZE ||
+                    (!f.readers && (stripe->agg_todo_size > cache_config_agg_write_backlog + AGG_SIZE) && write_len));
 #ifdef CACHE_AGG_FAIL_RATE
   agg_error = agg_error || ((uint32_t)mutex->thread_holding->generator.random() < (uint32_t)(UINT_MAX * CACHE_AGG_FAIL_RATE));
 #endif
@@ -258,11 +258,11 @@ CacheVC::handleWrite(int event, Event * /* e ATS_UNUSED */)
 
   if (agg_error || max_doc_error) {
     Metrics::increment(cache_rsb.write_backlog_failure);
-    Metrics::increment(vol->cache_vol->vol_rsb.write_backlog_failure);
+    Metrics::increment(stripe->cache_vol->vol_rsb.write_backlog_failure);
     Metrics::increment(cache_rsb.status[op_type].failure);
-    Metrics::increment(vol->cache_vol->vol_rsb.status[op_type].failure);
-    vol->agg_todo_size -= agg_len;
-    io.aio_result       = AIO_SOFT_FAILURE;
+    Metrics::increment(stripe->cache_vol->vol_rsb.status[op_type].failure);
+    stripe->agg_todo_size -= agg_len;
+    io.aio_result          = AIO_SOFT_FAILURE;
     if (event == EVENT_CALL) {
       return EVENT_RETURN;
     }
@@ -270,12 +270,12 @@ CacheVC::handleWrite(int event, Event * /* e ATS_UNUSED */)
   }
   ink_assert(agg_len <= AGG_SIZE);
   if (f.evac_vector) {
-    vol->agg.push(this);
+    stripe->agg.push(this);
   } else {
-    vol->agg.enqueue(this);
+    stripe->agg.enqueue(this);
   }
-  if (!vol->is_io_in_progress()) {
-    return vol->aggWrite(event, this);
+  if (!stripe->is_io_in_progress()) {
+    return stripe->aggWrite(event, this);
   }
   return EVENT_CONT;
 }
@@ -437,14 +437,14 @@ Stripe::aggWriteDone(int event, Event *e)
 }
 
 CacheEvacuateDocVC *
-new_DocEvacuator(int nbytes, Stripe *vol)
+new_DocEvacuator(int nbytes, Stripe *stripe)
 {
-  CacheEvacuateDocVC *c = new_CacheEvacuateDocVC(vol);
+  CacheEvacuateDocVC *c = new_CacheEvacuateDocVC(stripe);
   c->op_type            = static_cast<int>(CacheOpType::Evacuate);
   Metrics::increment(cache_rsb.status[c->op_type].active);
-  Metrics::increment(vol->cache_vol->vol_rsb.status[c->op_type].active);
+  Metrics::increment(stripe->cache_vol->vol_rsb.status[c->op_type].active);
   c->buf         = new_IOBufferData(iobuffer_size_to_index(nbytes, MAX_BUFFER_SIZE_INDEX), MEMALIGNED);
-  c->vol         = vol;
+  c->stripe      = stripe;
   c->f.evacuator = 1;
   c->earliest_key.clear();
   SET_CONTINUATION_HANDLER(c, &CacheEvacuateDocVC::evacuateDocDone);
@@ -452,23 +452,23 @@ new_DocEvacuator(int nbytes, Stripe *vol)
 }
 
 static int
-evacuate_fragments(CacheKey *key, CacheKey *earliest_key, int force, Stripe *vol)
+evacuate_fragments(CacheKey *key, CacheKey *earliest_key, int force, Stripe *stripe)
 {
   Dir dir, *last_collision = nullptr;
   int i = 0;
-  while (dir_probe(key, vol, &dir, &last_collision)) {
+  while (dir_probe(key, stripe, &dir, &last_collision)) {
     // next fragment cannot be a head...if it is, it must have been a
     // directory collision.
     if (dir_head(&dir)) {
       continue;
     }
-    EvacuationBlock *b = evacuation_block_exists(&dir, vol);
+    EvacuationBlock *b = evacuation_block_exists(&dir, stripe);
     if (!b) {
-      b                          = new_EvacuationBlock(vol->mutex->thread_holding);
+      b                          = new_EvacuationBlock(stripe->mutex->thread_holding);
       b->dir                     = dir;
       b->evac_frags.key          = *key;
       b->evac_frags.earliest_key = *earliest_key;
-      vol->evacuate[dir_evac_bucket(&dir)].push(b);
+      stripe->evacuate[dir_evac_bucket(&dir)].push(b);
       i++;
     } else {
       ink_assert(dir_offset(&dir) == dir_offset(&b->dir));
@@ -648,8 +648,8 @@ Stripe::evac_range(off_t low, off_t high, int evac_phase)
 static int
 agg_copy(char *p, CacheVC *vc)
 {
-  Stripe *vol = vc->vol;
-  off_t o     = vol->header->write_pos + vol->agg_buf_pos;
+  Stripe *stripe = vc->stripe;
+  off_t o        = stripe->header->write_pos + stripe->agg_buf_pos;
 
   if (!vc->f.evacuator) {
     Doc *doc                   = reinterpret_cast<Doc *>(p);
@@ -657,12 +657,12 @@ agg_copy(char *p, CacheVC *vc)
 
     uint32_t len = vc->write_len + vc->header_len + vc->frag_len + sizeof(Doc);
     ink_assert(vc->frag_type != CACHE_FRAG_TYPE_HTTP || len != sizeof(Doc));
-    ink_assert(vol->round_to_approx_size(len) == vc->agg_len);
+    ink_assert(stripe->round_to_approx_size(len) == vc->agg_len);
     // update copy of directory entry for this document
     dir_set_approx_size(&vc->dir, vc->agg_len);
-    dir_set_offset(&vc->dir, vol->offset_to_vol_offset(o));
-    ink_assert(vol->vol_offset(&vc->dir) < (vol->skip + vol->len));
-    dir_set_phase(&vc->dir, vol->header->phase);
+    dir_set_offset(&vc->dir, stripe->offset_to_vol_offset(o));
+    ink_assert(stripe->vol_offset(&vc->dir) < (stripe->skip + stripe->len));
+    dir_set_phase(&vc->dir, stripe->header->phase);
 
     // fill in document header
     doc->magic       = DOC_MAGIC;
@@ -674,8 +674,8 @@ agg_copy(char *p, CacheVC *vc)
     doc->unused      = 0; // force this for forward compatibility.
     doc->total_len   = vc->total_len;
     doc->first_key   = vc->first_key;
-    doc->sync_serial = vol->header->sync_serial;
-    vc->write_serial = doc->write_serial = vol->header->write_serial;
+    doc->sync_serial = stripe->header->sync_serial;
+    vc->write_serial = doc->write_serial = stripe->header->write_serial;
     doc->checksum                        = DOC_NO_CHECKSUM;
     if (vc->pin_in_cache) {
       dir_set_pinned(&vc->dir, 1);
@@ -692,7 +692,7 @@ agg_copy(char *p, CacheVC *vc)
       } else { // the vector is being written by itself
         if (vc->earliest_key.is_zero()) {
           do {
-            rand_CacheKey(&doc->key, vc->vol->mutex);
+            rand_CacheKey(&doc->key, vc->stripe->mutex);
           } while (DIR_MASK_TAG(doc->key.slice32(2)) == DIR_MASK_TAG(vc->first_key.slice32(2)));
         } else {
           prev_CacheKey(&doc->key, &vc->earliest_key);
@@ -739,13 +739,13 @@ agg_copy(char *p, CacheVC *vc)
     // move data
     if (vc->write_len) {
       {
-        ProxyMutex *mutex ATS_UNUSED = vc->vol->mutex.get();
+        ProxyMutex *mutex ATS_UNUSED = vc->stripe->mutex.get();
         ink_assert(mutex->thread_holding == this_ethread());
 
 // ToDo: Why are these for debug only ?
 #ifdef DEBUG
         Metrics::increment(cache_rsb.write_backlog_failure);
-        Metrics::increment(vol->cache_vol->vol_rsb.write_backlog_failure);
+        Metrics::increment(stripe->cache_vol->vol_rsb.write_backlog_failure);
 #endif
       }
       if (vc->f.rewrite_resident_alt) {
@@ -783,21 +783,21 @@ agg_copy(char *p, CacheVC *vc)
   } else {
     // for evacuated documents, copy the data, and update directory
     Doc *doc = reinterpret_cast<Doc *>(vc->buf->data());
-    int l    = vc->vol->round_to_approx_size(doc->len);
+    int l    = vc->stripe->round_to_approx_size(doc->len);
 
 #ifdef DEBUG
     Metrics::increment(cache_rsb.gc_frags_evacuated);
-    Metrics::increment(vol->cache_vol->vol_rsb.gc_frags_evacuated);
+    Metrics::increment(stripe->cache_vol->vol_rsb.gc_frags_evacuated);
 #endif
 
-    doc->sync_serial  = vc->vol->header->sync_serial;
-    doc->write_serial = vc->vol->header->write_serial;
+    doc->sync_serial  = vc->stripe->header->sync_serial;
+    doc->write_serial = vc->stripe->header->write_serial;
 
     memcpy(p, doc, doc->len);
 
     vc->dir = vc->overwrite_dir;
-    dir_set_offset(&vc->dir, vc->vol->offset_to_vol_offset(o));
-    dir_set_phase(&vc->dir, vc->vol->header->phase);
+    dir_set_offset(&vc->dir, vc->stripe->offset_to_vol_offset(o));
+    dir_set_phase(&vc->dir, vc->stripe->header->phase);
     return l;
   }
 }
@@ -873,10 +873,10 @@ Stripe::agg_wrap()
   dir_lookaside_cleanup(this);
   dir_clean_vol(this);
   {
-    Stripe *vol = this;
+    Stripe *stripe = this;
     Metrics::increment(cache_rsb.directory_wrap);
-    Metrics::increment(vol->cache_vol->vol_rsb.directory_wrap);
-    Note("Cache volume %d on disk '%s' wraps around", vol->cache_vol->vol_number, vol->hash_text.get());
+    Metrics::increment(stripe->cache_vol->vol_rsb.directory_wrap);
+    Note("Cache volume %d on disk '%s' wraps around", stripe->cache_vol->vol_number, stripe->hash_text.get());
   }
   periodic_scan();
 }
@@ -1022,15 +1022,15 @@ CacheVC::openWriteCloseDir(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED *
 {
   cancel_trigger();
   {
-    CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+    CACHE_TRY_LOCK(lock, stripe->mutex, mutex->thread_holding);
     if (!lock.is_locked()) {
       SET_HANDLER(&CacheVC::openWriteCloseDir);
       ink_assert(!is_io_in_progress());
       VC_SCHED_LOCK_RETRY();
     }
-    vol->close_write(this);
+    stripe->close_write(this);
     if (closed < 0 && fragment) {
-      dir_delete(&earliest_key, vol, &earliest_dir);
+      dir_delete(&earliest_key, stripe, &earliest_dir);
     }
   }
   if (dbg_ctl_cache_update.on()) {
@@ -1056,12 +1056,12 @@ CacheVC::openWriteCloseDir(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED *
   if ((closed == 1) && (total_len > 0 || f.allow_empty_doc)) {
     DDbg(dbg_ctl_cache_stats, "Fragment = %d", fragment);
 
-    Metrics::increment(cache_rsb.fragment_document_count[std::clamp(fragment, 0, 2)]);
-    Metrics::increment(vol->cache_vol->vol_rsb.fragment_document_count[std::clamp(fragment, 0, 2)]);
+    Metrics::increment(cache_rsb.fragment_document_count[std::max(fragment, 2)]);
+    Metrics::increment(stripe->cache_vol->vol_rsb.fragment_document_count[std::max(fragment, 2)]);
   }
   if (f.close_complete) {
     recursive++;
-    ink_assert(!vol || this_ethread() != vol->mutex->thread_holding);
+    ink_assert(!stripe || this_ethread() != stripe->mutex->thread_holding);
     vio.cont->handleEvent(VC_EVENT_WRITE_COMPLETE, (void *)&vio);
     recursive--;
   }
@@ -1077,7 +1077,7 @@ CacheVC::openWriteCloseHeadDone(int event, Event *e)
     return EVENT_CONT;
   }
   {
-    CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+    CACHE_TRY_LOCK(lock, stripe->mutex, mutex->thread_holding);
     if (!lock.is_locked()) {
       VC_LOCK_RETRY_EVENT();
     }
@@ -1088,14 +1088,14 @@ CacheVC::openWriteCloseHeadDone(int event, Event *e)
     ink_assert(f.use_first_key);
     if (!od->dont_update_directory) {
       if (dir_is_empty(&od->first_dir)) {
-        dir_insert(&first_key, vol, &dir);
+        dir_insert(&first_key, stripe, &dir);
       } else {
         // multiple fragment vector write
-        dir_overwrite(&first_key, vol, &dir, &od->first_dir, false);
+        dir_overwrite(&first_key, stripe, &dir, &od->first_dir, false);
         // insert moved resident alternate
         if (od->move_resident_alt) {
-          if (dir_valid(vol, &od->single_doc_dir)) {
-            dir_insert(&od->single_doc_key, vol, &od->single_doc_dir);
+          if (dir_valid(stripe, &od->single_doc_dir)) {
+            dir_insert(&od->single_doc_key, stripe, &od->single_doc_dir);
           }
           od->move_resident_alt = false;
         }
@@ -1156,7 +1156,7 @@ CacheVC::openWriteCloseDataDone(int event, Event *e)
     return openWriteCloseDir(event, e);
   }
   {
-    CACHE_TRY_LOCK(lock, vol->mutex, this_ethread());
+    CACHE_TRY_LOCK(lock, stripe->mutex, this_ethread());
     if (!lock.is_locked()) {
       VC_LOCK_RETRY_EVENT();
     }
@@ -1172,7 +1172,7 @@ CacheVC::openWriteCloseDataDone(int event, Event *e)
     }
     fragment++;
     write_pos += write_len;
-    dir_insert(&key, vol, &dir);
+    dir_insert(&key, stripe, &dir);
     blocks = iobufferblock_skip(blocks.get(), &offset, &length, write_len);
     next_CacheKey(&key, &key);
     if (length) {
@@ -1250,7 +1250,7 @@ CacheVC::openWriteWriteDone(int event, Event *e)
     return calluser(VC_EVENT_ERROR);
   }
   {
-    CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+    CACHE_TRY_LOCK(lock, stripe->mutex, mutex->thread_holding);
     if (!lock.is_locked()) {
       VC_LOCK_RETRY_EVENT();
     }
@@ -1268,7 +1268,7 @@ CacheVC::openWriteWriteDone(int event, Event *e)
     }
     ++fragment;
     write_pos += write_len;
-    dir_insert(&key, vol, &dir);
+    dir_insert(&key, stripe, &dir);
     DDbg(dbg_ctl_cache_insert, "WriteDone: %X, %X, %d", key.slice32(0), first_key.slice32(0), write_len);
     blocks = iobufferblock_skip(blocks.get(), &offset, &length, write_len);
     next_CacheKey(&key, &key);
@@ -1391,11 +1391,11 @@ CacheVC::openWriteOverwrite(int event, Event *e)
     goto Ldone;
   }
 Lcollision: {
-  CACHE_TRY_LOCK(lock, vol->mutex, this_ethread());
+  CACHE_TRY_LOCK(lock, stripe->mutex, this_ethread());
   if (!lock.is_locked()) {
     VC_LOCK_RETRY_EVENT();
   }
-  int res = dir_probe(&first_key, vol, &dir, &last_collision);
+  int res = dir_probe(&first_key, stripe, &dir, &last_collision);
   if (res > 0) {
     if ((res = do_read_call(&first_key)) == EVENT_RETURN) {
       goto Lcallreturn;
@@ -1424,7 +1424,7 @@ CacheVC::openWriteStartDone(int event, Event *e)
     set_io_not_in_progress();
   }
   {
-    CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+    CACHE_TRY_LOCK(lock, stripe->mutex, mutex->thread_holding);
     if (!lock.is_locked()) {
       VC_LOCK_RETRY_EVENT();
     }
@@ -1445,9 +1445,9 @@ CacheVC::openWriteStartDone(int event, Event *e)
          We need to start afresh from the beginning by setting last_collision
          to nullptr.
        */
-      if (!dir_valid(vol, &dir)) {
+      if (!dir_valid(stripe, &dir)) {
         DDbg(dbg_ctl_cache_write, "OpenReadStartDone: Dir not valid: Write Head: %" PRId64 ", Dir: %" PRId64,
-             (int64_t)vol->offset_to_vol_offset(vol->header->write_pos), dir_offset(&dir));
+             (int64_t)stripe->offset_to_vol_offset(stripe->header->write_pos), dir_offset(&dir));
         last_collision = nullptr;
         goto Lcollision;
       }
@@ -1476,7 +1476,7 @@ CacheVC::openWriteStartDone(int event, Event *e)
   Lcollision:
     int if_writers = ((uintptr_t)info == CACHE_ALLOW_MULTIPLE_WRITES);
     if (!od) {
-      if ((err = vol->open_write(this, if_writers, cache_config_http_max_alts > 1 ? cache_config_http_max_alts : 0)) > 0) {
+      if ((err = stripe->open_write(this, if_writers, cache_config_http_max_alts > 1 ? cache_config_http_max_alts : 0)) > 0) {
         goto Lfailure;
       }
       if (od->has_multiple_writers()) {
@@ -1486,7 +1486,7 @@ CacheVC::openWriteStartDone(int event, Event *e)
       }
     }
     // check for collision
-    if (dir_probe(&first_key, vol, &dir, &last_collision)) {
+    if (dir_probe(&first_key, stripe, &dir, &last_collision)) {
       od->reading_vec = true;
       int ret         = do_read_call(&first_key);
       if (ret == EVENT_RETURN) {
@@ -1509,7 +1509,7 @@ Lsuccess:
 
 Lfailure:
   Metrics::increment(cache_rsb.status[op_type].failure);
-  Metrics::increment(vol->cache_vol->vol_rsb.status[op_type].failure);
+  Metrics::increment(stripe->cache_vol->vol_rsb.status[op_type].failure);
   _action.continuation->handleEvent(CACHE_EVENT_OPEN_WRITE_FAILED, (void *)-err);
 Lcancel:
   if (od) {
@@ -1531,9 +1531,9 @@ CacheVC::openWriteStartBegin(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED
   if (_action.cancelled) {
     return free_CacheVC(this);
   }
-  if (((err = vol->open_write_lock(this, false, 1)) > 0)) {
+  if (((err = stripe->open_write_lock(this, false, 1)) > 0)) {
     Metrics::increment(cache_rsb.status[op_type].failure);
-    Metrics::increment(vol->cache_vol->vol_rsb.status[op_type].failure);
+    Metrics::increment(stripe->cache_vol->vol_rsb.status[op_type].failure);
     free_CacheVC(this);
     _action.continuation->handleEvent(CACHE_EVENT_OPEN_WRITE_FAILED, (void *)-err);
     return EVENT_DONE;
@@ -1566,12 +1566,12 @@ Cache::open_write(Continuation *cont, const CacheKey *key, CacheFragType frag_ty
   intptr_t res = 0;
   CacheVC *c   = new_CacheVC(cont);
   SCOPED_MUTEX_LOCK(lock, c->mutex, this_ethread());
-  c->vio.op   = VIO::WRITE;
-  c->op_type  = static_cast<int>(CacheOpType::Write);
-  c->vol      = key_to_vol(key, hostname, host_len);
-  Stripe *vol = c->vol;
+  c->vio.op      = VIO::WRITE;
+  c->op_type     = static_cast<int>(CacheOpType::Write);
+  c->stripe      = key_to_stripe(key, hostname, host_len);
+  Stripe *stripe = c->stripe;
   Metrics::increment(cache_rsb.status[c->op_type].active);
-  Metrics::increment(vol->cache_vol->vol_rsb.status[c->op_type].active);
+  Metrics::increment(stripe->cache_vol->vol_rsb.status[c->op_type].active);
   c->first_key = c->key = *key;
   c->frag_type          = frag_type;
   /*
@@ -1592,10 +1592,10 @@ Cache::open_write(Continuation *cont, const CacheKey *key, CacheFragType frag_ty
   // coverity[Y2K38_SAFETY:FALSE]
   c->pin_in_cache = static_cast<uint32_t>(apin_in_cache);
 
-  if ((res = c->vol->open_write_lock(c, false, 1)) > 0) {
+  if ((res = c->stripe->open_write_lock(c, false, 1)) > 0) {
     // document currently being written, abort
     Metrics::increment(cache_rsb.status[c->op_type].failure);
-    Metrics::increment(vol->cache_vol->vol_rsb.status[c->op_type].failure);
+    Metrics::increment(stripe->cache_vol->vol_rsb.status[c->op_type].failure);
     cont->handleEvent(CACHE_EVENT_OPEN_WRITE_FAILED, (void *)-res);
     free_CacheVC(c);
     return ACTION_RESULT_DONE;
@@ -1647,8 +1647,8 @@ Cache::open_write(Continuation *cont, const CacheKey *key, CacheHTTPInfo *info, 
   } while (DIR_MASK_TAG(c->key.slice32(2)) == DIR_MASK_TAG(c->first_key.slice32(2)));
   c->earliest_key = c->key;
   c->frag_type    = CACHE_FRAG_TYPE_HTTP;
-  c->vol          = key_to_vol(key, hostname, host_len);
-  Stripe *vol     = c->vol;
+  c->stripe       = key_to_stripe(key, hostname, host_len);
+  Stripe *stripe  = c->stripe;
   c->info         = info;
   if (c->info && (uintptr_t)info != CACHE_ALLOW_MULTIPLE_WRITES) {
     /*
@@ -1691,14 +1691,14 @@ Cache::open_write(Continuation *cont, const CacheKey *key, CacheHTTPInfo *info, 
   }
 
   Metrics::increment(cache_rsb.status[c->op_type].active);
-  Metrics::increment(vol->cache_vol->vol_rsb.status[c->op_type].active);
+  Metrics::increment(stripe->cache_vol->vol_rsb.status[c->op_type].active);
   // coverity[Y2K38_SAFETY:FALSE]
   c->pin_in_cache = static_cast<uint32_t>(apin_in_cache);
 
   {
-    CACHE_TRY_LOCK(lock, c->vol->mutex, cont->mutex->thread_holding);
+    CACHE_TRY_LOCK(lock, c->stripe->mutex, cont->mutex->thread_holding);
     if (lock.is_locked()) {
-      if ((err = c->vol->open_write(c, if_writers, cache_config_http_max_alts > 1 ? cache_config_http_max_alts : 0)) > 0) {
+      if ((err = c->stripe->open_write(c, if_writers, cache_config_http_max_alts > 1 ? cache_config_http_max_alts : 0)) > 0) {
         goto Lfailure;
       }
       // If there are multiple writers, then this one cannot be an update.
@@ -1707,7 +1707,7 @@ Cache::open_write(Continuation *cont, const CacheKey *key, CacheHTTPInfo *info, 
       if (c->od->has_multiple_writers()) {
         goto Lmiss;
       }
-      if (!dir_probe(key, c->vol, &c->dir, &c->last_collision)) {
+      if (!dir_probe(key, c->stripe, &c->dir, &c->last_collision)) {
         if (c->f.update) {
           // fail update because vector has been GC'd
           // This situation can also arise in openWriteStartDone
@@ -1743,7 +1743,7 @@ Lmiss:
 
 Lfailure:
   Metrics::increment(cache_rsb.status[c->op_type].failure);
-  Metrics::increment(vol->cache_vol->vol_rsb.status[c->op_type].failure);
+  Metrics::increment(stripe->cache_vol->vol_rsb.status[c->op_type].failure);
   cont->handleEvent(CACHE_EVENT_OPEN_WRITE_FAILED, (void *)-err);
   if (c->od) {
     c->openWriteCloseDir(EVENT_IMMEDIATE, nullptr);

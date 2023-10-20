@@ -51,7 +51,7 @@ struct ShowCacheInternal : public ShowCont {
 extern ShowCacheInternal *theshowcacheInternal;
 Action *register_ShowCacheInternal(Continuation *c, HTTPHdr *h);
 
-extern Stripe **gvol;
+extern Stripe **gstripe;
 
 // Stat Pages
 ShowCacheInternal *theshowcacheInternal = nullptr;
@@ -194,7 +194,7 @@ ShowCacheInternal::showEvacuations(int event, Event *e)
 int
 ShowCacheInternal::showVolEvacuations(int event, Event *e)
 {
-  Stripe *p = gvol[vol_index];
+  Stripe *p = gstripe[vol_index];
   CACHE_TRY_LOCK(lock, p->mutex, mutex->thread_holding);
   if (!lock.is_locked()) {
     CONT_SCHED_LOCK_RETRY_RET(this);
@@ -216,7 +216,7 @@ ShowCacheInternal::showVolEvacuations(int event, Event *e)
     }
   }
   vol_index++;
-  if (vol_index < gnvol) {
+  if (vol_index < gnstripe) {
     CONT_SCHED_LOCK_RETRY(this);
   } else {
     CHECK_SHOW(show("</table>\n"));
@@ -251,7 +251,7 @@ ShowCacheInternal::showVolumes(int event, Event *e)
 int
 ShowCacheInternal::showVolVolumes(int event, Event *e)
 {
-  Stripe *p = gvol[vol_index];
+  Stripe *p = gstripe[vol_index];
   CACHE_TRY_LOCK(lock, p->mutex, mutex->thread_holding);
   if (!lock.is_locked()) {
     CONT_SCHED_LOCK_RETRY_RET(this);
@@ -309,7 +309,7 @@ ShowCacheInternal::showSegments(int event, Event *e)
 int
 ShowCacheInternal::showSegSegment(int event, Event *e)
 {
-  Stripe *p = gvol[vol_index];
+  Stripe *p = gstripe[vol_index];
   CACHE_TRY_LOCK(lock, p->mutex, mutex->thread_holding);
   if (!lock.is_locked()) {
     CONT_SCHED_LOCK_RETRY_RET(this);
@@ -332,7 +332,7 @@ ShowCacheInternal::showSegSegment(int event, Event *e)
     CHECK_SHOW(show("</table>\n"));
     seg_index = 0;
     vol_index++;
-    if (vol_index < gnvol) {
+    if (vol_index < gnstripe) {
       CONT_SCHED_LOCK_RETRY(this);
     } else {
       return complete(event, e);

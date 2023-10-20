@@ -39,20 +39,20 @@
 #define ROUND_TO(_x, _y)         INK_ALIGN((_x), (_y))
 
 // Stripe (volumes)
-#define VOL_MAGIC                    0xF1D0F00D
+#define STRIPE_MAGIC                 0xF1D0F00D
 #define START_BLOCKS                 16 // 8k, STORE_BLOCK_SIZE
 #define START_POS                    ((off_t)START_BLOCKS * CACHE_BLOCK_SIZE)
 #define AGG_SIZE                     (4 * 1024 * 1024) // 4MB
 #define AGG_HIGH_WATER               (AGG_SIZE / 2)    // 2MB
 #define EVACUATION_SIZE              (2 * AGG_SIZE)    // 8MB
-#define MAX_VOL_SIZE                 ((off_t)512 * 1024 * 1024 * 1024 * 1024)
-#define MAX_VOL_BLOCKS               (MAX_VOL_SIZE / CACHE_BLOCK_SIZE)
+#define MAX_STRIPE_SIZE              ((off_t)512 * 1024 * 1024 * 1024 * 1024)
+#define MAX_STRIPE_BLOCKS            (MAX_STRIPE_SIZE / CACHE_BLOCK_SIZE)
 #define MAX_FRAG_SIZE                (AGG_SIZE - sizeof(Doc)) // true max
 #define LEAVE_FREE                   DEFAULT_MAX_BUFFER_SIZE
 #define PIN_SCAN_EVERY               16 // scan every 1/16 of disk
-#define VOL_HASH_TABLE_SIZE          32707
-#define VOL_HASH_EMPTY               0xFFFF
-#define VOL_HASH_ALLOC_SIZE          (8 * 1024 * 1024) // one chance per this unit
+#define STRIPE_HASH_TABLE_SIZE       32707
+#define STRIPE_HASH_EMPTY            0xFFFF
+#define STRIPE_HASH_ALLOC_SIZE       (8 * 1024 * 1024) // one chance per this unit
 #define LOOKASIDE_SIZE               256
 #define EVACUATION_BUCKET_SIZE       (2 * EVACUATION_SIZE) // 16MB
 #define RECOVERY_SIZE                EVACUATION_SIZE       // 8MB
@@ -289,15 +289,15 @@ struct AIO_failure_handler : public Continuation {
 };
 
 struct CacheVol {
-  int vol_number         = -1;
-  int scheme             = 0;
-  off_t size             = 0;
-  int num_vols           = 0;
-  bool ramcache_enabled  = true;
-  Stripe **vols          = nullptr;
-  DiskStripe **disk_vols = nullptr;
+  int vol_number            = -1;
+  int scheme                = 0;
+  off_t size                = 0;
+  int num_stripes           = 0;
+  bool ramcache_enabled     = true;
+  Stripe **stripes          = nullptr;
+  DiskStripe **disk_stripes = nullptr;
   LINK(CacheVol, link);
-  // per volume stats
+  // per cache volume stats
   CacheStatsBlock vol_rsb;
 
   CacheVol() {}
@@ -339,12 +339,12 @@ struct Doc {
 
 // Global Data
 
-extern Stripe **gvol;
-extern std::atomic<int> gnvol;
+extern Stripe **gstripe;
+extern std::atomic<int> gnstripe;
 extern ClassAllocator<OpenDirEntry> openDirEntryAllocator;
 extern ClassAllocator<EvacuationBlock> evacuationBlockAllocator;
 extern ClassAllocator<EvacuationKey> evacuationKeyAllocator;
-extern unsigned short *vol_hash_table;
+extern unsigned short *stripe_hash_table;
 
 // inline Functions
 
@@ -458,17 +458,17 @@ Doc::data()
   return this->hdr() + hlen;
 }
 
-int vol_dir_clear(Stripe *vol);
-int vol_init(Stripe *vol, char *s, off_t blocks, off_t skip, bool clear);
+int vol_dir_clear(Stripe *stripe);
+int vol_init(Stripe *stripe, char *s, off_t blocks, off_t skip, bool clear);
 
 // inline Functions
 
 inline EvacuationBlock *
-evacuation_block_exists(Dir *dir, Stripe *p)
+evacuation_block_exists(Dir *dir, Stripe *stripe)
 {
   auto bucket = dir_evac_bucket(dir);
-  if (p->evac_bucket_valid(bucket)) {
-    EvacuationBlock *b = p->evacuate[bucket].head;
+  if (stripe->evac_bucket_valid(bucket)) {
+    EvacuationBlock *b = stripe->evacuate[bucket].head;
     for (; b; b = b->link.next)
       if (dir_offset(&b->dir) == dir_offset(dir))
         return b;

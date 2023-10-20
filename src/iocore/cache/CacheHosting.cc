@@ -423,9 +423,9 @@ CacheHostRecord::Init(CacheType typ)
   extern Queue<CacheVol> cp_list;
   extern int cp_list_len;
 
-  num_vols = 0;
-  type     = typ;
-  cp       = static_cast<CacheVol **>(ats_malloc(cp_list_len * sizeof(CacheVol *)));
+  num_stripes = 0;
+  type        = typ;
+  cp          = static_cast<CacheVol **>(ats_malloc(cp_list_len * sizeof(CacheVol *)));
   memset(cp, 0, cp_list_len * sizeof(CacheVol *));
   num_cachevols    = 0;
   CacheVol *cachep = cp_list.head;
@@ -434,24 +434,24 @@ CacheHostRecord::Init(CacheType typ)
       Dbg(dbg_ctl_cache_hosting, "Host Record: %p, Volume: %d, size: %" PRId64, this, cachep->vol_number, (int64_t)cachep->size);
       cp[num_cachevols] = cachep;
       num_cachevols++;
-      num_vols += cachep->num_vols;
+      num_stripes += cachep->num_stripes;
     }
   }
   if (!num_cachevols) {
     Warning("error: No volumes found for Cache Type %d", type);
     return -1;
   }
-  vols        = static_cast<Stripe **>(ats_malloc(num_vols * sizeof(Stripe *)));
+  stripes     = static_cast<Stripe **>(ats_malloc(num_stripes * sizeof(Stripe *)));
   int counter = 0;
   for (i = 0; i < num_cachevols; i++) {
     CacheVol *cachep1 = cp[i];
-    for (j = 0; j < cachep1->num_vols; j++) {
-      vols[counter++] = cachep1->vols[j];
+    for (j = 0; j < cachep1->num_stripes; j++) {
+      stripes[counter++] = cachep1->stripes[j];
     }
   }
-  ink_assert(counter == num_vols);
+  ink_assert(counter == num_stripes);
 
-  build_vol_hash_table(this);
+  build_stripe_hash_table(this);
   return 0;
 }
 
@@ -526,7 +526,7 @@ CacheHostRecord::Init(matcher_line *line_info, CacheType typ)
                     (long)(cachep->size * STORE_BLOCK_SIZE));
                 cp[num_cachevols] = cachep;
                 num_cachevols++;
-                num_vols += cachep->num_vols;
+                num_stripes += cachep->num_stripes;
                 break;
               }
             }
@@ -560,20 +560,20 @@ CacheHostRecord::Init(matcher_line *line_info, CacheType typ)
     return -1;
   }
 
-  if (!num_vols) {
+  if (!num_stripes) {
     return -1;
   }
-  vols        = static_cast<Stripe **>(ats_malloc(num_vols * sizeof(Stripe *)));
+  stripes     = static_cast<Stripe **>(ats_malloc(num_stripes * sizeof(Stripe *)));
   int counter = 0;
   for (i = 0; i < num_cachevols; i++) {
     CacheVol *cachep = cp[i];
-    for (j = 0; j < cp[i]->num_vols; j++) {
-      vols[counter++] = cachep->vols[j];
+    for (j = 0; j < cp[i]->num_stripes; j++) {
+      stripes[counter++] = cachep->stripes[j];
     }
   }
-  ink_assert(counter == num_vols);
+  ink_assert(counter == num_stripes);
 
-  build_vol_hash_table(this);
+  build_stripe_hash_table(this);
   return 0;
 }
 
