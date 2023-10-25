@@ -31,8 +31,8 @@
 #include "tscore/ink_base64.h"
 #include "tscore/Encoding.h"
 #include "tscore/PluginUserArgs.h"
-#include "tscore/I_Layout.h"
-#include "tscore/I_Version.h"
+#include "tscore/Layout.h"
+#include "tscore/Version.h"
 #include "tscore/Diags.h"
 #include "api/Metrics.h"
 
@@ -53,7 +53,7 @@
 #include "P_UDPNet.h"
 #include "P_HostDB.h"
 #include "P_Cache.h"
-#include "records/I_RecCore.h"
+#include "records/RecCore.h"
 #include "P_SSLConfig.h"
 #include "P_SSLClientUtils.h"
 #include "SSLAPIHooks.h"
@@ -70,15 +70,15 @@
 #include "api/FetchSM.h"
 #include "api/LifecycleAPIHooks.h"
 #include "HttpDebugNames.h"
-#include "I_AIO.h"
-#include "I_Tasks.h"
+#include "AIO.h"
+#include "Tasks.h"
 
 #include "P_OCSPStapling.h"
-#include "records/I_RecordsConfig.h"
-#include "records/I_RecDefs.h"
-#include "records/I_RecCore.h"
+#include "records/RecordsConfig.h"
+#include "records/RecDefs.h"
+#include "records/RecCore.h"
 #include "records/RecYAMLDecoder.h"
-#include "I_Machine.h"
+#include "Machine.h"
 #include "HttpProxyServerMain.h"
 #include "shared/overridable_txn_vars.h"
 #include "config/FileManager.h"
@@ -4096,12 +4096,12 @@ tsapi::c::TSConfigDataGet(TSConfig configp)
 ////////////////////////////////////////////////////////////////////
 
 void
-tsapi::c::TSMgmtUpdateRegister(TSCont contp, const char *plugin_name)
+tsapi::c::TSMgmtUpdateRegister(TSCont contp, const char *plugin_name, const char *plugin_file_name)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(contp) == TS_SUCCESS);
   sdk_assert(sdk_sanity_check_null_ptr((void *)plugin_name) == TS_SUCCESS);
 
-  global_config_cbs->insert((INKContInternal *)contp, plugin_name);
+  global_config_cbs->insert((INKContInternal *)contp, plugin_name, plugin_file_name);
 }
 
 TSReturnCode

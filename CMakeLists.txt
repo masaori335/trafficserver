@@ -15,6 +15,10 @@
 #
 #######################
 
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
+  message(FATAL_ERROR "In source builds are disabled.  Use a preset, -B or run from a different directory")
+endif()
+
 cmake_minimum_required(VERSION 3.20..3.27)
 project(ats VERSION 10.0.0)
 
@@ -29,7 +33,7 @@ math(EXPR TS_VERSION_NUMBER "${TS_VERSION_MAJOR} * 1000000 + ${TS_VERSION_MINOR}
 # with a newer standard than what our codebase currently has to comply with.
 set(CMAKE_CXX_STANDARD
     17
-    CACHE String "The C++ standard to compile with (default 17)"
+    CACHE STRING "The C++ standard to compile with (default 17)"
 )
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -541,7 +545,7 @@ add_subdirectory(lib)
 # Keep this after lib because lib is made up of third party libraries, so if
 # there are warnings, we can't do anything about it.
 # Note: -DCMAKE_COMPILE_WARNING_AS_ERROR=ON will turn warnings into errors.
-add_compile_options(-pipe -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-type)
+add_compile_options(-pipe -Wall -Wextra -Wno-unused-parameter)
 add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wno-noexcept-type;-Wsuggest-override>")
 add_compile_options("$<$<CXX_COMPILER_ID:GNU>:-Wno-format-truncation;-Wno-stringop-overflow>")
 
@@ -572,10 +576,10 @@ add_subdirectory(src/tscpp/util)
 add_subdirectory(src/tscpp/api)
 add_subdirectory(src/tscore)
 add_subdirectory(src/records)
-add_subdirectory(iocore)
-add_subdirectory(proxy)
-add_subdirectory(mgmt/config)
-add_subdirectory(mgmt/rpc)
+add_subdirectory(src/iocore)
+add_subdirectory(src/proxy)
+add_subdirectory(src/mgmt/config)
+add_subdirectory(src/mgmt/rpc)
 add_subdirectory(src/api)
 add_subdirectory(src/traffic_crashlog)
 add_subdirectory(src/traffic_server)
@@ -647,11 +651,8 @@ endfunction(add_clang_format_target)
 
 add_clang_format_target(src)
 add_clang_format_target(example)
-add_clang_format_target(iocore)
 add_clang_format_target(include)
-add_clang_format_target(mgmt)
 add_clang_format_target(plugins)
-add_clang_format_target(proxy)
 add_clang_format_target(tools)
 add_clang_format_target(tests)
 
