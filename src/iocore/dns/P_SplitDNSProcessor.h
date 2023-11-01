@@ -30,10 +30,22 @@
 
 #pragma once
 
-#include "ConfigProcessor.h"
+#include "iocore/dns/SplitDNSProcessor.h"
+#include "P_DNSProcessor.h"
 
-#include "ControlMatcher.h"
+#include "proxy/ControlBase.h"
+#include "proxy/ControlMatcher.h"
+
+#include "iocore/eventsystem/ConfigProcessor.h"
+
 #include "tscore/HostLookup.h"
+#include "tscore/ink_apidefs.h"
+#include "tscore/ink_assert.h"
+#include "tscore/ink_platform.h"
+
+#include <swoc/TextView.h>
+
+#include <cstdint>
 
 /* ---------------------------
    forward declarations ...

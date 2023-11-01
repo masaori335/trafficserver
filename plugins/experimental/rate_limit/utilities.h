@@ -18,13 +18,13 @@
 #pragma once
 
 #include <string>
-#include <string_view>
 #include <chrono>
-#include <openssl/ssl.h>
+
+#include "ts/ts.h"
 
 constexpr char const PLUGIN_NAME[] = "rate_limit";
 
-void delayHeader(TSHttpTxn txnp, std::string &header, std::chrono::milliseconds delay);
+void delayHeader(TSHttpTxn txnp, const std::string &header, std::chrono::milliseconds delay);
 void retryAfter(TSHttpTxn txnp, unsigned retry);
 std::string getDescriptionFromUrl(const char *url);
 

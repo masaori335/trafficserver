@@ -21,22 +21,22 @@
   limitations under the License.
  */
 
-#include "Cache.h"
-#include "CacheDefs.h"
+#include "iocore/cache/Cache.h"
+#include "iocore/cache/CacheDefs.h"
 #include "P_CacheDisk.h"
 #include "P_CacheHttp.h"
 #include "P_CacheInternal.h"
 #include "P_CacheVol.h"
 
 // must be included after the others
-#include "CacheVC.h"
+#include "iocore/cache/CacheVC.h"
 
 // hdrs
-#include "HTTP.h"
-#include "MIME.h"
+#include "proxy/hdrs/HTTP.h"
+#include "proxy/hdrs/MIME.h"
 
 // aio
-#include "AIO.h"
+#include "iocore/aio/AIO.h"
 
 // tsapi
 #if DEBUG
@@ -44,12 +44,12 @@
 #endif
 
 // inkevent
-#include "Continuation.h"
-#include "EThread.h"
-#include "Event.h"
-#include "IOBuffer.h"
-#include "Lock.h"
-#include "VIO.h"
+#include "iocore/eventsystem/Continuation.h"
+#include "iocore/eventsystem/EThread.h"
+#include "iocore/eventsystem/Event.h"
+#include "iocore/eventsystem/IOBuffer.h"
+#include "iocore/eventsystem/Lock.h"
+#include "iocore/eventsystem/VIO.h"
 
 // tscppapi
 #include "tscpp/api/HttpStatus.h"
@@ -93,11 +93,11 @@ extern int cache_config_ram_cache_cutoff;
 /* Next block with some data in it in this partition.  Returns end of partition if no more
  * locations.
  *
- * d - Vol
+ * d - Stripe
  * vol_map - precalculated map
  * offset - offset to start looking at (and data at this location has not been read yet). */
 static off_t
-next_in_map(Vol *vol, char *vol_map, off_t offset)
+next_in_map(Stripe *vol, char *vol_map, off_t offset)
 {
   off_t start_offset = vol->vol_offset_to_offset(0);
   off_t new_off      = (offset - start_offset);
@@ -113,16 +113,16 @@ next_in_map(Vol *vol, char *vol_map, off_t offset)
 }
 
 // Function in CacheDir.cc that we need for make_vol_map().
-int dir_bucket_loop_fix(Dir *start_dir, int s, Vol *vol);
+int dir_bucket_loop_fix(Dir *start_dir, int s, Stripe *vol);
 
 // TODO: If we used a bit vector, we could make a smaller map structure.
 // TODO: If we saved a high water mark we could have a smaller buf, and avoid searching it
 // when we are asked about the highest interesting offset.
 /* Make map of what blocks in partition are used.
  *
- * d - Vol to make a map of. */
+ * d - Stripe to make a map of. */
 static char *
-make_vol_map(Vol *vol)
+make_vol_map(Stripe *vol)
 {
   // Map will be one byte for each SCAN_BUF_SIZE bytes.
   off_t start_offset = vol->vol_offset_to_offset(0);

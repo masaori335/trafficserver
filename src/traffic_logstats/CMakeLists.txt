@@ -16,7 +16,6 @@
 #######################
 
 add_executable(traffic_logstats logstats.cc)
-target_include_directories(traffic_logstats PRIVATE ${CMAKE_SOURCE_DIR}/src/proxy/logging)
 target_link_libraries(
   traffic_logstats
   PRIVATE ts::logging
@@ -28,6 +27,8 @@ target_link_libraries(
           ts::inkevent
           libswoc
 )
+
+install(TARGETS traffic_logstats)
 
 if(BUILD_TESTING)
   add_test(

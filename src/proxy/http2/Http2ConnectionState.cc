@@ -21,18 +21,18 @@
   limitations under the License.
  */
 
-#include "P_Net.h"
-#include "HTTP2.h"
-#include "Http2ConnectionState.h"
-#include "Http2ClientSession.h"
-#include "Http2ServerSession.h"
-#include "Http2Stream.h"
-#include "Http2Frame.h"
-#include "Http2DebugNames.h"
-#include "HttpDebugNames.h"
-#include "HttpSM.h"
+#include "../../iocore/net/P_Net.h"
+#include "proxy/http2/HTTP2.h"
+#include "proxy/http2/Http2ConnectionState.h"
+#include "proxy/http2/Http2ClientSession.h"
+#include "proxy/http2/Http2ServerSession.h"
+#include "proxy/http2/Http2Stream.h"
+#include "proxy/http2/Http2Frame.h"
+#include "proxy/http2/Http2DebugNames.h"
+#include "proxy/http/HttpDebugNames.h"
+#include "proxy/http/HttpSM.h"
 
-#include "TLSSNISupport.h"
+#include "iocore/net/TLSSNISupport.h"
 
 #include "tscore/ink_assert.h"
 #include "tscpp/util/PostScript.h"
@@ -837,7 +837,7 @@ Http2ConnectionState::rcv_goaway_frame(const Http2Frame &frame)
 {
   Http2Goaway goaway;
   char buf[HTTP2_GOAWAY_LEN];
-  unsigned nbytes               = 0;
+  char *end;
   const Http2StreamId stream_id = frame.header().streamid;
 
   Http2StreamDebug(this->session, stream_id, "Received GOAWAY frame");
@@ -849,13 +849,11 @@ Http2ConnectionState::rcv_goaway_frame(const Http2Frame &frame)
                       "goaway id non-zero");
   }
 
-  while (nbytes < frame.header().length) {
-    unsigned read_bytes = read_rcv_buffer(buf, sizeof(buf), nbytes, frame);
+  end = frame.reader()->memcpy(buf, sizeof(buf), 0);
 
-    if (!http2_parse_goaway(make_iovec(buf, read_bytes), goaway)) {
-      return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_CONNECTION, Http2ErrorCode::HTTP2_ERROR_PROTOCOL_ERROR,
-                        "goaway failed parse");
-    }
+  if (!http2_parse_goaway(make_iovec(buf, end - buf), goaway)) {
+    return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_CONNECTION, Http2ErrorCode::HTTP2_ERROR_PROTOCOL_ERROR,
+                      "goaway failed parse");
   }
 
   Http2StreamDebug(this->session, stream_id, "GOAWAY: last stream id=%d, error code=%d", goaway.last_streamid,

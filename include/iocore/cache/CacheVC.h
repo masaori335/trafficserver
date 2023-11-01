@@ -25,21 +25,21 @@
 
 /*
 // inkcache
-#include "Cache.h"
-#include "P_CacheDir.h"
-#include "P_CacheVol.h"
+#include "iocore/cache/Cache.h"
+#include "../../../src/iocore/cache/P_CacheDir.h"
+#include "../../../src/iocore/cache/P_CacheVol.h"
 */
-#include "P_CacheHttp.h"
+#include "../../../src/iocore/cache/P_CacheHttp.h"
 
 // aio
-#include "AIO.h"
+#include "iocore/aio/AIO.h"
 
 // inkevent
-#include "Action.h"
-#include "Continuation.h"
-#include "Event.h"
-#include "IOBuffer.h"
-#include "VIO.h"
+#include "iocore/eventsystem/Action.h"
+#include "iocore/eventsystem/Continuation.h"
+#include "iocore/eventsystem/Event.h"
+#include "iocore/eventsystem/IOBuffer.h"
+#include "iocore/eventsystem/VIO.h"
 
 // tscore
 #include "tscore/ink_hrtime.h"
@@ -48,7 +48,7 @@
 
 #include <cstdint>
 
-struct Vol;
+struct Stripe;
 
 struct CacheVC : public CacheVConnection {
   CacheVC();
@@ -270,12 +270,12 @@ struct CacheVC : public CacheVConnection {
   uint32_t write_len;    // for communicating with agg_copy
   uint32_t agg_len;      // for communicating with aggWrite
   uint32_t write_serial; // serial of the final write for SYNC
-  Vol *vol;
+  Stripe *vol;
   Dir *last_collision;
   Event *trigger;
   CacheKey *read_key;
   ContinuationHandler save_handler;
-  time_t pin_in_cache;
+  uint32_t pin_in_cache;
   ink_hrtime start_time;
   int op_type; // Index into the metrics array for this operation, rather than a CacheOpType (fewer casts)
   int recursive;

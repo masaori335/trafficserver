@@ -32,10 +32,10 @@
 
 #pragma once
 
-#include "HttpConnectionCount.h"
-#include "HttpProxyAPIEnums.h"
-#include "PoolableSession.h"
-#include "Http1ServerTransaction.h"
+#include "iocore/net/ConnectionTracker.h"
+#include "iocore/net/SessionSharingAPIEnums.h"
+#include "proxy/PoolableSession.h"
+#include "proxy/http/Http1ServerTransaction.h"
 
 class HttpSM;
 class MIOBuffer;

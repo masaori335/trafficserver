@@ -23,7 +23,7 @@
 
 #pragma once
 
-#include "Cache.h"
+#include "iocore/cache/Cache.h"
 
 // Generic Ram Cache interface
 
@@ -36,7 +36,7 @@ public:
   virtual int fixup(const CryptoHash *key, uint64_t old_auxkey, uint64_t new_auxkey)                         = 0;
   virtual int64_t size() const                                                                               = 0;
 
-  virtual void init(int64_t max_bytes, Vol *vol) = 0;
+  virtual void init(int64_t max_bytes, Stripe *vol) = 0;
   virtual ~RamCache(){};
 };
 

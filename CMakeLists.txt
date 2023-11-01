@@ -41,6 +41,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 list(APPEND CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
 
+include(layout)
+
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   add_compile_definitions(DEBUG _DEBUG)
 endif()
@@ -105,6 +107,7 @@ auto_option(UNWIND FEATURE_VAR TS_USE_REMOTE_UNWINDING PACKAGE_DEPENDS unwind)
 
 option(ENABLE_ASAN "Use address sanitizer (default OFF)")
 option(ENABLE_FUZZING "Enable fuzzing (default OFF)")
+option(ENABLE_FIPS "Enable fips compliance (default OFF)")
 option(BUILD_REGRESSION_TESTING "Build regression tests (default ON)" ON)
 option(BUILD_EXPERIMENTAL_PLUGINS "Build the experimental plugins (default OFF)")
 set(DEFAULT_STACK_SIZE
@@ -537,6 +540,8 @@ if(ENABLE_FUZZING)
   endif()
 endif()
 
+set(TS_ENABLE_FIPS ${ENABLE_FIPS})
+
 # Common includes for everyone
 include_directories(${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/include)
 
@@ -615,6 +620,7 @@ if(ENABLE_EXAMPLE)
 endif()
 
 if(ENABLE_DOCS)
+  set(DOC_LANG en CACHE STRING "Document language option")
   add_subdirectory(doc)
 endif()
 add_subdirectory(rc)
@@ -693,8 +699,14 @@ add_custom_target(
 )
 
 # Create an empty directories for ATS runtime
-install(DIRECTORY DESTINATION var/log/trafficserver)
-install(DIRECTORY DESTINATION var/trafficserver)
+install(DIRECTORY DESTINATION ${CMAKE_INSTALL_LOGDIR})
+install(DIRECTORY DESTINATION ${CMAKE_INSTALL_RUNSTATEDIR})
+install(DIRECTORY DESTINATION ${CMAKE_INSTALL_CACHEDIR})
+
+install(CODE "set(OWNER_USER ${TS_PKGSYSUSER})")
+install(CODE "set(OWNER_GROUP ${TS_PKGSYSGROUP})")
+install(CODE "set(CHOWN_DIRS ${CMAKE_INSTALL_LOGDIR} ${CMAKE_INSTALL_RUNSTATEDIR} ${CMAKE_INSTALL_CACHEDIR})")
+install(SCRIPT cmake/post_install.cmake)
 
 # Display build summary
 include(CMakePrintHelpers)
@@ -716,5 +728,8 @@ cmake_print_variables(TS_PKGSYSGROUP)
 cmake_print_variables(BUILD_MACHINE)
 cmake_print_variables(DEFAULT_STACK_SIZE)
 cmake_print_variables(CMAKE_INSTALL_RPATH)
+if(DEFINED DOC_LANG)
+  cmake_print_variables(DOC_LANG)
+endif(DEFINED DOC_LANG)
 
 print_auto_options_summary()

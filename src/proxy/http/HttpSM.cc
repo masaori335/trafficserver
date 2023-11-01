@@ -23,38 +23,39 @@
  */
 
 #include "tscpp/util/ts_bw_format.h"
-#include "../ProxyTransaction.h"
-#include "HttpSM.h"
-#include "ConnectingEntry.h"
-#include "HttpTransact.h"
-#include "HttpBodyFactory.h"
-#include "HttpTransactHeaders.h"
-#include "ConfigProcessor.h"
-#include "Http1ServerSession.h"
-#include "Http2ServerSession.h"
-#include "HttpDebugNames.h"
-#include "HttpSessionManager.h"
-#include "HttpVCTable.h"
-#include "P_Cache.h"
-#include "P_Net.h"
-#include "PreWarmConfig.h"
-#include "StatPages.h"
-#include "Log.h"
-#include "LogAccess.h"
-#include "PluginVC.h"
-#include "ReverseProxy.h"
-#include "RemapProcessor.h"
-#include "Transform.h"
-#include "P_SSLConfig.h"
-#include "SSLSNIConfig.h"
-#include "TLSALPNSupport.h"
-#include "TLSBasicSupport.h"
-#include "TLSSessionResumptionSupport.h"
-#include "TLSTunnelSupport.h"
-#include "HttpPages.h"
-#include "IPAllow.h"
+#include "proxy/ProxyTransaction.h"
+#include "proxy/http/HttpSM.h"
+#include "proxy/http/ConnectingEntry.h"
+#include "proxy/http/HttpTransact.h"
+#include "proxy/http/HttpBodyFactory.h"
+#include "proxy/http/HttpTransactHeaders.h"
+#include "iocore/eventsystem/ConfigProcessor.h"
+#include "proxy/http/Http1ServerSession.h"
+#include "proxy/http2/Http2ServerSession.h"
+#include "proxy/http/HttpDebugNames.h"
+#include "proxy/http/HttpSessionManager.h"
+#include "proxy/http/HttpVCTable.h"
+#include "../../iocore/cache/P_Cache.h"
+#include "../../iocore/net/P_Net.h"
+#include "proxy/http/PreWarmConfig.h"
+#include "proxy/StatPages.h"
+#include "proxy/logging/Log.h"
+#include "proxy/logging/LogAccess.h"
+#include "proxy/PluginVC.h"
+#include "proxy/ReverseProxy.h"
+#include "proxy/http/remap/RemapProcessor.h"
+#include "proxy/Transform.h"
+#include "../../iocore/net/P_SSLConfig.h"
+#include "iocore/net/ConnectionTracker.h"
+#include "iocore/net/SSLSNIConfig.h"
+#include "iocore/net/TLSALPNSupport.h"
+#include "iocore/net/TLSBasicSupport.h"
+#include "iocore/net/TLSSessionResumptionSupport.h"
+#include "iocore/net/TLSTunnelSupport.h"
+#include "proxy/http/HttpPages.h"
+#include "proxy/IPAllow.h"
 
-#include "ProxyProtocol.h"
+#include "iocore/net/ProxyProtocol.h"
 
 #include "tscore/Layout.h"
 #include "ts/sdt.h"
@@ -63,7 +64,6 @@
 #include <openssl/ssl.h>
 #include <algorithm>
 #include <atomic>
-#include <logging/Log.h>
 
 #define DEFAULT_RESPONSE_BUFFER_SIZE_INDEX 6 // 8K
 #define DEFAULT_REQUEST_BUFFER_SIZE_INDEX  6 // 8K
@@ -1707,7 +1707,7 @@ HttpSM::create_server_session(NetVConnection &netvc, MIOBuffer *netvc_read_buffe
   // the max and or min number of connections per host. Transfer responsibility for this to the
   // session object.
   if (t_state.outbound_conn_track_state.is_active()) {
-    SMDebug("http_connect", "max number of outbound connections: %d", t_state.txn_conf->outbound_conntrack.max);
+    SMDebug("http_connect", "max number of outbound connections: %d", t_state.txn_conf->connection_tracker_config.server_max);
     retval->enable_outbound_connection_tracking(t_state.outbound_conn_track_state.drop());
   }
   return retval;
@@ -5482,28 +5482,30 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
   }
 
   // See if the outbound connection tracker data is needed. If so, get it here for consistency.
-  if (t_state.txn_conf->outbound_conntrack.max > 0 || t_state.txn_conf->outbound_conntrack.min > 0) {
-    t_state.outbound_conn_track_state = OutboundConnTrack::obtain(
-      t_state.txn_conf->outbound_conntrack, std::string_view{t_state.current.server->name}, t_state.current.server->dst_addr);
+  if (t_state.txn_conf->connection_tracker_config.server_max > 0 || t_state.txn_conf->connection_tracker_config.server_min > 0) {
+    t_state.outbound_conn_track_state =
+      ConnectionTracker::obtain_outbound(t_state.txn_conf->connection_tracker_config,
+                                         std::string_view{t_state.current.server->name}, t_state.current.server->dst_addr);
   }
 
   // Check to see if we have reached the max number of connections on this upstream host.
-  if (t_state.txn_conf->outbound_conntrack.max > 0) {
-    auto &ct_state = t_state.outbound_conn_track_state;
-    auto ccount    = ct_state.reserve();
-    if (ccount > t_state.txn_conf->outbound_conntrack.max) {
+  if (t_state.txn_conf->connection_tracker_config.server_max > 0) {
+    auto &ct_state       = t_state.outbound_conn_track_state;
+    auto ccount          = ct_state.reserve();
+    int const server_max = t_state.txn_conf->connection_tracker_config.server_max;
+    if (ccount > server_max) {
       ct_state.release();
 
       ink_assert(pending_action.empty()); // in case of reschedule must not have already pending.
 
       ct_state.blocked();
       Metrics::increment(http_rsb.origin_connections_throttled);
-      ct_state.Warn_Blocked(&t_state.txn_conf->outbound_conntrack, sm_id, ccount - 1, &t_state.current.server->dst_addr.sa,
+      ct_state.Warn_Blocked(server_max, sm_id, ccount - 1, &t_state.current.server->dst_addr.sa,
                             debug_on && is_debug_tag_set("http") ? "http" : nullptr);
       send_origin_throttled_response();
       return;
     } else {
-      ct_state.Note_Unblocked(&t_state.txn_conf->outbound_conntrack, ccount, &t_state.current.server->dst_addr.sa);
+      ct_state.Note_Unblocked(&t_state.txn_conf->connection_tracker_config, ccount, &t_state.current.server->dst_addr.sa);
     }
 
     ct_state.update_max_count(ccount);

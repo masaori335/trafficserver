@@ -37,53 +37,54 @@
 #include "api/Metrics.h"
 
 #include "api/InkAPIInternal.h"
-#include "Log.h"
-#include "URL.h"
-#include "MIME.h"
-#include "HTTP.h"
-#include "ProxySession.h"
-#include "Http2ClientSession.h"
-#include "PoolableSession.h"
-#include "HttpAPIHooks.h"
-#include "HttpSM.h"
-#include "HttpConfig.h"
-#include "P_Net.h"
-#include "P_SSLNextProtocolAccept.h"
-#include "P_SSLNetVConnection.h"
-#include "P_UDPNet.h"
-#include "P_HostDB.h"
-#include "P_Cache.h"
+#include "proxy/logging/Log.h"
+#include "proxy/hdrs/URL.h"
+#include "proxy/hdrs/MIME.h"
+#include "proxy/hdrs/HTTP.h"
+#include "proxy/ProxySession.h"
+#include "proxy/http2/Http2ClientSession.h"
+#include "proxy/PoolableSession.h"
+#include "proxy/HttpAPIHooks.h"
+#include "proxy/http/HttpSM.h"
+#include "proxy/http/HttpConfig.h"
+#include "../iocore/net/P_Net.h"
+#include "../iocore/net/P_SSLNextProtocolAccept.h"
+#include "../iocore/net/P_SSLNetVConnection.h"
+#include "../iocore/net/P_UDPNet.h"
+#include "../iocore/hostdb/P_HostDB.h"
+#include "../iocore/cache/P_Cache.h"
 #include "records/RecCore.h"
-#include "P_SSLConfig.h"
-#include "P_SSLClientUtils.h"
-#include "SSLAPIHooks.h"
-#include "SSLDiags.h"
-#include "SSLInternal.h"
-#include "TLSBasicSupport.h"
-#include "ConfigProcessor.h"
-#include "Plugin.h"
-#include "LogObject.h"
-#include "LogConfig.h"
-#include "PluginVC.h"
-#include "HttpSessionAccept.h"
-#include "PluginVC.h"
+#include "../iocore/net/P_SSLConfig.h"
+#include "../iocore/net/P_SSLClientUtils.h"
+#include "iocore/net/ConnectionTracker.h"
+#include "iocore/net/SSLAPIHooks.h"
+#include "iocore/net/SSLDiags.h"
+#include "iocore/net/SSLInternal.h"
+#include "iocore/net/TLSBasicSupport.h"
+#include "iocore/eventsystem/ConfigProcessor.h"
+#include "proxy/Plugin.h"
+#include "proxy/logging/LogObject.h"
+#include "proxy/logging/LogConfig.h"
+#include "proxy/PluginVC.h"
+#include "proxy/http/HttpSessionAccept.h"
+#include "proxy/PluginVC.h"
 #include "api/FetchSM.h"
 #include "api/LifecycleAPIHooks.h"
-#include "HttpDebugNames.h"
-#include "AIO.h"
-#include "Tasks.h"
+#include "proxy/http/HttpDebugNames.h"
+#include "iocore/aio/AIO.h"
+#include "iocore/eventsystem/Tasks.h"
 
-#include "P_OCSPStapling.h"
+#include "../iocore/net/P_OCSPStapling.h"
 #include "records/RecordsConfig.h"
 #include "records/RecDefs.h"
 #include "records/RecCore.h"
 #include "records/RecYAMLDecoder.h"
-#include "Machine.h"
-#include "HttpProxyServerMain.h"
+#include "iocore/utils/Machine.h"
+#include "proxy/http/HttpProxyServerMain.h"
 #include "shared/overridable_txn_vars.h"
-#include "config/FileManager.h"
+#include "mgmt/config/FileManager.h"
 
-#include "rpc/jsonrpc/JsonRPC.h"
+#include "mgmt/rpc/jsonrpc/JsonRPC.h"
 #include <swoc/bwf_base.h>
 #include "ts/ts.h"
 
@@ -8300,16 +8301,16 @@ _conf_to_memberp(TSOverridableConfigKey conf, OverridableHttpConfigParams *overr
     ret = _memberp_to_generic(&overridableHttpConfig->allow_half_open, conv);
     break;
   case TS_CONFIG_HTTP_PER_SERVER_CONNECTION_MAX:
-    ret  = &overridableHttpConfig->outbound_conntrack.max;
-    conv = &OutboundConnTrack::MAX_CONV;
+    ret  = &overridableHttpConfig->connection_tracker_config.server_max;
+    conv = &ConnectionTracker::MAX_SERVER_CONV;
     break;
   case TS_CONFIG_HTTP_SERVER_MIN_KEEP_ALIVE_CONNS:
-    ret  = &overridableHttpConfig->outbound_conntrack.min;
-    conv = &OutboundConnTrack::MIN_CONV;
+    ret  = &overridableHttpConfig->connection_tracker_config.server_min;
+    conv = &ConnectionTracker::MIN_SERVER_CONV;
     break;
   case TS_CONFIG_HTTP_PER_SERVER_CONNECTION_MATCH:
-    ret  = &overridableHttpConfig->outbound_conntrack.match;
-    conv = &OutboundConnTrack::MATCH_CONV;
+    ret  = &overridableHttpConfig->connection_tracker_config.server_match;
+    conv = &ConnectionTracker::SERVER_MATCH_CONV;
     break;
   case TS_CONFIG_HTTP_HOST_RESOLUTION_PREFERENCE:
     ret  = &overridableHttpConfig->host_res_data;

@@ -23,7 +23,7 @@
 
 #include "P_Cache.h"
 
-#include "HttpCacheSM.h" //Added to get the scope of HttpCacheSM object.
+#include "proxy/http/HttpCacheSM.h" //Added to get the scope of HttpCacheSM object.
 
 namespace
 {
@@ -49,7 +49,7 @@ Cache::open_read(Continuation *cont, const CacheKey *key, CacheFragType type, co
   }
   ink_assert(caches[type] == this);
 
-  Vol *vol = key_to_vol(key, hostname, host_len);
+  Stripe *vol = key_to_vol(key, hostname, host_len);
   Dir result, *last_collision = nullptr;
   ProxyMutex *mutex = cont->mutex.get();
   OpenDirEntry *od  = nullptr;
@@ -117,7 +117,7 @@ Cache::open_read(Continuation *cont, const CacheKey *key, CacheHTTPHdr *request,
   }
   ink_assert(caches[type] == this);
 
-  Vol *vol = key_to_vol(key, hostname, host_len);
+  Stripe *vol = key_to_vol(key, hostname, host_len);
   Dir result, *last_collision = nullptr;
   ProxyMutex *mutex = cont->mutex.get();
   OpenDirEntry *od  = nullptr;

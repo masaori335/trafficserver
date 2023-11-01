@@ -23,29 +23,30 @@
 
 #include "api/LifecycleAPIHooks.h"
 #include "tscore/ink_config.h"
-#include "P_Net.h"
-#include "HttpConfig.h"
-#include "HttpSessionAccept.h"
-#include "ReverseProxy.h"
-#include "HttpSessionManager.h"
-#include "remap/RemapHitCount.h"
+#include "../../iocore/net/P_Net.h"
+#include "proxy/http/HttpConfig.h"
+#include "proxy/http/HttpSessionAccept.h"
+#include "proxy/ReverseProxy.h"
+#include "proxy/Show.h"
+#include "proxy/http/HttpSessionManager.h"
+#include "proxy/http/remap/RemapHitCount.h"
 #ifdef USE_HTTP_DEBUG_LISTS
-#include "Http1ClientSession.h"
+#include "proxy/http/Http1ClientSession.h"
 #endif
-#include "HttpPages.h"
-#include "HttpTunnel.h"
+#include "proxy/http/HttpPages.h"
+#include "proxy/http/HttpTunnel.h"
 #include "tscore/Tokenizer.h"
-#include "P_SSLNextProtocolAccept.h"
-#include "ProtocolProbeSessionAccept.h"
-#include "http2/Http2SessionAccept.h"
-#include "HttpConnectionCount.h"
-#include "HttpProxyServerMain.h"
+#include "iocore/net/ConnectionTracker.h"
+#include "../../iocore/net/P_SSLNextProtocolAccept.h"
+#include "proxy/ProtocolProbeSessionAccept.h"
+#include "proxy/http2/Http2SessionAccept.h"
+#include "proxy/http/HttpProxyServerMain.h"
 #if TS_USE_QUIC == 1
-#include "P_QUICNetProcessor.h"
-#include "P_QUICNextProtocolAccept.h"
-#include "http3/Http3SessionAccept.h"
+#include "../../iocore/net/P_QUICNetProcessor.h"
+#include "../../iocore/net/P_QUICNextProtocolAccept.h"
+#include "proxy/http3/Http3SessionAccept.h"
 #endif
-#include "PreWarmManager.h"
+#include "proxy/http/PreWarmManager.h"
 
 #include <vector>
 
@@ -65,6 +66,24 @@ bool et_net_threads_ready = false;
 std::mutex etUdpMutex;
 std::condition_variable etUdpCheck;
 bool et_udp_threads_ready = false;
+
+struct ShowConnectionCount : public ShowCont {
+  ShowConnectionCount(Continuation *c, HTTPHdr *h) : ShowCont(c, h) { SET_HANDLER(&ShowConnectionCount::showHandler); }
+  int
+  showHandler(int event, Event *e)
+  {
+    CHECK_SHOW(show(ConnectionTracker::to_json_string().c_str()));
+    return completeJson(event, e);
+  }
+};
+
+Action *
+register_ShowConnectionCount(Continuation *c, HTTPHdr *h)
+{
+  ShowConnectionCount *s = new ShowConnectionCount(c, h);
+  this_ethread()->schedule_imm(s);
+  return &s->action;
+}
 
 // File / process scope initializations
 static bool HTTP_SERVER_INITIALIZED __attribute__((unused)) = []() -> bool {
