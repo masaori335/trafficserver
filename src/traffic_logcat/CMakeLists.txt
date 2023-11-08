@@ -15,17 +15,6 @@
 #
 #######################
 
-add_executable(traffic_logcat ${PROJECT_SOURCE_DIR}/src/shared/overridable_txn_vars.cc logcat.cc)
-target_link_libraries(
-  traffic_logcat
-  PRIVATE ts::tsapi
-          ts::proxy
-          ts::inknet
-          ts::logging
-          ts::hdrs
-          ts::tsapicore
-          ts::diagsconfig
-          ts::configmanager
-          libswoc
-)
+add_executable(traffic_logcat logcat.cc)
+target_link_libraries(traffic_logcat PRIVATE ts::logging ts::tscore ts::diagsconfig ts::inkevent)
 install(TARGETS traffic_logcat)

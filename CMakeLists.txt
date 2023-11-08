@@ -104,10 +104,13 @@ auto_option(
 )
 auto_option(LUAJIT PACKAGE_DEPENDS LuaJIT)
 auto_option(UNWIND FEATURE_VAR TS_USE_REMOTE_UNWINDING PACKAGE_DEPENDS unwind)
+auto_option(CJOSE PACKAGE_DEPENDS cjose)
+auto_option(JANSSON PACKAGE_DEPENDS jansson)
 
 option(ENABLE_ASAN "Use address sanitizer (default OFF)")
 option(ENABLE_FUZZING "Enable fuzzing (default OFF)")
 option(ENABLE_FIPS "Enable fips compliance (default OFF)")
+option(ENABLE_EVENT_TRACKER "Enable event tracking (default OFF)")
 option(BUILD_REGRESSION_TESTING "Build regression tests (default ON)" ON)
 option(BUILD_EXPERIMENTAL_PLUGINS "Build the experimental plugins (default OFF)")
 set(DEFAULT_STACK_SIZE
@@ -314,14 +317,6 @@ elseif(TS_HAS_MIMALLOC)
   link_libraries(mimalloc)
 endif()
 
-if(ENABLE_UNWIND)
-  find_package(unwind)
-  if(unwind_FOUND)
-    link_libraries(unwind::unwind)
-  endif()
-  set(TS_USE_REMOTE_UNWINDING ${unwind_FOUND})
-endif()
-
 if(ENABLE_QUICHE)
   find_package(quiche REQUIRED)
 
@@ -332,6 +327,10 @@ if(ENABLE_QUICHE)
     message(FATAL_ERROR "Use of BoringSSL is required if quiche is used.")
   endif()
 endif()
+
+# for the plugin system
+find_package(nuraft) # experimental stek_share
+find_package(maxminddb) # Header_rewrite experimental/maxmind_acl
 
 if(ENABLE_ASAN)
   add_compile_options(-fsanitize=address)
@@ -541,6 +540,9 @@ if(ENABLE_FUZZING)
 endif()
 
 set(TS_ENABLE_FIPS ${ENABLE_FIPS})
+if(ENABLE_EVENT_TRACKER)
+  add_compile_definitions(ENABLE_EVENT_TRACKER)
+endif()
 
 # Common includes for everyone
 include_directories(${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/include)
@@ -583,6 +585,7 @@ add_subdirectory(src/tscore)
 add_subdirectory(src/records)
 add_subdirectory(src/iocore)
 add_subdirectory(src/proxy)
+add_subdirectory(src/shared)
 add_subdirectory(src/mgmt/config)
 add_subdirectory(src/mgmt/rpc)
 add_subdirectory(src/api)
@@ -604,9 +607,6 @@ endif()
 if(ENABLE_CRIPTS)
   add_subdirectory(src/cripts)
 endif()
-if(BUILD_TESTING)
-  add_subdirectory(src/tests)
-endif()
 if(ENABLE_AUTEST)
   add_subdirectory(tests)
 endif()
@@ -620,7 +620,10 @@ if(ENABLE_EXAMPLE)
 endif()
 
 if(ENABLE_DOCS)
-  set(DOC_LANG en CACHE STRING "Document language option")
+  set(DOC_LANG
+      en
+      CACHE STRING "Document language option"
+  )
   add_subdirectory(doc)
 endif()
 add_subdirectory(rc)
@@ -678,10 +681,18 @@ add_custom_target(
   VERBATIM
 )
 
-# Add a format target that depends upon both clang-format and autopep8.
+add_custom_target(
+  cmake-format
+  ${CMAKE_SOURCE_DIR}/tools/cmake-format.sh ${CMAKE_SOURCE_DIR}
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  COMMENT "formatting CMakeLists.txt files"
+  VERBATIM
+)
+
+# Add a format target that runs all the formatters.
 add_custom_target(
   format
-  DEPENDS clang-format autopep8
+  DEPENDS clang-format autopep8 cmake-format
   COMMENT "formatting all files"
 )
 

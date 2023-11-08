@@ -25,14 +25,16 @@
 
 #include "tscore/ink_platform.h"
 
-#include "proxy/http/HttpTransact.h"
-#include "proxy/http/HttpTransactHeaders.h"
+#include "api/APIHook.h"
+#include "api/InkAPIInternal.h"
 #include "iocore/cache/HttpTransactCache.h"
 #include <ctime>
+#include "proxy/HttpAPIHooks.h"
 #include "proxy/hdrs/HTTP.h"
 #include "proxy/hdrs/HttpCompat.h"
 
 #include "tscore/InkErrno.h"
+#include "tscore/ink_time.h"
 
 /**
   Find the pointer and length of an etag, after stripping off any leading
@@ -167,7 +169,7 @@ is_empty(char *s)
 */
 int
 HttpTransactCache::SelectFromAlternates(CacheHTTPInfoVector *cache_vector, HTTPHdr *client_request,
-                                        const OverridableHttpConfigParams *http_config_params)
+                                        const HttpConfigAccessor *http_config_params)
 {
   time_t current_age, best_age = CacheHighAgeWatermark;
   time_t t_now         = 0;
@@ -206,10 +208,10 @@ HttpTransactCache::SelectFromAlternates(CacheHTTPInfoVector *cache_vector, HTTPH
 
       if (alt_count > 1) {
         if (t_now == 0) {
-          t_now = ink_local_time();
+          t_now = ink_hrtime_to_sec(ink_get_hrtime());
         }
-        current_age = HttpTransactHeaders::calculate_document_age(obj->request_sent_time_get(), obj->response_received_time_get(),
-                                                                  cached_response, cached_response->get_date(), t_now);
+        current_age = HttpTransactCache::calculate_document_age(obj->request_sent_time_get(), obj->response_received_time_get(),
+                                                                cached_response, cached_response->get_date(), t_now);
         // Overflow?
         if (current_age < 0) {
           current_age = CacheHighAgeWatermark;
@@ -287,7 +289,7 @@ HttpTransactCache::SelectFromAlternates(CacheHTTPInfoVector *cache_vector, HTTPH
 
 */
 float
-HttpTransactCache::calculate_quality_of_match(const OverridableHttpConfigParams *http_config_param, HTTPHdr *client_request,
+HttpTransactCache::calculate_quality_of_match(const HttpConfigAccessor *http_config_param, HTTPHdr *client_request,
                                               HTTPHdr *obj_client_request, HTTPHdr *obj_origin_server_response)
 {
   // For PURGE requests, any alternate is good really.
@@ -320,7 +322,7 @@ HttpTransactCache::calculate_quality_of_match(const OverridableHttpConfigParams 
   content_field = obj_origin_server_response->field_find(MIME_FIELD_CONTENT_TYPE, MIME_LEN_CONTENT_TYPE);
 
   // Accept: header
-  if (http_config_param->ignore_accept_mismatch & vary_skip_mask) {
+  if (http_config_param->get_ignore_accept_mismatch() & vary_skip_mask) {
     // Ignore it
     q[0] = 1.0;
   } else {
@@ -336,7 +338,7 @@ HttpTransactCache::calculate_quality_of_match(const OverridableHttpConfigParams 
 
   if (q[0] >= 0.0) {
     // Accept-Charset: header
-    if (http_config_param->ignore_accept_charset_mismatch & vary_skip_mask) {
+    if (http_config_param->get_ignore_accept_charset_mismatch() & vary_skip_mask) {
       // Ignore it
       q[1] = 1.0;
     } else {
@@ -354,7 +356,7 @@ HttpTransactCache::calculate_quality_of_match(const OverridableHttpConfigParams 
 
     if (q[1] >= 0.0) {
       // Accept-Encoding: header
-      if (http_config_param->ignore_accept_encoding_mismatch & vary_skip_mask) {
+      if (http_config_param->get_ignore_accept_encoding_mismatch() & vary_skip_mask) {
         // Ignore it
         q[2] = 1.0;
       } else {
@@ -373,7 +375,7 @@ HttpTransactCache::calculate_quality_of_match(const OverridableHttpConfigParams 
 
       if (q[2] >= 0.0) {
         // Accept-Language: header
-        if (http_config_param->ignore_accept_language_mismatch & vary_skip_mask) {
+        if (http_config_param->get_ignore_accept_language_mismatch() & vary_skip_mask) {
           // Ignore it
           q[3] = 1.0;
         } else {
@@ -589,6 +591,74 @@ HttpTransactCache::calculate_quality_of_accept_match(MIMEField *accept_field, MI
   }
 
   return (q);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Name       : calculate_document_age()
+// Description: returns age of document
+//
+// Input      :
+// Output     : ink_time_t age
+//
+// Details    :
+//   Algorithm is straight out of March 1998 1.1 specs, Section 13.2.3
+//
+///////////////////////////////////////////////////////////////////////////////
+ink_time_t
+HttpTransactCache::calculate_document_age(ink_time_t request_time, ink_time_t response_time, HTTPHdr *base_response,
+                                          ink_time_t base_response_date, ink_time_t now)
+{
+  ink_time_t age_value              = base_response->get_age();
+  ink_time_t date_value             = 0;
+  ink_time_t apparent_age           = 0;
+  ink_time_t corrected_received_age = 0;
+  ink_time_t response_delay         = 0;
+  ink_time_t corrected_initial_age  = 0;
+  ink_time_t current_age            = 0;
+  ink_time_t resident_time          = 0;
+  ink_time_t now_value              = 0;
+
+  ink_time_t tmp_value = 0;
+
+  tmp_value  = base_response_date;
+  date_value = (tmp_value > 0) ? tmp_value : 0;
+
+  // Deal with clock skew. Sigh.
+  //
+  // TODO solve this global clock problem
+  now_value = std::max(now, response_time);
+
+  ink_assert(response_time >= 0);
+  ink_assert(request_time >= 0);
+  ink_assert(response_time >= request_time);
+  ink_assert(now_value >= response_time);
+
+  if (date_value > 0) {
+    apparent_age = std::max(static_cast<time_t>(0), (response_time - date_value));
+  }
+  if (age_value < 0) {
+    current_age = -1; // Overflow from Age: header
+  } else {
+    corrected_received_age = std::max(apparent_age, age_value);
+    response_delay         = response_time - request_time;
+    corrected_initial_age  = corrected_received_age + response_delay;
+    resident_time          = now_value - response_time;
+    current_age            = corrected_initial_age + resident_time;
+  }
+
+  Debug("http_age", "[calculate_document_age] age_value:              %" PRId64, (int64_t)age_value);
+  Debug("http_age", "[calculate_document_age] date_value:             %" PRId64, (int64_t)date_value);
+  Debug("http_age", "[calculate_document_age] response_time:          %" PRId64, (int64_t)response_time);
+  Debug("http_age", "[calculate_document_age] now:                    %" PRId64, (int64_t)now);
+  Debug("http_age", "[calculate_document_age] now (fixed):            %" PRId64, (int64_t)now_value);
+  Debug("http_age", "[calculate_document_age] apparent_age:           %" PRId64, (int64_t)apparent_age);
+  Debug("http_age", "[calculate_document_age] corrected_received_age: %" PRId64, (int64_t)corrected_received_age);
+  Debug("http_age", "[calculate_document_age] response_delay:         %" PRId64, (int64_t)response_delay);
+  Debug("http_age", "[calculate_document_age] corrected_initial_age:  %" PRId64, (int64_t)corrected_initial_age);
+  Debug("http_age", "[calculate_document_age] resident_time:          %" PRId64, (int64_t)resident_time);
+  Debug("http_age", "[calculate_document_age] current_age:            %" PRId64, (int64_t)current_age);
+
+  return current_age;
 }
 
 /**
@@ -1130,7 +1200,7 @@ language_wildcard:
 
 */
 Variability_t
-HttpTransactCache::CalcVariability(const OverridableHttpConfigParams *http_config_params, HTTPHdr *client_request,
+HttpTransactCache::CalcVariability(const HttpConfigAccessor *http_config_params, HTTPHdr *client_request,
                                    HTTPHdr *obj_client_request, HTTPHdr *obj_origin_server_response)
 {
   ink_assert(http_config_params != nullptr);
@@ -1170,13 +1240,14 @@ HttpTransactCache::CalcVariability(const OverridableHttpConfigParams *http_confi
         // Special case: if 'proxy.config.http.global_user_agent_header' set                  //
         // we should ignore Vary: User-Agent.                                                 //
         ////////////////////////////////////////////////////////////////////////////////////////
-        if (http_config_params->global_user_agent_header && !strcasecmp(const_cast<char *>(field->str), "User-Agent")) {
+        if (http_config_params->get_global_user_agent_header() && !strcasecmp(const_cast<char *>(field->str), "User-Agent")) {
           continue;
         }
 
         // Disable Vary mismatch checking for Accept-Encoding.  This is only safe to
         // set if you are promising to fix any Accept-Encoding/Content-Encoding mismatches.
-        if (http_config_params->ignore_accept_encoding_mismatch && !strcasecmp(const_cast<char *>(field->str), "Accept-Encoding")) {
+        if (http_config_params->get_ignore_accept_encoding_mismatch() &&
+            !strcasecmp(const_cast<char *>(field->str), "Accept-Encoding")) {
           continue;
         }
 

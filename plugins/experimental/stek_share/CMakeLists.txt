@@ -15,12 +15,11 @@
 #
 #######################
 
-find_package(NuRaft QUIET)
-
-if(NuRaft_FOUND)
+if(nuraft_FOUND)
   add_atsplugin(stek_share common.cc log_store.cc stek_share.cc stek_utils.cc)
 
-  target_link_libraries(stek_share PRIVATE NuRaft::static_lib OpenSSL::SSL yaml-cpp::yaml-cpp)
+  target_include_directories(stek_share PRIVATE nuraft::nuraft OpenSSL::SSL yaml-cpp::yaml-cpp)
+  target_link_libraries(stek_share PRIVATE nuraft::nuraft OpenSSL::SSL yaml-cpp::yaml-cpp)
 else()
-  message(STATUS "skipping stek_share plugin (missing NuRaft)")
+  message(STATUS "skipping stek_share plugin (missing nuraft)")
 endif()

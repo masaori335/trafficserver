@@ -18,12 +18,11 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# Update the PKGVERSION with the new desired autopep8 tag when a new autopep8
-# version is desired.
+# Update these VERSION variables with the new desired autopep8 tag when a new
+# autopep8 version is desired.
 # See:
 # https://github.com/hhatto/autopep8/tags
 AUTOPEP8_VERSION="1.5.3"
-
 VERSION="autopep8 1.5.3 (pycodestyle: 2.6.0)"
 
 # Tie this to exactly the pycodestyle version that shows up in the setup.py of
@@ -47,6 +46,7 @@ function main() {
   fi
   source ${AUTOPEP8_VENV}/bin/activate
 
+  pip install -q --upgrade pip
   pip install -q "pycodestyle==${PYCODESTYLE_TAG}"
   pip install -q "autopep8==${AUTOPEP8_VERSION}"
 
@@ -79,8 +79,8 @@ function main() {
   # Efficiently retrieving modification timestamps in a platform
   # independent way is challenging. We use find's -newer argument, which
   # seems to be broadly supported. The following file is created and has a
-  # timestamp just before running clang-format. Any file with a timestamp
-  # after this we assume was modified by clang-format.
+  # timestamp just before running autopep8. Any file with a timestamp
+  # after this we assume was modified by autopep8.
   start_time_file=${tmp_dir}/format_start.$$
   touch ${start_time_file}
   autopep8 \

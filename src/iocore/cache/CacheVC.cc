@@ -42,6 +42,7 @@
 #if DEBUG
 #include "api/Metrics.h"
 #endif
+#include "tscore/Version.h"
 
 // inkevent
 #include "iocore/eventsystem/Continuation.h"
@@ -55,7 +56,6 @@
 #include "tscpp/api/HttpStatus.h"
 
 // tscore
-#include "tscore/Version.h"
 #include "tscore/ink_assert.h"
 #include "tscore/ink_hrtime.h"
 #include "tscore/Ptr.h"
@@ -88,7 +88,7 @@ DbgCtl dbg_ctl_cache_reenable{"cache_reenable"};
 #define USELESS_REENABLES          // allow them for now
 // #define VERIFY_JTEST_DATA
 
-extern int cache_config_ram_cache_cutoff;
+extern int64_t cache_config_ram_cache_cutoff;
 
 /* Next block with some data in it in this partition.  Returns end of partition if no more
  * locations.

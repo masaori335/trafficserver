@@ -32,10 +32,10 @@
 #include "tscore/Encoding.h"
 #include "tscore/PluginUserArgs.h"
 #include "tscore/Layout.h"
-#include "tscore/Version.h"
 #include "tscore/Diags.h"
 #include "api/Metrics.h"
 
+#include "tscore/Version.h"
 #include "api/InkAPIInternal.h"
 #include "proxy/logging/Log.h"
 #include "proxy/hdrs/URL.h"
@@ -105,8 +105,6 @@
   _HDR.m_heap = ((HdrHeapSDKHandle *)_BUF_PTR)->m_heap; \
   _HDR.m_http = (HTTPHdrImpl *)_OBJ_PTR;                \
   _HDR.m_mime = _HDR.m_http->m_fields_impl;
-
-extern AppVersionInfo appVersionInfo;
 
 /** Reservation for a user arg.
  */
@@ -1045,91 +1043,6 @@ FileImpl::fgets(char *buf, size_t length)
 
 ////////////////////////////////////////////////////////////////////
 //
-// APIHook, APIHooks, HttpAPIHooks, HttpHookState
-//
-////////////////////////////////////////////////////////////////////
-
-void
-HttpHookState::init(TSHttpHookID id, HttpAPIHooks const *global, HttpAPIHooks const *ssn, HttpAPIHooks const *txn)
-{
-  _id = id;
-
-  if (global) {
-    _global.init(global, id);
-  } else {
-    _global.clear();
-  }
-
-  if (ssn) {
-    _ssn.init(ssn, id);
-  } else {
-    _ssn.clear();
-  }
-
-  if (txn) {
-    _txn.init(txn, id);
-  } else {
-    _txn.clear();
-  }
-}
-
-APIHook const *
-HttpHookState::getNext()
-{
-  APIHook const *zret = nullptr;
-
-#ifdef DEBUG
-  Debug("plugin", "computing next callback for hook %d", _id);
-#endif
-
-  if (zret = _global.candidate(); zret) {
-    ++_global;
-  } else if (zret = _ssn.candidate(); zret) {
-    ++_ssn;
-  } else if (zret = _txn.candidate(); zret) {
-    ++_txn;
-  }
-
-  return zret;
-}
-
-void
-HttpHookState::Scope::init(HttpAPIHooks const *feature_hooks, TSHttpHookID id)
-{
-  _hooks = (*feature_hooks)[id];
-
-  _p = nullptr;
-  _c = _hooks->head();
-}
-
-APIHook const *
-HttpHookState::Scope::candidate()
-{
-  /// Simply returns _c hook for now. Later will do priority checking here
-
-  // Check to see if a hook has been added since this was initialized empty
-  if (nullptr == _c && nullptr == _p && _hooks != nullptr) {
-    _c = _hooks->head();
-  }
-  return _c;
-}
-
-void
-HttpHookState::Scope::operator++()
-{
-  _p = _c;
-  _c = _c->next();
-}
-
-void
-HttpHookState::Scope::clear()
-{
-  _hooks = nullptr;
-  _p = _c = nullptr;
-}
-
-////////////////////////////////////////////////////////////////////
-//
 // api_init
 //
 ////////////////////////////////////////////////////////////////////
@@ -1398,7 +1311,7 @@ api_init()
     global_config_cbs = new ConfigUpdateCbTable;
 
     // Setup the version string for returning to plugins
-    ink_strlcpy(traffic_server_version, appVersionInfo.VersionStr, sizeof(traffic_server_version));
+    ink_strlcpy(traffic_server_version, AppVersionInfo::get_version().version(), sizeof(traffic_server_version));
     // Extract the elements.
     // coverity[secure_coding]
     if (sscanf(traffic_server_version, "%d.%d.%d", &ts_major_version, &ts_minor_version, &ts_patch_version) != 3) {
