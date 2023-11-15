@@ -28,7 +28,6 @@
 #include "P_SSLNextProtocolAccept.h"
 
 // For Stat Pages
-#include "proxy/StatPages.h"
 
 // naVecMutext protects access to naVec.
 Ptr<ProxyMutex> naVecMutex;
@@ -97,7 +96,7 @@ UnixNetProcessor::accept_internal(Continuation *cont, int fd, AcceptOptions cons
     Fatal("Please disable accept_threads or exec_thread.listen");
   }
 
-  Metrics::increment(net_rsb.accepts_currently_open);
+  Metrics::Gauge::increment(net_rsb.accepts_currently_open);
 
   // We've handled the config stuff at start up, but there are a few cases
   // we must handle at this point.
@@ -269,12 +268,6 @@ UnixNetProcessor::init()
   RecData d;
   d.rec_int = 0;
   change_net_connections_throttle(nullptr, RECD_INT, d, nullptr);
-
-  /*
-   * Stat pages
-   */
-  extern Action *register_ShowNet(Continuation * c, HTTPHdr * h);
-  statPagesManager.register_http("net", register_ShowNet);
 }
 
 void

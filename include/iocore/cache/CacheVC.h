@@ -48,7 +48,7 @@
 
 #include <cstdint>
 
-struct Stripe;
+class Stripe;
 class HttpConfigAccessor;
 
 struct CacheVC : public CacheVConnection {
@@ -166,7 +166,6 @@ struct CacheVC : public CacheVConnection {
   int openWriteCloseHead(int event, Event *e);
   int openWriteCloseDataDone(int event, Event *e);
   int openWriteClose(int event, Event *e);
-  int openWriteRemoveVector(int event, Event *e);
   int openWriteWriteDone(int event, Event *e);
   int openWriteOverwrite(int event, Event *e);
   int openWriteMain(int event, Event *e);
@@ -174,8 +173,6 @@ struct CacheVC : public CacheVConnection {
   int openWriteStartBegin(int event, Event *e);
 
   int updateVector(int event, Event *e);
-  int updateReadDone(int event, Event *e);
-  int updateVecWrite(int event, Event *e);
 
   int removeEvent(int event, Event *e);
 
@@ -249,9 +246,6 @@ struct CacheVC : public CacheVConnection {
   AIOCallbackInternal io;
   int alternate_index = CACHE_ALT_INDEX_DEFAULT; // preferred position in vector
   LINK(CacheVC, opendir_link);
-#ifdef CACHE_STAT_PAGES
-  LINK(CacheVC, stat_link);
-#endif
   // end Region B
 
   // Start Region C

@@ -26,6 +26,7 @@
 #include "P_CacheDir.h"
 #include "P_CacheStats.h"
 #include "P_RamCache.h"
+#include "iocore/cache/AggregateWriteBuffer.h"
 
 #include "tscore/CryptoHash.h"
 
@@ -38,21 +39,22 @@
 #define ROUND_TO_SECTOR(_p, _x)  INK_ALIGN((_x), _p->sector_size)
 #define ROUND_TO(_x, _y)         INK_ALIGN((_x), (_y))
 
-// Stripe (volumes)
-#define VOL_MAGIC                    0xF1D0F00D
+// Stripe
+#define STRIPE_MAGIC                 0xF1D0F00D
 #define START_BLOCKS                 16 // 8k, STORE_BLOCK_SIZE
 #define START_POS                    ((off_t)START_BLOCKS * CACHE_BLOCK_SIZE)
-#define AGG_SIZE                     (4 * 1024 * 1024) // 4MB
-#define AGG_HIGH_WATER               (AGG_SIZE / 2)    // 2MB
-#define EVACUATION_SIZE              (2 * AGG_SIZE)    // 8MB
-#define MAX_VOL_SIZE                 ((off_t)512 * 1024 * 1024 * 1024 * 1024)
-#define MAX_VOL_BLOCKS               (MAX_VOL_SIZE / CACHE_BLOCK_SIZE)
-#define MAX_FRAG_SIZE                (AGG_SIZE - sizeof(Doc)) // true max
+#define AGG_SIZE                     (4 * 1024 * 1024)   // 4MB
+#define AGG_HIGH_WATER               (AGG_SIZE / 2)      // 2MB
+#define EVACUATION_SIZE              (2 * AGG_SIZE)      // 8MB
+#define STRIPE_BLOCK_SIZE            (1024 * 1024 * 128) // 128MB
+#define MIN_STRIPE_SIZE              STRIPE_BLOCK_SIZE
+#define MAX_STRIPE_SIZE              ((off_t)512 * 1024 * 1024 * 1024 * 1024) // 512TB
+#define MAX_FRAG_SIZE                (AGG_SIZE - sizeof(Doc))                 // true max
 #define LEAVE_FREE                   DEFAULT_MAX_BUFFER_SIZE
 #define PIN_SCAN_EVERY               16 // scan every 1/16 of disk
-#define VOL_HASH_TABLE_SIZE          32707
-#define VOL_HASH_EMPTY               0xFFFF
-#define VOL_HASH_ALLOC_SIZE          (8 * 1024 * 1024) // one chance per this unit
+#define STRIPE_HASH_TABLE_SIZE       32707
+#define STRIPE_HASH_EMPTY            0xFFFF
+#define STRIPE_HASH_ALLOC_SIZE       (8 * 1024 * 1024) // one chance per this unit
 #define LOOKASIDE_SIZE               256
 #define EVACUATION_BUCKET_SIZE       (2 * EVACUATION_SIZE) // 16MB
 #define RECOVERY_SIZE                EVACUATION_SIZE       // 8MB
@@ -60,6 +62,7 @@
 #define AIO_AGG_WRITE_IN_PROGRESS    -2
 #define AUTO_SIZE_RAM_CACHE          -1                      // 1-1 with directory size
 #define DEFAULT_TARGET_FRAGMENT_SIZE (1048576 - sizeof(Doc)) // 1MB
+#define STORE_BLOCKS_PER_STRIPE      (STRIPE_BLOCK_SIZE / STORE_BLOCK_SIZE)
 
 #define dir_offset_evac_bucket(_o) (_o / (EVACUATION_BUCKET_SIZE / CACHE_BLOCK_SIZE))
 #define dir_evac_bucket(_e)        dir_offset_evac_bucket(dir_offset(_e))
@@ -73,7 +76,7 @@
 #define DOC_NO_CHECKSUM ((uint32_t)0xA0B0C0D0)
 
 struct Cache;
-struct Stripe;
+class Stripe;
 struct CacheDisk;
 struct StripeInitInfo;
 struct DiskStripe;
@@ -125,7 +128,9 @@ struct EvacuationBlock {
   LINK(EvacuationBlock, link);
 };
 
-struct Stripe : public Continuation {
+class Stripe : public Continuation
+{
+public:
   char *path = nullptr;
   ats_scoped_str hash_text;
   CryptoHash hash_id;
@@ -147,12 +152,7 @@ struct Stripe : public Continuation {
   int hit_evacuate_window     = 0;
   AIOCallbackInternal io;
 
-  Queue<CacheVC, Continuation::Link_link> agg;
-  Queue<CacheVC, Continuation::Link_link> stat_cache_vcs;
   Queue<CacheVC, Continuation::Link_link> sync;
-  char *agg_buffer  = nullptr;
-  int agg_todo_size = 0;
-  int agg_buf_pos   = 0;
 
   Event *trigger = nullptr;
 
@@ -197,6 +197,7 @@ struct Stripe : public Continuation {
   int close_read(CacheVC *cont) const;
   int close_read_lock(CacheVC *cont);
 
+  int clear_dir_aio();
   int clear_dir();
 
   int init(char *s, off_t blocks, off_t dir_skip, bool clear);
@@ -274,12 +275,23 @@ struct Stripe : public Continuation {
   Stripe() : Continuation(new_ProxyMutex())
   {
     open_dir.mutex = mutex;
-    agg_buffer     = (char *)ats_memalign(ats_pagesize(), AGG_SIZE);
-    memset(agg_buffer, 0, AGG_SIZE);
     SET_HANDLER(&Stripe::aggWrite);
   }
 
-  ~Stripe() override { ats_free(agg_buffer); }
+  Queue<CacheVC, Continuation::Link_link> &get_pending_writers();
+  char *get_agg_buffer();
+  int get_agg_buf_pos() const;
+  void reset_agg_buf_pos();
+  int get_agg_todo_size() const;
+  void add_agg_todo(int size);
+
+private:
+  void _clear_init();
+  void _init_dir();
+  void _init_data_internal();
+  void _init_data();
+
+  AggregateWriteBuffer _write_buffer;
 };
 
 struct AIO_failure_handler : public Continuation {
@@ -394,7 +406,7 @@ Stripe::vol_out_of_phase_write_valid(Dir *e) const
 inline int
 Stripe::vol_in_phase_valid(Dir *e) const
 {
-  return (dir_offset(e) - 1 < ((this->header->write_pos + this->agg_buf_pos - this->start) / CACHE_BLOCK_SIZE));
+  return (dir_offset(e) - 1 < ((this->header->write_pos + this->_write_buffer.get_buffer_pos() - this->start) / CACHE_BLOCK_SIZE));
 }
 
 inline off_t
@@ -418,7 +430,8 @@ Stripe::vol_offset_to_offset(off_t pos) const
 inline int
 Stripe::vol_in_phase_agg_buf_valid(Dir *e) const
 {
-  return (this->vol_offset(e) >= this->header->write_pos && this->vol_offset(e) < (this->header->write_pos + this->agg_buf_pos));
+  return (this->vol_offset(e) >= this->header->write_pos &&
+          this->vol_offset(e) < (this->header->write_pos + this->_write_buffer.get_buffer_pos()));
 }
 
 // length of the partition not including the offset of location 0.
@@ -457,9 +470,6 @@ Doc::data()
 {
   return this->hdr() + hlen;
 }
-
-int vol_dir_clear(Stripe *vol);
-int vol_init(Stripe *vol, char *s, off_t blocks, off_t skip, bool clear);
 
 // inline Functions
 
@@ -549,4 +559,40 @@ inline void
 Stripe::set_io_not_in_progress()
 {
   io.aiocb.aio_fildes = AIO_NOT_IN_PROGRESS;
+}
+
+inline Queue<CacheVC, Continuation::Link_link> &
+Stripe::get_pending_writers()
+{
+  return this->_write_buffer.get_pending_writers();
+}
+
+inline char *
+Stripe::get_agg_buffer()
+{
+  return this->_write_buffer.get_buffer();
+}
+
+inline int
+Stripe::get_agg_buf_pos() const
+{
+  return this->_write_buffer.get_buffer_pos();
+}
+
+inline void
+Stripe::reset_agg_buf_pos()
+{
+  this->_write_buffer.reset_buffer_pos();
+}
+
+inline int
+Stripe::get_agg_todo_size() const
+{
+  return this->_write_buffer.get_bytes_pending_aggregation();
+}
+
+inline void
+Stripe::add_agg_todo(int size)
+{
+  this->_write_buffer.add_bytes_pending_aggregation(size);
 }

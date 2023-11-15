@@ -66,7 +66,6 @@ add_library(
   UnixConnection.cc
   UnixNet.cc
   UnixNetAccept.cc
-  UnixNetPages.cc
   UnixNetProcessor.cc
   UnixNetVConnection.cc
   UnixUDPConnection.cc
@@ -84,10 +83,10 @@ if(TS_USE_QUIC)
     PRIVATE QUICClosedConCollector.cc
             QUICMultiCertConfigLoader.cc
             QUICNet.cc
-            QUICNetProcessor_quiche.cc
-            QUICNetVConnection_quiche.cc
-            QUICNextProtocolAccept_quiche.cc
-            QUICPacketHandler_quiche.cc
+            QUICNetProcessor.cc
+            QUICNetVConnection.cc
+            QUICNextProtocolAccept.cc
+            QUICPacketHandler.cc
             QUICSupport.cc
   )
 

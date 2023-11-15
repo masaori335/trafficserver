@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include "iocore/eventsystem/Continuation.h"
 #include "tscore/ink_platform.h"
 #include "tscore/InkErrno.h"
 
@@ -43,16 +44,9 @@ struct EvacuationBlock;
 #define ALTERNATES 1
 // #define CACHE_LOCK_FAIL_RATE         0.001
 // #define CACHE_AGG_FAIL_RATE          0.005
-// #define CACHE_INSPECTOR_PAGES
 #define MAX_CACHE_VCS_PER_THREAD 500
 
 #define INTEGRAL_FRAGS 4
-
-#ifdef CACHE_INSPECTOR_PAGES
-#ifdef DEBUG
-#define CACHE_STAT_PAGES
-#endif
-#endif
 
 #ifdef DEBUG
 #define DDbg(dbg_ctl, fmt, ...) Dbg(dbg_ctl, fmt, ##__VA_ARGS__)
@@ -170,10 +164,6 @@ new_CacheVC(Continuation *cont)
   ink_assert(c->trigger == nullptr);
   static DbgCtl dbg_ctl{"cache_new"};
   Dbg(dbg_ctl, "new %p", c);
-#ifdef CACHE_STAT_PAGES
-  ink_assert(!c->stat_link.next);
-  ink_assert(!c->stat_link.prev);
-#endif
   dir_clear(&c->dir);
   return c;
 }
@@ -187,11 +177,11 @@ free_CacheVC(CacheVC *cont)
   Stripe *vol       = cont->vol;
 
   if (vol) {
-    Metrics::decrement(cache_rsb.status[cont->op_type].active);
-    Metrics::decrement(vol->cache_vol->vol_rsb.status[cont->op_type].active);
+    Metrics::Gauge::decrement(cache_rsb.status[cont->op_type].active);
+    Metrics::Gauge::decrement(vol->cache_vol->vol_rsb.status[cont->op_type].active);
     if (cont->closed > 0) {
-      Metrics::increment(cache_rsb.status[cont->op_type].success);
-      Metrics::increment(vol->cache_vol->vol_rsb.status[cont->op_type].success);
+      Metrics::Counter::increment(cache_rsb.status[cont->op_type].success);
+      Metrics::Counter::increment(vol->cache_vol->vol_rsb.status[cont->op_type].success);
     } // else abort,cancel
   }
   ink_assert(mutex->thread_holding == this_ethread());
@@ -225,9 +215,6 @@ free_CacheVC(CacheVC *cont)
   ats_free(cont->scan_vol_map);
 
   memset((char *)&cont->vio, 0, cont->size_to_init);
-#ifdef CACHE_STAT_PAGES
-  ink_assert(!cont->stat_link.next && !cont->stat_link.prev);
-#endif
 #ifdef DEBUG
   SET_CONTINUATION_HANDLER(cont, &CacheVC::dead);
 #endif
@@ -375,11 +362,6 @@ CacheVC::writer_done()
 inline int
 Stripe::close_write(CacheVC *cont)
 {
-#ifdef CACHE_STAT_PAGES
-  ink_assert(stat_cache_vcs.head);
-  stat_cache_vcs.remove(cont, cont->stat_link);
-  ink_assert(!cont->stat_link.next && !cont->stat_link.prev);
-#endif
   return open_dir.close_write(cont);
 }
 
@@ -390,25 +372,20 @@ Stripe::open_write(CacheVC *cont, int allow_if_writers, int max_writers)
   Stripe *vol    = this;
   bool agg_error = false;
   if (!cont->f.remove) {
-    agg_error = (!cont->f.update && agg_todo_size > cache_config_agg_write_backlog);
+    agg_error = (!cont->f.update && this->get_agg_todo_size() > cache_config_agg_write_backlog);
 #ifdef CACHE_AGG_FAIL_RATE
     agg_error = agg_error || ((uint32_t)mutex->thread_holding->generator.random() < (uint32_t)(UINT_MAX * CACHE_AGG_FAIL_RATE));
 #endif
   }
 
   if (agg_error) {
-    Metrics::increment(cache_rsb.write_backlog_failure);
-    Metrics::increment(vol->cache_vol->vol_rsb.write_backlog_failure);
+    Metrics::Counter::increment(cache_rsb.write_backlog_failure);
+    Metrics::Counter::increment(vol->cache_vol->vol_rsb.write_backlog_failure);
 
     return ECACHE_WRITE_FAIL;
   }
 
   if (open_dir.open_write(cont, allow_if_writers, max_writers)) {
-#ifdef CACHE_STAT_PAGES
-    ink_assert(cont->mutex->thread_holding == this_ethread());
-    ink_assert(!cont->stat_link.next && !cont->stat_link.prev);
-    stat_cache_vcs.enqueue(cont, cont->stat_link);
-#endif
     return 0;
   }
   return ECACHE_DOC_BUSY;
@@ -449,13 +426,11 @@ Stripe::open_read_lock(CryptoHash *key, EThread *t)
 inline int
 Stripe::begin_read_lock(CacheVC *cont)
 {
-// no need for evacuation as the entire document is already in memory
-#ifndef CACHE_STAT_PAGES
+  // no need for evacuation as the entire document is already in memory
   if (cont->f.single_fragment) {
     return 0;
   }
-#endif
-  // VC is enqueued in stat_cache_vcs in the begin_read call
+
   EThread *t = cont->mutex->thread_holding;
   CACHE_TRY_LOCK(lock, mutex, t);
   if (!lock.is_locked()) {
@@ -508,10 +483,11 @@ dir_overwrite_lock(CacheKey *key, Stripe *vol, Dir *to_part, ProxyMutex *m, Dir 
   return dir_overwrite(key, vol, to_part, overwrite, must_overwrite);
 }
 
-void inline rand_CacheKey(CacheKey *next_key, Ptr<ProxyMutex> &mutex)
+void inline rand_CacheKey(CacheKey *next_key)
 {
-  next_key->b[0] = mutex->thread_holding->generator.random();
-  next_key->b[1] = mutex->thread_holding->generator.random();
+  EThread *ethread = this_ethread();
+  next_key->b[0]   = ethread->generator.random();
+  next_key->b[1]   = ethread->generator.random();
 }
 
 extern const uint8_t CacheKey_next_table[256];
@@ -570,7 +546,7 @@ CacheRemoveCont::event_handler(int event, void *data)
 }
 
 struct CacheHostRecord;
-struct Stripe;
+class Stripe;
 class CacheHostTable;
 
 struct Cache {

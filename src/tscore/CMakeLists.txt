@@ -54,7 +54,6 @@ add_library(
   MatcherUtils.cc
   ParseRules.cc
   Random.cc
-  Regex.cc
   Regression.cc
   SourceLocation.cc
   TextBuffer.cc
@@ -111,7 +110,16 @@ else()
   target_sources(tscore PRIVATE HKDF_openssl.cc)
 endif()
 
-target_link_libraries(tscore PUBLIC OpenSSL::Crypto PCRE::PCRE libswoc yaml-cpp::yaml-cpp resolv::resolv ts::tsapicore)
+target_link_libraries(
+  tscore
+  PUBLIC OpenSSL::Crypto
+         PCRE::PCRE
+         libswoc
+         yaml-cpp::yaml-cpp
+         resolv::resolv
+         ts::tsapicore
+         ts::tscpputil
+)
 
 if(TS_USE_POSIX_CAP)
   target_link_libraries(tscore PUBLIC cap::cap)
@@ -150,7 +158,6 @@ if(BUILD_TESTING)
     unit_tests/test_PriorityQueue.cc
     unit_tests/test_Ptr.cc
     unit_tests/test_Random.cc
-    unit_tests/test_Regex.cc
     unit_tests/test_Throttler.cc
     unit_tests/test_Tokenizer.cc
     unit_tests/test_arena.cc

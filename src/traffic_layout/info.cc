@@ -31,6 +31,14 @@
 #include "info.h"
 #include "iocore/eventsystem/RecProcess.h"
 
+#if __has_include("pcre/pcre.h")
+#include <pcre/pcre.h>
+#elif __has_include("pcre.h")
+#include <pcre.h>
+#else
+#error "Unable to locate PCRE heeader"
+#endif
+
 #if TS_USE_HWLOC
 #include <hwloc.h>
 #endif
@@ -115,7 +123,6 @@ produce_features(bool json)
   print_feature("TS_IP_TRANSPARENT", TS_IP_TRANSPARENT, json);
   print_feature("TS_HAS_128BIT_CAS", TS_HAS_128BIT_CAS, json);
   print_feature("TS_HAS_TESTS", TS_HAS_TESTS, json);
-  print_feature("TS_HAS_WCCP", TS_HAS_WCCP, json);
   print_feature("TS_MAX_THREADS_IN_EACH_THREAD_TYPE", TS_MAX_THREADS_IN_EACH_THREAD_TYPE, json);
   print_feature("TS_MAX_NUMBER_EVENT_THREADS", TS_MAX_NUMBER_EVENT_THREADS, json);
   print_feature("TS_MAX_HOST_NAME_LEN", TS_MAX_HOST_NAME_LEN, json);

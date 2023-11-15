@@ -102,10 +102,8 @@ auto_option(
   HEADER_DEPENDS
   "sys/prctl.h"
 )
-auto_option(LUAJIT PACKAGE_DEPENDS LuaJIT)
+auto_option(LUAJIT PACKAGE_DEPENDS luajit)
 auto_option(UNWIND FEATURE_VAR TS_USE_REMOTE_UNWINDING PACKAGE_DEPENDS unwind)
-auto_option(CJOSE PACKAGE_DEPENDS cjose)
-auto_option(JANSSON PACKAGE_DEPENDS jansson)
 
 option(ENABLE_ASAN "Use address sanitizer (default OFF)")
 option(ENABLE_FUZZING "Enable fuzzing (default OFF)")
@@ -180,7 +178,6 @@ set(ENABLE_TPROXY
 )
 option(ENABLE_QUICHE "Use quiche (default OFF)")
 
-option(ENABLE_WCCP "Use WCCP v2 (default OFF)")
 option(ENABLE_EXAMPLE "Build example directory (default OFF)")
 set(TS_MAX_HOST_NAME_LEN
     256
@@ -206,7 +203,6 @@ option(ENABLE_CRIPTS "Build and install the Cripts library and headers  (default
 
 set(TS_USE_FAST_SDK ${ENABLE_FAST_SDK})
 
-set(TS_HAS_WCCP ${ENABLE_WCCP})
 set(TS_MAX_NUMBER_EVENT_THREADS ${MAX_EVENT_THREADS})
 set(TS_MAX_THREADS_IN_EACH_THREAD_TYPE ${MAX_THREADS_PER_TYPE})
 
@@ -267,6 +263,12 @@ check_include_file(siginfo.h HAVE_SIGINFO_H)
 check_include_file(endian.h HAVE_ENDIAN_H)
 
 # Find libraries
+if(ENABLE_CRIPTS)
+  # needed for cripts
+  # however this might become a general requirement
+  find_package(fmt 8.1 REQUIRED)
+endif()
+
 find_package(Backtrace)
 if(Backtrace_FOUND)
   set(TS_HAS_BACKTRACE TRUE)
@@ -328,8 +330,6 @@ if(ENABLE_QUICHE)
   endif()
 endif()
 
-# for the plugin system
-find_package(nuraft) # experimental stek_share
 find_package(maxminddb) # Header_rewrite experimental/maxmind_acl
 
 if(ENABLE_ASAN)
@@ -351,6 +351,10 @@ set(HAVE_NCURSES_NCURSES_H ${CURSES_HAVE_NCURSES_NCURSES_H})
 if(EXTERNAL_YAML_CPP)
   message(STATUS "Looking for external yaml-cpp")
   find_package(yaml-cpp "0.8.0" REQUIRED)
+  set(YAMLCPP_LIB_VERSION yaml-cpp_VERSION)
+  find_package_message(
+    yaml-cpp "Found yaml-cpp: ${yaml-cpp_CONFIG} (found version \"${yaml-cpp_VERSION}\")" "${yaml-cpp_CONFIG}"
+  )
 endif()
 
 # curl is used in traffic_top
@@ -469,6 +473,7 @@ check_struct_has_member("struct sockaddr_in" sin_len "netinet/in.h" HAVE_STRUCT_
 check_struct_has_member("struct sockaddr_in6" sin6_len "netinet/in.h" HAVE_STRUCT_SOCKADDR_IN6_SIN6_LEN)
 check_struct_has_member("struct stat" st_mtimespec "sys/stat.h" HAVE_STRUCT_STAT_ST_MTIMESPEC_TV_NSEC)
 check_struct_has_member("struct stat" st_mtim "sys/stat.h" HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC)
+check_struct_has_member("struct mptcp_info" mptcpi_subflows "linux/mptcp.h" HAVE_STRUCT_MPTCP_INFO_SUBFLOWS)
 
 # find resolv library if available
 find_package(resolv)
@@ -559,8 +564,6 @@ add_compile_options("$<$<CXX_COMPILER_ID:GNU>:-Wno-format-truncation;-Wno-string
 if(NOT EXTERNAL_YAML_CPP)
   include(subproject_version)
   subproject_version(YAML_CPP YAMLCPP_LIB_VERSION)
-else()
-  set(YAMLCPP_LIB_VERSION yaml-cpp_VERSION)
 endif()
 
 set(rel_cachedir var/trafficserver)
@@ -600,10 +603,6 @@ if(CURSES_FOUND)
   add_subdirectory(src/traffic_top)
 endif()
 add_subdirectory(src/traffic_via)
-if(ENABLE_WCCP)
-  add_subdirectory(src/wccp)
-  add_subdirectory(src/traffic_wccp)
-endif()
 if(ENABLE_CRIPTS)
   add_subdirectory(src/cripts)
 endif()
@@ -614,6 +613,10 @@ if(ENABLE_FUZZING)
   add_subdirectory(tests/fuzzing)
 endif()
 add_subdirectory(plugins)
+
+# set up auto options for experimental plugins
+include(ExperimentalPlugins)
+
 add_subdirectory(configs)
 if(ENABLE_EXAMPLE)
   add_subdirectory(example)

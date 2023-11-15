@@ -25,7 +25,6 @@
 
 // Cache Inspector and State Pages
 #include "P_CacheTest.h"
-#include "proxy/StatPages.h"
 
 #include "tscore/Filenames.h"
 
@@ -129,69 +128,67 @@ force_link_CacheTestCaller()
 static void
 register_cache_stats(CacheStatsBlock *rsb, const std::string prefix)
 {
-  ts::Metrics &intm = ts::Metrics::getInstance();
-
   // These are special, in that we have 7 x 3 metrics here in a structure based on cache operation done
-  rsb->status[static_cast<int>(CacheOpType::Lookup)].active    = intm.newMetricPtr(prefix + ".lookup.active");
-  rsb->status[static_cast<int>(CacheOpType::Lookup)].success   = intm.newMetricPtr(prefix + ".lookup.success");
-  rsb->status[static_cast<int>(CacheOpType::Lookup)].failure   = intm.newMetricPtr(prefix + ".lookup.failure");
-  rsb->status[static_cast<int>(CacheOpType::Read)].active      = intm.newMetricPtr(prefix + ".read.active");
-  rsb->status[static_cast<int>(CacheOpType::Read)].success     = intm.newMetricPtr(prefix + ".read.success");
-  rsb->status[static_cast<int>(CacheOpType::Read)].failure     = intm.newMetricPtr(prefix + ".read.failure");
-  rsb->status[static_cast<int>(CacheOpType::Write)].active     = intm.newMetricPtr(prefix + ".write.active");
-  rsb->status[static_cast<int>(CacheOpType::Write)].success    = intm.newMetricPtr(prefix + ".write.success");
-  rsb->status[static_cast<int>(CacheOpType::Write)].failure    = intm.newMetricPtr(prefix + ".write.failure");
-  rsb->status[static_cast<int>(CacheOpType::Update)].active    = intm.newMetricPtr(prefix + ".update.active");
-  rsb->status[static_cast<int>(CacheOpType::Update)].success   = intm.newMetricPtr(prefix + ".update.success");
-  rsb->status[static_cast<int>(CacheOpType::Update)].failure   = intm.newMetricPtr(prefix + ".update.failure");
-  rsb->status[static_cast<int>(CacheOpType::Remove)].active    = intm.newMetricPtr(prefix + ".remove.active");
-  rsb->status[static_cast<int>(CacheOpType::Remove)].success   = intm.newMetricPtr(prefix + ".remove.success");
-  rsb->status[static_cast<int>(CacheOpType::Remove)].failure   = intm.newMetricPtr(prefix + ".remove.failure");
-  rsb->status[static_cast<int>(CacheOpType::Evacuate)].active  = intm.newMetricPtr(prefix + ".evacuate.active");
-  rsb->status[static_cast<int>(CacheOpType::Evacuate)].success = intm.newMetricPtr(prefix + ".evacuate.success");
-  rsb->status[static_cast<int>(CacheOpType::Evacuate)].failure = intm.newMetricPtr(prefix + ".evacuate.failure");
-  rsb->status[static_cast<int>(CacheOpType::Scan)].active      = intm.newMetricPtr(prefix + ".scan.active");
-  rsb->status[static_cast<int>(CacheOpType::Scan)].success     = intm.newMetricPtr(prefix + ".scan.success");
-  rsb->status[static_cast<int>(CacheOpType::Scan)].failure     = intm.newMetricPtr(prefix + ".scan.failure");
+  rsb->status[static_cast<int>(CacheOpType::Lookup)].active    = Metrics::Gauge::createPtr(prefix + ".lookup.active");
+  rsb->status[static_cast<int>(CacheOpType::Lookup)].success   = Metrics::Counter::createPtr(prefix + ".lookup.success");
+  rsb->status[static_cast<int>(CacheOpType::Lookup)].failure   = Metrics::Counter::createPtr(prefix + ".lookup.failure");
+  rsb->status[static_cast<int>(CacheOpType::Read)].active      = Metrics::Gauge::createPtr(prefix + ".read.active");
+  rsb->status[static_cast<int>(CacheOpType::Read)].success     = Metrics::Counter::createPtr(prefix + ".read.success");
+  rsb->status[static_cast<int>(CacheOpType::Read)].failure     = Metrics::Counter::createPtr(prefix + ".read.failure");
+  rsb->status[static_cast<int>(CacheOpType::Write)].active     = Metrics::Gauge::createPtr(prefix + ".write.active");
+  rsb->status[static_cast<int>(CacheOpType::Write)].success    = Metrics::Counter::createPtr(prefix + ".write.success");
+  rsb->status[static_cast<int>(CacheOpType::Write)].failure    = Metrics::Counter::createPtr(prefix + ".write.failure");
+  rsb->status[static_cast<int>(CacheOpType::Update)].active    = Metrics::Gauge::createPtr(prefix + ".update.active");
+  rsb->status[static_cast<int>(CacheOpType::Update)].success   = Metrics::Counter::createPtr(prefix + ".update.success");
+  rsb->status[static_cast<int>(CacheOpType::Update)].failure   = Metrics::Counter::createPtr(prefix + ".update.failure");
+  rsb->status[static_cast<int>(CacheOpType::Remove)].active    = Metrics::Gauge::createPtr(prefix + ".remove.active");
+  rsb->status[static_cast<int>(CacheOpType::Remove)].success   = Metrics::Counter::createPtr(prefix + ".remove.success");
+  rsb->status[static_cast<int>(CacheOpType::Remove)].failure   = Metrics::Counter::createPtr(prefix + ".remove.failure");
+  rsb->status[static_cast<int>(CacheOpType::Evacuate)].active  = Metrics::Gauge::createPtr(prefix + ".evacuate.active");
+  rsb->status[static_cast<int>(CacheOpType::Evacuate)].success = Metrics::Counter::createPtr(prefix + ".evacuate.success");
+  rsb->status[static_cast<int>(CacheOpType::Evacuate)].failure = Metrics::Counter::createPtr(prefix + ".evacuate.failure");
+  rsb->status[static_cast<int>(CacheOpType::Scan)].active      = Metrics::Gauge::createPtr(prefix + ".scan.active");
+  rsb->status[static_cast<int>(CacheOpType::Scan)].success     = Metrics::Counter::createPtr(prefix + ".scan.success");
+  rsb->status[static_cast<int>(CacheOpType::Scan)].failure     = Metrics::Counter::createPtr(prefix + ".scan.failure");
 
   // These are in an array of 1, 2 and 3+ fragment documents
-  rsb->fragment_document_count[0] = intm.newMetricPtr(prefix + ".frags_per_doc.1");
-  rsb->fragment_document_count[1] = intm.newMetricPtr(prefix + ".frags_per_doc.2");
-  rsb->fragment_document_count[2] = intm.newMetricPtr(prefix + ".frags_per_doc.3+");
+  rsb->fragment_document_count[0] = Metrics::Counter::createPtr(prefix + ".frags_per_doc.1");
+  rsb->fragment_document_count[1] = Metrics::Counter::createPtr(prefix + ".frags_per_doc.2");
+  rsb->fragment_document_count[2] = Metrics::Counter::createPtr(prefix + ".frags_per_doc.3+");
 
   // And then everything else
-  rsb->bytes_used                = intm.newMetricPtr(prefix + ".bytes_used");
-  rsb->bytes_total               = intm.newMetricPtr(prefix + ".bytes_total");
-  rsb->stripes                   = intm.newMetricPtr(prefix + ".stripes");
-  rsb->ram_cache_bytes_total     = intm.newMetricPtr(prefix + ".ram_cache.total_bytes");
-  rsb->ram_cache_bytes           = intm.newMetricPtr(prefix + ".ram_cache.bytes_used");
-  rsb->ram_cache_hits            = intm.newMetricPtr(prefix + ".ram_cache.hits");
-  rsb->ram_cache_misses          = intm.newMetricPtr(prefix + ".ram_cache.misses");
-  rsb->pread_count               = intm.newMetricPtr(prefix + ".pread_count");
-  rsb->percent_full              = intm.newMetricPtr(prefix + ".percent_full");
-  rsb->read_seek_fail            = intm.newMetricPtr(prefix + ".read.seek.failure");
-  rsb->read_invalid              = intm.newMetricPtr(prefix + ".read.invalid");
-  rsb->write_backlog_failure     = intm.newMetricPtr(prefix + ".write.backlog.failure");
-  rsb->direntries_total          = intm.newMetricPtr(prefix + ".direntries.total");
-  rsb->direntries_used           = intm.newMetricPtr(prefix + ".direntries.used");
-  rsb->directory_collision_count = intm.newMetricPtr(prefix + ".directory_collision");
-  rsb->read_busy_success         = intm.newMetricPtr(prefix + ".read_busy.success");
-  rsb->read_busy_failure         = intm.newMetricPtr(prefix + ".read_busy.failure");
-  rsb->write_bytes               = intm.newMetricPtr(prefix + ".write_bytes_stat");
-  rsb->hdr_vector_marshal        = intm.newMetricPtr(prefix + ".vector_marshals");
-  rsb->hdr_marshal               = intm.newMetricPtr(prefix + ".hdr_marshals");
-  rsb->hdr_marshal_bytes         = intm.newMetricPtr(prefix + ".hdr_marshal_bytes");
-  rsb->gc_bytes_evacuated        = intm.newMetricPtr(prefix + ".gc_bytes_evacuated");
-  rsb->gc_frags_evacuated        = intm.newMetricPtr(prefix + ".gc_frags_evacuated");
-  rsb->directory_wrap            = intm.newMetricPtr(prefix + ".wrap_count");
-  rsb->directory_sync_count      = intm.newMetricPtr(prefix + ".sync.count");
-  rsb->directory_sync_bytes      = intm.newMetricPtr(prefix + ".sync.bytes");
-  rsb->directory_sync_time       = intm.newMetricPtr(prefix + ".sync.time");
-  rsb->span_errors_read          = intm.newMetricPtr(prefix + ".span.errors.read");
-  rsb->span_errors_write         = intm.newMetricPtr(prefix + ".span.errors.write");
-  rsb->span_failing              = intm.newMetricPtr(prefix + ".span.failing");
-  rsb->span_offline              = intm.newMetricPtr(prefix + ".span.offline");
-  rsb->span_online               = intm.newMetricPtr(prefix + ".span.online");
+  rsb->bytes_used            = Metrics::Gauge::createPtr(prefix + ".bytes_used");
+  rsb->bytes_total           = Metrics::Gauge::createPtr(prefix + ".bytes_total");
+  rsb->stripes               = Metrics::Gauge::createPtr(prefix + ".stripes");
+  rsb->ram_cache_bytes_total = Metrics::Gauge::createPtr(prefix + ".ram_cache.total_bytes");
+  rsb->ram_cache_bytes       = Metrics::Gauge::createPtr(prefix + ".ram_cache.bytes_used");
+  rsb->ram_cache_hits        = Metrics::Counter::createPtr(prefix + ".ram_cache.hits");
+  rsb->ram_cache_misses      = Metrics::Counter::createPtr(prefix + ".ram_cache.misses");
+  rsb->pread_count           = Metrics::Counter::createPtr(prefix + ".pread_count");
+  rsb->percent_full          = Metrics::Gauge::createPtr(prefix + ".percent_full");
+  rsb->read_seek_fail        = Metrics::Counter::createPtr(prefix + ".read.seek.failure");
+  rsb->read_invalid          = Metrics::Counter::createPtr(prefix + ".read.invalid");
+  rsb->write_backlog_failure = Metrics::Counter::createPtr(prefix + ".write.backlog.failure");
+  rsb->direntries_total      = Metrics::Gauge::createPtr(prefix + ".direntries.total");
+  rsb->direntries_used       = Metrics::Gauge::createPtr(prefix + ".direntries.used");
+  rsb->directory_collision   = Metrics::Counter::createPtr(prefix + ".directory_collision");
+  rsb->read_busy_success     = Metrics::Counter::createPtr(prefix + ".read_busy.success");
+  rsb->read_busy_failure     = Metrics::Counter::createPtr(prefix + ".read_busy.failure");
+  rsb->write_bytes           = Metrics::Counter::createPtr(prefix + ".write_bytes_stat");
+  rsb->hdr_vector_marshal    = Metrics::Counter::createPtr(prefix + ".vector_marshals");
+  rsb->hdr_marshal           = Metrics::Counter::createPtr(prefix + ".hdr_marshals");
+  rsb->hdr_marshal_bytes     = Metrics::Counter::createPtr(prefix + ".hdr_marshal_bytes");
+  rsb->gc_bytes_evacuated    = Metrics::Counter::createPtr(prefix + ".gc_bytes_evacuated");
+  rsb->gc_frags_evacuated    = Metrics::Counter::createPtr(prefix + ".gc_frags_evacuated");
+  rsb->directory_wrap        = Metrics::Counter::createPtr(prefix + ".wrap_count");
+  rsb->directory_sync_count  = Metrics::Counter::createPtr(prefix + ".sync.count");
+  rsb->directory_sync_bytes  = Metrics::Counter::createPtr(prefix + ".sync.bytes");
+  rsb->directory_sync_time   = Metrics::Counter::createPtr(prefix + ".sync.time");
+  rsb->span_errors_read      = Metrics::Counter::createPtr(prefix + ".span.errors.read");
+  rsb->span_errors_write     = Metrics::Counter::createPtr(prefix + ".span.errors.write");
+  rsb->span_failing          = Metrics::Gauge::createPtr(prefix + ".span.failing");
+  rsb->span_offline          = Metrics::Gauge::createPtr(prefix + ".span.offline");
+  rsb->span_online           = Metrics::Gauge::createPtr(prefix + ".span.online");
 }
 
 // ToDo: This gets called as part of librecords collection continuation, probably change this later.
@@ -218,7 +215,7 @@ CachePeriodicMetricsUpdate()
   // volume metric more than once (once per disk). This happens once every sync
   // period (5s), and nothing else modifies these metrics.
   for (int vol_ix = 0; vol_ix < gnvol; ++vol_ix) {
-    Metrics::write(gvol[vol_ix]->cache_vol->vol_rsb.bytes_used, 0);
+    Metrics::Gauge::store(gvol[vol_ix]->cache_vol->vol_rsb.bytes_used, 0);
   }
 
   if (cacheProcessor.initialized == CACHE_INITIALIZED) {
@@ -226,15 +223,15 @@ CachePeriodicMetricsUpdate()
       Stripe *v    = gvol[vol_ix];
       int64_t used = cache_bytes_used(vol_ix);
 
-      Metrics::increment(v->cache_vol->vol_rsb.bytes_used, used); // This assumes they start at zero
+      Metrics::Gauge::increment(v->cache_vol->vol_rsb.bytes_used, used); // This assumes they start at zero
       total_sum += used;
     }
 
     // Also update the global (not per volume) metrics
-    int64_t total = Metrics::read(cache_rsb.bytes_total);
+    int64_t total = Metrics::Gauge::load(cache_rsb.bytes_total);
 
-    Metrics::write(cache_rsb.bytes_used, total_sum);
-    Metrics::write(cache_rsb.percent_full, total ? (total_sum * 100) / total : 0);
+    Metrics::Gauge::store(cache_rsb.bytes_used, total_sum);
+    Metrics::Gauge::store(cache_rsb.percent_full, total ? (total_sum * 100) / total : 0);
   }
 }
 
@@ -511,9 +508,9 @@ CacheProcessor::diskInitialized()
 
   /* Practically just took all bad_disks offline so update the stats. */
   // ToDo: These don't get update on the per-volume metrics :-/
-  Metrics::write(cache_rsb.span_offline, bad_disks);
-  Metrics::decrement(cache_rsb.span_failing, bad_disks);
-  Metrics::write(cache_rsb.span_online, gndisks);
+  Metrics::Gauge::store(cache_rsb.span_offline, bad_disks);
+  Metrics::Gauge::decrement(cache_rsb.span_failing, bad_disks);
+  Metrics::Gauge::store(cache_rsb.span_online, gndisks);
 
   /* create the cachevol list only if num volumes are greater than 0. */
   if (config_volumes.num_volumes == 0) {
@@ -659,21 +656,21 @@ CacheProcessor::cacheInitialized()
             ram_cache_bytes += gvol[i]->dirlen();
             Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - ram_cache_bytes = %" PRId64 " = %" PRId64 "Mb",
                 ram_cache_bytes, ram_cache_bytes / (1024 * 1024));
-            Metrics::increment(vol->cache_vol->vol_rsb.ram_cache_bytes_total, gvol[i]->dirlen());
+            Metrics::Gauge::increment(vol->cache_vol->vol_rsb.ram_cache_bytes_total, gvol[i]->dirlen());
           }
           vol_total_cache_bytes  = gvol[i]->len - gvol[i]->dirlen();
           total_cache_bytes     += vol_total_cache_bytes;
           Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - total_cache_bytes = %" PRId64 " = %" PRId64 "Mb",
               total_cache_bytes, total_cache_bytes / (1024 * 1024));
 
-          Metrics::increment(vol->cache_vol->vol_rsb.bytes_total, vol_total_cache_bytes);
+          Metrics::Gauge::increment(vol->cache_vol->vol_rsb.bytes_total, vol_total_cache_bytes);
 
           vol_total_direntries  = gvol[i]->buckets * gvol[i]->segments * DIR_DEPTH;
           total_direntries     += vol_total_direntries;
-          Metrics::increment(vol->cache_vol->vol_rsb.direntries_total, vol_total_direntries);
+          Metrics::Gauge::increment(vol->cache_vol->vol_rsb.direntries_total, vol_total_direntries);
 
           vol_used_direntries = dir_entries_used(gvol[i]);
-          Metrics::increment(vol->cache_vol->vol_rsb.direntries_used, vol_used_direntries);
+          Metrics::Gauge::increment(vol->cache_vol->vol_rsb.direntries_used, vol_used_direntries);
           used_direntries += vol_used_direntries;
         }
 
@@ -706,7 +703,8 @@ CacheProcessor::cacheInitialized()
             Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - factor = %f", factor);
             gvol[i]->ram_cache->init(static_cast<int64_t>(http_ram_cache_size * factor), vol);
             ram_cache_bytes += static_cast<int64_t>(http_ram_cache_size * factor);
-            Metrics::increment(vol->cache_vol->vol_rsb.ram_cache_bytes_total, static_cast<int64_t>(http_ram_cache_size * factor));
+            Metrics::Gauge::increment(vol->cache_vol->vol_rsb.ram_cache_bytes_total,
+                                      static_cast<int64_t>(http_ram_cache_size * factor));
           } else if (gvol[i]->cache_vol->ramcache_enabled) {
             ink_release_assert(!"Unexpected non-HTTP cache volume");
           }
@@ -714,17 +712,17 @@ CacheProcessor::cacheInitialized()
               ram_cache_bytes, ram_cache_bytes / (1024 * 1024));
           vol_total_cache_bytes  = gvol[i]->len - gvol[i]->dirlen();
           total_cache_bytes     += vol_total_cache_bytes;
-          Metrics::increment(vol->cache_vol->vol_rsb.bytes_total, vol_total_cache_bytes);
-          Metrics::increment(vol->cache_vol->vol_rsb.stripes);
+          Metrics::Gauge::increment(vol->cache_vol->vol_rsb.bytes_total, vol_total_cache_bytes);
+          Metrics::Gauge::increment(vol->cache_vol->vol_rsb.stripes);
           Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - total_cache_bytes = %" PRId64 " = %" PRId64 "Mb",
               total_cache_bytes, total_cache_bytes / (1024 * 1024));
 
           vol_total_direntries  = gvol[i]->buckets * gvol[i]->segments * DIR_DEPTH;
           total_direntries     += vol_total_direntries;
-          Metrics::increment(vol->cache_vol->vol_rsb.direntries_total, vol_total_direntries);
+          Metrics::Gauge::increment(vol->cache_vol->vol_rsb.direntries_total, vol_total_direntries);
 
           vol_used_direntries = dir_entries_used(gvol[i]);
-          Metrics::increment(vol->cache_vol->vol_rsb.direntries_used, vol_used_direntries);
+          Metrics::Gauge::increment(vol->cache_vol->vol_rsb.direntries_used, vol_used_direntries);
           used_direntries += vol_used_direntries;
         }
       }
@@ -743,10 +741,10 @@ CacheProcessor::cacheInitialized()
         break;
       }
 
-      Metrics::write(cache_rsb.ram_cache_bytes_total, ram_cache_bytes);
-      Metrics::write(cache_rsb.bytes_total, total_cache_bytes);
-      Metrics::write(cache_rsb.direntries_total, total_direntries);
-      Metrics::write(cache_rsb.direntries_used, used_direntries);
+      Metrics::Gauge::store(cache_rsb.ram_cache_bytes_total, ram_cache_bytes);
+      Metrics::Gauge::store(cache_rsb.bytes_total, total_cache_bytes);
+      Metrics::Gauge::store(cache_rsb.direntries_total, total_direntries);
+      Metrics::Gauge::store(cache_rsb.direntries_used, used_direntries);
 
       if (!check) {
         dir_sync_init();
@@ -906,21 +904,21 @@ build_vol_hash_table(CacheHostRecord *cp)
   unsigned int *forvol   = static_cast<unsigned int *>(ats_malloc(sizeof(unsigned int) * num_vols));
   unsigned int *gotvol   = static_cast<unsigned int *>(ats_malloc(sizeof(unsigned int) * num_vols));
   unsigned int *rnd      = static_cast<unsigned int *>(ats_malloc(sizeof(unsigned int) * num_vols));
-  unsigned short *ttable = static_cast<unsigned short *>(ats_malloc(sizeof(unsigned short) * VOL_HASH_TABLE_SIZE));
+  unsigned short *ttable = static_cast<unsigned short *>(ats_malloc(sizeof(unsigned short) * STRIPE_HASH_TABLE_SIZE));
   unsigned short *old_table;
   unsigned int *rtable_entries = static_cast<unsigned int *>(ats_malloc(sizeof(unsigned int) * num_vols));
   unsigned int rtable_size     = 0;
 
   // estimate allocation
   for (int i = 0; i < num_vols; i++) {
-    forvol[i]          = (VOL_HASH_TABLE_SIZE * (p[i]->len >> STORE_BLOCK_SHIFT)) / total;
+    forvol[i]          = (STRIPE_HASH_TABLE_SIZE * (p[i]->len >> STORE_BLOCK_SHIFT)) / total;
     used              += forvol[i];
-    rtable_entries[i]  = p[i]->len / VOL_HASH_ALLOC_SIZE;
+    rtable_entries[i]  = p[i]->len / STRIPE_HASH_ALLOC_SIZE;
     rtable_size       += rtable_entries[i];
     gotvol[i]          = 0;
   }
   // spread around the excess
-  int extra = VOL_HASH_TABLE_SIZE - used;
+  int extra = STRIPE_HASH_TABLE_SIZE - used;
   for (int i = 0; i < extra; i++) {
     forvol[i % num_vols]++;
   }
@@ -930,8 +928,8 @@ build_vol_hash_table(CacheHostRecord *cp)
     rnd[i]     = static_cast<unsigned int>(x);
   }
   // initialize table to "empty"
-  for (int i = 0; i < VOL_HASH_TABLE_SIZE; i++) {
-    ttable[i] = VOL_HASH_EMPTY;
+  for (int i = 0; i < STRIPE_HASH_TABLE_SIZE; i++) {
+    ttable[i] = STRIPE_HASH_EMPTY;
   }
   // generate random numbers proportional to allocation
   rtable_pair *rtable = static_cast<rtable_pair *>(ats_malloc(sizeof(rtable_pair) * rtable_size));
@@ -946,11 +944,11 @@ build_vol_hash_table(CacheHostRecord *cp)
   ink_assert(rindex == (int)rtable_size);
   // sort (rand #, vol $ pairs)
   qsort(rtable, rtable_size, sizeof(rtable_pair), cmprtable);
-  unsigned int width = (1LL << 32) / VOL_HASH_TABLE_SIZE;
+  unsigned int width = (1LL << 32) / STRIPE_HASH_TABLE_SIZE;
   unsigned int pos; // target position to allocate
   // select vol with closest random number for each bucket
   int i = 0; // index moving through the random numbers
-  for (int j = 0; j < VOL_HASH_TABLE_SIZE; j++) {
+  for (int j = 0; j < STRIPE_HASH_TABLE_SIZE; j++) {
     pos = width / 2 + j * width; // position to select closest to
     while (pos > rtable[i].rval && i < static_cast<int>(rtable_size) - 1) {
       i++;
@@ -1016,14 +1014,14 @@ CacheProcessor::mark_storage_offline(CacheDisk *d, ///< Target disk
     }
   }
 
-  Metrics::decrement(cache_rsb.bytes_total, total_bytes_delete);
-  Metrics::decrement(cache_rsb.direntries_total, total_dir_delete);
-  Metrics::decrement(cache_rsb.direntries_used, used_dir_delete);
+  Metrics::Gauge::decrement(cache_rsb.bytes_total, total_bytes_delete);
+  Metrics::Gauge::decrement(cache_rsb.direntries_total, total_dir_delete);
+  Metrics::Gauge::decrement(cache_rsb.direntries_used, used_dir_delete);
 
   /* Update the span metrics, if failing then move the span from "failing" to "offline" bucket
    * if operator took it offline, move it from "online" to "offline" bucket */
-  Metrics::decrement(admin ? cache_rsb.span_online : cache_rsb.span_failing);
-  Metrics::increment(cache_rsb.span_offline);
+  Metrics::Gauge::decrement(admin ? cache_rsb.span_online : cache_rsb.span_failing);
+  Metrics::Gauge::increment(cache_rsb.span_offline);
 
   if (theCache) {
     rebuild_host_table(theCache);
@@ -1101,8 +1099,6 @@ Cache::open_done()
 {
   Action *register_ShowCache(Continuation * c, HTTPHdr * h);
   Action *register_ShowCacheInternal(Continuation * c, HTTPHdr * h);
-  statPagesManager.register_http("cache", register_ShowCache);
-  statPagesManager.register_http("cache-internal", register_ShowCacheInternal);
 
   if (total_good_nvol == 0) {
     ready = CACHE_INIT_FAILED;
@@ -1200,8 +1196,8 @@ Cache::lookup(Continuation *cont, const CacheKey *key, CacheFragType type, const
   SET_CONTINUATION_HANDLER(c, &CacheVC::openReadStartHead);
   c->vio.op  = VIO::READ;
   c->op_type = static_cast<int>(CacheOpType::Lookup);
-  Metrics::increment(cache_rsb.status[c->op_type].active);
-  Metrics::increment(vol->cache_vol->vol_rsb.status[c->op_type].active);
+  Metrics::Gauge::increment(cache_rsb.status[c->op_type].active);
+  Metrics::Gauge::increment(vol->cache_vol->vol_rsb.status[c->op_type].active);
   c->first_key = c->key = *key;
   c->frag_type          = type;
   c->f.lookup           = 1;
@@ -1242,8 +1238,8 @@ Cache::remove(Continuation *cont, const CacheKey *key, CacheFragType type, const
   c->vio.op    = VIO::NONE;
   c->frag_type = type;
   c->op_type   = static_cast<int>(CacheOpType::Remove);
-  Metrics::increment(cache_rsb.status[c->op_type].active);
-  Metrics::increment(vol->cache_vol->vol_rsb.status[c->op_type].active);
+  Metrics::Gauge::increment(cache_rsb.status[c->op_type].active);
+  Metrics::Gauge::increment(vol->cache_vol->vol_rsb.status[c->op_type].active);
   c->first_key = c->key = *key;
   c->vol                = vol;
   c->dir                = result;
@@ -1483,7 +1479,7 @@ cplist_reconfigure()
       }
       if (gdisks[i]->cleared) {
         uint64_t free_space = gdisks[i]->free_space * STORE_BLOCK_SIZE;
-        int vols            = (free_space / MAX_VOL_SIZE) + 1;
+        int vols            = (free_space / MAX_STRIPE_SIZE) + 1;
         for (int p = 0; p < vols; p++) {
           off_t b = gdisks[i]->free_space / (vols - p);
           Dbg(dbg_ctl_cache_hosting, "blocks = %" PRId64, (int64_t)b);
@@ -1512,7 +1508,7 @@ cplist_reconfigure()
 
     /* change percentages in the config partitions to absolute value */
     off_t tot_space_in_blks = 0;
-    off_t blocks_per_vol    = VOL_BLOCK_SIZE / STORE_BLOCK_SIZE;
+    off_t blocks_per_vol    = STORE_BLOCKS_PER_STRIPE;
     /* sum up the total space available on all the disks.
        round down the space to 128 megabytes */
     for (int i = 0; i < gndisks; i++) {
@@ -1691,7 +1687,7 @@ cplist_reconfigure()
     }
   }
 
-  Metrics::write(cache_rsb.stripes, gnvol + assignedVol);
+  Metrics::Gauge::store(cache_rsb.stripes, gnvol + assignedVol);
 
   return 0;
 }
@@ -1702,7 +1698,7 @@ create_volume(int volume_number, off_t size_in_blocks, int scheme, CacheVol *cp)
 {
   static int curr_vol  = 0; // FIXME: this will not reinitialize correctly
   off_t to_create      = size_in_blocks;
-  off_t blocks_per_vol = VOL_BLOCK_SIZE >> STORE_BLOCK_SHIFT;
+  off_t blocks_per_vol = STRIPE_BLOCK_SIZE >> STORE_BLOCK_SHIFT;
   int full_disks       = 0;
 
   cp->vol_number = volume_number;
@@ -1784,7 +1780,7 @@ Cache::key_to_vol(const CacheKey *key, const char *hostname, int host_len)
 {
   ReplaceablePtr<CacheHostTable>::ScopedReader hosttable(&this->hosttable);
 
-  uint32_t h                      = (key->slice32(2) >> DIR_TAG_WIDTH) % VOL_HASH_TABLE_SIZE;
+  uint32_t h                      = (key->slice32(2) >> DIR_TAG_WIDTH) % STRIPE_HASH_TABLE_SIZE;
   unsigned short *hash_table      = hosttable->gen_host_rec.vol_hash_table;
   const CacheHostRecord *host_rec = &hosttable->gen_host_rec;
 

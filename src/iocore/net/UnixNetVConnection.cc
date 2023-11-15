@@ -22,10 +22,15 @@
 */
 
 #include "P_Net.h"
+
+#include "P_NetAccept.h"
+#include "iocore/net/ConnectionTracker.h"
 #include "tscore/ink_platform.h"
 #include "tscore/InkErrno.h"
 
 #include <termios.h>
+
+#include <utility>
 
 #define STATE_VIO_OFFSET   ((uintptr_t) & ((NetState *)0)->vio)
 #define STATE_FROM_VIO(_x) ((NetState *)(((char *)(_x)) - STATE_VIO_OFFSET))
@@ -262,7 +267,7 @@ read_from_net(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
       msg.msg_iovlen  = niov;
       r               = SocketManager::recvmsg(vc->con.fd, &msg, 0);
 
-      Metrics::increment(net_rsb.calls_to_read);
+      Metrics::Counter::increment(net_rsb.calls_to_read);
 
       total_read += rattempted;
     } while (rattempted && r == rattempted && total_read < toread);
@@ -278,7 +283,7 @@ read_from_net(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
     // check for errors
     if (r <= 0) {
       if (r == -EAGAIN || r == -ENOTCONN) {
-        Metrics::increment(net_rsb.calls_to_read_nodata);
+        Metrics::Counter::increment(net_rsb.calls_to_read_nodata);
         vc->read.triggered = 0;
         nh->read_ready_list.remove(vc);
         return;
@@ -294,8 +299,8 @@ read_from_net(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
       read_signal_error(nh, vc, static_cast<int>(-r));
       return;
     }
-    Metrics::increment(net_rsb.read_bytes, r);
-    Metrics::increment(net_rsb.read_bytes_count);
+    Metrics::Counter::increment(net_rsb.read_bytes, r);
+    Metrics::Counter::increment(net_rsb.read_bytes_count);
 
     // Add data to buffer and signal continuation.
     buf.writer()->fill(r);
@@ -347,7 +352,7 @@ read_from_net(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
 void
 write_to_net(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
 {
-  Metrics::increment(net_rsb.calls_to_writetonet);
+  Metrics::Counter::increment(net_rsb.calls_to_writetonet);
   write_to_net_io(nh, vc, thread);
 }
 
@@ -472,8 +477,8 @@ write_to_net_io(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
   int64_t r             = vc->load_buffer_and_write(towrite, buf, total_written, needs);
 
   if (total_written > 0) {
-    Metrics::increment(net_rsb.write_bytes, total_written);
-    Metrics::increment(net_rsb.write_bytes_count);
+    Metrics::Counter::increment(net_rsb.write_bytes, total_written);
+    Metrics::Counter::increment(net_rsb.write_bytes_count);
     s->vio.ndone += total_written;
     net_activity(vc, thread);
   }
@@ -484,7 +489,7 @@ write_to_net_io(NetHandler *nh, UnixNetVConnection *vc, EThread *thread)
   // check for errors
   if (r < 0) { // if the socket was not ready, add to WaitList
     if (r == -EAGAIN || r == -ENOTCONN || -r == EINPROGRESS) {
-      Metrics::increment(net_rsb.calls_to_write_nodata);
+      Metrics::Counter::increment(net_rsb.calls_to_write_nodata);
       if ((needs & EVENTIO_WRITE) == EVENTIO_WRITE) {
         vc->write.triggered = 0;
         nh->write_ready_list.remove(vc);
@@ -916,7 +921,7 @@ UnixNetVConnection::load_buffer_and_write(int64_t towrite, MIOBufferAccessor &bu
     int flags       = 0;
 
     if (!this->con.is_connected && this->options.f_tcp_fastopen) {
-      Metrics::increment(net_rsb.fastopen_attempts);
+      Metrics::Counter::increment(net_rsb.fastopen_attempts);
       flags = MSG_FASTOPEN;
     }
     r = SocketManager::sendmsg(con.fd, &msg, flags);
@@ -926,7 +931,7 @@ UnixNetVConnection::load_buffer_and_write(int64_t towrite, MIOBufferAccessor &bu
           this->con.is_connected = true;
         }
       } else {
-        Metrics::increment(net_rsb.fastopen_successes);
+        Metrics::Counter::increment(net_rsb.fastopen_successes);
         this->con.is_connected = true;
       }
     }
@@ -936,7 +941,7 @@ UnixNetVConnection::load_buffer_and_write(int64_t towrite, MIOBufferAccessor &bu
       total_written += r;
     }
 
-    Metrics::increment(net_rsb.calls_to_write);
+    Metrics::Counter::increment(net_rsb.calls_to_write);
   } while (r == try_to_write && total_written < towrite);
 
   tmp_reader->dealloc();
@@ -1159,7 +1164,7 @@ UnixNetVConnection::connectUp(EThread *t, int fd)
   if (check_net_throttle(CONNECT)) {
     check_throttle_warning(CONNECT);
     res = -ENET_THROTTLING;
-    Metrics::increment(net_rsb.connections_throttled_out);
+    Metrics::Counter::increment(net_rsb.connections_throttled_out);
     goto fail;
   }
 
@@ -1212,7 +1217,7 @@ UnixNetVConnection::connectUp(EThread *t, int fd)
   }
 
   // Did not fail, increment connection count
-  Metrics::increment(net_rsb.connections_currently_open);
+  Metrics::Gauge::increment(net_rsb.connections_currently_open);
   ink_release_assert(con.fd != NO_FD);
 
   // Setup a timeout callback handler.
@@ -1290,14 +1295,15 @@ UnixNetVConnection::free_thread(EThread *t)
 
   // close socket fd
   if (con.fd != NO_FD) {
-    Metrics::decrement(net_rsb.connections_currently_open);
+    release_inbound_connection_tracking();
+    Metrics::Gauge::decrement(net_rsb.connections_currently_open);
   }
   con.close();
 
   if (is_tunnel_endpoint()) {
     Debug("iocore_net", "Freeing UnixNetVConnection that is tunnel endpoint");
 
-    Metrics::decrement(([&]() -> Metrics::IntType * {
+    Metrics::Gauge::decrement(([&]() -> Metrics::Gauge::AtomicType * {
       switch (get_context()) {
       case NET_VCONNECTION_IN:
         return net_rsb.tunnel_current_client_connections_blind_tcp;
@@ -1449,6 +1455,23 @@ UnixNetVConnection::remove_from_active_queue()
   }
 }
 
+void
+UnixNetVConnection::enable_inbound_connection_tracking(std::shared_ptr<ConnectionTracker::Group> group)
+{
+  ink_assert(nullptr == conn_track_group);
+  conn_track_group = std::move(group);
+}
+
+void
+UnixNetVConnection::release_inbound_connection_tracking()
+{
+  // Update upstream connection tracking data if present.
+  if (conn_track_group) {
+    conn_track_group->release();
+    conn_track_group.reset();
+  }
+}
+
 int
 UnixNetVConnection::populate_protocol(std::string_view *results, int n) const
 {
@@ -1533,13 +1556,13 @@ UnixNetVConnection::mark_as_tunnel_endpoint()
 void
 UnixNetVConnection::_in_context_tunnel()
 {
-  Metrics::increment(net_rsb.tunnel_total_client_connections_blind_tcp);
-  Metrics::increment(net_rsb.tunnel_current_client_connections_blind_tcp);
+  Metrics::Counter::increment(net_rsb.tunnel_total_client_connections_blind_tcp);
+  Metrics::Gauge::increment(net_rsb.tunnel_current_client_connections_blind_tcp);
 }
 
 void
 UnixNetVConnection::_out_context_tunnel()
 {
-  Metrics::increment(net_rsb.tunnel_total_server_connections_blind_tcp);
-  Metrics::increment(net_rsb.tunnel_current_server_connections_blind_tcp);
+  Metrics::Counter::increment(net_rsb.tunnel_total_server_connections_blind_tcp);
+  Metrics::Gauge::increment(net_rsb.tunnel_current_server_connections_blind_tcp);
 }

@@ -490,9 +490,9 @@ CacheVC::handleRead(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
   if (dir_agg_buf_valid(vol, &dir)) {
     int agg_offset = vol->vol_offset(&dir) - vol->header->write_pos;
     buf            = new_IOBufferData(iobuffer_size_to_index(io.aiocb.aio_nbytes, MAX_BUFFER_SIZE_INDEX), MEMALIGNED);
-    ink_assert((agg_offset + io.aiocb.aio_nbytes) <= (unsigned)vol->agg_buf_pos);
+    ink_assert((agg_offset + io.aiocb.aio_nbytes) <= (unsigned)vol->get_agg_buf_pos());
     char *doc = buf->data();
-    char *agg = vol->agg_buffer + agg_offset;
+    char *agg = vol->get_agg_buffer() + agg_offset;
     memcpy(doc, agg, io.aiocb.aio_nbytes);
     io.aio_result = io.aiocb.aio_nbytes;
     SET_HANDLER(&CacheVC::handleReadDone);
@@ -513,8 +513,8 @@ CacheVC::handleRead(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
 
 // ToDo: Why are these for debug only ??
 #if DEBUG
-  Metrics::increment(cache_rsb.pread_count);
-  Metrics::increment(vol->cache_vol->vol_rsb.pread_count);
+  Metrics::Counter::increment(cache_rsb.pread_count);
+  Metrics::Counter::increment(vol->cache_vol->vol_rsb.pread_count);
 #endif
 
   return EVENT_CONT;
@@ -603,8 +603,8 @@ CacheVC::removeEvent(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
       return ret;
     }
   Ldone:
-    Metrics::increment(cache_rsb.status[static_cast<int>(CacheOpType::Remove)].failure);
-    Metrics::increment(vol->cache_vol->vol_rsb.status[static_cast<int>(CacheOpType::Remove)].failure);
+    Metrics::Counter::increment(cache_rsb.status[static_cast<int>(CacheOpType::Remove)].failure);
+    Metrics::Counter::increment(vol->cache_vol->vol_rsb.status[static_cast<int>(CacheOpType::Remove)].failure);
     if (od) {
       vol->close_write(this);
     }

@@ -25,7 +25,6 @@ add_library(
   Http1ServerTransaction.cc
   HttpConfig.cc
   HttpDebugNames.cc
-  HttpPages.cc
   HttpProxyServerMain.cc
   HttpSM.cc
   Http1ServerSession.cc
@@ -44,8 +43,6 @@ add_library(ts::http ALIAS http)
 if(BUILD_REGRESSION_TESTING)
   target_sources(http PRIVATE RegressionHttpTransact.cc)
 endif()
-
-target_include_directories(http PRIVATE ${YAMLCPP_INCLUDE_DIR} OpenSSL::SSL)
 
 target_link_libraries(
   http

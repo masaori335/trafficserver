@@ -26,7 +26,6 @@
 
 #include "P_HostDB.h"
 #include "tscore/Layout.h"
-#include "proxy/Show.h"
 #include "tscore/ink_apidefs.h"
 #include "tscore/MgmtDefs.h" // MgmtInt, MgmtFloat, etc
 #include "iocore/hostdb/HostFile.h"
@@ -170,8 +169,6 @@ string_for(HostDBMark mark)
 //
 // Function Prototypes
 //
-static Action *register_ShowHostDB(Continuation *c, HTTPHdr *h);
-
 HostDBHash &
 HostDBHash::set_host(TextView name)
 {
@@ -354,8 +351,6 @@ HostDBProcessor::start(int, size_t)
 int
 HostDBProcessor::init()
 {
-  statPagesManager.register_http("hostdb", register_ShowHostDB);
-
   //
   // Register configuration callback, and establish configuration links
   //
@@ -510,7 +505,7 @@ probe(HostDBHash const &hash, bool ignore_timeout)
       return NO_RECORD;
       // if we aren't ignoring timeouts, and we are past it-- then remove the record
     } else if (!ignore_timeout && record->is_ip_timeout() && !record->serve_stale_but_revalidate()) {
-      Metrics::increment(hostdb_rsb.ttl_expires);
+      Metrics::Counter::increment(hostdb_rsb.ttl_expires);
       return NO_RECORD;
     }
   }
@@ -518,7 +513,7 @@ probe(HostDBHash const &hash, bool ignore_timeout)
   // If the record is stale, but we want to revalidate-- lets start that up
   if ((!ignore_timeout && record->is_ip_configured_stale() && record->record_type != HostDBType::HOST) ||
       (record->is_ip_timeout() && record->serve_stale_but_revalidate())) {
-    Metrics::increment(hostdb_rsb.total_serve_stale);
+    Metrics::Counter::increment(hostdb_rsb.total_serve_stale);
     if (hostDB.is_pending_dns_for_hash(hash.hash)) {
       Dbg(dbg_ctl_hostdb, "%s",
           swoc::bwprint(ts::bw_dbg, "stale {} {} {}, using with pending refresh", record->ip_age(),
@@ -556,11 +551,11 @@ HostDBProcessor::getby(Continuation *cont, cb_process_result_pfn cb_process_resu
   } else if (opt.flags & HOSTDB_FORCE_DNS_RELOAD) {
     force_dns = hostdb_re_dns_on_reload;
     if (force_dns) {
-      Metrics::increment(hostdb_rsb.re_dns_on_reload);
+      Metrics::Counter::increment(hostdb_rsb.re_dns_on_reload);
     }
   }
 
-  Metrics::increment(hostdb_rsb.total_lookups);
+  Metrics::Counter::increment(hostdb_rsb.total_lookups);
 
   if (!hostdb_enable ||                                       // if the HostDB is disabled,
       (hash.host_name && !*hash.host_name) ||                 // or host_name is empty string
@@ -604,7 +599,7 @@ HostDBProcessor::getby(Continuation *cont, cb_process_result_pfn cb_process_resu
           } else {
             Dbg(dbg_ctl_hostdb, "immediate answer for %s", hash.ip.isValid() ? hash.ip.toString(ipb, sizeof ipb) : "<null>");
           }
-          Metrics::increment(hostdb_rsb.total_hits);
+          Metrics::Counter::increment(hostdb_rsb.total_hits);
           if (cb_process_result) {
             (cont->*cb_process_result)(r.get());
           } else {
@@ -749,7 +744,7 @@ HostDBProcessor::iterate(Continuation *cont)
   ink_assert(cont->mutex->thread_holding == this_ethread());
   EThread *thread = cont->mutex->thread_holding;
 
-  Metrics::increment(hostdb_rsb.total_lookups);
+  Metrics::Counter::increment(hostdb_rsb.total_lookups);
 
   HostDBContinuation *c = hostDBContAllocator.alloc();
   HostDBContinuation::Options copt;
@@ -814,7 +809,7 @@ HostDBContinuation::lookup_done(TextView query_name, ts_seconds answer_ttl, SRVH
       }
       break;
     }
-    Metrics::increment(hostdb_rsb.ttl, answer_ttl.count());
+    Metrics::Counter::increment(hostdb_rsb.ttl, answer_ttl.count());
 
     // update the TTL
     record->ip_timestamp        = hostdb_current_timestamp;
@@ -1184,7 +1179,7 @@ HostDBContinuation::probeEvent(int /* event ATS_UNUSED */, Event *e)
     Ptr<HostDBRecord> r = probe(hash, false);
 
     if (r) {
-      Metrics::increment(hostdb_rsb.total_hits);
+      Metrics::Counter::increment(hostdb_rsb.total_hits);
     }
 
     if (action.continuation && r) {
@@ -1212,7 +1207,7 @@ HostDBContinuation::set_check_pending_dns()
   Queue<HostDBContinuation> &q = hostDB.pending_dns_for_hash(hash.hash);
   this->setThreadAffinity(this_ethread());
   if (q.in(this)) {
-    Metrics::increment(hostdb_rsb.insert_duplicate_to_pending_dns);
+    Metrics::Counter::increment(hostdb_rsb.insert_duplicate_to_pending_dns);
     Dbg(dbg_ctl_hostdb, "Skip the insertion of the same continuation to pending dns");
     return false;
   }
@@ -1453,270 +1448,6 @@ HostDBRecord::select_best_http(ts_time now, ts_seconds fail_window, sockaddr con
   return best_alive;
 }
 
-struct ShowHostDB;
-using ShowHostDBEventHandler = int (ShowHostDB::*)(int, Event *);
-struct ShowHostDB : public ShowCont {
-  char *name;
-  uint16_t port;
-  IpEndpoint ip;
-  bool force;
-  bool output_json;
-  int records_seen;
-
-  int
-  showMain(int event, Event *e)
-  {
-    CHECK_SHOW(begin("HostDB"));
-    CHECK_SHOW(show("<a href=\"./showall\">Show all HostDB records<a/><hr>"));
-    CHECK_SHOW(show("<form method = GET action = \"./name\">\n"
-                    "Lookup by name (e.g. trafficserver.apache.org):<br>\n"
-                    "<input type=text name=name size=64 maxlength=256>\n"
-                    "</form>\n"
-                    "<form method = GET action = \"./ip\">\n"
-                    "Lookup by IP (e.g. 127.0.0.1):<br>\n"
-                    "<input type=text name=ip size=64 maxlength=256>\n"
-                    "</form>\n"
-                    "<form method = GET action = \"./nameforce\">\n"
-                    "Force DNS by name (e.g. trafficserver.apache.org):<br>\n"
-                    "<input type=text name=name size=64 maxlength=256>\n"
-                    "</form>\n"));
-    return complete(event, e);
-  }
-
-  int
-  showLookup(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
-  {
-    SET_HANDLER(&ShowHostDB::showLookupDone);
-    if (name) {
-      HostDBProcessor::Options opts;
-      opts.port  = port;
-      opts.flags = HostDBProcessor::HOSTDB_DO_NOT_FORCE_DNS;
-      hostDBProcessor.getbynameport_re(this, name, strlen(name), opts);
-    } else {
-      hostDBProcessor.getbyaddr_re(this, &ip.sa);
-    }
-    return EVENT_CONT;
-  }
-
-  int
-  showAll(int event, Event *e)
-  {
-    if (!output_json) {
-      CHECK_SHOW(begin("HostDB All Records"));
-      CHECK_SHOW(show("<hr>"));
-    } else {
-      CHECK_SHOW(show("["));
-    }
-    SET_HANDLER(&ShowHostDB::showAllEvent);
-    hostDBProcessor.iterate(this);
-    return EVENT_CONT;
-  }
-
-  int
-  showAllEvent(int event, Event *e)
-  {
-    if (event == EVENT_INTERVAL) {
-      auto *r = reinterpret_cast<HostDBRecord *>(e);
-      if (output_json && records_seen++ > 0) {
-        CHECK_SHOW(show(",")); // we need to separate records
-      }
-      auto rr_info{r->rr_info()};
-      if (rr_info.count()) {
-        if (!output_json) {
-          CHECK_SHOW(show("<table border=1>\n"));
-          CHECK_SHOW(show("<tr><td>%s</td><td>%d</td></tr>\n", "Total", r->rr_count));
-          CHECK_SHOW(show("<tr><td>%s</td><td>%d</td></tr>\n", "Current", r->_rr_idx.load()));
-          CHECK_SHOW(show("<tr><td>%s</td><td>%s</td></tr>\n", "Stale", r->is_ip_configured_stale() ? "Yes" : "No"));
-          CHECK_SHOW(show("<tr><td>%s</td><td>%s</td></tr>\n", "Timed-Out", r->is_ip_timeout() ? "Yes" : "No"));
-          CHECK_SHOW(show("</table>\n"));
-        } else {
-          CHECK_SHOW(show(",\"%s\":\"%d\",", "rr_total", r->rr_count));
-          CHECK_SHOW(show("\"%s\":\"%d\",", "rr_current", r->_rr_idx.load()));
-          CHECK_SHOW(show("\"rr_records\":["));
-        }
-        CHECK_SHOW(show("<tr><td>%s</td><td>%d</td></tr>\n", "TTL", r->ip_time_remaining()));
-
-        bool need_separator = false;
-        for (auto &item : rr_info) {
-          showOne(&item, r->record_type, event, e);
-          if (output_json) {
-            CHECK_SHOW(show("}")); // we need to separate records
-            if (need_separator) {
-              CHECK_SHOW(show(","));
-            }
-            need_separator = true;
-          }
-        }
-
-        if (!output_json) {
-          CHECK_SHOW(show("<br />\n<br />\n"));
-        } else {
-          CHECK_SHOW(show("]"));
-        }
-      }
-
-      if (output_json) {
-        CHECK_SHOW(show("}"));
-      }
-
-    } else if (event == EVENT_DONE) {
-      if (output_json) {
-        CHECK_SHOW(show("]"));
-        return completeJson(event, e);
-      } else {
-        return complete(event, e);
-      }
-    } else {
-      ink_assert(!"unexpected event");
-    }
-    return EVENT_CONT;
-  }
-
-  int
-  showOne(HostDBInfo *info, HostDBType record_type, int event, Event *e)
-  {
-    ip_text_buffer b;
-    if (!output_json) {
-      CHECK_SHOW(show("<table border=1>\n"));
-      CHECK_SHOW(show("<tr><td>%s</td><td>%s</td></tr>\n", "Type", name_of(record_type)));
-
-      if (HostDBType::SRV == record_type) {
-        CHECK_SHOW(show("<tr><td>%s</td><td>%s</td></tr>\n", "Hostname", info->srvname()));
-      }
-
-      // Let's display the hash.
-      CHECK_SHOW(show("<tr><td>%s</td><td>%u</td></tr>\n", "LastFailure", info->last_failure.load().time_since_epoch().count()));
-
-      if (HostDBType::SRV == record_type) {
-        CHECK_SHOW(show("<tr><td>%s</td><td>%d</td></tr>\n", "Weight", info->data.srv.srv_weight));
-        CHECK_SHOW(show("<tr><td>%s</td><td>%d</td></tr>\n", "Priority", info->data.srv.srv_priority));
-        CHECK_SHOW(show("<tr><td>%s</td><td>%d</td></tr>\n", "Port", info->data.srv.srv_port));
-        CHECK_SHOW(show("<tr><td>%s</td><td>%x</td></tr>\n", "Key", info->data.srv.key));
-      } else {
-        CHECK_SHOW(show("<tr><td>%s</td><td>%s</td></tr>\n", "IP", info->data.ip.toString(b, sizeof b)));
-      }
-
-      CHECK_SHOW(show("</table>\n"));
-    } else {
-      CHECK_SHOW(show("{"));
-      CHECK_SHOW(show("\"%s\":\"%s\",", "type", name_of(record_type)));
-
-      if (HostDBType::SRV == record_type) {
-        CHECK_SHOW(show("\"%s\":\"%s\",", "hostname", info->srvname()));
-      }
-
-      CHECK_SHOW(show("\"%s\":\"%u\",", "lastfailure", info->last_failure.load().time_since_epoch().count()));
-
-      if (HostDBType::SRV == record_type) {
-        CHECK_SHOW(show("\"%s\":\"%d\",", "weight", info->data.srv.srv_weight));
-        CHECK_SHOW(show("\"%s\":\"%d\",", "priority", info->data.srv.srv_priority));
-        CHECK_SHOW(show("\"%s\":\"%d\",", "port", info->data.srv.srv_port));
-        CHECK_SHOW(show("\"%s\":\"%x\",", "key", info->data.srv.key));
-      } else {
-        CHECK_SHOW(show("\"%s\":\"%s\"", "ip", info->data.ip.toString(b, sizeof b)));
-      }
-    }
-    return EVENT_CONT;
-  }
-
-  int
-  showLookupDone(int event, Event *e)
-  {
-    auto *r = reinterpret_cast<HostDBRecord *>(e);
-
-    CHECK_SHOW(begin("HostDB Lookup"));
-    if (name) {
-      CHECK_SHOW(show("<H2>%s</H2>\n", name));
-    } else {
-      CHECK_SHOW(show("<H2>%u.%u.%u.%u</H2>\n", PRINT_IP(ip)));
-    }
-    if (r) {
-      auto rr_data = r->rr_info();
-      if (rr_data.count()) {
-        CHECK_SHOW(show("<table border=1>\n"));
-        CHECK_SHOW(show("<tr><td>%s</td><td>%d</td></tr>\n", "Total", r->rr_count));
-        CHECK_SHOW(show("<tr><td>%s</td><td>%d</td></tr>\n", "Current", r->_rr_idx.load()));
-        CHECK_SHOW(show("</table>\n"));
-
-        for (auto &item : rr_data) {
-          showOne(&item, r->record_type, event, e);
-        }
-      }
-    } else {
-      if (!name) {
-        ip_text_buffer b;
-        CHECK_SHOW(show("<H2>%s Not Found</H2>\n", ats_ip_ntop(&ip.sa, b, sizeof b)));
-      } else {
-        CHECK_SHOW(show("<H2>%s Not Found</H2>\n", name));
-      }
-    }
-    return complete(event, e);
-  }
-
-  ShowHostDB(Continuation *c, HTTPHdr *h)
-    : ShowCont(c, h), name(nullptr), port(0), force(false), output_json(false), records_seen(0)
-  {
-    ats_ip_invalidate(&ip);
-    SET_HANDLER(&ShowHostDB::showMain);
-  }
-};
-
-#define STR_LEN_EQ_PREFIX(_x, _l, _s) (!ptr_len_ncasecmp(_x, _l, _s, sizeof(_s) - 1))
-
-static Action *
-register_ShowHostDB(Continuation *c, HTTPHdr *h)
-{
-  ShowHostDB *s = new ShowHostDB(c, h);
-  int path_len;
-  const char *path = h->url_get()->path_get(&path_len);
-
-  SET_CONTINUATION_HANDLER(s, &ShowHostDB::showMain);
-  if (STR_LEN_EQ_PREFIX(path, path_len, "ip")) {
-    s->force = !ptr_len_ncasecmp(path + 3, path_len - 3, "force", 5);
-    int query_len;
-    const char *query = h->url_get()->query_get(&query_len);
-    s->sarg           = ats_strndup(query, query_len);
-    char *gn          = nullptr;
-    if (s->sarg) {
-      gn = static_cast<char *>(memchr(s->sarg, '=', strlen(s->sarg)));
-    }
-    if (gn) {
-      ats_ip_pton(gn + 1, &s->ip); // hope that's null terminated.
-    }
-    SET_CONTINUATION_HANDLER(s, &ShowHostDB::showLookup);
-  } else if (STR_LEN_EQ_PREFIX(path, path_len, "name")) {
-    s->force = !ptr_len_ncasecmp(path + 5, path_len - 5, "force", 5);
-    int query_len;
-    const char *query = h->url_get()->query_get(&query_len);
-    s->sarg           = ats_strndup(query, query_len);
-    char *gn          = nullptr;
-    if (s->sarg) {
-      gn = static_cast<char *>(memchr(s->sarg, '=', strlen(s->sarg)));
-    }
-    if (gn) {
-      s->name   = gn + 1;
-      char *pos = strstr(s->name, "%3A");
-      if (pos != nullptr) {
-        s->port = atoi(pos + 3);
-        *pos    = '\0'; // Null terminate name
-      } else {
-        s->port = 0;
-      }
-    }
-    SET_CONTINUATION_HANDLER(s, &ShowHostDB::showLookup);
-  } else if (STR_LEN_EQ_PREFIX(path, path_len, "showall")) {
-    int query_len     = 0;
-    const char *query = h->url_get()->query_get(&query_len);
-    if (query && query_len && strstr(query, "json")) {
-      s->output_json = true;
-    }
-    Dbg(dbg_ctl_hostdb, "dumping all hostdb records");
-    SET_CONTINUATION_HANDLER(s, &ShowHostDB::showAll);
-  }
-  this_ethread()->schedule_imm(s);
-  return &s->action;
-}
-
 static constexpr int HOSTDB_TEST_MAX_OUTSTANDING = 20;
 static constexpr int HOSTDB_TEST_LENGTH          = 200;
 
@@ -1790,15 +1521,13 @@ ink_hostdb_init(ts::ModuleVersion v)
   //
   // Register stats
   //
-  ts::Metrics &intm = ts::Metrics::getInstance();
-
-  hostdb_rsb.total_lookups                   = intm.newMetricPtr("proxy.process.hostdb.total_lookups");
-  hostdb_rsb.total_hits                      = intm.newMetricPtr("proxy.process.hostdb.total_hits");
-  hostdb_rsb.total_serve_stale               = intm.newMetricPtr("proxy.process.hostdb.total_serve_stale");
-  hostdb_rsb.ttl                             = intm.newMetricPtr("proxy.process.hostdb.ttl");
-  hostdb_rsb.ttl_expires                     = intm.newMetricPtr("proxy.process.hostdb.ttl_expires");
-  hostdb_rsb.re_dns_on_reload                = intm.newMetricPtr("proxy.process.hostdb.re_dns_on_reload");
-  hostdb_rsb.insert_duplicate_to_pending_dns = intm.newMetricPtr("proxy.process.hostdb.insert_duplicate_to_pending_dns");
+  hostdb_rsb.total_lookups                   = Metrics::Counter::createPtr("proxy.process.hostdb.total_lookups");
+  hostdb_rsb.total_hits                      = Metrics::Counter::createPtr("proxy.process.hostdb.total_hits");
+  hostdb_rsb.total_serve_stale               = Metrics::Counter::createPtr("proxy.process.hostdb.total_serve_stale");
+  hostdb_rsb.ttl                             = Metrics::Counter::createPtr("proxy.process.hostdb.ttl");
+  hostdb_rsb.ttl_expires                     = Metrics::Counter::createPtr("proxy.process.hostdb.ttl_expires");
+  hostdb_rsb.re_dns_on_reload                = Metrics::Counter::createPtr("proxy.process.hostdb.re_dns_on_reload");
+  hostdb_rsb.insert_duplicate_to_pending_dns = Metrics::Counter::createPtr("proxy.process.hostdb.insert_duplicate_to_pending_dns");
 
   ts_host_res_global_init();
 }

@@ -22,6 +22,7 @@
  */
 
 #include "iocore/net/NetHandler.h"
+#include <atomic>
 
 #if TS_USE_LINUX_IO_URING
 #include "iocore/io_uring/IO_URING.h"
@@ -35,6 +36,7 @@
 using namespace std::literals;
 
 std::atomic<uint32_t> NetHandler::additional_accepts{0};
+std::atomic<uint32_t> NetHandler::per_client_max_connections_in{0};
 
 // NetHandler method definitions
 
@@ -136,6 +138,9 @@ NetHandler::update_nethandler_config(const char *str, RecDataT, RecData data, vo
   } else if (name == "proxy.config.net.additional_accepts"sv) {
     NetHandler::additional_accepts.store(data.rec_int, std::memory_order_relaxed);
     Debug("net_queue", "proxy.config.net.additional_accepts updated to %" PRId64, data.rec_int);
+  } else if (name == "proxy.config.net.per_client.max_connections_in"sv) {
+    NetHandler::per_client_max_connections_in.store(data.rec_int, std::memory_order_relaxed);
+    Debug("net_queue", "proxy.config.net.per_client.max_connections_in updated to %" PRId64, data.rec_int);
   }
 
   if (updated_member) {
@@ -178,6 +183,9 @@ NetHandler::init_for_process()
   REC_ReadConfigInt32(val, "proxy.config.net.additional_accepts");
   additional_accepts.store(val, std::memory_order_relaxed);
 
+  REC_ReadConfigInt32(val, "proxy.config.net.per_client.max_connections_in");
+  per_client_max_connections_in.store(val, std::memory_order_relaxed);
+
   RecRegisterConfigUpdateCb("proxy.config.net.max_connections_in", update_nethandler_config, nullptr);
   RecRegisterConfigUpdateCb("proxy.config.net.max_requests_in", update_nethandler_config, nullptr);
   RecRegisterConfigUpdateCb("proxy.config.net.inactive_threshold_in", update_nethandler_config, nullptr);
@@ -185,6 +193,7 @@ NetHandler::init_for_process()
   RecRegisterConfigUpdateCb("proxy.config.net.keep_alive_no_activity_timeout_in", update_nethandler_config, nullptr);
   RecRegisterConfigUpdateCb("proxy.config.net.default_inactivity_timeout", update_nethandler_config, nullptr);
   RecRegisterConfigUpdateCb("proxy.config.net.additional_accepts", update_nethandler_config, nullptr);
+  RecRegisterConfigUpdateCb("proxy.config.net.per_client.max_connections_in", update_nethandler_config, nullptr);
 
   Debug("net_queue", "proxy.config.net.max_connections_in updated to %d", global_config.max_connections_in);
   Debug("net_queue", "proxy.config.net.max_requests_in updated to %d", global_config.max_requests_in);
@@ -195,6 +204,8 @@ NetHandler::init_for_process()
         global_config.keep_alive_no_activity_timeout_in);
   Debug("net_queue", "proxy.config.net.default_inactivity_timeout updated to %d", global_config.default_inactivity_timeout);
   Debug("net_queue", "proxy.config.net.additional_accepts updated to %d", additional_accepts.load(std::memory_order_relaxed));
+  Debug("net_queue", "proxy.config.net.per_client.max_connections_in updated to %d",
+        per_client_max_connections_in.load(std::memory_order_relaxed));
 }
 
 //
@@ -326,7 +337,7 @@ NetHandler::waitForActivity(ink_hrtime timeout)
   IOUringContext *ur = IOUringContext::local_context();
 #endif
 
-  Metrics::increment(net_rsb.handler_run);
+  Metrics::Counter::increment(net_rsb.handler_run);
   SCOPED_MUTEX_LOCK(lock, mutex, this->thread);
 
   process_enabled_list();
@@ -481,8 +492,8 @@ NetHandler::_close_ne(NetEvent *ne, ink_hrtime now, int &handle_event, int &clos
   if (diff > 0) {
     total_idle_time += diff;
     ++total_idle_count;
-    Metrics::increment(net_rsb.keep_alive_queue_timeout_total, diff);
-    Metrics::increment(net_rsb.keep_alive_queue_timeout_count);
+    Metrics::Counter::increment(net_rsb.keep_alive_queue_timeout_total, diff);
+    Metrics::Counter::increment(net_rsb.keep_alive_queue_timeout_count);
   }
   Debug("net_queue", "closing connection NetEvent=%p idle: %u now: %" PRId64 " at: %" PRId64 " in: %" PRId64 " diff: %" PRId64, ne,
         keep_alive_queue_size, ink_hrtime_to_sec(now), ink_hrtime_to_sec(ne->next_inactivity_timeout_at),
@@ -560,7 +571,7 @@ NetHandler::add_to_active_queue(NetEvent *ne)
   } else {
     if (active_queue_full) {
       // there is no room left in the queue
-      Metrics::increment(net_rsb.requests_max_throttled_in);
+      Metrics::Counter::increment(net_rsb.requests_max_throttled_in);
       return false;
     }
     // in the keep-alive queue or no queue, new to this queue
@@ -588,5 +599,12 @@ int
 NetHandler::get_additional_accepts()
 {
   int config_value = additional_accepts.load(std::memory_order_relaxed) + 1;
+  return (config_value > 0 ? config_value : INT32_MAX - 1);
+}
+
+int
+NetHandler::get_per_client_max_connections_in()
+{
+  int config_value = per_client_max_connections_in.load(std::memory_order_relaxed);
   return (config_value > 0 ? config_value : INT32_MAX - 1);
 }

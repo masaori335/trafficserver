@@ -22,6 +22,7 @@
  */
 
 #include "P_Cache.h"
+#include "iocore/cache/AggregateWriteBuffer.h"
 #include "iocore/cache/CacheEvacuateDocVC.h"
 
 #define UINT_WRAP_LTE(_x, _y) (((_y) - (_x)) < INT_MAX)  // exploit overflow
@@ -213,7 +214,7 @@ CacheVC::updateVector(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
      agg queue. And if !f.evac_vector && !f.update the alternate->object_size
      is set to vc->total_len
    - f.readers.  If set, assumes that this is an evacuation, so the write
-     is not aborted even if vol->agg_todo_size > agg_write_backlog
+     is not aborted even if vol->get_agg_todo_size() > agg_write_backlog
    - f.evacuator. If this is an evacuation.
    - f.rewrite_resident_alt. The resident alternate is rewritten.
    - f.update. Used only if the write_vector needs to be written to disk.
@@ -246,10 +247,10 @@ CacheVC::handleWrite(int event, Event * /* e ATS_UNUSED */)
 
   set_agg_write_in_progress();
   POP_HANDLER;
-  agg_len             = vol->round_to_approx_size(write_len + header_len + frag_len + sizeof(Doc));
-  vol->agg_todo_size += agg_len;
-  bool agg_error      = (agg_len > AGG_SIZE || header_len + sizeof(Doc) > MAX_FRAG_SIZE ||
-                    (!f.readers && (vol->agg_todo_size > cache_config_agg_write_backlog + AGG_SIZE) && write_len));
+  agg_len = vol->round_to_approx_size(write_len + header_len + frag_len + sizeof(Doc));
+  vol->add_agg_todo(agg_len);
+  bool agg_error = (agg_len > AGG_SIZE || header_len + sizeof(Doc) > MAX_FRAG_SIZE ||
+                    (!f.readers && (vol->get_agg_todo_size() > cache_config_agg_write_backlog + AGG_SIZE) && write_len));
 #ifdef CACHE_AGG_FAIL_RATE
   agg_error = agg_error || ((uint32_t)mutex->thread_holding->generator.random() < (uint32_t)(UINT_MAX * CACHE_AGG_FAIL_RATE));
 #endif
@@ -257,12 +258,12 @@ CacheVC::handleWrite(int event, Event * /* e ATS_UNUSED */)
                                                       (vio.nbytes != INT64_MAX && (cache_config_max_doc_size < vio.nbytes))));
 
   if (agg_error || max_doc_error) {
-    Metrics::increment(cache_rsb.write_backlog_failure);
-    Metrics::increment(vol->cache_vol->vol_rsb.write_backlog_failure);
-    Metrics::increment(cache_rsb.status[op_type].failure);
-    Metrics::increment(vol->cache_vol->vol_rsb.status[op_type].failure);
-    vol->agg_todo_size -= agg_len;
-    io.aio_result       = AIO_SOFT_FAILURE;
+    Metrics::Counter::increment(cache_rsb.write_backlog_failure);
+    Metrics::Counter::increment(vol->cache_vol->vol_rsb.write_backlog_failure);
+    Metrics::Counter::increment(cache_rsb.status[op_type].failure);
+    Metrics::Counter::increment(vol->cache_vol->vol_rsb.status[op_type].failure);
+    vol->add_agg_todo(-agg_len);
+    io.aio_result = AIO_SOFT_FAILURE;
     if (event == EVENT_CALL) {
       return EVENT_RETURN;
     }
@@ -270,9 +271,9 @@ CacheVC::handleWrite(int event, Event * /* e ATS_UNUSED */)
   }
   ink_assert(agg_len <= AGG_SIZE);
   if (f.evac_vector) {
-    vol->agg.push(this);
+    vol->get_pending_writers().push(this);
   } else {
-    vol->agg.enqueue(this);
+    vol->get_pending_writers().enqueue(this);
   }
   if (!vol->is_io_in_progress()) {
     return vol->aggWrite(event, this);
@@ -396,7 +397,7 @@ Stripe::aggWriteDone(int event, Event *e)
     if (header->write_pos + EVACUATION_SIZE > scan_pos) {
       periodic_scan();
     }
-    agg_buf_pos = 0;
+    this->_write_buffer.reset_buffer_pos();
     header->write_serial++;
   } else {
     // delete all the directory entries that we inserted
@@ -407,13 +408,13 @@ Stripe::aggWriteDone(int event, Event *e)
         (uint64_t)io.aiocb.aio_offset / CACHE_BLOCK_SIZE, (uint64_t)(io.aiocb.aio_offset + io.aiocb.aio_nbytes) / CACHE_BLOCK_SIZE);
     Dir del_dir;
     dir_clear(&del_dir);
-    for (int done = 0; done < agg_buf_pos;) {
-      Doc *doc = reinterpret_cast<Doc *>(agg_buffer + done);
+    for (int done = 0; done < this->_write_buffer.get_buffer_pos();) {
+      Doc *doc = reinterpret_cast<Doc *>(this->_write_buffer.get_buffer() + done);
       dir_set_offset(&del_dir, header->write_pos + done);
       dir_delete(&doc->key, this, &del_dir);
       done += round_to_approx_size(doc->len);
     }
-    agg_buf_pos = 0;
+    this->_write_buffer.reset_buffer_pos();
   }
   set_io_not_in_progress();
   // callback ready sync CacheVCs
@@ -430,7 +431,7 @@ Stripe::aggWriteDone(int event, Event *e)
     dir_sync_waiting = false;
     cacheDirSync->handleEvent(EVENT_IMMEDIATE, nullptr);
   }
-  if (agg.head || sync.head) {
+  if (this->_write_buffer.get_pending_writers().head || sync.head) {
     return aggWrite(event, e);
   }
   return EVENT_CONT;
@@ -441,8 +442,8 @@ new_DocEvacuator(int nbytes, Stripe *vol)
 {
   CacheEvacuateDocVC *c = new_CacheEvacuateDocVC(vol);
   c->op_type            = static_cast<int>(CacheOpType::Evacuate);
-  Metrics::increment(cache_rsb.status[c->op_type].active);
-  Metrics::increment(vol->cache_vol->vol_rsb.status[c->op_type].active);
+  Metrics::Gauge::increment(cache_rsb.status[c->op_type].active);
+  Metrics::Gauge::increment(vol->cache_vol->vol_rsb.status[c->op_type].active);
   c->buf         = new_IOBufferData(iobuffer_size_to_index(nbytes, MAX_BUFFER_SIZE_INDEX), MEMALIGNED);
   c->vol         = vol;
   c->f.evacuator = 1;
@@ -493,16 +494,16 @@ Stripe::evacuateWrite(CacheEvacuateDocVC *evacuator, int event, Event *e)
 {
   // push to front of aggregation write list, so it is written first
 
-  evacuator->agg_len  = round_to_approx_size((reinterpret_cast<Doc *>(evacuator->buf->data()))->len);
-  agg_todo_size      += evacuator->agg_len;
+  evacuator->agg_len = round_to_approx_size((reinterpret_cast<Doc *>(evacuator->buf->data()))->len);
+  this->_write_buffer.add_bytes_pending_aggregation(evacuator->agg_len);
   /* insert the evacuator after all the other evacuators */
-  CacheVC *cur   = static_cast<CacheVC *>(agg.head);
+  CacheVC *cur   = static_cast<CacheVC *>(this->_write_buffer.get_pending_writers().head);
   CacheVC *after = nullptr;
   for (; cur && cur->f.evacuator; cur = (CacheVC *)cur->link.next) {
     after = cur;
   }
   ink_assert(evacuator->agg_len <= AGG_SIZE);
-  agg.insert(evacuator, after);
+  this->_write_buffer.get_pending_writers().insert(evacuator, after);
   return aggWrite(event, e);
 }
 
@@ -649,7 +650,7 @@ static int
 agg_copy(char *p, CacheVC *vc)
 {
   Stripe *vol = vc->vol;
-  off_t o     = vol->header->write_pos + vol->agg_buf_pos;
+  off_t o     = vol->header->write_pos + vol->get_agg_buf_pos();
 
   if (!vc->f.evacuator) {
     Doc *doc                   = reinterpret_cast<Doc *>(p);
@@ -692,7 +693,7 @@ agg_copy(char *p, CacheVC *vc)
       } else { // the vector is being written by itself
         if (vc->earliest_key.is_zero()) {
           do {
-            rand_CacheKey(&doc->key, vc->vol->mutex);
+            rand_CacheKey(&doc->key);
           } while (DIR_MASK_TAG(doc->key.slice32(2)) == DIR_MASK_TAG(vc->first_key.slice32(2)));
         } else {
           prev_CacheKey(&doc->key, &vc->earliest_key);
@@ -744,8 +745,8 @@ agg_copy(char *p, CacheVC *vc)
 
 // ToDo: Why are these for debug only ?
 #ifdef DEBUG
-        Metrics::increment(cache_rsb.write_backlog_failure);
-        Metrics::increment(vol->cache_vol->vol_rsb.write_backlog_failure);
+        Metrics::Counter::increment(cache_rsb.write_backlog_failure);
+        Metrics::Counter::increment(vol->cache_vol->vol_rsb.write_backlog_failure);
 #endif
       }
       if (vc->f.rewrite_resident_alt) {
@@ -786,8 +787,8 @@ agg_copy(char *p, CacheVC *vc)
     int l    = vc->vol->round_to_approx_size(doc->len);
 
 #ifdef DEBUG
-    Metrics::increment(cache_rsb.gc_frags_evacuated);
-    Metrics::increment(vol->cache_vol->vol_rsb.gc_frags_evacuated);
+    Metrics::Counter::increment(cache_rsb.gc_frags_evacuated);
+    Metrics::Counter::increment(vol->cache_vol->vol_rsb.gc_frags_evacuated);
 #endif
 
     doc->sync_serial  = vc->vol->header->sync_serial;
@@ -874,8 +875,8 @@ Stripe::agg_wrap()
   dir_clean_vol(this);
   {
     Stripe *vol = this;
-    Metrics::increment(cache_rsb.directory_wrap);
-    Metrics::increment(vol->cache_vol->vol_rsb.directory_wrap);
+    Metrics::Counter::increment(cache_rsb.directory_wrap);
+    Metrics::Counter::increment(vol->cache_vol->vol_rsb.directory_wrap);
     Note("Cache volume %d on disk '%s' wraps around", vol->cache_vol->vol_number, vol->hash_text.get());
   }
   periodic_scan();
@@ -902,8 +903,8 @@ Lagain:
   this->aggregate_pending_writes(tocall);
 
   // if we got nothing...
-  if (!agg_buf_pos) {
-    if (!agg.head && !sync.head) { // nothing to get
+  if (!this->_write_buffer.get_buffer_pos()) {
+    if (!this->_write_buffer.get_pending_writers().head && !sync.head) { // nothing to get
       return EVENT_CONT;
     }
     if (header->write_pos == start) {
@@ -911,21 +912,21 @@ Lagain:
       Note("write aggregation exceeds vol size");
       ink_assert(!tocall.head);
       ink_assert(false);
-      while ((c = agg.dequeue())) {
-        agg_todo_size -= c->agg_len;
+      while ((c = this->get_pending_writers().dequeue())) {
+        this->_write_buffer.add_bytes_pending_aggregation(-c->agg_len);
         eventProcessor.schedule_imm(c, ET_CALL, AIO_EVENT_DONE);
       }
       return EVENT_CONT;
     }
     // start back
-    if (agg.head) {
+    if (this->get_pending_writers().head) {
       agg_wrap();
       goto Lagain;
     }
   }
 
   // evacuate space
-  off_t end = header->write_pos + agg_buf_pos + EVACUATION_SIZE;
+  off_t end = header->write_pos + this->_write_buffer.get_buffer_pos() + EVACUATION_SIZE;
   if (evac_range(header->write_pos, end, !header->phase) < 0) {
     goto Lwait;
   }
@@ -935,18 +936,19 @@ Lagain:
     }
   }
 
-  // if agg.head, then we are near the end of the disk, so
+  // if write_buffer.get_pending_writers.head, then we are near the end of the disk, so
   // write down the aggregation in whatever size it is.
-  if (agg_buf_pos < AGG_HIGH_WATER && !agg.head && !sync.head && !dir_sync_waiting) {
+  if (this->_write_buffer.get_buffer_pos() < AGG_HIGH_WATER && !this->_write_buffer.get_pending_writers().head && !sync.head &&
+      !dir_sync_waiting) {
     goto Lwait;
   }
 
   // write sync marker
-  if (!agg_buf_pos) {
+  if (!this->_write_buffer.get_buffer_pos()) {
     ink_assert(sync.head);
-    int l       = round_to_approx_size(sizeof(Doc));
-    agg_buf_pos = l;
-    Doc *d      = reinterpret_cast<Doc *>(agg_buffer);
+    int l = round_to_approx_size(sizeof(Doc));
+    this->_write_buffer.seek(l);
+    Doc *d = reinterpret_cast<Doc *>(this->_write_buffer.get_buffer());
     memset(static_cast<void *>(d), 0, sizeof(Doc));
     d->magic        = DOC_MAGIC;
     d->len          = l;
@@ -955,12 +957,12 @@ Lagain:
   }
 
   // set write limit
-  header->agg_pos = header->write_pos + agg_buf_pos;
+  header->agg_pos = header->write_pos + this->_write_buffer.get_buffer_pos();
 
   io.aiocb.aio_fildes = fd;
   io.aiocb.aio_offset = header->write_pos;
-  io.aiocb.aio_buf    = agg_buffer;
-  io.aiocb.aio_nbytes = agg_buf_pos;
+  io.aiocb.aio_buf    = this->_write_buffer.get_buffer();
+  io.aiocb.aio_nbytes = this->_write_buffer.get_buffer_pos();
   io.action           = this;
   /*
     Callback on AIO thread so that we can issue a new write ASAP
@@ -986,22 +988,22 @@ Lwait:
 void
 Stripe::aggregate_pending_writes(Queue<CacheVC, Continuation::Link_link> &tocall)
 {
-  for (auto *c = static_cast<CacheVC *>(this->agg.head); c;) {
+  for (auto *c = static_cast<CacheVC *>(this->_write_buffer.get_pending_writers().head); c;) {
     int writelen = c->agg_len;
     // [amc] this is checked multiple places, on here was it strictly less.
     ink_assert(writelen <= AGG_SIZE);
-    if (this->agg_buf_pos + writelen > AGG_SIZE ||
-        this->header->write_pos + this->agg_buf_pos + writelen > (this->skip + this->len)) {
+    if (this->_write_buffer.get_buffer_pos() + writelen > AGG_SIZE ||
+        this->header->write_pos + this->_write_buffer.get_buffer_pos() + writelen > (this->skip + this->len)) {
       break;
     }
-    DDbg(dbg_ctl_agg_read, "copying: %d, %" PRIu64 ", key: %d", this->agg_buf_pos, this->header->write_pos + this->agg_buf_pos,
-         c->first_key.slice32(0));
-    int wrotelen = agg_copy(this->agg_buffer + this->agg_buf_pos, c);
+    DDbg(dbg_ctl_agg_read, "copying: %d, %" PRIu64 ", key: %d", this->_write_buffer.get_buffer_pos(),
+         this->header->write_pos + this->_write_buffer.get_buffer_pos(), c->first_key.slice32(0));
+    int wrotelen = agg_copy(this->_write_buffer.get_buffer() + this->_write_buffer.get_buffer_pos(), c);
     ink_assert(writelen == wrotelen);
-    this->agg_todo_size -= writelen;
-    this->agg_buf_pos   += writelen;
-    CacheVC *n           = (CacheVC *)c->link.next;
-    this->agg.dequeue();
+    this->_write_buffer.add_bytes_pending_aggregation(-writelen);
+    this->_write_buffer.add_buffer_pos(writelen);
+    CacheVC *n = (CacheVC *)c->link.next;
+    this->_write_buffer.get_pending_writers().dequeue();
     if (c->f.sync && c->f.use_first_key) {
       CacheVC *last = this->sync.tail;
       while (last && UINT_WRAP_LT(c->write_serial, last->write_serial)) {
@@ -1056,8 +1058,8 @@ CacheVC::openWriteCloseDir(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED *
   if ((closed == 1) && (total_len > 0 || f.allow_empty_doc)) {
     DDbg(dbg_ctl_cache_stats, "Fragment = %d", fragment);
 
-    Metrics::increment(cache_rsb.fragment_document_count[std::clamp(fragment, 0, 2)]);
-    Metrics::increment(vol->cache_vol->vol_rsb.fragment_document_count[std::clamp(fragment, 0, 2)]);
+    Metrics::Counter::increment(cache_rsb.fragment_document_count[std::clamp(fragment, 0, 2)]);
+    Metrics::Counter::increment(vol->cache_vol->vol_rsb.fragment_document_count[std::clamp(fragment, 0, 2)]);
   }
   if (f.close_complete) {
     recursive++;
@@ -1508,8 +1510,8 @@ Lsuccess:
   return callcont(CACHE_EVENT_OPEN_WRITE);
 
 Lfailure:
-  Metrics::increment(cache_rsb.status[op_type].failure);
-  Metrics::increment(vol->cache_vol->vol_rsb.status[op_type].failure);
+  Metrics::Counter::increment(cache_rsb.status[op_type].failure);
+  Metrics::Counter::increment(vol->cache_vol->vol_rsb.status[op_type].failure);
   _action.continuation->handleEvent(CACHE_EVENT_OPEN_WRITE_FAILED, (void *)-err);
 Lcancel:
   if (od) {
@@ -1532,8 +1534,8 @@ CacheVC::openWriteStartBegin(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED
     return free_CacheVC(this);
   }
   if (((err = vol->open_write_lock(this, false, 1)) > 0)) {
-    Metrics::increment(cache_rsb.status[op_type].failure);
-    Metrics::increment(vol->cache_vol->vol_rsb.status[op_type].failure);
+    Metrics::Counter::increment(cache_rsb.status[op_type].failure);
+    Metrics::Counter::increment(vol->cache_vol->vol_rsb.status[op_type].failure);
     free_CacheVC(this);
     _action.continuation->handleEvent(CACHE_EVENT_OPEN_WRITE_FAILED, (void *)-err);
     return EVENT_DONE;
@@ -1570,8 +1572,8 @@ Cache::open_write(Continuation *cont, const CacheKey *key, CacheFragType frag_ty
   c->op_type  = static_cast<int>(CacheOpType::Write);
   c->vol      = key_to_vol(key, hostname, host_len);
   Stripe *vol = c->vol;
-  Metrics::increment(cache_rsb.status[c->op_type].active);
-  Metrics::increment(vol->cache_vol->vol_rsb.status[c->op_type].active);
+  Metrics::Gauge::increment(cache_rsb.status[c->op_type].active);
+  Metrics::Gauge::increment(vol->cache_vol->vol_rsb.status[c->op_type].active);
   c->first_key = c->key = *key;
   c->frag_type          = frag_type;
   /*
@@ -1582,7 +1584,7 @@ Cache::open_write(Continuation *cont, const CacheKey *key, CacheFragType frag_ty
      or the earliest_key based on the dir_tag.
    */
   do {
-    rand_CacheKey(&c->key, cont->mutex);
+    rand_CacheKey(&c->key);
   } while (DIR_MASK_TAG(c->key.slice32(2)) == DIR_MASK_TAG(c->first_key.slice32(2)));
   c->earliest_key     = c->key;
   c->info             = nullptr;
@@ -1594,8 +1596,8 @@ Cache::open_write(Continuation *cont, const CacheKey *key, CacheFragType frag_ty
 
   if ((res = c->vol->open_write_lock(c, false, 1)) > 0) {
     // document currently being written, abort
-    Metrics::increment(cache_rsb.status[c->op_type].failure);
-    Metrics::increment(vol->cache_vol->vol_rsb.status[c->op_type].failure);
+    Metrics::Counter::increment(cache_rsb.status[c->op_type].failure);
+    Metrics::Counter::increment(vol->cache_vol->vol_rsb.status[c->op_type].failure);
     cont->handleEvent(CACHE_EVENT_OPEN_WRITE_FAILED, (void *)-res);
     free_CacheVC(c);
     return ACTION_RESULT_DONE;
@@ -1643,7 +1645,7 @@ Cache::open_write(Continuation *cont, const CacheKey *key, CacheHTTPInfo *info, 
      or the earliest_key based on the dir_tag.
    */
   do {
-    rand_CacheKey(&c->key, cont->mutex);
+    rand_CacheKey(&c->key);
   } while (DIR_MASK_TAG(c->key.slice32(2)) == DIR_MASK_TAG(c->first_key.slice32(2)));
   c->earliest_key = c->key;
   c->frag_type    = CACHE_FRAG_TYPE_HTTP;
@@ -1674,8 +1676,7 @@ Cache::open_write(Continuation *cont, const CacheKey *key, CacheHTTPInfo *info, 
        close
        c) Delete an alternate
        The vector may need to be deleted (if there was only one alternate) or
-       rewritten (if there were more than one alternate). The deletion of the
-       vector is done in openWriteRemoveVector.
+       rewritten (if there were more than one alternate).
        HTTP OPERATIONS
        open_write with info set
        close
@@ -1690,8 +1691,8 @@ Cache::open_write(Continuation *cont, const CacheKey *key, CacheHTTPInfo *info, 
     c->op_type = static_cast<int>(CacheOpType::Write);
   }
 
-  Metrics::increment(cache_rsb.status[c->op_type].active);
-  Metrics::increment(vol->cache_vol->vol_rsb.status[c->op_type].active);
+  Metrics::Gauge::increment(cache_rsb.status[c->op_type].active);
+  Metrics::Gauge::increment(vol->cache_vol->vol_rsb.status[c->op_type].active);
   // coverity[Y2K38_SAFETY:FALSE]
   c->pin_in_cache = static_cast<uint32_t>(apin_in_cache);
 
@@ -1742,8 +1743,8 @@ Lmiss:
   return ACTION_RESULT_DONE;
 
 Lfailure:
-  Metrics::increment(cache_rsb.status[c->op_type].failure);
-  Metrics::increment(vol->cache_vol->vol_rsb.status[c->op_type].failure);
+  Metrics::Counter::increment(cache_rsb.status[c->op_type].failure);
+  Metrics::Counter::increment(vol->cache_vol->vol_rsb.status[c->op_type].failure);
   cont->handleEvent(CACHE_EVENT_OPEN_WRITE_FAILED, (void *)-err);
   if (c->od) {
     c->openWriteCloseDir(EVENT_IMMEDIATE, nullptr);

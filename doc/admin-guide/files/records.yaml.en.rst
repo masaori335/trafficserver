@@ -507,6 +507,25 @@ Network
    between `proxy.config.net.max_connections_in` and `proxy.config.net.max_requests_in`
    is the amount of maximum idle (keepalive) connections |TS| will maintain.
 
+.. ts:cv:: CONFIG proxy.config.net.per_client.max_connections_in INT 0
+   :reloadable:
+
+   The total number of concurrent client connections that |TS| will accept from
+   a given client IP address. Any received connections from a client beyond this
+   limit will be immediately closed.  Once the number of concurrent client
+   connections drops below this configured value, |TS| will begin accepting new
+   connections from that IP while the number of concurrent connections remains
+   below this limit. A value of 0 disables the per client concurrent connection
+   limit.
+
+.. ts:cv:: CONFIG proxy.config.http.per_client.connection.alert_delay INT 60
+   :reloadable:
+   :units: seconds
+
+   Throttle alerts per client IP address to be no more often than this many
+   seconds. Summary data is provided per alert to allow log scrubbing to
+   generate accurate data.
+
 .. ts:cv:: CONFIG proxy.config.net.max_requests_in INT 0
 
    The total number of concurrent requests or active client connections
@@ -2665,50 +2684,6 @@ Customizable User Response Pages
    ``2`` Suppress response pages only for internal traffic.
    ===== ======================================================================
 
-.. ts:cv:: CONFIG proxy.config.http_ui_enabled INT 0
-
-   Specifies which http Inspector UI endpoints to allow within :file:`remap.config`:
-
-   ===== ======================================================================
-   Value Description
-   ===== ======================================================================
-   ``0`` Disable all http UI endpoints.
-   ``1`` Enable only Cache Inspector endpoints.
-   ``2`` Enable only stats endpoints.
-   ``3`` Enable all http UI endpoints.
-   ===== ======================================================================
-
-   To enable any endpoint there needs to be an entry in :file:`remap.config` which
-   specifically enables it. Such a line would look like: ::
-
-        map / http://{cache}
-
-   The following are the cache endpoints:
-
-   ================ ===========================================================
-   Name             Description
-   ================ ===========================================================
-   ``cache``        UI to interact with the cache.
-   ================ ===========================================================
-
-   The following are the stats endpoints:
-
-   ================== =========================================================
-   Name               Description
-   ================== =========================================================
-   ``cache-internal`` Statistics about cache evacuation and volumes.
-   ``hostdb``         Lookups against the hostdb.
-   ``http``           HTTPSM details, this endpoint is also gated by
-                      :ts:cv:`proxy.config.http.enable_http_info`.
-   ``net``            Lookup and listing of open connections.
-   ================== =========================================================
-
-.. ts:cv:: CONFIG proxy.config.http.enable_http_info INT 0
-
-   Enables (``1``) or disables (``0``) access to an endpoint within
-   :ts:cv:`proxy.config.http_ui_enabled` which shows details about inflight
-   transactions (HttpSM).
-
 DNS
 ===
 
@@ -4782,61 +4757,6 @@ removed in the future without prior notice.
    :reloadable:
 
    This value will be advertised as ``max_ack_delay`` Transport Parameter.
-
-
-.. ts:cv:: CONFIG proxy.config.quic.loss_detection.packet_threshold INT 3
-   :reloadable:
-
-   This is just for debugging. Do not change it from the default value unless
-   you really understand what this is.
-
-.. ts:cv:: CONFIG proxy.config.quic.loss_detection.time_threshold FLOAT 1.25
-   :reloadable:
-
-   This is just for debugging. Do not change it from the default value unless
-   you really understand what this is.
-
-.. ts:cv:: CONFIG proxy.config.quic.loss_detection.granularity INT 1
-   :reloadable:
-
-   This is just for debugging. Do not change it from the default value unless
-   you really understand what this is.
-
-.. ts:cv:: CONFIG proxy.config.quic.loss_detection.initial_rtt INT 1
-   :reloadable:
-
-   This is just for debugging. Do not change it from the default value unless
-   you really understand what this is.
-
-.. ts:cv:: CONFIG proxy.config.quic.congestion_control.max_datagram_size INT 1200
-   :reloadable:
-
-   This is just for debugging. Do not change it from the default value unless
-   you really understand what this is.
-
-.. ts:cv:: CONFIG proxy.config.quic.congestion_control.initial_window INT 12000
-   :reloadable:
-
-   This is just for debugging. Do not change it from the default value unless
-   you really understand what this is.
-
-.. ts:cv:: CONFIG proxy.config.quic.congestion_control.minimum_window INT 2400
-   :reloadable:
-
-   This is just for debugging. Do not change it from the default value unless
-   you really understand what this is.
-
-.. ts:cv:: CONFIG proxy.config.quic.congestion_control.loss_reduction_factor FLOAT 0.5
-   :reloadable:
-
-   This is just for debugging. Do not change it from the default value unless
-   you really understand what this is.
-
-.. ts:cv:: CONFIG proxy.config.quic.congestion_control.persistent_congestion_threshold INT 2
-   :reloadable:
-
-   This is just for debugging. Do not change it from the default value unless
-   you really understand what this is.
 
 .. ts:cv:: CONFIG proxy.config.quic.active_cid_limit_in INT 2
    :reloadable:

@@ -24,7 +24,9 @@
 #include <tscore/TSSystemState.h>
 #include <tscore/ink_defs.h>
 
+#include "iocore/net/ConnectionTracker.h"
 #include "P_Net.h"
+#include "tscore/ink_inet.h"
 
 using NetAcceptHandler = int (NetAccept::*)(int, void *);
 
@@ -33,6 +35,35 @@ namespace
 
 DbgCtl dbg_ctl_iocore_net{"iocore_net"};
 DbgCtl dbg_ctl_iocore_net_accept_start{"iocore_net_accept_start"};
+
+/** Check and handle if the number of client connections exceeds the configured max.
+ *
+ * @param[in] addr The client address of the new incoming connection.
+ * @param[out] conn_track_group The connection tracker group associated with the
+ * new incoming connection if connections are being tracked.
+ *
+ * @return true if the connection should be accepted, false otherwise.
+ */
+bool
+handle_max_client_connections(IpEndpoint const &addr, std::shared_ptr<ConnectionTracker::Group> &conn_track_group)
+{
+  int const client_max = NetHandler::get_per_client_max_connections_in();
+  if (client_max > 0) {
+    auto inbound_tracker     = ConnectionTracker::obtain_inbound(addr);
+    auto const tracked_count = inbound_tracker.reserve();
+    if (tracked_count > client_max) {
+      // close the connection as we are in per client connection throttle state
+      inbound_tracker.release();
+      inbound_tracker.blocked();
+      inbound_tracker.Warn_Blocked(client_max, 0, tracked_count - 1, addr,
+                                   is_debug_tag_set("iocore_net_accept") ? "iocore_net_accept" : nullptr);
+      Metrics::Counter::increment(net_rsb.per_client_connections_throttled_in);
+      return false;
+    }
+    conn_track_group = inbound_tracker.drop();
+  }
+  return true;
+}
 
 } // end anonymous namespace
 
@@ -80,15 +111,22 @@ net_accept(NetAccept *na, void *ep, bool blockable)
       count = res;
       goto Ldone;
     }
-    Metrics::increment(net_rsb.tcp_accept);
+    Metrics::Counter::increment(net_rsb.tcp_accept);
+
+    std::shared_ptr<ConnectionTracker::Group> conn_track_group;
+    if (!handle_max_client_connections(con.addr, conn_track_group)) {
+      con.close();
+      continue;
+    }
 
     vc = static_cast<UnixNetVConnection *>(na->getNetProcessor()->allocate_vc(e->ethread));
     if (!vc) {
       goto Ldone; // note: @a con will clean up the socket when it goes out of scope.
     }
+    vc->enable_inbound_connection_tracking(conn_track_group);
 
     count++;
-    Metrics::increment(net_rsb.connections_currently_open);
+    Metrics::Gauge::increment(net_rsb.connections_currently_open);
     vc->id = net_next_connection_number();
     vc->con.move(con);
     vc->set_remote_addr(con.addr);
@@ -338,7 +376,12 @@ NetAccept::do_blocking_accept(EThread *t)
       check_throttle_warning(ACCEPT);
       // close the connection as we are in throttle state
       con.close();
-      Metrics::increment(net_rsb.connections_throttled_in);
+      Metrics::Counter::increment(net_rsb.connections_throttled_in);
+      continue;
+    }
+    std::shared_ptr<ConnectionTracker::Group> conn_track_group;
+    if (!handle_max_client_connections(con.addr, conn_track_group)) {
+      con.close();
       continue;
     }
 
@@ -346,16 +389,17 @@ NetAccept::do_blocking_accept(EThread *t)
       return -1;
     }
 
-    Metrics::increment(net_rsb.tcp_accept);
+    Metrics::Counter::increment(net_rsb.tcp_accept);
 
     // Use 'nullptr' to Bypass thread allocator
     vc = (UnixNetVConnection *)this->getNetProcessor()->allocate_vc(nullptr);
     if (unlikely(!vc)) {
       return -1;
     }
+    vc->enable_inbound_connection_tracking(conn_track_group);
 
     count++;
-    Metrics::increment(net_rsb.connections_currently_open);
+    Metrics::Gauge::increment(net_rsb.connections_currently_open);
     vc->id = net_next_connection_number();
     vc->con.move(con);
     vc->set_remote_addr(con.addr);
@@ -410,14 +454,14 @@ NetAccept::acceptEvent(int event, void *ep)
   if (lock.is_locked()) {
     if (action_->cancelled) {
       e->cancel();
-      Metrics::decrement(net_rsb.accepts_currently_open);
+      Metrics::Gauge::decrement(net_rsb.accepts_currently_open);
       delete this;
       return EVENT_DONE;
     }
 
     int res;
     if ((res = accept_fn(this, e, false)) < 0) {
-      Metrics::decrement(net_rsb.accepts_currently_open);
+      Metrics::Gauge::decrement(net_rsb.accepts_currently_open);
       /* INKqa11179 */
       Warning("Accept on port %d failed with error no %d", ats_ip_port_host_order(&server.addr), res);
       Warning("Traffic Server may be unable to accept more network"
@@ -452,17 +496,22 @@ NetAccept::acceptFastEvent(int event, void *ep)
     socklen_t sz = sizeof(con.addr);
     int fd       = SocketManager::accept4(server.fd, &con.addr.sa, &sz, SOCK_NONBLOCK | SOCK_CLOEXEC);
     con.fd       = fd;
+    std::shared_ptr<ConnectionTracker::Group> conn_track_group;
 
     if (likely(fd >= 0)) {
       // check for throttle
       if (check_net_throttle(ACCEPT)) {
         // close the connection as we are in throttle state
         con.close();
-        Metrics::increment(net_rsb.connections_throttled_in);
+        Metrics::Counter::increment(net_rsb.connections_throttled_in);
+        continue;
+      }
+      if (!handle_max_client_connections(con.addr, conn_track_group)) {
+        con.close();
         continue;
       }
       Dbg(dbg_ctl_iocore_net, "accepted a new socket: %d", fd);
-      Metrics::increment(net_rsb.tcp_accept);
+      Metrics::Counter::increment(net_rsb.tcp_accept);
       if (opt.send_bufsize > 0) {
         if (unlikely(SocketManager::set_sndbuf_size(fd, opt.send_bufsize))) {
           bufsz = ROUNDUP(opt.send_bufsize, 1024);
@@ -510,9 +559,10 @@ NetAccept::acceptFastEvent(int event, void *ep)
 
     vc = (UnixNetVConnection *)this->getNetProcessor()->allocate_vc(e->ethread);
     ink_release_assert(vc);
+    vc->enable_inbound_connection_tracking(conn_track_group);
 
     count++;
-    Metrics::increment(net_rsb.connections_currently_open);
+    Metrics::Gauge::increment(net_rsb.connections_currently_open);
     vc->id = net_next_connection_number();
     vc->con.move(con);
     vc->set_remote_addr(con.addr);
@@ -560,7 +610,7 @@ Ldone:
 Lerror:
   server.close();
   e->cancel();
-  Metrics::decrement(net_rsb.accepts_currently_open);
+  Metrics::Gauge::decrement(net_rsb.accepts_currently_open);
   delete this;
   return EVENT_DONE;
 }
@@ -577,7 +627,7 @@ NetAccept::acceptLoopEvent(int event, Event *e)
   }
 
   // Don't think this ever happens ...
-  Metrics::decrement(net_rsb.accepts_currently_open);
+  Metrics::Gauge::decrement(net_rsb.accepts_currently_open);
   delete this;
   return EVENT_DONE;
 }

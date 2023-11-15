@@ -31,12 +31,19 @@
 
 #pragma once
 
+#include <memory>
+
 #include "tscore/ink_sock.h"
+#include "iocore/net/ConnectionTracker.h"
 #include "iocore/net/NetVConnection.h"
 #include "P_UnixNetState.h"
 #include "P_Connection.h"
 #include "P_NetAccept.h"
 #include "iocore/net/NetEvent.h"
+
+#if HAVE_STRUCT_MPTCP_INFO_SUBFLOWS
+#include <linux/mptcp.h>
+#endif
 
 class UnixNetVConnection;
 class NetHandler;
@@ -102,6 +109,15 @@ public:
   // The constructor is public just to avoid compile errors.      //
   /////////////////////////////////////////////////////////////////
   UnixNetVConnection();
+
+  /** Track this inbound connection for limiting per client connections.
+
+   * @param[in] group ConnectionTracker group to track this connection in.
+   */
+  void enable_inbound_connection_tracking(std::shared_ptr<ConnectionTracker::Group> group);
+
+  /** Release the inbound connection tracking for this connection. */
+  void release_inbound_connection_tracking();
 
   int populate_protocol(std::string_view *results, int n) const override;
   const char *protocol_contains(std::string_view tag) const override;
@@ -250,6 +266,10 @@ private:
 
   inline static DbgCtl _dbg_ctl_socket{"socket"};
   inline static DbgCtl _dbg_ctl_socket_mptcp{"socket_mptcp"};
+
+  /** The shared group across all connections for this IP to track incoming
+   * connections for connection limiting. */
+  std::shared_ptr<ConnectionTracker::Group> conn_track_group;
 };
 
 extern ClassAllocator<UnixNetVConnection> netVCAllocator;
@@ -291,10 +311,29 @@ UnixNetVConnection::set_mptcp_state()
 
   if (0 == safe_getsockopt(con.fd, IPPROTO_TCP, MPTCP_ENABLED, (char *)&mptcp_enabled, &mptcp_enabled_size)) {
     Dbg(_dbg_ctl_socket_mptcp, "MPTCP socket state: %d", mptcp_enabled);
-    mptcp_state = mptcp_enabled > 0 ? true : false;
+    mptcp_state = (mptcp_enabled > 0);
+    return;
   } else {
-    Dbg(_dbg_ctl_socket_mptcp, "MPTCP failed getsockopt(): %s", strerror(errno));
+    Dbg(_dbg_ctl_socket_mptcp, "MPTCP failed getsockopt(MPTCP_ENABLED): %s", strerror(errno));
   }
+
+#if defined(HAVE_STRUCT_MPTCP_INFO_SUBFLOWS) && defined(MPTCP_INFO) && MPTCP_INFO == 1
+  struct mptcp_info minfo;
+  int minfo_len = sizeof(minfo);
+
+  Dbg(_dbg_ctl_socket_mptcp, "MPTCP_INFO and struct mptcp_info defined");
+  if (0 == safe_getsockopt(con.fd, SOL_MPTCP, MPTCP_INFO, &minfo, &minfo_len)) {
+    if (minfo_len > 0) {
+      Dbg(_dbg_ctl_socket_mptcp, "MPTCP socket state (remote key received): %d",
+          (minfo.mptcpi_flags & MPTCP_INFO_FLAG_REMOTE_KEY_RECEIVED));
+      mptcp_state = (minfo.mptcpi_flags & MPTCP_INFO_FLAG_REMOTE_KEY_RECEIVED);
+      return;
+    }
+  } else {
+    mptcp_state = 0;
+    Dbg(_dbg_ctl_socket_mptcp, "MPTCP failed getsockopt(%d, MPTCP_INFO): %s", con.fd, strerror(errno));
+  }
+#endif
 }
 
 inline ink_hrtime
@@ -333,7 +372,10 @@ UnixNetVConnection::cancel_active_timeout()
   next_activity_timeout_at = 0;
 }
 
-inline UnixNetVConnection::~UnixNetVConnection() {}
+inline UnixNetVConnection::~UnixNetVConnection()
+{
+  release_inbound_connection_tracking();
+}
 
 inline SOCKET
 UnixNetVConnection::get_socket()
