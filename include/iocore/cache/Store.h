@@ -33,6 +33,8 @@
 #include "tscore/ink_platform.h"
 #include "tscore/Result.h"
 
+#include <string>
+
 #define STORE_BLOCK_SIZE       8192
 #define STORE_BLOCK_SHIFT      13
 #define DEFAULT_HW_SECTOR_SIZE 512

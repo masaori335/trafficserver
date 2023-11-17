@@ -21,6 +21,8 @@
   limitations under the License.
  */
 
+#include "iocore/cache/YamlCacheConfig.h"
+
 #include "tscore/ink_platform.h"
 #include "P_Cache.h"
 #include "tscore/Layout.h"
@@ -33,6 +35,8 @@
 #if HAVE_LINUX_MAJOR_H
 #include <linux/major.h>
 #endif
+
+#include <string>
 
 //
 // Store
@@ -222,122 +226,68 @@ Span::~Span()
 Result
 Store::read_config()
 {
-  int n_dsstore   = 0;
-  int i           = 0;
-  const char *err = nullptr;
-  Span *sd = nullptr, *cur = nullptr;
-  Span *ns;
-  ats_scoped_fd fd;
+  StorageConfig storage_config;
   ats_scoped_str storage_path(RecConfigReadConfigPath(nullptr, ts::filename::STORAGE));
 
   Note("%s loading ...", ts::filename::STORAGE);
-  Dbg(dbg_ctl_cache_init, "Store::read_config, fd = -1, \"%s\"", (const char *)storage_path);
-  fd = ::open(storage_path, O_RDONLY);
-  if (fd < 0) {
-    Error("%s failed to load", ts::filename::STORAGE);
-    return Result::failure("open %s: %s", (const char *)storage_path, strerror(errno));
-  }
 
-  // For each line
+  YamlStorageConfig::load(storage_config, storage_path.get());
 
-  char line[1024];
-  int len;
-  while ((len = ink_file_fd_readline(fd, sizeof(line), line)) > 0) {
-    const char *path;
-    const char *seed = nullptr;
-    // Because the SimpleTokenizer is a bit too simple, we have to normalize whitespace.
-    for (char *spot = line, *limit = line + len; spot < limit; ++spot) {
-      if (ParseRules::is_space(*spot)) {
-        *spot = ' '; // force whitespace to literal space.
-      }
+  int n_dsstore = 0;
+  Span *prev    = nullptr;
+  Span *head    = nullptr;
+
+  for (const auto &it : storage_config) {
+    Dbg(dbg_ctl_cache_init, "Span path=\"%s\" size=%" PRId64, it.path.c_str(), it.size);
+    if (!it.id.empty()) {
+      Dbg(dbg_ctl_cache_init, "  id=%s" PRId64, it.id.c_str());
     }
-    SimpleTokenizer tokens(line, ' ', SimpleTokenizer::OVERWRITE_INPUT_STRING);
-
-    // skip comments and blank lines
-    path = tokens.getNext();
-    if (nullptr == path || '#' == path[0]) {
-      continue;
+    if (it.volume_num != 0) {
+      Dbg(dbg_ctl_cache_init, "  volume_num=%d", it.volume_num);
     }
 
-    // parse
-    Dbg(dbg_ctl_cache_init, "Store::read_config: \"%s\"", path);
-    ++n_disks_in_config;
+    std::string pp = Layout::get()->relative(it.path);
 
-    int64_t size   = -1;
-    int volume_num = -1;
-    const char *e;
-    while (nullptr != (e = tokens.getNext())) {
-      if (ParseRules::is_digit(*e)) {
-        const char *end;
-        if ((size = ink_atoi64(e, &end)) <= 0 || *end != '\0') {
-          delete sd;
-          Error("%s failed to load", ts::filename::STORAGE);
-          return Result::failure("failed to parse size '%s'", e);
-        }
-      } else if (0 == strncasecmp(HASH_BASE_STRING_KEY, e, sizeof(HASH_BASE_STRING_KEY) - 1)) {
-        e += sizeof(HASH_BASE_STRING_KEY) - 1;
-        if ('=' == *e) {
-          ++e;
-        }
-        if (*e && !ParseRules::is_space(*e)) {
-          seed = e;
-        }
-      } else if (0 == strncasecmp(VOLUME_KEY, e, sizeof(VOLUME_KEY) - 1)) {
-        e += sizeof(VOLUME_KEY) - 1;
-        if ('=' == *e) {
-          ++e;
-        }
-        if (!*e || !ParseRules::is_digit(*e) || 0 >= (volume_num = ink_atoi(e))) {
-          delete sd;
-          Error("%s failed to load", ts::filename::STORAGE);
-          return Result::failure("failed to parse volume number '%s'", e);
-        }
-      }
-    }
+    Span *span = new Span;
 
-    std::string pp = Layout::get()->relative(path);
-
-    ns = new Span;
-    Dbg(dbg_ctl_cache_init, "Store::read_config - ns = new Span; ns->init(\"%s\",%" PRId64 "), forced volume=%d%s%s", pp.c_str(),
-        size, volume_num, seed ? " id=" : "", seed ? seed : "");
-    if ((err = ns->init(pp.c_str(), size))) {
+    const char *err = span->init(pp.c_str(), it.size);
+    if (err) {
       Dbg(dbg_ctl_cache_init, "Store::read_config - could not initialize storage \"%s\" [%s]", pp.c_str(), err);
-      delete ns;
+      delete span;
       continue;
     }
 
     n_dsstore++;
 
     // Set side values if present.
-    if (seed) {
-      ns->hash_base_string_set(seed);
-    }
-    if (volume_num > 0) {
-      ns->volume_number_set(volume_num);
+    if (!it.id.empty()) {
+      span->hash_base_string_set(it.id.c_str());
     }
 
-    // new Span
-    {
-      Span *prev = cur;
-      cur        = ns;
-      if (!sd) {
-        sd = cur;
-      } else {
-        prev->link.next = cur;
-      }
+    if (it.volume_num > 0) {
+      span->volume_number_set(it.volume_num);
     }
+
+    // link prev and current Span
+    if (prev == nullptr) {
+      head = span;
+    } else {
+      prev->link.next = span;
+    }
+    prev = span;
   }
 
   // count the number of disks
   extend(n_dsstore);
-  cur = sd;
-  while (cur) {
-    Span *next     = cur->link.next;
-    cur->link.next = nullptr;
-    disk[i++]      = cur;
-    cur            = next;
+
+  Span *s = head;
+  for (int i = 0; i < n_dsstore; ++i) {
+    Span *next   = s->link.next;
+    s->link.next = nullptr;
+    disk[i++]    = s;
+    s            = next;
   }
-  sd = nullptr; // these are all used.
+
   sort();
 
   Note("%s finished loading", ts::filename::STORAGE);

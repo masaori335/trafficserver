@@ -574,7 +574,7 @@ endif()
 
 set(rel_cachedir var/trafficserver)
 
-configure_file(configs/storage.config.default.in configs/storage.config.default)
+configure_file(configs/storage.yaml.default.in configs/storage.yaml.default)
 configure_file(configs/records.yaml.default.in configs/records.yaml.default)
 configure_file(include/tscore/ink_config.h.cmake.in include/tscore/ink_config.h)
 configure_file(include/ts/apidefs.h.in include/ts/apidefs.h)
