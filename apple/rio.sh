@@ -114,7 +114,7 @@ fi
 
 if [ $TAGBUILD -eq 1 ]; then
   cd trafficserver
-  export GIT_TAG=$GIT_TAG-el$OSRELEASE
+  export GIT_TAG=$GIT_TAG.el$OSRELEASE
   git tag $GIT_TAG
   SSH_AUTH_SOCK=${SSH_AUTH_SOCK_TRAFFICSERVER} git push origin $GIT_TAG
   cd ..
