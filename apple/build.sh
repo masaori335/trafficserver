@@ -2,6 +2,10 @@
 set -e
 set -x
 
+function parse_version() {
+    awk -F ' |)' '/^project/ { print $3 }' CMakeLists.txt
+}
+
 BUILD_VERSION=$1
 if [ -z ${BUILD_VERSION} ]
 then
@@ -11,100 +15,45 @@ fi
 INTERNAL_GITHUB_PR=$2
 
 # VARIATION (eg -boringssl)
-# SUBPROJECT (eg -plugins )
 TS_BUILD_REPO=${TS_BUILD_REPO:-.}  # https://code.edge.apple.com/trafficserver-build
-SRC_REPO=${SRC_REPO:-trafficserver}  # https://gitlab.sd.apple.com/trafficserver/trafficserver
+SRC_REPO=${SRC_REPO:-.}  # https://gitlab.sd.apple.com/trafficserver/trafficserver
 
 GIT_VERSION=notgit
 if [ -d ${SRC_REPO}/.git ]; then
     GIT_VERSION=$(git --git-dir=${SRC_REPO}/.git rev-parse HEAD)
 fi
 
-if [ "$SUBPROJECT" == "-plugins" ];then
-    VERSION=${TS_PLUGIN_VERSION}
-    VERSION_SEPARATOR="-"
-else
-    # TS_VERSION (eg -6.1.2-6.2)
-    VERSION=$(grep '\[TS_VERSION_S\]' $SRC_REPO/configure.ac | head -n 1 | perl -pe 's{^.*\],\[(\d+.\d+.\d+).*$}{$1}')
-    VERSION_SEPARATOR="/"
-fi
-
+# TS_VERSION (eg -6.1.2-6.2)
+VERSION=$(parse_version)
 VERSION_MAJOR=$(echo $VERSION | cut -d . -f 1)
 
 buildroot=build  # directory where the build is done, artifacts stored.
 
 # it is important that the tarball, when unpacked, produce a $srcdir top-directory
-srcdir=bazinga-trafficserver$SUBPROJECT-${VERSION}
+srcdir=bazinga-trafficserver-${VERSION}
 
 mkdir -p $buildroot
 
-if [ "$SUBPROJECT" == "-plugins" ];then
-    BZ_DEVEL_PKG=bazinga-trafficserver-devel$TS_VERSION
-    if [ "$VARIATION" =~ .*-asan.* ];then
-        BZ_DEVEL_PKG=bazinga-trafficserverasan-devel$TS_VERSION
-    fi
-
-    sudo yum -y install $BZ_DEVEL_PKG --enablerepo=bazinga-testing
-fi
-
-archive=bazinga-trafficserver${SUBPROJECT}-${VERSION}.tar.gz
+archive=bazinga-trafficserver-${VERSION}.tar.gz
 archive_path=rpmbuild/SOURCES/$archive
 
-specfilename=bazinga-trafficserver${SUBPROJECT}.spec
+specfilename=bazinga-trafficserver.spec
 
 # Copy spec file to the buildroot
-cp $TS_BUILD_REPO/apple/specs/bazinga-trafficserver${SUBPROJECT}.spec $buildroot/$specfilename
+cp $TS_BUILD_REPO/apple/specs/bazinga-trafficserver.spec $buildroot/$specfilename
+cp $TS_BUILD_REPO/apple/CMakeUserPresets.json .
+
 
 mkdir -p $(dirname $buildroot/$archive_path)
 
 # Make the archive used by rpmbuild:
-if [ -d ${SRC_REPO}/.git ]; then
-    WORKDIR=$PWD
-    pushd $SRC_REPO
-    git archive -o $WORKDIR/$buildroot/$archive_path --format=tar.gz --prefix "$srcdir/" HEAD
-    popd
+if [ $(uname) == "Darwin" ]; then
+    tar -c -z -f $buildroot/$archive_path --exclude .git -s ",^$SRC_REPO,$srcdir," $SRC_REPO
 else
-    if [ $(uname) == "Darwin" ]; then
-        tar -c -z -f $buildroot/$archive_path --exclude .git -s ",^$SRC_REPO,$srcdir," $SRC_REPO
-    else
-        tar -c -z -f $buildroot/$archive_path --exclude .git  --transform "s,^$SRC_REPO,$srcdir," $SRC_REPO
-    fi
+    tar -c -z -f $buildroot/$archive_path --exclude .git --exclude $buildroot --transform "s,^$SRC_REPO,$srcdir," $SRC_REPO
 fi
 
 RPMBUILD_FLAGS=()
-
-# -asan requires llvm
-if [[ "$VARIATION" =~ .*asan.* ]];then
-    RPMBUILD_FLAGS+=" --with asan"
-    RPMBUILD_FLAGS+=" --with llvm"
-fi
-
-# -lsan requires llvm
-if [[ "$VARIATION" =~ .*lsan.* ]];then
-    RPMBUILD_FLAGS+=" --with lsan"
-    RPMBUILD_FLAGS+=" --with llvm"
-fi
-
-# skip check for io_uring as it doesn't currently work in rio
-if [[ "$VARIATION" =~ .*io_uring.* ]];then
-    RPMBUILD_FLAGS+=" --with io_uring"
-    RPMBUILD_FLAGS+=" --nocheck"
-fi
-
-# -boringssl requires boringssl
-if [[ "$VARIATION" =~ .*boringssl.* ]];then
-    RPMBUILD_FLAGS+=" --with boringssl"
-fi
-
-# -quiche requires boringssl
-if [[ "$VARIATION" =~ .*quiche.* ]];then
-    RPMBUILD_FLAGS+=" --with quiche"
-    RPMBUILD_FLAGS+=" --with boringssl"
-fi
-
-if [[ "$VARIATION" =~ .*debug.* ]];then
-    RPMBUILD_FLAGS+=" --with debug"
-fi
 
 if [ "$INTERNAL_GITHUB_PR" != "" ]; then
     RPMBUILD_FLAGS+=" --with pr"
@@ -116,6 +65,9 @@ if [ "$RUN_AUTEST" != "" ]; then
     RPMBUILD_MODE=-bc
     RPMBUILD_FLAGS+=" --with tests"
 fi
+
+RPMBUILD_FLAGS+=" --with boringssl"
+RPMBUILD_FLAGS+=" --with io_uring"
 
 rpmbuild $RPMBUILD_MODE $buildroot/$specfilename \
          --define "_version ${VERSION}" \

@@ -10,70 +10,10 @@
 
 %define cxx_version 17
 
-%define make_verbose V=1
+%define make_verbose -v
 %define _cpp_flags %{nil}
 
-%if %{?_with_debug:0}%{!?_with_debug:1}
-%define _release_cflags -O3 -DNDEBUG
-%else
-%define _release_cflags %{nil}
-%endif
-
-%define _with_llvm_cppflags -std=c++%{cxx_version} -stdlib=libc++ -I/opt/bazinga/include/c++/v1
-%define _with_llvm_cflags %{_release_cflags} -fPIE -fstack-protector -fno-omit-frame-pointer -flto=thin -gdwarf-4
-%define _with_llvm_cxxflags %{_with_llvm_cflags}
-%define _with_llvm_ldflags -stdlib=libc++ -Wl,--build-id=sha1
-%define compiler_CC /opt/bazinga/bin/clang -fuse-ld=lld --ld-path=/opt/bazinga/bin/ld.lld
-%define compiler_CXX /opt/bazinga/bin/clang++ -fuse-ld=lld --ld-path=/opt/bazinga/bin/ld.lld
-
 %define base_package_name bazinga-trafficserver
-
-# for 10 builds, default to io_uring and malloc allocator
-# todo: also default to quiche and boringssl
-%if %{_version_major} == 10
-%define _enable_io_uring 1
-%define _enable_malloc_allocator "--enable-malloc-allocator"
-%endif
-
-%if %{?_with_asan:1}%{!?_with_asan:0}
-%define asan_release_prefix asan.
-%define _enable_asan --enable-asan
-%endif
-
-%if %{?_with_lsan:1}%{!?_with_lsan:0}
-%define lsan_release_prefix lsan.
-%define _enable_lsan --enable-lsan
-%endif
-
-%if %{?_with_io_uring:1}%{!?_with_io_uring:0}
-%define _enable_io_uring --enable-experimental-linux-io-uring
-%else
-%define _enable_io_uring %{nil}
-%endif
-
-%if %{?_with_tests:1}%{!?_with_tests:0}
-%define _enable_tests --enable-example-plugins
-# Use default layout for test run builds (allows for compiling upstream trees)
-%define _enable_layout %{nil}
-%define make_verbose %{nil}
-%else
-%define _enable_tests %{nil}
-%define _enable_layout --enable-layout=AppleBazinga
-%endif
-
-%if %{?_with_debug:1}%{!?_with_debug:0}
-%define debug_release_prefix debug.
-%define _enable_debug --enable-debug
-%else
-%define _enable_debug %{nil}
-%endif
-
-%if %{?_with_boringssl:1}%{!?_with_boringssl:0}
-%define boring_release_prefix boringssl.
-%define ssl_library /opt/bazinga/boringssl
-%else
-%define ssl_library /opt/bazinga
-%endif
 
 %if %{?_with_pr:1}%{!?_with_pr:0}
 %define pr_release_prefix intpr.%{_pr_id}.
@@ -152,7 +92,6 @@ Requires:	bazinga-brotli >= 1.0.6
 Requires(post):	chkconfig
 Requires(preun): chkconfig initscripts
 Requires(postun): initscripts
-Obsoletes: bazinga-trafficserver-tslua
 
 %description
 Apache Traffic Server is an OpenSource HTTP / HTTPS / HTTP/2 reverse,
@@ -193,105 +132,55 @@ Internal include files from ATS
 echo PR: %{_pr_id}
 %endif
 
-# hackity hack for lld
-sed -i -e 's/-Wl,--add-needed //g' m4/jemalloc.m4
-sed -i -e 's/ -Wl,--no-as-needed//g' m4/jemalloc.m4
-
-autoreconf -if
-export LD_LIBRARY_PATH=/opt/bazinga/lib64
-export LIBRARY_PATH=/opt/bazinga/lib64
-./configure \
-     --with-build-number=%{release} \
-     %{?_enable_layout} \
-     --prefix=%{_prefix} \
-%if %{?_with_asan:1}%{!?_with_asan:0} || %{?_with_lsan:1}%{!?_with_lsan:0}
-%else
-     --with-jemalloc=/opt/bazinga/include:/opt/bazinga/lib64 \
-%endif
-     --enable-experimental-plugins \
-     --disable-dependency-tracking \
-     --with-user=nobody \
-     --with-group=bazinga \
-%if %{?_with_quiche:1}%{!?_with_quiche:0}
-    --with-quiche=/workspace/quiche \
-%endif
-     --with-brotli=/opt/bazinga/include:/opt/bazinga/lib64 \
-     --with-openssl=%{ssl_library} \
-     %{?_enable_debug} \
-     %{?_enable_asan} \
-     %{?_enable_lsan} \
-     %{?_enable_io_uring} \
-     %{?_enable_tests} \
-     %{?_enable_malloc_allocator} \
-     CPPFLAGS="%{_cpp_flags} -DTCP_FASTOPEN=23 -DSO_REUSEPORT=15 -DTCP_NOTSENT_LOWAT=25 -I/opt/bazinga/include" \
-     CFLAGS="%{_with_llvm_cflags}" \
-     CXXFLAGS="%{_with_llvm_cxxflags} %{?_with_llvm_cppflags}" \
-     LDFLAGS="-pie -Wl,-z,relro -Wl,-z,now -L/opt/bazinga/lib64 -Wl,-rpath,%{ssl_library}/lib64 -Wl,-rpath,/opt/bazinga/lib64 %{?_with_llvm_ldflags}" \
-     AR=/opt/bazinga/bin/llvm-ar \
-     NM=/opt/bazinga/bin/llvm-nm \
-     RANLIB=/opt/bazinga/bin/llvm-ranlib \
-     CC="%{compiler_CC}" \
-     CXX="%{compiler_CXX}"
-
-# Hackup libtool to work with newer clangs
-sed -i -e 's/-lstdc++ //g' libtool
-sed -i -e 's/-fuse-linker-plugin/-fuse-ld=*/g' libtool
-
-make %{?_smp_mflags} %{make_verbose}
+cmake -B build -S . --preset bazinga -DCMAKE_INSTALL_PREFIX=%{_prefix}
+cmake --build build -j$(nproc)
 
 %check
 
 # Temporal hack to build ASan variant
-%if %{?_with_asan:1}%{!?_with_asan:0}
-export ASAN_OPTIONS=detect_leaks=0
-%endif
-
-make check %{?_smp_mflags} %{make_verbose}
+#%if %{?_with_asan:1}%{!?_with_asan:0}
+#export ASAN_OPTIONS=detect_leaks=0
+#%endif
+#
+#make check %{?_smp_mflags} %{make_verbose}
 
 %install
 rm -rf $RPM_BUILD_ROOT
-make DESTDIR=$RPM_BUILD_ROOT install
+DESTDIR=$RPM_BUILD_ROOT cmake --install build
 
-# Currently we have 5 or 4 "bazinga" libraries we link against.
-# If the next line fails check the output of ldd and see if we're missing something (did compiler image change?)
-ldd $RPM_BUILD_ROOT/opt/bazinga/bin/traffic_server
-%if %{?_with_asan:1}%{!?_with_asan:0} || %{?_with_lsan:1}%{!?_with_lsan:0}
-# jemalloc and asan is orthogonal
-[ $(ldd $RPM_BUILD_ROOT/opt/bazinga/bin/traffic_server | grep bazinga | egrep -E 'crypto.so|libc\+\+.so|libc\+\+abi.so|ssl.so' | wc -l) -eq 4 ]
-%else
-[ $(ldd $RPM_BUILD_ROOT/opt/bazinga/bin/traffic_server | grep bazinga | egrep -E 'crypto.so|libc\+\+.so|libc\+\+abi.so|ssl.so|jemalloc.so' | wc -l) -eq 5 ]
-%endif
-
-# ensure compress.so links against brotli (2 libraries)
-ldd $RPM_BUILD_ROOT/opt/bazinga/lib/trafficserver/plugins/compress.so
-[ $(ldd $RPM_BUILD_ROOT/opt/bazinga/lib/trafficserver/plugins/compress.so | grep bazinga | egrep -E 'brotli' | wc -l) -eq 2 ]
-
+## Currently we have 5 or 4 "bazinga" libraries we link against.
+## If the next line fails check the output of ldd and see if we're missing something (did compiler image change?)
+#ldd $RPM_BUILD_ROOT/opt/bazinga/bin/traffic_server
+#%if %{?_with_asan:1}%{!?_with_asan:0}
+## jemalloc and asan is orthogonal
+#[ $(ldd $RPM_BUILD_ROOT/opt/bazinga/bin/traffic_server | grep bazinga | egrep -E 'crypto.so|libc\+\+.so|libc\+\+abi.so|ssl.so' | wc -l) -eq 4 ]
+#%else
+#[ $(ldd $RPM_BUILD_ROOT/opt/bazinga/bin/traffic_server | grep bazinga | egrep -E 'crypto.so|libc\+\+.so|libc\+\+abi.so|ssl.so|jemalloc.so' | wc -l) -eq 5 ]
+#%endif
+#
+## ensure compress.so links against brotli (2 libraries)
+#ldd $RPM_BUILD_ROOT/opt/bazinga/lib/trafficserver/plugins/compress.so
+#[ $(ldd $RPM_BUILD_ROOT/opt/bazinga/lib/trafficserver/plugins/compress.so | grep bazinga | egrep -E 'brotli' | wc -l) -eq 2 ]
+#
 mkdir -p $RPM_BUILD_ROOT/usr/lib/systemd/system
-mv %{_builddir}/%{srcdir}/rc/trafficserver.service $RPM_BUILD_ROOT/usr/lib/systemd/system/trafficserver.service
+mv %{_builddir}/%{srcdir}/build/rc/trafficserver.service $RPM_BUILD_ROOT/usr/lib/systemd/system/trafficserver.service
 
 mkdir -p $RPM_BUILD_ROOT%{_prefix}/include/internal
 
-cp    %{_builddir}/%{srcdir}/include/ink_autoconf.h $RPM_BUILD_ROOT%{_prefix}/include/internal
 cp -r %{_builddir}/%{srcdir}/include/shared $RPM_BUILD_ROOT%{_prefix}/include/internal
 cp -r %{_builddir}/%{srcdir}/include/ts $RPM_BUILD_ROOT%{_prefix}/include/internal
 cp -r %{_builddir}/%{srcdir}/include/tscore $RPM_BUILD_ROOT%{_prefix}/include/internal
 cp -r %{_builddir}/%{srcdir}/include/tscpp $RPM_BUILD_ROOT%{_prefix}/include/internal
-
-# Selectively take proxy and iocore headers and flatten for easier inclusion
-find %{_builddir}/%{srcdir}/proxy -name \*.h -type f | cpio -pdmv $RPM_BUILD_ROOT%{_prefix}/include/internal
-find %{_builddir}/%{srcdir}/iocore -name \*.h -type f | cpio -pdmv $RPM_BUILD_ROOT%{_prefix}/include/internal
-
-find $RPM_BUILD_ROOT%{_prefix}/include/internal -name Makefile\* | xargs rm
+cp -r %{_builddir}/%{srcdir}/include/proxy $RPM_BUILD_ROOT%{_prefix}/include/internal
+cp -r %{_builddir}/%{srcdir}/include/iocore $RPM_BUILD_ROOT%{_prefix}/include/internal
 
 # We don't want
 #	libtool archives
 #	share
-rm -f $RPM_BUILD_ROOT%{_prefix}/lib/trafficserver/*.la
-rm -f $RPM_BUILD_ROOT%{_prefix}/lib/trafficserver/plugins/*.la
 rm -f $RPM_BUILD_ROOT%{_prefix}/lib/trafficserver/plugin_*
 rm -rf $RPM_BUILD_ROOT%{_prefix}/share
 rm -rf $RPM_BUILD_ROOT%{_prefix}/lib64
-rmdir $RPM_BUILD_ROOT/var/trafficserver
+#rmdir $RPM_BUILD_ROOT/var/trafficserver
 
 
 # The clean section is only needed for EPEL and Fedora < 13
@@ -308,9 +197,8 @@ rm -rf $RPM_BUILD_ROOT
 %attr(0755,root,root) %dir %{_prefix}/lib/trafficserver
 %attr(0755,root,root) %dir %{_prefix}/lib/trafficserver/plugins
 %attr(0755,root,root) %{_prefix}/lib/trafficserver/*.so*
-%attr(0755,root,root) %{_prefix}/lib/trafficserver/pkgconfig/*.pc
+%attr(0755,root,root) %{_prefix}/lib/trafficserver/*.a
 %attr(0755,root,root) %{_prefix}/lib/trafficserver/plugins/*.so
-%exclude %{_prefix}/bin/tsxs
 %exclude %{_prefix}/include
 
 %config(noreplace) %{_prefix}/etc/trafficserver/*
@@ -318,7 +206,7 @@ rm -rf $RPM_BUILD_ROOT
 %attr(0755, root, root) %config(noreplace) /usr/lib/systemd/system/trafficserver.service
 
 %attr(0755, bazinga, bazinga) %dir %{_prefix}/etc/trafficserver
-%attr(0444, bazinga, bazinga) %{_prefix}/etc/trafficserver/body_factory/default/*
+#%attr(0444, bazinga, bazinga) %{_prefix}/etc/trafficserver/body_factory/default/*
 
 %dir /var/log/trafficserver
 %dir /var/run/trafficserver
@@ -327,7 +215,6 @@ rm -rf $RPM_BUILD_ROOT
 %files devel
 %exclude %{_prefix}/include/internal
 %{_prefix}/include
-%attr(0755,root,root) %{_prefix}/bin/tsxs
 %attr(0755,root,root) %dir %{_prefix}/lib
 
 %files internal

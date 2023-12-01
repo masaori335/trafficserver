@@ -53,22 +53,19 @@ echo VARIATION: $VARIATION
 
 RIO_BUILD_NUMBER=${RIO_BUILD_NUMBER:-1}
 
-# Setup tree
-if [ ! -f trafficserver/configure.ac ]; then
-  git clone -q git@github.pie.apple.com:ats/trafficserver.git
-fi
+# git checkout $BRANCH
+# 
+# if [[ ! -z $PR_ID && $PR_ID -gt 0 ]]; then
+#   git fetch origin pull/${PR_ID}/head
+#   git merge FETCH_HEAD -m 'Auto Merge: PR ${PR_ID}'
+# fi
+# 
 
-cd trafficserver
-git checkout $BRANCH
+function parse_version() {
+    awk -F ' |)' '/^project/ { print $3 }' CMakeLists.txt
+}
 
-if [[ ! -z $PR_ID && $PR_ID -gt 0 ]]; then
-  git fetch origin pull/${PR_ID}/head
-  git merge FETCH_HEAD -m 'Auto Merge: PR ${PR_ID}'
-fi
-
-cd ..
-
-VERSION=$(grep '\[TS_VERSION_S\]' trafficserver/configure.ac | head -n 1 | perl -pe 's{^.*\],\[(\d+.\d+.\d+).*$}{$1}')
+VERSION=$(parse_version)
 COMMIT_TREE_LENGTH=$(git --git-dir=trafficserver/.git rev-list HEAD 2>/dev/null | wc -l)
 if [ -z ${BREAK_FIX} ]; then
   BUILD_VERSION="${RIO_BUILD_NUMBER}.${COMMIT_TREE_LENGTH}"
@@ -86,10 +83,8 @@ if [ "$VARIATION" != "-llvm" ]; then
     export GIT_TAG=bazinga/$VERSION/${VARIATION:1}.$BUILD_VERSION
 fi
 
-if [[ "$VARIATION" =~ .*boringssl.* ]]; then
-    LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-boringssl-${BORINGSSL_VERSION}
-    LD_LIBRARY_PATH=/lib64 yum erase -d1 -y bazinga-openssl-devel
-fi
+LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-boringssl-${BORINGSSL_VERSION}
+LD_LIBRARY_PATH=/lib64 yum erase -d1 -y bazinga-openssl-devel
 
 # Master builds enable io_uring for 10
 LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-liburing-devel-${LIBURING_VERSION}

@@ -1,0 +1,47 @@
+{
+  "version": 2,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "clang",
+      "hidden": true,
+
+      "environment": {
+        "LDFLAGS": "-fuse-ld=lld --ld-path=/opt/bazinga/bin/ld.lld -Wl,--build-id=sha1",
+        "CXXFLAGS": "-march=native -fPIE -fstack-protector -fno-omit-frame-pointer -flto=thin -gdwarf-4 -stdlib=libc++ -I/opt/bazinga/include/c++/v1",
+        "CC": "/opt/bazinga/bin/clang",
+        "CXX": "/opt/bazinga/bin/clang++"
+      }
+    },
+    {
+      "name": "bazinga",
+      "inherits": ["clang"],
+      "generator": "Ninja",
+      "binaryDir": "build-bazinga",
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX": "/opt/bazinga",
+        "CMAKE_INSTALL_LIBDIR": "lib/trafficserver",
+        "CMAKE_INSTALL_LIBEXECDIR": "lib/trafficserver/plugins",
+        "CMAKE_INSTALL_LOGDIR": "/var/log/trafficserver",
+        "CMAKE_INSTALL_CACHEDIR": "/var/cache/trafficserver",
+        "CMAKE_INSTALL_RUNSTATEDIR": "/var/run/trafficserver",
+        "CMAKE_BUILD_TYPE": "Release",
+        "jemalloc_ROOT": "/opt/bazinga",
+        "ENABLE_JEMALLOC": true,
+        "OPENSSL_ROOT_DIR": "/opt/bazinga/boringssl",
+        "USE_IOURING": true,
+        "ENABLE_MALLOC_ALLOCATOR": true,
+        "BUILD_TESTING": false,
+        "BUILD_EXPERIMENTAL_PLUGINS": true,
+        "WITH_USER": "bazinga",
+        "WITH_GROUP": "bazinga"
+      }
+    }
+  ]
+}
+
+
