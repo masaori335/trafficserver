@@ -34,7 +34,7 @@
 #include "P_SSLConfig.h"
 #include "P_SSLUtils.h"
 #include "SSLStats.h"
-#include "api/FetchSM.h"
+#include "proxy/FetchSM.h"
 
 // Macros for ASN1 and the code in TS_OCSP_* functions were borrowed from OpenSSL 3.1.0 (a92271e03a8d0dee507b6f1e7f49512568b2c7ad),
 // and were modified to make them compilable with BoringSSL and C++ compiler.
@@ -751,13 +751,8 @@ stapling_get_issuer(SSL_CTX *ssl_ctx, X509 *x)
   for (int i = 0; i < static_cast<int>(sk_X509_num(extra_certs)); i++) {
     issuer = sk_X509_value(extra_certs, i);
     if (X509_check_issued(issuer, x) == X509_V_OK) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000
-      CRYPTO_add(&issuer->references, 1, CRYPTO_LOCK_X509);
-      return issuer;
-#else
       X509_up_ref(issuer);
       goto end;
-#endif
     }
   }
 

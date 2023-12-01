@@ -125,6 +125,7 @@ endif()
 option(ENABLE_AUTEST "Setup autest (default OFF)")
 option(ENABLE_BENCHMARKS "Build benchmarks (default OFF)")
 option(EXTERNAL_YAML_CPP "Use external yaml-cpp (default OFF)")
+option(EXTERNAL_LIBSWOC "Use external libswoc (default OFF)")
 
 # Setup user
 # NOTE: this is the user trafficserver runs as
@@ -191,10 +192,6 @@ set(MAX_THREADS_PER_TYPE
     3072
     CACHE STRING "Max number of threads per event type (default 3072)"
 )
-set(TS_USE_SET_RBIO
-    1
-    CACHE STRING "Use openssl set_rbio (default 1)"
-)
 set(TS_USE_DIAGS
     1
     CACHE STRING "Use diags (default 1)"
@@ -215,16 +212,8 @@ include(CheckTypeSize)
 include(CheckSourceCompiles)
 include(CheckStructHasMember)
 
-check_include_file(alloca.h HAVE_ALLOCA_H)
-check_include_file(cpio.h HAVE_CPIO_H)
-check_include_file(dlfcn.h HAVE_DLFCN_H)
-check_include_file(float.h HAVE_FLOAT_H)
-check_include_file(stdlib.h HAVE_STDLIB_H)
-check_include_file(stdint.h HAVE_STDINT_H)
 check_include_file(ifaddrs.h HAVE_IFADDRS_H)
-check_include_file(inttypes.h HAVE_INTTYPES_H)
 check_include_file(string.h HAVE_STRING_H)
-check_include_file(linux/major.h HAVE_LINUX_MAJOR_H)
 check_include_file(malloc.h HAVE_MALLOC_H)
 check_include_file(mcheck.h HAVE_MCHECK_H)
 check_include_file(machine/endian.h HAVE_MACHINE_ENDIAN_H)
@@ -246,10 +235,6 @@ check_include_file(sys/sysctl.h HAVE_SYS_SYSCTL_H)
 check_include_file(sys/mman.h HAVE_SYS_MMAN_H)
 check_include_file(sys/mount.h HAVE_SYS_MOUNT_H)
 check_include_file(sys/param.h HAVE_SYS_PARAM_H)
-check_include_file(sysexits.h HAVE_SYSEXITS_H)
-check_include_file(stropts.h HAVE_STROPTS_H)
-check_include_file(unistd.h HAVE_UNISTD_H)
-check_include_file(values.h HAVE_VALUES_H)
 check_include_file(netinet/in.h HAVE_NETINET_IN_H)
 check_include_file(netinet/in_systm.h HAVE_NETINET_IN_SYSTM_H)
 check_include_file(netinet/tcp.h HAVE_NETINET_TCP_H)
@@ -259,7 +244,6 @@ check_include_file(netdb.h HAVE_NETDB_H)
 check_include_file(arpa/inet.h HAVE_ARPA_INET_H)
 check_include_file(arpa/nameser.h HAVE_ARPA_NAMESER_H)
 check_include_file(arpa/nameser_compat.h HAVE_ARPA_NAMESER_COMPAT_H)
-check_include_file(siginfo.h HAVE_SIGINFO_H)
 check_include_file(endian.h HAVE_ENDIAN_H)
 
 # Find libraries
@@ -357,6 +341,11 @@ if(EXTERNAL_YAML_CPP)
   )
 endif()
 
+if(EXTERNAL_LIBSWOC)
+  message(STATUS "Looking for external libswoc")
+  find_package(libswoc REQUIRED)
+endif()
+
 # curl is used in traffic_top
 find_package(CURL)
 set(HAVE_CURL ${CURL_FOUND})
@@ -368,6 +357,7 @@ include(ConfigureTransparentProxy)
 include(find_ccache)
 
 # Check for IO faculties
+set(CMAKE_REQUIRED_FLAGS -fPIC)
 check_symbol_exists(IN6_IS_ADDR_UNSPECIFIED "netinet/in.h" TS_HAS_IN6_IS_ADDR_UNSPECIFIED)
 check_symbol_exists(IP_TOS "netinet/ip.h" TS_HAS_IP_TOS)
 check_symbol_exists(SO_MARK "sys/socket.h" TS_HAS_SO_MARK)
@@ -460,6 +450,7 @@ check_symbol_exists(SSL_get_all_async_fds openssl/ssl.h TS_USE_TLS_ASYNC)
 check_symbol_exists(TLS1_3_VERSION "openssl/ssl.h" TS_USE_TLS13)
 check_symbol_exists(MD5_Init "openssl/md5.h" HAVE_MD5_INIT)
 check_symbol_exists(sysctlbyname "sys/sysctl.h" HAVE_SYSCTLBYNAME)
+unset(CMAKE_REQUIRED_FLAGS)
 
 set(HAVE_SSL_READ_EARLY_DATA ${TS_HAS_TLS_EARLY_DATA})
 
@@ -568,15 +559,6 @@ endif()
 
 set(rel_cachedir var/trafficserver)
 
-if(EXISTS "${PROJECT_SOURCE_DIR}/include/ink_autoconf.h")
-  message(STATUS "Autoconf build detected in source tree. Removing autoconf headers.")
-endif()
-
-# In-tree autoconf configuration causes duplicate definitions of some symbols
-# in generated headers. If the files don't exist, no error is emitted.
-file(REMOVE "${PROJECT_SOURCE_DIR}/include/tscore/ink_config.h")
-file(REMOVE "${PROJECT_SOURCE_DIR}/include/ink_autoconf.h")
-
 configure_file(configs/storage.config.default.in configs/storage.config.default)
 configure_file(configs/records.yaml.default.in configs/records.yaml.default)
 configure_file(include/tscore/ink_config.h.cmake.in include/tscore/ink_config.h)
@@ -676,9 +658,20 @@ add_custom_target(
   VERBATIM
 )
 
+# Leave autopep8 for historical reasons, but have it call yapf. It will not do
+# to have conflicting Python formatting targets. This can be removed when at
+# least CI is updated to use yapf instead of autopep8.
 add_custom_target(
   autopep8
-  ${CMAKE_SOURCE_DIR}/tools/autopep8.sh ${CMAKE_SOURCE_DIR}
+  ${CMAKE_SOURCE_DIR}/tools/yapf.sh ${CMAKE_SOURCE_DIR}
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  COMMENT "formatting python files"
+  VERBATIM
+)
+
+add_custom_target(
+  yapf
+  ${CMAKE_SOURCE_DIR}/tools/yapf.sh ${CMAKE_SOURCE_DIR}
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
   COMMENT "formatting python files"
   VERBATIM
@@ -699,9 +692,13 @@ add_custom_target(
   COMMENT "formatting all files"
 )
 
-if(IS_DIRECTORY ${CMAKE_SOURCE_DIR}/.git AND NOT EXISTS ${CMAKE_SOURCE_DIR}/.git/hooks/pre-commit)
-  message(STATUS "Installing github hook")
+if(IS_DIRECTORY ${CMAKE_SOURCE_DIR}/.git)
+  file(TIMESTAMP ${CMAKE_SOURCE_DIR}/.git/hooks/pre-commit PRE_COMMIT_BEFORE)
   configure_file(${CMAKE_SOURCE_DIR}/tools/git/pre-commit ${CMAKE_SOURCE_DIR}/.git/hooks/pre-commit COPYONLY)
+  file(TIMESTAMP ${CMAKE_SOURCE_DIR}/.git/hooks/pre-commit PRE_COMMIT_AFTER)
+  if(NOT PRE_COMMIT_BEFORE STREQUAL PRE_COMMIT_AFTER)
+    message(STATUS "Installing github hook")
+  endif()
 endif()
 
 # Add a target to run the rat tool.  If java isn't installed this will fail, but its not normally run

@@ -157,7 +157,7 @@ struct EventProcessorListener : Catch::TestEventListenerBase {
 #endif
 
     std::string src_dir       = std::string(TS_ABS_TOP_SRCDIR) + "/src/iocore/cache/unit_tests";
-    Layout::get()->sysconfdir = src_dir;
+    Layout::get()->sysconfdir = std::move(src_dir);
   }
 };
 CATCH_REGISTER_LISTENER(EventProcessorListener);
@@ -310,6 +310,9 @@ CacheReadTest::read_event(int event, void *e)
     this->vc = static_cast<CacheVC *>(e);
     /* fall through */
   case CACHE_EVENT_OPEN_READ_FAILED:
+    this->process_event(event);
+    break;
+  case CACHE_EVENT_OPEN_READ_RWW:
     this->process_event(event);
     break;
   case VC_EVENT_READ_READY: {

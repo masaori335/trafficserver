@@ -18,6 +18,7 @@
 
 import os
 import subprocess
+
 Test.Summary = '''
 Test transactions and sessions for http1, making sure the two continuations catch the same number of hooks.
 '''
@@ -30,16 +31,17 @@ server = Test.MakeOriginServer("server")
 Test.testName = ""
 request_header = {"headers": "GET / HTTP/1.1\r\nHost: double_h2.test\r\n\r\n", "timestamp": "1469733493.993", "body": ""}
 # expected response from the origin server
-response_header = {"headers": "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length:0\r\n\r\n",
-                   "timestamp": "1469733493.993", "body": ""}
+response_header = {
+    "headers": "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length:0\r\n\r\n",
+    "timestamp": "1469733493.993",
+    "body": ""
+}
 
 # add response to the server dictionary
 server.addResponse("sessionfile.log", request_header, response_header)
 
 # add port and remap rule
-ts.Disk.remap_config.AddLine(
-    'map / http://127.0.0.1:{0}'.format(server.Variables.Port)
-)
+ts.Disk.remap_config.AddLine('map / http://127.0.0.1:{0}'.format(server.Variables.Port))
 
 ts.Disk.records_config.update({
     'proxy.config.diags.debug.enabled': 1,
@@ -47,8 +49,7 @@ ts.Disk.records_config.update({
 })
 
 # add plugin to assist with test metrics
-Test.PrepareTestPlugin(os.path.join(Test.Variables.AtsTestPluginsDir,
-                                    'continuations_verify.so'), ts)
+Test.PrepareTestPlugin(os.path.join(Test.Variables.AtsTestPluginsDir, 'continuations_verify.so'), ts)
 
 comparator_command = '''
 if test "`traffic_ctl metric get continuations_verify.{0}.close.1 | cut -d ' ' -f 2`" -eq "`traffic_ctl metric get continuations_verify.{0}.close.2 | cut -d ' ' -f 2`" ; then\
@@ -72,8 +73,7 @@ tr.Processes.Default.Env = ts.Env
 tr.Processes.Default.ReturnCode = Any(0, 2)
 
 # Execution order is: ts/server, ps(curl cmds), Default Process.
-tr.Processes.Default.StartBefore(
-    server, ready=When.PortOpen(server.Variables.Port))
+tr.Processes.Default.StartBefore(server, ready=When.PortOpen(server.Variables.Port))
 tr.Processes.Default.StartBefore(Test.Processes.ts)
 ts.StartAfter(*ps)
 server.StartAfter(*ps)
@@ -81,23 +81,33 @@ tr.StillRunningAfter = ts
 
 # Signal that all the curl processes have completed and poll for done metric
 tr = Test.AddTestRun("Curl Done")
-tr.Processes.Default.Command = (
-    "traffic_ctl plugin msg done done ; "
-    "N=60 ; "
-    "while (( N > 0 )) ; "
-    "do "
-    "sleep 1 ; "
-    'if [[ "$$( traffic_ctl metric get continuations_verify.test.done )" = '
-    '"continuations_verify.test.done 1" ]] ; then exit 0 ; '
-    "fi ; "
-    "let N=N-1 ; "
-    "done ; "
-    "echo TIMEOUT ; "
-    "exit 1"
-)
+tr.Processes.Default.Command = "traffic_ctl plugin msg done done"
 tr.Processes.Default.ReturnCode = 0
 tr.Processes.Default.Env = ts.Env
 tr.StillRunningAfter = ts
+
+
+def make_done_stat_ready(tsenv):
+
+    def done_stat_ready(process, hasRunFor, **kw):
+        retval = subprocess.run(
+            "traffic_ctl metric get continuations_verify.test.done",
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=tsenv)
+        return retval.returncode == 0 and b'1' in retval.stdout
+
+    return done_stat_ready
+
+
+watcher = Test.Processes.Process("watcher", "sleep 20")
+
+tr = Test.AddTestRun("Wait for stats")
+tr.Processes.Default.StartBefore(watcher, ready=make_done_stat_ready(ts.Env))
+tr.Processes.Default.Command = "traffic_ctl metric get continuations_verify.test.done"
+tr.Processes.Default.ReturnCode = 0
+tr.Processes.Default.Env = ts.Env
 
 # number of sessions/transactions opened and closed are equal
 tr = Test.AddTestRun("Check Ssn")

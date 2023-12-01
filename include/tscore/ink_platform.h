@@ -60,25 +60,16 @@
 struct ifafilt;
 #include <net/if.h>
 
-#ifdef HAVE_STDLIB_H
 #include <stdlib.h> // NOLINT(modernize-deprecated-headers)
-#endif
-#include <ctype.h> // NOLINT(modernize-deprecated-headers)
-#ifdef HAVE_STRING_H
+#include <ctype.h>  // NOLINT(modernize-deprecated-headers)
 #include <string.h> // NOLINT(modernize-deprecated-headers)
-#endif
-#ifdef HAVE_STRINGS_H
-#include <strings.h>
-#endif
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
 #ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
 #endif
-#ifdef HAVE_UNISTD_H
 #include <unistd.h>
-#endif
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
 #endif
@@ -108,9 +99,6 @@ struct ifafilt;
 #endif
 
 #include <signal.h> // NOLINT(modernize-deprecated-headers)
-#ifdef HAVE_SIGINFO_H
-#include <siginfo.h>
-#endif
 
 #if TS_USE_EPOLL
 #include <sys/epoll.h>
@@ -119,22 +107,8 @@ struct ifafilt;
 #include <sys/event.h>
 #endif
 
-#ifdef HAVE_VALUES_H
-#include <values.h>
-#endif
-#ifdef HAVE_ALLOCA_H
+#if __has_include(<alloca.h>)
 #include <alloca.h>
-#endif
-
-#ifdef HAVE_CPIO_H
-#include <cpio.h>
-#if defined(MAGIC)
-#undef MAGIC
-#endif
-#endif
-
-#ifdef HAVE_STROPTS_H
-#include <stropts.h>
 #endif
 
 #include "tscore/ink_endian.h"
@@ -164,13 +138,9 @@ using in_addr_t = unsigned int;
 #include <sys/systeminfo.h>
 #endif
 
-#ifdef HAVE_DLFCN_H
 #include <dlfcn.h>
-#endif
 
-#ifdef HAVE_FLOAT_H
 #include <float.h> // NOLINT(modernize-deprecated-headers)
-#endif
 
 #ifdef HAVE_SYS_SYSMACROS_H
 #include <sys/sysmacros.h>
@@ -188,15 +158,6 @@ using in_addr_t = unsigned int;
   4096 // instead of PATH_MAX which is inconsistent
        // on various OSs (linux-4096,osx/bsd-1024,
        //                 windows-260,etc)
-#endif
-
-// This is a little bit of a hack for now, until MPTCP has landed upstream in Linux land.
-#ifndef MPTCP_ENABLED
-#if defined(__linux__)
-#define MPTCP_ENABLED 42
-#else
-#define MPTCP_ENABLED 0
-#endif
 #endif
 
 // If kernel headers do not support IPPROTO_MPTCP definition

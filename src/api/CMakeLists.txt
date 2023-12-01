@@ -16,8 +16,7 @@
 #######################
 
 # plugin api *only*
-add_library(tsapi SHARED InkAPI.cc InkIOCoreAPI.cc FetchSM.cc # OSCP stapling
-)
+add_library(tsapi SHARED InkAPI.cc InkIOCoreAPI.cc)
 add_library(ts::tsapi ALIAS tsapi)
 
 set(TSAPI_PUBLIC_HEADERS
@@ -31,7 +30,7 @@ set(TSAPI_PUBLIC_HEADERS
     ${PROJECT_SOURCE_DIR}/include/ts/experimental.h
 )
 
-target_link_libraries(tsapi PRIVATE libswoc yaml-cpp::yaml-cpp PCRE::PCRE OpenSSL::SSL)
+target_link_libraries(tsapi PRIVATE libswoc::libswoc yaml-cpp::yaml-cpp PCRE::PCRE OpenSSL::SSL)
 set_target_properties(tsapi PROPERTIES PUBLIC_HEADER "${TSAPI_PUBLIC_HEADERS}")
 
 # Items common between api and other ts libraries

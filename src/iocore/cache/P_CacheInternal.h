@@ -147,7 +147,7 @@ extern CacheSync *cacheDirSync;
 // Function Prototypes
 int cache_write(CacheVC *, CacheHTTPInfoVector *);
 int get_alternate_index(CacheHTTPInfoVector *cache_vector, CacheKey key);
-CacheEvacuateDocVC *new_DocEvacuator(int nbytes, Stripe *vol);
+CacheEvacuateDocVC *new_DocEvacuator(int nbytes, Stripe *stripe);
 
 // inline Functions
 
@@ -174,14 +174,14 @@ free_CacheVC(CacheVC *cont)
   static DbgCtl dbg_ctl{"cache_free"};
   Dbg(dbg_ctl, "free %p", cont);
   ProxyMutex *mutex = cont->mutex.get();
-  Stripe *vol       = cont->vol;
+  Stripe *stripe    = cont->stripe;
 
-  if (vol) {
+  if (stripe) {
     Metrics::Gauge::decrement(cache_rsb.status[cont->op_type].active);
-    Metrics::Gauge::decrement(vol->cache_vol->vol_rsb.status[cont->op_type].active);
+    Metrics::Gauge::decrement(stripe->cache_vol->vol_rsb.status[cont->op_type].active);
     if (cont->closed > 0) {
       Metrics::Counter::increment(cache_rsb.status[cont->op_type].success);
-      Metrics::Counter::increment(vol->cache_vol->vol_rsb.status[cont->op_type].success);
+      Metrics::Counter::increment(stripe->cache_vol->vol_rsb.status[cont->op_type].success);
     } // else abort,cancel
   }
   ink_assert(mutex->thread_holding == this_ethread());
@@ -212,7 +212,7 @@ free_CacheVC(CacheVC *cont)
   cont->writer_buf.clear();
   cont->alternate_index = CACHE_ALT_INDEX_DEFAULT;
 
-  ats_free(cont->scan_vol_map);
+  ats_free(cont->scan_stripe_map);
 
   memset((char *)&cont->vio, 0, cont->size_to_init);
 #ifdef DEBUG
@@ -226,7 +226,7 @@ inline int
 CacheVC::calluser(int event)
 {
   recursive++;
-  ink_assert(!vol || this_ethread() != vol->mutex->thread_holding);
+  ink_assert(!stripe || this_ethread() != stripe->mutex->thread_holding);
   vio.cont->handleEvent(event, (void *)&vio);
   recursive--;
   if (closed) {
@@ -240,7 +240,7 @@ inline int
 CacheVC::callcont(int event)
 {
   recursive++;
-  ink_assert(!vol || this_ethread() != vol->mutex->thread_holding);
+  ink_assert(!stripe || this_ethread() != stripe->mutex->thread_holding);
   _action.continuation->handleEvent(event, this);
   recursive--;
   if (closed) {
@@ -310,7 +310,7 @@ CacheVC::handleWriteLock(int /* event ATS_UNUSED */, Event *e)
   cancel_trigger();
   int ret = 0;
   {
-    CACHE_TRY_LOCK(lock, vol->mutex, mutex->thread_holding);
+    CACHE_TRY_LOCK(lock, stripe->mutex, mutex->thread_holding);
     if (!lock.is_locked()) {
       set_agg_write_in_progress();
       trigger = mutex->thread_holding->schedule_in_local(this, HRTIME_MSECONDS(cache_config_mutex_retry_delay));
@@ -343,7 +343,7 @@ CacheVC::writer_done()
 {
   OpenDirEntry *cod = od;
   if (!cod) {
-    cod = vol->open_read(&first_key);
+    cod = stripe->open_read(&first_key);
   }
   CacheVC *w = (cod) ? cod->writers.head : nullptr;
   // If the write vc started after the reader, then its not the
@@ -369,7 +369,7 @@ Stripe::close_write(CacheVC *cont)
 inline int
 Stripe::open_write(CacheVC *cont, int allow_if_writers, int max_writers)
 {
-  Stripe *vol    = this;
+  Stripe *stripe = this;
   bool agg_error = false;
   if (!cont->f.remove) {
     agg_error = (!cont->f.update && this->get_agg_todo_size() > cache_config_agg_write_backlog);
@@ -380,7 +380,7 @@ Stripe::open_write(CacheVC *cont, int allow_if_writers, int max_writers)
 
   if (agg_error) {
     Metrics::Counter::increment(cache_rsb.write_backlog_failure);
-    Metrics::Counter::increment(vol->cache_vol->vol_rsb.write_backlog_failure);
+    Metrics::Counter::increment(stripe->cache_vol->vol_rsb.write_backlog_failure);
 
     return ECACHE_WRITE_FAIL;
   }
@@ -451,36 +451,36 @@ Stripe::close_read_lock(CacheVC *cont)
 }
 
 inline int
-dir_delete_lock(CacheKey *key, Stripe *vol, ProxyMutex *m, Dir *del)
+dir_delete_lock(CacheKey *key, Stripe *stripe, ProxyMutex *m, Dir *del)
 {
   EThread *thread = m->thread_holding;
-  CACHE_TRY_LOCK(lock, vol->mutex, thread);
+  CACHE_TRY_LOCK(lock, stripe->mutex, thread);
   if (!lock.is_locked()) {
     return -1;
   }
-  return dir_delete(key, vol, del);
+  return dir_delete(key, stripe, del);
 }
 
 inline int
-dir_insert_lock(CacheKey *key, Stripe *vol, Dir *to_part, ProxyMutex *m)
+dir_insert_lock(CacheKey *key, Stripe *stripe, Dir *to_part, ProxyMutex *m)
 {
   EThread *thread = m->thread_holding;
-  CACHE_TRY_LOCK(lock, vol->mutex, thread);
+  CACHE_TRY_LOCK(lock, stripe->mutex, thread);
   if (!lock.is_locked()) {
     return -1;
   }
-  return dir_insert(key, vol, to_part);
+  return dir_insert(key, stripe, to_part);
 }
 
 inline int
-dir_overwrite_lock(CacheKey *key, Stripe *vol, Dir *to_part, ProxyMutex *m, Dir *overwrite, bool must_overwrite = true)
+dir_overwrite_lock(CacheKey *key, Stripe *stripe, Dir *to_part, ProxyMutex *m, Dir *overwrite, bool must_overwrite = true)
 {
   EThread *thread = m->thread_holding;
-  CACHE_TRY_LOCK(lock, vol->mutex, thread);
+  CACHE_TRY_LOCK(lock, stripe->mutex, thread);
   if (!lock.is_locked()) {
     return -1;
   }
-  return dir_overwrite(key, vol, to_part, overwrite, must_overwrite);
+  return dir_overwrite(key, stripe, to_part, overwrite, must_overwrite);
 }
 
 void inline rand_CacheKey(CacheKey *next_key)
