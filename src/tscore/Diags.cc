@@ -34,7 +34,9 @@
 
  ****************************************************************************/
 
-#include "tscpp/util/ts_bw_format.h"
+#include "api/DbgCtl.h"
+#include "tscore/DiagsTypes.h"
+#include "api/ts_bw_format.h"
 #include "tscore/ink_platform.h"
 #include "tscore/ink_memory.h"
 #include "tscore/ink_defs.h"
@@ -46,6 +48,7 @@
 #include "tscore/Regression.h"
 #include "tscore/Diags.h"
 #include "ts/ts.h"
+#include <string_view>
 
 int DiagsConfigState::_enabled[2] = {0, 0};
 
@@ -72,7 +75,7 @@ DiagsPtr::set(Diags *new_ptr)
 {
   _diags_ptr = new_ptr;
 
-  DbgCtl::update();
+  DebugInterface::set_instance(new_ptr);
 }
 
 static bool regression_testing_on = false;
@@ -81,23 +84,6 @@ void
 tell_diags_regression_testing_is_on()
 {
   regression_testing_on = true;
-}
-
-static bool
-location(const SourceLocation *loc, DiagsShowLocation show, DiagsLevel level)
-{
-  if (loc && loc->valid()) {
-    switch (show) {
-    case SHOW_LOCATION_ALL:
-      return true;
-    case SHOW_LOCATION_DEBUG:
-      return level <= DL_Debug;
-    default:
-      return false;
-    }
-  }
-
-  return false;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -246,31 +232,7 @@ Diags::print_va(const char *debug_tag, DiagsLevel diags_level, const SourceLocat
 {
   ink_release_assert(diags_level < DiagsLevel_Count);
   swoc::LocalBufferWriter<1024> format_writer;
-
-  // Save room for optional newline and terminating NUL bytes.
-  format_writer.restrict(2);
-
-  format_writer.print("[{timestamp}] "_tv);
-  auto timestamp_offset = format_writer.size();
-
-  format_writer.print("{thread-name}");
-  format_writer.print(" {}: ", level_name(diags_level));
-
-  if (location(loc, show_location, diags_level)) {
-    format_writer.print("<{}> ", *loc);
-  }
-
-  if (debug_tag) {
-    format_writer.print("({}) ", debug_tag);
-  }
-
-  format_writer.print("{}", format_string);
-
-  format_writer.restore(2);                  // restore the space for required termination.
-  if (format_writer.view().back() != '\n') { // safe because always some chars in the buffer.
-    format_writer.write('\n');
-  }
-  format_writer.write('\0');
+  auto timestamp_offset = generate_format_string(format_writer, debug_tag, diags_level, loc, show_location, format_string);
 
   //////////////////////////////////////
   // now, finally, output the message //
@@ -405,7 +367,7 @@ Diags::activate_taglist(const char *taglist, DiagsTagType mode)
     unlock();
   }
   if ((DiagsTagType_Debug == mode) && (this == diags())) {
-    DbgCtl::update();
+    DbgCtl::update([&](const char *tag) -> bool { return tag_activated(tag, DiagsTagType_Debug); });
   }
 }
 
@@ -429,43 +391,7 @@ Diags::deactivate_all(DiagsTagType mode)
   }
   unlock();
   if ((DiagsTagType_Debug == mode) && (this == diags())) {
-    DbgCtl::update();
-  }
-}
-
-//////////////////////////////////////////////////////////////////////////////
-//
-//      const char *Diags::level_name(DiagsLevel dl)
-//
-//      This routine returns a string name corresponding to the error
-//      level <dl>, suitable for us as an output log entry prefix.
-//
-//////////////////////////////////////////////////////////////////////////////
-
-const char *
-Diags::level_name(DiagsLevel dl) const
-{
-  switch (dl) {
-  case DL_Diag:
-    return ("DIAG");
-  case DL_Debug:
-    return ("DEBUG");
-  case DL_Status:
-    return ("STATUS");
-  case DL_Note:
-    return ("NOTE");
-  case DL_Warning:
-    return ("WARNING");
-  case DL_Error:
-    return ("ERROR");
-  case DL_Fatal:
-    return ("FATAL");
-  case DL_Alert:
-    return ("ALERT");
-  case DL_Emergency:
-    return ("EMERGENCY");
-  default:
-    return ("DIAG");
+    DbgCtl::update([&](const char *tag) -> bool { return tag_activated(tag, DiagsTagType_Debug); });
   }
 }
 
