@@ -26,14 +26,13 @@ class Context;
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 
-#include <ts/apidefs.h>
+#include "ts/apidefs.h"
+#include "ts/ts.h"
+#include "ts/remap.h"
 
-#include <swoc/swoc_ip.h>
+#include "swoc/swoc_ip.h"
 
-#include <ts/ts.h>
-#include <ts/remap.h>
-
-#include <cripts/Matcher.hpp>
+#include "cripts/Matcher.hpp"
 
 namespace Cript
 {
@@ -316,8 +315,8 @@ public:
     return TSHttpTxnIsInternal(_state->txnp);
   }
 
-  // Stuff for DSCP
-  virtual void setDscp(int val) = 0;
+  [[nodiscard]] virtual int count() const = 0;
+  virtual void setDscp(int val)           = 0;
   Dscp dscp;
   Congestion congestion;
   TcpInfo tcpinfo;
@@ -348,7 +347,7 @@ public:
   Connection(const Connection &)     = delete;
 
   [[nodiscard]] int fd() const override;
-  [[nodiscard]] int count() const;
+  [[nodiscard]] int count() const override;
   static Connection &_get(Cript::Context *context);
 
   void
@@ -374,6 +373,7 @@ public:
   Connection(const Connection &)     = delete;
 
   [[nodiscard]] int fd() const override;
+  [[nodiscard]] int count() const override;
   static Connection &_get(Cript::Context *context);
 
   void

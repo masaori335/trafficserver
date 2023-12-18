@@ -23,10 +23,11 @@
 #include <utility>
 #include <string>
 #include <string_view>
-#include <ts/remap.h>
-#include <ts/ts.h>
 
-#include <cripts/Transaction.hpp>
+#include "ts/remap.h"
+#include "ts/ts.h"
+
+#include "cripts/Transaction.hpp"
 
 class Header
 {
@@ -105,8 +106,11 @@ public:
 
   public:
     Method() = default;
-
     Method(Cript::string_view const &method) : _method(method) {}
+    Method(const char *const method, int len)
+    {
+      _method = Cript::string_view(method, static_cast<Cript::string_view::size_type>(len));
+    }
 
     void
     initialize(Header *owner)

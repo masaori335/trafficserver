@@ -21,13 +21,13 @@
 #include <variant>
 #include <unordered_map>
 
-#include <ts/remap.h>
-#include <ts/ts.h>
+#include "ts/remap.h"
+#include "ts/ts.h"
 
-#include <cripts/Plugins.hpp>
-#include <cripts/Metrics.hpp>
-#include <cripts/Transaction.hpp>
-#include <cripts/Bundle.hpp>
+#include "cripts/Plugins.hpp"
+#include "cripts/Metrics.hpp"
+#include "cripts/Transaction.hpp"
+#include "cripts/Bundle.hpp"
 
 namespace Cript
 {
@@ -106,7 +106,7 @@ public:
   debug(fmt::format_string<T...> fmt, T &&...args) const
   {
     if (debugOn()) {
-      auto str = fmt::format(fmt, args...);
+      auto str = fmt::vformat(fmt, fmt::make_format_args(args...));
 
       Dbg(dbg_ctl_cript, "%s", str.c_str());
     }
