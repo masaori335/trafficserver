@@ -89,6 +89,9 @@ LD_LIBRARY_PATH=/lib64 yum erase -d1 -y bazinga-openssl-devel
 # Master builds enable io_uring for 10
 LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-liburing-devel-${LIBURING_VERSION}
 
+# Need to add ninja to el9 build image
+yum install -y ninja-build
+
 if [ $BUILD -eq 1 ]; then
   export LIBURING_VERSION
   export BORINGSSL_VERSION

@@ -48,7 +48,7 @@ builds:
 - branchName: master
   group: test
   version: unittest
-  <<: *build_machine
+  <<: *build_machine_el9
   build:
     template: freestyle:v4:prb
     steps:
@@ -58,7 +58,7 @@ builds:
 
 - branchName: master
   group: intpr
-  <<: *build_machine
+  <<: *build_machine_el9
   build:
     template: freestyle:v4:publish
     buildParameters:
@@ -76,33 +76,7 @@ builds:
       enabled: false
     pipelineChain:
       - project: ist-gns-edge-trafficserver-plugins
-        pipeline: release-master-publish-10.x-el7
-  package:
-    freeform:
-      - publish:
-        - repo: yum:cdn-edge
-  jenkins:
-    concurrentBuild: true
-
-- branchName: master
-  group: intpr
-  version: el9
-  <<: *build_machine_el9
-  build:
-    template: freestyle:v4:publish
-    buildParameters:
-    - parameter: pr_id
-      description: Internal GitHub PR ID to build
-    - parameter: variation
-      defaultValue: boringssl
-      description: Build variation [boringssl (deault), llvm, asan, io_uring, or debug]
-    steps:
-    - ./apple/rio.sh --build --branch master --prid ${BUILD_PARAM_pr_id} --variation -${BUILD_PARAM_variation}
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
+        pipeline: release-master-publish-10.x-el9
   package:
     freeform:
       - publish:
@@ -113,29 +87,6 @@ builds:
 - branchName: master
   group: test
   version: autest
-  <<: *test_machine
-  build:
-    template: freestyle:v4:prb
-    steps:
-    - ./apple/rio.sh --test --branch master --variation -boringssl
-  finally:
-    notify:
-      pullRequestComment:
-        postOnSuccess: false
-        postOnFailure: false
-  reports:
-    junit:
-      paths:
-      - "**/.out/*.xml"
-    logs:
-      paths:
-      - "_sandbox/**"
-  jenkins:
-    concurrentBuild: true
-
-- branchName: master
-  group: test
-  version: autest-el9
   <<: *test_machine_el9
   build:
     template: freestyle:v4:prb
@@ -159,32 +110,6 @@ builds:
 - branchName: master
   group: release
   version: regular
-  <<: *build_machine
-  build:
-    template: freestyle:v4:publish
-    steps:
-    - ./apple/rio.sh --build --branch master --variation -boringssl --tagbuild
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-    pipelineChain:
-      - project: ist-gns-edge-trafficserver-plugins
-        pipeline: release-master-publish-10.x-el7
-  secrets:
-    names:
-    - TRAFFICSERVER
-  package:
-    freeform:
-      - publish:
-        - repo: yum:cdn-edge
-  jenkins:
-    concurrentBuild: true
-
-- branchName: master
-  group: release
-  version: regular-el9
   <<: *build_machine_el9
   build:
     template: freestyle:v4:publish
