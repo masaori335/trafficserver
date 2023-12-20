@@ -92,6 +92,9 @@ LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifact
 # Need to add ninja to el9 build image
 yum install -y ninja-build
 
+# copy user presets
+cp apple/CMakeUserPresets.json .
+
 if [ $BUILD -eq 1 ]; then
   export LIBURING_VERSION
   export BORINGSSL_VERSION

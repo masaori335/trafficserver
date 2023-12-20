@@ -41,7 +41,6 @@ specfilename=bazinga-trafficserver.spec
 
 # Copy spec file to the buildroot
 cp $TS_BUILD_REPO/apple/specs/bazinga-trafficserver.spec $buildroot/$specfilename
-cp $TS_BUILD_REPO/apple/CMakeUserPresets.json .
 
 
 mkdir -p $(dirname $buildroot/$archive_path)

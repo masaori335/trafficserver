@@ -40,6 +40,14 @@
         "WITH_USER": "bazinga",
         "WITH_GROUP": "bazinga"
       }
+    },
+    {
+      "name": "bazinga-autest",
+      "inherits": ["bazinga"],
+      "binaryDir": "build-autest",
+      "cacheVariables": {
+        "ENABLE_AUTEST": true
+      }
     }
   ]
 }
