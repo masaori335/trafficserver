@@ -18,10 +18,8 @@
       }
     },
     {
-      "name": "bazinga",
-      "inherits": ["clang"],
-      "generator": "Ninja",
-      "binaryDir": "build-bazinga",
+      "name": "apple_layout",
+      "hidden": true,
       "cacheVariables": {
         "CMAKE_INSTALL_PREFIX": "/opt/bazinga",
         "CMAKE_INSTALL_LIBDIR": "lib/trafficserver",
@@ -29,6 +27,14 @@
         "CMAKE_INSTALL_LOGDIR": "/var/log/trafficserver",
         "CMAKE_INSTALL_CACHEDIR": "/var/cache/trafficserver",
         "CMAKE_INSTALL_RUNSTATEDIR": "/var/run/trafficserver",
+        "WITH_USER": "bazinga",
+        "WITH_GROUP": "bazinga"
+      }
+    },
+    {
+      "name": "bazinga_release",
+      "hidden": true,
+      "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "jemalloc_ROOT": "/opt/bazinga",
         "ENABLE_JEMALLOC": true,
@@ -36,14 +42,19 @@
         "USE_IOURING": true,
         "ENABLE_MALLOC_ALLOCATOR": true,
         "BUILD_TESTING": false,
-        "BUILD_EXPERIMENTAL_PLUGINS": true,
-        "WITH_USER": "bazinga",
-        "WITH_GROUP": "bazinga"
+        "BUILD_EXPERIMENTAL_PLUGINS": true
       }
     },
     {
+      "name": "bazinga",
+      "inherits": ["clang", "apple_layout", "bazinga_release"],
+      "generator": "Ninja",
+      "binaryDir": "build-bazinga"
+    },
+    {
       "name": "bazinga-autest",
-      "inherits": ["bazinga"],
+      "inherits": ["clang", "bazinga_release"],
+      "generator": "Ninja",
       "binaryDir": "build-autest",
       "cacheVariables": {
         "ENABLE_AUTEST": true
