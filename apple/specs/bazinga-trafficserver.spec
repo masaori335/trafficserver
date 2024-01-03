@@ -206,7 +206,6 @@ rm -rf $RPM_BUILD_ROOT
 %attr(0755, root, root) %config(noreplace) /usr/lib/systemd/system/trafficserver.service
 
 %attr(0755, bazinga, bazinga) %dir %{_prefix}/etc/trafficserver
-#%attr(0444, bazinga, bazinga) %{_prefix}/etc/trafficserver/body_factory/default/*
 
 %dir /var/log/trafficserver
 %dir /var/run/trafficserver
@@ -216,6 +215,8 @@ rm -rf $RPM_BUILD_ROOT
 %exclude %{_prefix}/include/internal
 %{_prefix}/include
 %attr(0755,root,root) %dir %{_prefix}/lib
+%attr(0644,root,root) %{_prefix}/lib/trafficserver/cmake
+%attr(0644,root,root) %{_prefix}/lib/trafficserver/pkgconfig
 
 %files internal
 %{_prefix}/include/internal
