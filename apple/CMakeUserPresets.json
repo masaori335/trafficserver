@@ -27,13 +27,14 @@
         "CMAKE_INSTALL_LOGDIR": "/var/log/trafficserver",
         "CMAKE_INSTALL_CACHEDIR": "/var/cache/trafficserver",
         "CMAKE_INSTALL_RUNSTATEDIR": "/var/run/trafficserver",
-        "WITH_USER": "bazinga",
+        "WITH_USER": "nobody",
         "WITH_GROUP": "bazinga"
       }
     },
     {
       "name": "bazinga_release",
       "hidden": true,
+      "inherits": ["apple_layout"],
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "jemalloc_ROOT": "/opt/bazinga",
@@ -41,7 +42,7 @@
         "OPENSSL_ROOT_DIR": "/opt/bazinga/boringssl",
         "USE_IOURING": true,
         "ENABLE_MALLOC_ALLOCATOR": true,
-        "BUILD_TESTING": false,
+        "BUILD_TESTING": true,
         "BUILD_EXPERIMENTAL_PLUGINS": true,
         "ENABLE_QUICHE": true,
         "quiche_ROOT": "/opt/bazinga/quiche"
@@ -59,6 +60,7 @@
       "generator": "Ninja",
       "binaryDir": "build-autest",
       "cacheVariables": {
+        "BUILD_TESTING": false,
         "ENABLE_AUTEST": true
       }
     }

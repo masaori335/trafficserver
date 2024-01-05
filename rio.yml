@@ -100,7 +100,7 @@ builds:
   reports:
     junit:
       paths:
-      - "**/.out/*.xml"
+      - "**/*.xml"
     logs:
       paths:
       - "_sandbox/**"

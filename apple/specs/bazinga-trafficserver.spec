@@ -137,12 +137,7 @@ cmake --build build -j$(nproc)
 
 %check
 
-# Temporal hack to build ASan variant
-#%if %{?_with_asan:1}%{!?_with_asan:0}
-#export ASAN_OPTIONS=detect_leaks=0
-#%endif
-#
-#make check %{?_smp_mflags} %{make_verbose}
+cmake --build build -t test
 
 %install
 rm -rf $RPM_BUILD_ROOT
