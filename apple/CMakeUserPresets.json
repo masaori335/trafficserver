@@ -42,7 +42,9 @@
         "USE_IOURING": true,
         "ENABLE_MALLOC_ALLOCATOR": true,
         "BUILD_TESTING": false,
-        "BUILD_EXPERIMENTAL_PLUGINS": true
+        "BUILD_EXPERIMENTAL_PLUGINS": true,
+        "ENABLE_QUICHE": true,
+        "quiche_ROOT": "/opt/bazinga/quiche"
       }
     },
     {

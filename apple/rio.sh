@@ -83,7 +83,7 @@ if [ "$VARIATION" != "-llvm" ]; then
     export GIT_TAG=bazinga/$VERSION/${VARIATION:1}.$BUILD_VERSION
 fi
 
-LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-boringssl-${BORINGSSL_VERSION}
+LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-boringssl-${BORINGSSL_VERSION} bazinga-quiche
 LD_LIBRARY_PATH=/lib64 yum erase -d1 -y bazinga-openssl-devel
 
 # Master builds enable io_uring for 10
