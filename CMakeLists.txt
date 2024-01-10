@@ -216,13 +216,9 @@ check_include_file(ifaddrs.h HAVE_IFADDRS_H)
 check_include_file(string.h HAVE_STRING_H)
 check_include_file(malloc.h HAVE_MALLOC_H)
 check_include_file(mcheck.h HAVE_MCHECK_H)
-check_include_file(machine/endian.h HAVE_MACHINE_ENDIAN_H)
-check_include_file(sys/byteorder.h HAVE_SYS_BYTEORDER_H)
 check_include_file(sys/disk.h HAVE_SYS_DISK_H)
 check_include_file(sys/disklabel.h HAVE_SYS_DISKLABEL_H)
-check_include_file(sys/endian.h HAVE_SYS_ENDIAN_H)
 check_include_file(sys/ioctl.h HAVE_SYS_IOCTL_H)
-check_include_file(sys/types.h HAVE_SYS_TYPES_H)
 check_include_file(sys/sockio.h HAVE_SYS_SOCKIO_H)
 check_include_file(sys/stat.h HAVE_SYS_STAT_H)
 check_include_file(sys/statfs.h HAVE_SYS_STATFS_H)
@@ -244,7 +240,6 @@ check_include_file(netdb.h HAVE_NETDB_H)
 check_include_file(arpa/inet.h HAVE_ARPA_INET_H)
 check_include_file(arpa/nameser.h HAVE_ARPA_NAMESER_H)
 check_include_file(arpa/nameser_compat.h HAVE_ARPA_NAMESER_COMPAT_H)
-check_include_file(endian.h HAVE_ENDIAN_H)
 
 # Find libraries
 if(ENABLE_CRIPTS)
@@ -281,10 +276,20 @@ find_package(PCRE REQUIRED)
 
 include(CheckOpenSSLIsBoringSSL)
 find_package(OpenSSL REQUIRED)
-check_openssl_is_boringssl(OPENSSL_IS_BORINGSSL "${OPENSSL_INCLUDE_DIR}")
+check_openssl_is_boringssl(OPENSSL_IS_BORINGSSL BORINGSSL_VERSION "${OPENSSL_INCLUDE_DIR}")
 
-if(NOT OPENSSL_IS_BORINGSSL AND OPENSSL_VERSION VERSION_LESS "1.1.1")
-  message(FATAL_ERROR "OpenSSL version greater than 1.0.1 or BoringSSL required")
+if(OPENSSL_IS_BORINGSSL)
+  # The consensus is a commit newer than a1843d660b47116207877614af53defa767be46a
+  # The commit that changes API_VERSION to 27 is actually a little bit older than the commit but still a reasonable commit
+  set(min_bssl "27")
+  if(BORINGSSL_VERSION VERSION_LESS "${min_bssl}")
+    message(FATAL_ERROR "BoringSSL API version >= ${min_bssl} or OpenSSL required")
+  endif()
+else()
+  set(min_ossl "1.1.1")
+  if(OPENSSL_VERSION VERSION_LESS "${min_ossl}")
+    message(FATAL_ERROR "OpenSSL version >= ${min_ossl} or BoringSSL required")
+  endif()
 endif()
 
 if(OPENSSL_VERSION VERSION_GREATER_EQUAL "3.0.0")
@@ -396,6 +401,8 @@ check_symbol_exists(sendmmsg sys/socket.h HAVE_SENDMMSG)
 check_symbol_exists(strlcat string.h HAVE_STRLCAT)
 check_symbol_exists(strlcpy string.h HAVE_STRLCPY)
 check_symbol_exists(strsignal string.h HAVE_STRSIGNAL)
+check_symbol_exists(pthread_mutexattr_settype pthread.h HAVE_PTHREAD_MUTEXATTR_SETTYPE)
+
 if(TS_USE_HWLOC)
   check_source_compiles(
     C "#include <hwloc.h>
@@ -491,6 +498,10 @@ if(ENABLE_AUTEST)
       ${CMAKE_BINARY_DIR}/_sandbox
       CACHE STRING "Location for autest output (default
   CMAKE_BINARY_DIR/_sandbox)"
+  )
+  set(AUTEST_OPTIONS
+      ""
+      CACHE STRING "Additional options for autest (default \"\")"
   )
   set(PROXY_VERIFIER_VERSION "v2.10.1")
   set(PROXY_VERIFIER_HASH "SHA1=0f189a37596d7488b5b81b5547df6fc1eadf56a1")
