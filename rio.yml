@@ -49,6 +49,11 @@ builds:
     template: freestyle:v4:prb
     steps:
     - ./apple/rio.sh --build --branch master --prb
+  finally:
+    notify:
+      pullRequestComment:
+        postOnSuccess: false
+        postOnFailure: false
   jenkins:
     concurrentBuild: true
 
@@ -90,6 +95,10 @@ builds:
   finally:
     tag:
       enabled: false
+    notify:
+      pullRequestComment:
+        postOnSuccess: false
+        postOnFailure: false
     pipelineChain:
       - project: ist-gns-edge-trafficserver-plugins
         pipeline: release-master-publish-10.x-el9
@@ -116,6 +125,10 @@ builds:
     pipelineChain:
       - project: ist-gns-edge-trafficserver-plugins
         pipeline: release-master-publish-10.x-el9
+    notify:
+      pullRequestComment:
+        postOnSuccess: false
+        postOnFailure: false
   secrets:
     names:
     - TRAFFICSERVER
