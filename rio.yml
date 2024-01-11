@@ -52,35 +52,7 @@ builds:
   build:
     template: freestyle:v4:prb
     steps:
-    - ./apple/rio.sh --build --branch master --variation -llvm --prb
-  jenkins:
-    concurrentBuild: true
-
-- branchName: master
-  group: intpr
-  <<: *build_machine_el9
-  build:
-    template: freestyle:v4:publish
-    buildParameters:
-    - parameter: pr_id
-      description: Internal GitHub PR ID to build
-    - parameter: variation
-      defaultValue: boringssl
-      description: Build variation [boringssl (default), llvm, asan, or debug]
-    steps:
-    - ./apple/rio.sh --build --branch master --prid ${BUILD_PARAM_pr_id} --variation -${BUILD_PARAM_variation}
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-    pipelineChain:
-      - project: ist-gns-edge-trafficserver-plugins
-        pipeline: release-master-publish-10.x-el9
-  package:
-    freeform:
-      - publish:
-        - repo: yum:cdn-edge
+    - ./apple/rio.sh --build --branch master --prb
   jenkins:
     concurrentBuild: true
 
@@ -91,7 +63,7 @@ builds:
   build:
     template: freestyle:v4:prb
     steps:
-    - ./apple/rio.sh --test --branch master --variation -boringssl
+    - ./apple/rio.sh --test --branch master
   finally:
     notify:
       pullRequestComment:
@@ -108,13 +80,38 @@ builds:
     concurrentBuild: true
 
 - branchName: master
+  group: intpr
+  <<: *build_machine_el9
+  build:
+    template: freestyle:v4:publish
+    buildParameters:
+    - parameter: pr_id
+      description: Internal GitHub PR ID to build
+    steps:
+    - ./apple/rio.sh --build --branch master --prid ${BUILD_PARAM_pr_id}
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+    pipelineChain:
+      - project: ist-gns-edge-trafficserver-plugins
+        pipeline: release-master-publish-10.x-el9
+  package:
+    freeform:
+      - publish:
+        - repo: yum:cdn-edge
+  jenkins:
+    concurrentBuild: true
+
+- branchName: master
   group: release
   version: regular
   <<: *build_machine_el9
   build:
     template: freestyle:v4:publish
     steps:
-    - ./apple/rio.sh --build --branch master --variation -boringssl --tagbuild
+    - ./apple/rio.sh --build --branch master --tagbuild
   trigger:
     gitPush: false
   finally:
@@ -133,478 +130,6 @@ builds:
   jenkins:
     concurrentBuild: true
 
-#########
-# 9.2.x
-#########
-
-- branchName: 9.2.x
-  group: release
-  version: all
-  <<: *build_machine
-  build:
-    template: freestyle:v4:publish
-    steps:
-    - echo "There's nothing to do on this pipeline itself."
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-    pipelineChain:
-      - pipeline: release-9.2.x-publish-regular
-      - pipeline: release-9.2.x-publish-regular-el9
-      - pipeline: release-9.2.x-publish-variant
-        buildArguments:
-          - name: "variation"
-            value: "asan"
-      - pipeline: release-9.2.x-publish-variant
-        buildArguments:
-          - name: "variation"
-            value: "debug"
-      - pipeline: release-9.2.x-publish-variant
-        buildArguments:
-          - name: "variation"
-            value: "boringssl"
-      - pipeline: release-9.2.x-publish-variant-el9
-        buildArguments:
-          - name: "variation"
-            value: "boringssl"
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: release
-  version: regular
-  <<: *build_machine
-  build:
-    template: freestyle:v4:publish
-    steps:
-    - ./apple/rio.sh --build --branch 9.2.x --variation -llvm --tagbuild
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-    pipelineChain:
-      - pipeline: test-9.2.x-publish-autest
-  secrets:
-    names:
-    - TRAFFICSERVER
-  package:
-    freeform:
-      - publish:
-        - repo: yum:cdn-edge
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: release
-  version: regular-el9
-  <<: *build_machine_el9
-  build:
-    template: freestyle:v4:publish
-    steps:
-    - ./apple/rio.sh --build --branch 9.2.x --variation -llvm --tagbuild
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-  secrets:
-    names:
-    - TRAFFICSERVER
-  package:
-    freeform:
-      - publish:
-        - repo: yum:cdn-edge
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: release
-  version: variant
-  <<: *build_machine
-  build:
-    template: freestyle:v4:publish
-    buildParameters:
-    - parameter: variation
-      defaultValue: boringssl
-      description: Build variation [boringssl (default), llvm, asan, io_uring, or debug]
-    steps:
-    - ./apple/rio.sh --build --branch 9.2.x --variation -${BUILD_PARAM_variation} --tagbuild
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-    pipelineChain:
-      - pipeline: test-9.2.x-publish-autest
-        buildArguments:
-          - name: "variation"
-            value: ${BUILD_PARAM_variation}
-  secrets:
-    names:
-    - TRAFFICSERVER
-  package:
-    freeform:
-      - publish:
-        - repo: yum:cdn-edge
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: release
-  version: variant-el9
-  <<: *build_machine_el9
-  build:
-    template: freestyle:v4:publish
-    buildParameters:
-    - parameter: variation
-      defaultValue: boringssl
-      description: Build variation [boringssl (deault), llvm, asan, io_uring, or debug]
-    steps:
-    - ./apple/rio.sh --build --branch 9.2.x --variation -${BUILD_PARAM_variation} --tagbuild
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-    pipelineChain:
-      - pipeline: test-9.2.x-publish-autest-el9
-        buildArguments:
-          - name: "variation"
-            value: ${BUILD_PARAM_variation}
-  secrets:
-    names:
-    - TRAFFICSERVER
-  package:
-    freeform:
-      - publish:
-        - repo: yum:cdn-edge
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: intpr
-  <<: *build_machine
-  build:
-    template: freestyle:v4:publish
-    buildParameters:
-    - parameter: pr_id
-      description: Internal GitHub PR ID to build
-    - parameter: variation
-      defaultValue: boringssl
-      description: Build variation [boringssl (deault), llvm, asan, io_uring, or debug]
-    steps:
-    - ./apple/rio.sh --build --branch 9.2.x --prid ${BUILD_PARAM_pr_id} --variation -${BUILD_PARAM_variation}
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-  package:
-    freeform:
-      - publish:
-        - repo: yum:cdn-edge
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: intpr
-  version: el9
-  <<: *build_machine_el9
-  build:
-    template: freestyle:v4:publish
-    buildParameters:
-    - parameter: pr_id
-      description: Internal GitHub PR ID to build
-    - parameter: variation
-      defaultValue: boringssl
-      description: Build variation [boringssl (deault), llvm, asan, io_uring, or debug]
-    steps:
-    - ./apple/rio.sh --build --branch 9.2.x --prid ${BUILD_PARAM_pr_id} --variation -${BUILD_PARAM_variation}
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-  package:
-    freeform:
-      - publish:
-        - repo: yum:cdn-edge
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: test
-  version: autest-all
-  <<: *build_machine
-  build:
-    buildParameters:
-    - parameter: test_filter
-      description: Tests to run
-      defaultValue: '*'
-    template: freestyle:v4:publish
-    steps:
-    - echo "There's nothing to do on this pipeline itself."
-  trigger:
-    timer: '@daily'
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-    pipelineChain:
-      - pipeline: test-9.2.x-publish-autest
-        buildArguments:
-          - name: "variation"
-            value: "llvm"
-      - pipeline: test-9.2.x-publish-autest
-        buildArguments:
-          - name: "variation"
-            value: "boringssl"
-      - pipeline: test-9.2.x-publish-autest-el9
-        buildArguments:
-          - name: "variation"
-            value: "boringssl"
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: test
-  version: autest
-  <<: *test_machine
-  build:
-    buildParameters:
-    - parameter: variation
-      defaultValue: boringssl
-      description: Build variation [boringssl (deault), llvm, asan, io_uring, or debug]
-    - parameter: test_filter
-      description: Tests to run
-      defaultValue: '*'
-    template: freestyle:v4:publish
-    steps:
-    - ./apple/rio.sh --test --branch 9.2.x --variation -${BUILD_PARAM_variation} -f "${BUILD_PARAM_test_filter}"
-  reports:
-    junit:
-      paths:
-      - "**/.out/*.xml"
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: test
-  version: autest-el9
-  <<: *test_machine_el9
-  build:
-    buildParameters:
-    - parameter: variation
-      defaultValue: boringssl
-      description: Build variation [boringssl (deault), llvm, asan, lsan, io_uring, or debug]
-    - parameter: test_filter
-      description: Tests to run
-      defaultValue: '*'
-    template: freestyle:v4:publish
-    steps:
-    - ./apple/rio.sh --test --branch 9.2.x --variation -${BUILD_PARAM_variation} -f "${BUILD_PARAM_test_filter}"
-  reports:
-    junit:
-      paths:
-      - "**/.out/*.xml"
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: test
-  version: unittest
-  <<: *build_machine
-  build:
-    template: freestyle:v4:prb
-    steps:
-    - ./apple/rio.sh --build --branch 9.2.x --variation -llvm --prb
-  finally:
-    notify:
-      pullRequestComment:
-        postOnSuccess: false
-        postOnFailure: false
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: test
-  version: unittest-el9
-  <<: *build_machine_el9
-  build:
-    template: freestyle:v4:prb
-    steps:
-    - ./apple/rio.sh --build --branch 9.2.x --variation -llvm --prb
-  finally:
-    notify:
-      pullRequestComment:
-        postOnSuccess: false
-        postOnFailure: false
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: test
-  version: autest
-  <<: *test_machine
-  build:
-    template: freestyle:v4:prb
-    steps:
-    - ./apple/rio.sh --test --branch 9.2.x --variation -llvm
-  finally:
-    notify:
-      pullRequestComment:
-        postOnSuccess: false
-        postOnFailure: false
-  reports:
-    junit:
-      paths:
-      - "**/.out/*.xml"
-    logs:
-      paths:
-      - "_sandbox/**"
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: test
-  version: autest-el9
-  <<: *test_machine_el9
-  build:
-    template: freestyle:v4:prb
-    steps:
-    - ./apple/rio.sh --test --branch 9.2.x --variation -llvm
-  finally:
-    notify:
-      pullRequestComment:
-        postOnSuccess: false
-        postOnFailure: false
-  reports:
-    junit:
-      paths:
-      - "**/.out/*.xml"
-    logs:
-      paths:
-      - "_sandbox/**"
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: test
-  version: autest-boringssl-el9
-  <<: *test_machine_el9
-  build:
-    template: freestyle:v4:prb
-    steps:
-    - ./apple/rio.sh --test --branch 9.2.x --variation -boringssl
-  finally:
-    notify:
-      pullRequestComment:
-        postOnSuccess: false
-        postOnFailure: false
-  reports:
-    junit:
-      paths:
-      - "**/.out/*.xml"
-    logs:
-      paths:
-      - "_sandbox/**"
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: test
-  version: unittest-boringssl
-  <<: *build_machine
-  build:
-    template: freestyle:v4:prb
-    steps:
-    - ./apple/rio.sh --build --branch 9.2.x --variation -boringssl --prb
-  finally:
-    notify:
-      pullRequestComment:
-        postOnSuccess: false
-        postOnFailure: false
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: test
-  version: unittest-boringssl-el9
-  <<: *build_machine_el9
-  build:
-    template: freestyle:v4:prb
-    steps:
-    - ./apple/rio.sh --build --branch 9.2.x --variation -boringssl --prb
-  finally:
-    notify:
-      pullRequestComment:
-        postOnSuccess: false
-        postOnFailure: false
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: test
-  version: autest-boringssl
-  <<: *test_machine
-  build:
-    template: freestyle:v4:prb
-    steps:
-    - ./apple/rio.sh --test --branch 9.2.x --variation -boringssl
-  finally:
-    notify:
-      pullRequestComment:
-        postOnSuccess: false
-        postOnFailure: false
-  reports:
-    junit:
-      paths:
-      - "**/.out/*.xml"
-    logs:
-      paths:
-      - "_sandbox/**"
-  jenkins:
-    concurrentBuild: true
-
-- branchName: 9.2.x
-  group: intpr
-  version: mptcp
-  machine:
-    baseImage: docker.apple.com/edge/trafficserver_build:20230628-3-el7
-  build:
-    template: freestyle:v4:publish
-    buildParameters:
-    - parameter: pr_id
-      description: Internal GitHub PR ID to build with 5.10 kernel headers
-    - parameter: variation
-      defaultValue: boringssl
-      description: Build variation [boringssl (deault), llvm, asan, or debug]
-    steps:
-    - ./apple/rio.sh --build --branch 9.2.x --prid ${BUILD_PARAM_pr_id} --variation -${BUILD_PARAM_variation}
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-  package:
-    freeform:
-      - publish:
-        - repo: yum:cdn-edge
-  jenkins:
-    concurrentBuild: true
 
 ########
 # Breakfix
