@@ -115,6 +115,13 @@ Requires(postun): initscripts
 %description devel
 Include files and various tools for ATS developers.
 
+%package plugins-builtin
+Summary: Apache Traffic Server devel package
+Group: Development/Libraries
+Requires: %{package_name}
+%description plugins-builtin
+Trafficserver builtin plugins
+
 %package internal
 Summary: Apache Traffic Server internal devel package
 Group: Development/Libraries
@@ -193,7 +200,6 @@ rm -rf $RPM_BUILD_ROOT
 %attr(0755,root,root) %dir %{_prefix}/lib/trafficserver/plugins
 %attr(0755,root,root) %{_prefix}/lib/trafficserver/*.so*
 %attr(0755,root,root) %{_prefix}/lib/trafficserver/*.a
-%attr(0755,root,root) %{_prefix}/lib/trafficserver/plugins/*.so
 %exclude %{_prefix}/include
 
 %config(noreplace) %{_prefix}/etc/trafficserver/*
@@ -212,6 +218,9 @@ rm -rf $RPM_BUILD_ROOT
 %attr(0755,root,root) %dir %{_prefix}/lib
 %attr(0644,root,root) %{_prefix}/lib/trafficserver/cmake
 %attr(0644,root,root) %{_prefix}/lib/trafficserver/pkgconfig
+
+%files plugins-builtin
+%attr(0755,root,root) %{_prefix}/lib/trafficserver/plugins/*.so
 
 %files internal
 %{_prefix}/include/internal

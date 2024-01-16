@@ -50,21 +50,19 @@ echo VARIATION: $VARIATION
 RIO_BUILD_NUMBER=${RIO_BUILD_NUMBER:-1}
 
 # git checkout $BRANCH
-# 
-# if [[ ! -z $PR_ID && $PR_ID -gt 0 ]]; then
-#   git fetch origin pull/${PR_ID}/head
-#   git merge FETCH_HEAD -m 'Auto Merge: PR ${PR_ID}'
-# fi
-# 
+
+if [[ ! -z $PR_ID && $PR_ID -gt 0 ]]; then
+  git fetch origin pull/${PR_ID}/head
+  git merge FETCH_HEAD -m 'Auto Merge: PR ${PR_ID}'
+fi
 
 function parse_version() {
     awk -F ' |)' '/^project/ { print $3 }' CMakeLists.txt
 }
 
 VERSION=$(parse_version)
-COMMIT_TREE_LENGTH=$(git --git-dir=trafficserver/.git rev-list HEAD 2>/dev/null | wc -l)
 if [ -z ${BREAK_FIX} ]; then
-  BUILD_VERSION="${RIO_BUILD_NUMBER}.${COMMIT_TREE_LENGTH}"
+  BUILD_VERSION="${RIO_BUILD_NUMBER}"
 else
   BUILD_VERSION=${BREAK_FIX}.${RIO_BUILD_NUMBER}
 fi
@@ -110,7 +108,6 @@ if [[ $PRB -ne 1 && $TEST -ne 1 ]]; then
 fi
 
 if [ $TAGBUILD -eq 1 ]; then
-  cd trafficserver
   export GIT_TAG=$GIT_TAG.el$OSRELEASE
   git tag $GIT_TAG
   SSH_AUTH_SOCK=${SSH_AUTH_SOCK_TRAFFICSERVER} git push origin $GIT_TAG
