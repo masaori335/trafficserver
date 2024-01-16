@@ -73,7 +73,7 @@ if [ $PRB -eq 1 ]; then
     export GIT_TAG=prb/$VERSION/$BUILD_VERSION
 fi
 
-if [ "$VARIATION" != "-llvm" ]; then
+if [ ! -z "$VARIATION" ]; then
     export GIT_TAG=bazinga/$VERSION/${VARIATION:1}.$BUILD_VERSION
 fi
 
