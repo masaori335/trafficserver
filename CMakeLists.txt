@@ -275,6 +275,7 @@ endif()
 find_package(PCRE REQUIRED)
 
 include(CheckOpenSSLIsBoringSSL)
+include(CheckOpenSSLIsQuictls)
 find_package(OpenSSL REQUIRED)
 check_openssl_is_boringssl(OPENSSL_IS_BORINGSSL BORINGSSL_VERSION "${OPENSSL_INCLUDE_DIR}")
 
@@ -291,6 +292,7 @@ else()
     message(FATAL_ERROR "OpenSSL version >= ${min_ossl} or BoringSSL required")
   endif()
 endif()
+check_openssl_is_quictls(OPENSSL_IS_QUICTLS "${OPENSSL_INCLUDE_DIR}")
 
 if(OPENSSL_VERSION VERSION_GREATER_EQUAL "3.0.0")
   set(OPENSSL_IS_OPENSSL3 TRUE)
@@ -317,9 +319,16 @@ if(ENABLE_QUICHE)
 
   set(TS_HAS_QUICHE ${quiche_FOUND})
   set(TS_USE_QUIC ${TS_HAS_QUICHE})
+  if(NOT OPENSSL_IS_BORINGSSL AND NOT OPENSSL_IS_QUICTLS)
+    message(FATAL_ERROR "Use of BoringSSL or OPENSSL/QUICTLS is required if quiche is used.")
+  endif()
 
-  if(NOT OPENSSL_IS_BORINGSSL)
-    message(FATAL_ERROR "Use of BoringSSL is required if quiche is used.")
+  if(OPENSSL_IS_QUICTLS)
+    # Until we get quictls support integrated with quiche, we just print this message.
+    # Once the above that is done, then we can just validate the version.
+    message(
+      "WARNING - Using quictls requires using a special version of quiche. Make sure quictls is supported in quiche."
+    )
   endif()
 endif()
 
@@ -416,6 +425,7 @@ if(HAVE_IOURING AND USE_IOURING)
   set(TS_USE_LINUX_IO_URING 1)
 endif(HAVE_IOURING AND USE_IOURING)
 
+list(APPEND CMAKE_REQUIRED_LIBRARIES pthread)
 check_symbol_exists(pthread_getname_np pthread.h HAVE_PTHREAD_GETNAME_NP)
 check_symbol_exists(pthread_get_name_np pthread.h HAVE_PTHREAD_GET_NAME_NP)
 
@@ -435,7 +445,7 @@ check_source_compiles(
   C "#include <pthread.h>
   void main() { pthread_set_name_np(0, \"name\"); }" HAVE_PTHREAD_SET_NAME_NP_2
 )
-
+list(REMOVE_ITEM CMAKE_REQUIRED_LIBRARIES pthread)
 # Check ssl functionality
 list(APPEND CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIR})
 list(APPEND CMAKE_REQUIRED_LIBRARIES ${OPENSSL_SSL_LIBRARY} ${OPENSSL_CRYPTO_LIBRARY})
