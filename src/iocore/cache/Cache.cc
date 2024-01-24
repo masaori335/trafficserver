@@ -27,6 +27,7 @@
 #include "P_CacheTest.h"
 
 #include "tscore/Filenames.h"
+#include "tscore/Layout.h"
 
 #include "../../records/P_RecProcess.h"
 
@@ -35,6 +36,11 @@
 #endif
 
 #include <atomic>
+#include <unordered_set>
+#include <fstream>
+#include <string>
+#include <system_error>
+#include <filesystem>
 
 constexpr ts::VersionNumber CACHE_DB_VERSION(CACHE_DB_MAJOR_VERSION, CACHE_DB_MINOR_VERSION);
 
@@ -67,6 +73,7 @@ int cache_config_read_while_writer             = 0;
 int cache_config_mutex_retry_delay             = 2;
 int cache_read_while_writer_retry_delay        = 50;
 int cache_config_read_while_writer_max_retries = 10;
+int cache_config_persist_bad_disks             = false;
 
 // Globals
 
@@ -94,6 +101,7 @@ ClassAllocator<CacheEvacuateDocVC> cacheEvacuateDocVConnectionAllocator("cacheEv
 ClassAllocator<EvacuationBlock> evacuationBlockAllocator("evacuationBlock");
 ClassAllocator<CacheRemoveCont> cacheRemoveContAllocator("cacheRemoveCont");
 ClassAllocator<EvacuationKey> evacuationKeyAllocator("evacuationKey");
+std::unordered_set<std::string> known_bad_disks;
 
 namespace
 {
@@ -312,8 +320,8 @@ CacheProcessor::start_internal(int flags)
   memset(fds, 0, sizeof(int) * gndisks);
   int *sector_sizes = static_cast<int *>(alloca(sizeof(int) * gndisks));
   memset(sector_sizes, 0, sizeof(int) * gndisks);
-  Span **sds = static_cast<Span **>(alloca(sizeof(Span *) * gndisks));
-  memset(sds, 0, sizeof(Span *) * gndisks);
+  Span **spans = static_cast<Span **>(alloca(sizeof(Span *) * gndisks));
+  memset(spans, 0, sizeof(Span *) * gndisks);
 
   gndisks = 0;
   ink_aio_set_err_callback(new AIO_failure_handler());
@@ -324,16 +332,25 @@ CacheProcessor::start_internal(int flags)
    create CacheDisk objects for each span in the configuration file and store in gdisks
    */
   for (unsigned i = 0; i < theCacheStore.n_spans; i++) {
-    Span *sd = theCacheStore.spans[i];
-    int opts = DEFAULT_CACHE_OPTIONS;
+    Span *span = theCacheStore.spans[i];
+    int opts   = DEFAULT_CACHE_OPTIONS;
 
     if (!paths[gndisks]) {
       paths[gndisks] = static_cast<char *>(alloca(PATH_NAME_MAX));
     }
-    ink_strlcpy(paths[gndisks], sd->pathname, PATH_NAME_MAX);
-    if (!sd->file_pathname) {
+    ink_strlcpy(paths[gndisks], span->pathname, PATH_NAME_MAX);
+    if (!span->file_pathname) {
       ink_strlcat(paths[gndisks], "/cache.db", PATH_NAME_MAX);
       opts |= O_CREAT;
+    }
+
+    // Check if the disk is known to be bad.
+    if (cache_config_persist_bad_disks && !known_bad_disks.empty()) {
+      if (known_bad_disks.find(paths[gndisks]) != known_bad_disks.end()) {
+        Warning("%s is a known bad disk.  Skipping.", paths[gndisks]);
+        Metrics::Gauge::increment(cache_rsb.span_offline);
+        continue;
+      }
     }
 
 #ifdef O_DIRECT
@@ -352,7 +369,7 @@ CacheProcessor::start_internal(int flags)
 #else
     int fd = open(paths[gndisks], opts, 0644);
 #endif
-    int64_t blocks = sd->blocks;
+    int64_t blocks = span->blocks;
 
     if (fd < 0 && (opts & O_CREAT)) { // Try without O_DIRECT if this is a file on filesystem, e.g. tmpfs.
 #ifdef AIO_FAULT_INJECTION
@@ -364,7 +381,7 @@ CacheProcessor::start_internal(int flags)
 
     if (fd >= 0) {
       bool diskok = true;
-      if (!sd->file_pathname) {
+      if (!span->file_pathname) {
         if (!check) {
           if (ftruncate(fd, blocks * STORE_BLOCK_SIZE) < 0) {
             Warning("unable to truncate cache file '%s' to %" PRId64 " blocks", paths[gndisks], blocks);
@@ -383,15 +400,15 @@ CacheProcessor::start_internal(int flags)
         }
       }
       if (diskok) {
-        int sector_size = sd->hw_sector_size;
+        int sector_size = span->hw_sector_size;
 
-        gdisks[gndisks] = new CacheDisk();
+        CacheDisk *cache_disk = new CacheDisk();
         if (check) {
-          gdisks[gndisks]->read_only_p = true;
+          cache_disk->read_only_p = true;
         }
-        gdisks[gndisks]->forced_volume_num = sd->forced_volume_num;
-        if (sd->hash_base_string) {
-          gdisks[gndisks]->hash_base_string = ats_strdup(sd->hash_base_string);
+        cache_disk->forced_volume_num = span->forced_volume_num;
+        if (span->hash_base_string) {
+          cache_disk->hash_base_string = ats_strdup(span->hash_base_string);
         }
 
         if (sector_size < cache_config_force_sector_size) {
@@ -401,13 +418,15 @@ CacheProcessor::start_internal(int flags)
         // It's actually common that the hardware I/O size is larger than the store block size as
         // storage systems increasingly want larger I/Os. For example, on macOS, the filesystem
         // block size is always reported as 1MB.
-        if (sd->hw_sector_size <= 0 || sector_size > STORE_BLOCK_SIZE) {
+        if (span->hw_sector_size <= 0 || sector_size > STORE_BLOCK_SIZE) {
           Note("resetting hardware sector size from %d to %d", sector_size, STORE_BLOCK_SIZE);
           sector_size = STORE_BLOCK_SIZE;
         }
+
+        gdisks[gndisks]       = cache_disk;
         sector_sizes[gndisks] = sector_size;
         fds[gndisks]          = fd;
-        sds[gndisks]          = sd;
+        spans[gndisks]        = span;
         fd                    = -1;
         gndisks++;
       }
@@ -453,8 +472,8 @@ CacheProcessor::start_internal(int flags)
 
   // If we got here, we have enough disks to proceed
   for (int j = 0; j < gndisks; j++) {
-    Span *sd = sds[j];
-    ink_release_assert(sds[j] != nullptr); // Defeat clang-analyzer
+    Span *sd = spans[j];
+    ink_release_assert(spans[j] != nullptr); // Defeat clang-analyzer
     off_t skip     = ROUND_TO_STORE_BLOCK((sd->offset < START_POS ? START_POS + sd->alignment : sd->offset));
     int64_t blocks = sd->blocks - (skip >> STORE_BLOCK_SHIFT);
     gdisks[j]->open(paths[j], blocks, skip, sector_sizes[j], fds[j], clear);
@@ -576,9 +595,13 @@ CacheProcessor::diskInitialized()
 void
 CacheProcessor::cacheInitialized()
 {
-  int i;
+  if (theCache == nullptr) {
+    Dbg(dbg_ctl_cache_init, "theCache is nullptr");
+    return;
+  }
 
-  if (theCache && (theCache->ready == CACHE_INITIALIZING)) {
+  if (theCache->ready == CACHE_INITIALIZING) {
+    Dbg(dbg_ctl_cache_init, "theCache is initializing");
     return;
   }
 
@@ -586,29 +609,19 @@ CacheProcessor::cacheInitialized()
   int cache_init_ok = 0;
   /* allocate ram size in proportion to the disk space the
      volume occupies */
-  int64_t total_size             = 0; // count in HTTP & MIXT
-  uint64_t total_cache_bytes     = 0; // bytes that can used in total_size
-  uint64_t total_direntries      = 0; // all the direntries in the cache
-  uint64_t used_direntries       = 0; //   and used
-  uint64_t vol_total_cache_bytes = 0;
-  uint64_t vol_total_direntries  = 0;
-  uint64_t vol_used_direntries   = 0;
-  Stripe *stripe;
+  int64_t total_size = 0; // count in HTTP & MIXT
 
-  if (theCache) {
-    total_size += theCache->cache_size;
-    Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - theCache, total_size = %" PRId64 " = %" PRId64 " MB", total_size,
-        total_size / ((1024 * 1024) / STORE_BLOCK_SIZE));
-    if (theCache->ready == CACHE_INIT_FAILED) {
-      Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - failed to initialize the cache "
-                              "for http: cache disabled");
-      Warning("failed to initialize the cache for http: cache disabled\n");
-    } else {
-      caches_ready                 = caches_ready | (1 << CACHE_FRAG_TYPE_HTTP);
-      caches_ready                 = caches_ready | (1 << CACHE_FRAG_TYPE_NONE);
-      caches[CACHE_FRAG_TYPE_HTTP] = theCache;
-      caches[CACHE_FRAG_TYPE_NONE] = theCache;
-    }
+  total_size += theCache->cache_size;
+  Dbg(dbg_ctl_cache_init, "theCache, total_size = %" PRId64 " = %" PRId64 " MB", total_size,
+      total_size / ((1024 * 1024) / STORE_BLOCK_SIZE));
+  if (theCache->ready == CACHE_INIT_FAILED) {
+    Dbg(dbg_ctl_cache_init, "failed to initialize the cache for http: cache disabled");
+    Warning("failed to initialize the cache for http: cache disabled\n");
+  } else {
+    caches_ready                 = caches_ready | (1 << CACHE_FRAG_TYPE_HTTP);
+    caches_ready                 = caches_ready | (1 << CACHE_FRAG_TYPE_NONE);
+    caches[CACHE_FRAG_TYPE_HTTP] = theCache;
+    caches[CACHE_FRAG_TYPE_NONE] = theCache;
   }
 
   // Update stripe version data.
@@ -616,7 +629,7 @@ CacheProcessor::cacheInitialized()
     cacheProcessor.min_stripe_version = cacheProcessor.max_stripe_version = gstripes[0]->header->version;
   }
   // scan the rest of the stripes.
-  for (i = 1; i < gnstripes; i++) {
+  for (int i = 1; i < gnstripes; i++) {
     Stripe *v = gstripes[i];
     if (v->header->version < cacheProcessor.min_stripe_version) {
       cacheProcessor.min_stripe_version = v->header->version;
@@ -630,11 +643,9 @@ CacheProcessor::cacheInitialized()
     Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - caches_ready=0x%0X, gnvol=%d", (unsigned int)caches_ready,
         gnstripes.load());
 
-    int64_t ram_cache_bytes = 0;
-
     if (gnstripes) {
       // new ram_caches, with algorithm from the config
-      for (i = 0; i < gnstripes; i++) {
+      for (int i = 0; i < gnstripes; i++) {
         switch (cache_config_ram_cache_algorithm) {
         default:
         case RAM_CACHE_ALGORITHM_CLFUS:
@@ -645,88 +656,79 @@ CacheProcessor::cacheInitialized()
           break;
         }
       }
+
+      int64_t http_ram_cache_size = 0;
+
       // let us calculate the Size
       if (cache_config_ram_cache_size == AUTO_SIZE_RAM_CACHE) {
-        Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - cache_config_ram_cache_size == AUTO_SIZE_RAM_CACHE");
-        for (i = 0; i < gnstripes; i++) {
-          stripe = gstripes[i];
-
-          if (gstripes[i]->cache_vol->ramcache_enabled) {
-            gstripes[i]->ram_cache->init(stripe->dirlen() * DEFAULT_RAM_CACHE_MULTIPLIER, stripe);
-            ram_cache_bytes += gstripes[i]->dirlen();
-            Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - ram_cache_bytes = %" PRId64 " = %" PRId64 "Mb",
-                ram_cache_bytes, ram_cache_bytes / (1024 * 1024));
-            Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes_total, gstripes[i]->dirlen());
-          }
-          vol_total_cache_bytes  = gstripes[i]->len - gstripes[i]->dirlen();
-          total_cache_bytes     += vol_total_cache_bytes;
-          Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - total_cache_bytes = %" PRId64 " = %" PRId64 "Mb",
-              total_cache_bytes, total_cache_bytes / (1024 * 1024));
-
-          Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.bytes_total, vol_total_cache_bytes);
-
-          vol_total_direntries  = gstripes[i]->buckets * gstripes[i]->segments * DIR_DEPTH;
-          total_direntries     += vol_total_direntries;
-          Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.direntries_total, vol_total_direntries);
-
-          vol_used_direntries = dir_entries_used(gstripes[i]);
-          Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.direntries_used, vol_used_direntries);
-          used_direntries += vol_used_direntries;
-        }
-
+        Dbg(dbg_ctl_cache_init, "cache_config_ram_cache_size == AUTO_SIZE_RAM_CACHE");
       } else {
         // we got configured memory size
         // TODO, should we check the available system memories, or you will
         //   OOM or swapout, that is not a good situation for the server
-        Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - %" PRId64 " != AUTO_SIZE_RAM_CACHE",
-            cache_config_ram_cache_size);
-        int64_t http_ram_cache_size =
-          (theCache) ?
-            static_cast<int64_t>((static_cast<double>(theCache->cache_size) / total_size) * cache_config_ram_cache_size) :
-            0;
-        Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - http_ram_cache_size = %" PRId64 " = %" PRId64 "Mb",
-            http_ram_cache_size, http_ram_cache_size / (1024 * 1024));
+        Dbg(dbg_ctl_cache_init, "%" PRId64 " != AUTO_SIZE_RAM_CACHE", cache_config_ram_cache_size);
+        http_ram_cache_size =
+          static_cast<int64_t>((static_cast<double>(theCache->cache_size) / total_size) * cache_config_ram_cache_size);
+
+        Dbg(dbg_ctl_cache_init, "http_ram_cache_size = %" PRId64 " = %" PRId64 "Mb", http_ram_cache_size,
+            http_ram_cache_size / (1024 * 1024));
         int64_t stream_ram_cache_size = cache_config_ram_cache_size - http_ram_cache_size;
-        Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - stream_ram_cache_size = %" PRId64 " = %" PRId64 "Mb",
-            stream_ram_cache_size, stream_ram_cache_size / (1024 * 1024));
+
+        Dbg(dbg_ctl_cache_init, "stream_ram_cache_size = %" PRId64 " = %" PRId64 "Mb", stream_ram_cache_size,
+            stream_ram_cache_size / (1024 * 1024));
 
         // Dump some ram_cache size information in debug mode.
         Dbg(dbg_ctl_ram_cache, "config: size = %" PRId64 ", cutoff = %" PRId64 "", cache_config_ram_cache_size,
             cache_config_ram_cache_cutoff);
+      }
 
-        for (i = 0; i < gnstripes; i++) {
-          stripe = gstripes[i];
-          double factor;
-          if (gstripes[i]->cache == theCache && gstripes[i]->cache_vol->ramcache_enabled) {
-            ink_assert(gstripes[i]->cache != nullptr);
-            factor = static_cast<double>(static_cast<int64_t>(gstripes[i]->len >> STORE_BLOCK_SHIFT)) / theCache->cache_size;
-            Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - factor = %f", factor);
-            gstripes[i]->ram_cache->init(static_cast<int64_t>(http_ram_cache_size * factor), stripe);
-            ram_cache_bytes += static_cast<int64_t>(http_ram_cache_size * factor);
-            Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes_total,
+      uint64_t total_cache_bytes     = 0; // bytes that can used in total_size
+      uint64_t total_direntries      = 0; // all the direntries in the cache
+      uint64_t used_direntries       = 0; //   and used
+      uint64_t total_ram_cache_bytes = 0;
 
-                                      static_cast<int64_t>(http_ram_cache_size * factor));
-          } else if (gstripes[i]->cache_vol->ramcache_enabled) {
-            ink_release_assert(!"Unexpected non-HTTP cache volume");
+      for (int i = 0; i < gnstripes; i++) {
+        Stripe *stripe          = gstripes[i];
+        int64_t ram_cache_bytes = 0;
+
+        if (stripe->cache_vol->ramcache_enabled) {
+          if (http_ram_cache_size == 0) {
+            // AUTO_SIZE_RAM_CACHE
+            ram_cache_bytes = stripe->dirlen() * DEFAULT_RAM_CACHE_MULTIPLIER;
+          } else {
+            ink_assert(stripe->cache != nullptr);
+
+            double factor = static_cast<double>(static_cast<int64_t>(stripe->len >> STORE_BLOCK_SHIFT)) / theCache->cache_size;
+            Dbg(dbg_ctl_cache_init, "factor = %f", factor);
+
+            ram_cache_bytes = static_cast<int64_t>(http_ram_cache_size * factor);
           }
+
+          stripe->ram_cache->init(ram_cache_bytes, stripe);
+          total_ram_cache_bytes += ram_cache_bytes;
+          Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes_total, ram_cache_bytes);
+
           Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized[%d] - ram_cache_bytes = %" PRId64 " = %" PRId64 "Mb", i,
               ram_cache_bytes, ram_cache_bytes / (1024 * 1024));
-          vol_total_cache_bytes  = gstripes[i]->len - gstripes[i]->dirlen();
-          total_cache_bytes     += vol_total_cache_bytes;
-          Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.bytes_total, vol_total_cache_bytes);
-          Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.stripes);
-          Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - total_cache_bytes = %" PRId64 " = %" PRId64 "Mb",
-              total_cache_bytes, total_cache_bytes / (1024 * 1024));
-
-          vol_total_direntries  = gstripes[i]->buckets * gstripes[i]->segments * DIR_DEPTH;
-          total_direntries     += vol_total_direntries;
-          Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.direntries_total, vol_total_direntries);
-
-          vol_used_direntries = dir_entries_used(gstripes[i]);
-          Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.direntries_used, vol_used_direntries);
-          used_direntries += vol_used_direntries;
         }
+
+        uint64_t vol_total_cache_bytes  = stripe->len - stripe->dirlen();
+        total_cache_bytes              += vol_total_cache_bytes;
+        Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.bytes_total, vol_total_cache_bytes);
+        Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.stripes);
+
+        Dbg(dbg_ctl_cache_init, "total_cache_bytes = %" PRId64 " = %" PRId64 "Mb", total_cache_bytes,
+            total_cache_bytes / (1024 * 1024));
+
+        uint64_t vol_total_direntries  = stripe->buckets * stripe->segments * DIR_DEPTH;
+        total_direntries              += vol_total_direntries;
+        Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.direntries_total, vol_total_direntries);
+
+        uint64_t vol_used_direntries = dir_entries_used(stripe);
+        Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.direntries_used, vol_used_direntries);
+        used_direntries += vol_used_direntries;
       }
+
       switch (cache_config_ram_cache_compress) {
       default:
         Fatal("unknown RAM cache compression type: %d", cache_config_ram_cache_compress);
@@ -742,7 +744,7 @@ CacheProcessor::cacheInitialized()
         break;
       }
 
-      Metrics::Gauge::store(cache_rsb.ram_cache_bytes_total, ram_cache_bytes);
+      Metrics::Gauge::store(cache_rsb.ram_cache_bytes_total, total_ram_cache_bytes);
       Metrics::Gauge::store(cache_rsb.bytes_total, total_cache_bytes);
       Metrics::Gauge::store(cache_rsb.direntries_total, total_direntries);
       Metrics::Gauge::store(cache_rsb.direntries_used, used_direntries);
@@ -984,6 +986,32 @@ Cache::vol_initialized(bool result)
   }
 }
 
+static void
+persist_bad_disks()
+{
+  std::filesystem::path localstatedir{Layout::get()->localstatedir};
+  std::filesystem::path bad_disks_path{localstatedir / ts::filename::BAD_DISKS};
+  std::error_code ec;
+  std::filesystem::create_directories(bad_disks_path.parent_path(), ec);
+  if (ec) {
+    Error("Error creating directory for bad disks file: %s (%s)", bad_disks_path.c_str(), ec.message().c_str());
+    return;
+  }
+
+  std::fstream bad_disks_file{bad_disks_path.c_str(), bad_disks_file.out};
+  if (bad_disks_file.good()) {
+    for (const std::string &path : known_bad_disks) {
+      bad_disks_file << path << std::endl;
+      if (bad_disks_file.fail()) {
+        Error("Error writing known bad disks file: %s", bad_disks_path.c_str());
+        break;
+      }
+    }
+  } else {
+    Error("Failed to open file to persist bad disks: %s", bad_disks_path.c_str());
+  }
+}
+
 /** Set the state of a disk programmatically.
  */
 bool
@@ -1044,6 +1072,11 @@ CacheProcessor::mark_storage_offline(CacheDisk *d, ///< Target disk
         Warning("all volumes for http cache are corrupt, http cache disabled");
       }
     }
+  }
+
+  if (cache_config_persist_bad_disks) {
+    known_bad_disks.insert(d->path);
+    persist_bad_disks();
   }
 
   return zret;
@@ -1906,6 +1939,30 @@ ink_cache_init(ts::ModuleVersion v)
   register_cache_stats(&cache_rsb, "proxy.process.cache");
 
   REC_ReadConfigInteger(cacheProcessor.wait_for_cache, "proxy.config.http.wait_for_cache");
+
+  REC_EstablishStaticConfigInt32(cache_config_persist_bad_disks, "proxy.config.cache.persist_bad_disks");
+  Debug("cache_init", "proxy.config.cache.persist_bad_disks = %d", cache_config_persist_bad_disks);
+  if (cache_config_persist_bad_disks) {
+    std::filesystem::path localstatedir{Layout::get()->localstatedir};
+    std::filesystem::path bad_disks_path{localstatedir / ts::filename::BAD_DISKS};
+    std::fstream bad_disks_file{bad_disks_path.c_str(), bad_disks_file.in};
+    if (bad_disks_file.good()) {
+      for (std::string line; std::getline(bad_disks_file, line);) {
+        if (bad_disks_file.fail()) {
+          Error("Failed while trying to read known bad disks file: %s", bad_disks_path.c_str());
+          break;
+        }
+        if (!line.empty()) {
+          known_bad_disks.insert(std::move(line));
+        }
+      }
+    }
+    // not having a bad disks file is not an error.
+
+    unsigned long known_bad_count = known_bad_disks.size();
+    Warning("%lu previously known bad disks were recorded in %s.  They will not be added to the cache.", known_bad_count,
+            bad_disks_path.c_str());
+  }
 
   Result result = theCacheStore.read_config();
   if (result.failed()) {
