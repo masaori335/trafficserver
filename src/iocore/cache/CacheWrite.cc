@@ -297,7 +297,7 @@ iobufferblock_memcpy(char *p, int len, IOBufferBlock *ab, int offset)
 }
 
 EvacuationBlock *
-Stripe::force_evacuate_head(Dir *evac_dir, int pinned)
+Stripe::force_evacuate_head(Dir const *evac_dir, int pinned)
 {
   auto bucket = dir_evac_bucket(evac_dir);
   if (!evac_bucket_valid(bucket)) {
@@ -891,7 +891,7 @@ Lagain:
   this->aggregate_pending_writes(tocall);
 
   // if we got nothing...
-  if (!this->_write_buffer.get_buffer_pos()) {
+  if (this->_write_buffer.is_empty()) {
     if (!this->_write_buffer.get_pending_writers().head && !sync.head) { // nothing to get
       return EVENT_CONT;
     }
@@ -932,7 +932,7 @@ Lagain:
   }
 
   // write sync marker
-  if (!this->_write_buffer.get_buffer_pos()) {
+  if (this->_write_buffer.is_empty()) {
     ink_assert(sync.head);
     int l = round_to_approx_size(sizeof(Doc));
     this->_write_buffer.seek(l);
@@ -1558,7 +1558,7 @@ Cache::open_write(Continuation *cont, const CacheKey *key, CacheFragType frag_ty
   SCOPED_MUTEX_LOCK(lock, c->mutex, this_ethread());
   c->vio.op      = VIO::WRITE;
   c->op_type     = static_cast<int>(CacheOpType::Write);
-  c->stripe      = key_to_vol(key, hostname, host_len);
+  c->stripe      = key_to_stripe(key, hostname, host_len);
   Stripe *stripe = c->stripe;
   Metrics::Gauge::increment(cache_rsb.status[c->op_type].active);
   Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.status[c->op_type].active);
@@ -1636,7 +1636,7 @@ Cache::open_write(Continuation *cont, const CacheKey *key, CacheHTTPInfo *info, 
   } while (DIR_MASK_TAG(c->key.slice32(2)) == DIR_MASK_TAG(c->first_key.slice32(2)));
   c->earliest_key = c->key;
   c->frag_type    = CACHE_FRAG_TYPE_HTTP;
-  c->stripe       = key_to_vol(key, hostname, host_len);
+  c->stripe       = key_to_stripe(key, hostname, host_len);
   Stripe *stripe  = c->stripe;
   c->info         = info;
   if (c->info && (uintptr_t)info != CACHE_ALLOW_MULTIPLE_WRITES) {
