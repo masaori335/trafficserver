@@ -29,7 +29,12 @@ else
   OSRELEASE="7"
 fi
 
-BORINGSSL_VERSION=29.20240104-27.el9
+
+if [ "$OSRELEASE" = "9" ]; then
+  BORINGSSL_VERSION=29.20240104-27.el9
+else
+  BORINGSSL_VERSION=29.20240103-63.el7
+fi
 LIBURING_VERSION=2.4
 BUILD=${#BUILD}
 PRB=${#PRB}
@@ -81,10 +86,12 @@ LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifact
 LD_LIBRARY_PATH=/lib64 yum erase -d1 -y bazinga-openssl-devel
 
 # Master builds enable io_uring for 10
+if [ "$OSRELEASE" = "9" ]; then
 LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-liburing-devel-${LIBURING_VERSION}
 
 # Need to add ninja to el9 build image
 yum install -y ninja-build
+fi
 
 # copy user presets
 cp apple/CMakeUserPresets.json .
@@ -92,6 +99,7 @@ cp apple/CMakeUserPresets.json .
 if [ $BUILD -eq 1 ]; then
   export LIBURING_VERSION
   export BORINGSSL_VERSION
+  export OSRELEASE
   if [[ ! -z $PR_ID && $PR_ID -gt 0 ]]; then
      ./apple/build.sh $BUILD_VERSION $PR_ID
   else

@@ -40,16 +40,24 @@
         "jemalloc_ROOT": "/opt/bazinga",
         "ENABLE_JEMALLOC": true,
         "OPENSSL_ROOT_DIR": "/opt/bazinga/boringssl",
+        "BUILD_TESTING": true,
+        "BUILD_EXPERIMENTAL_PLUGINS": true
+      }
+    },
+    {
+      "name": "bazinga9",
+      "inherits": ["clang", "apple_layout", "bazinga_release"],
+      "generator": "Ninja",
+      "binaryDir": "build-bazinga",
+      "cacheVariables": {
         "USE_IOURING": true,
         "ENABLE_MALLOC_ALLOCATOR": true,
-        "BUILD_TESTING": true,
-        "BUILD_EXPERIMENTAL_PLUGINS": true,
         "ENABLE_QUICHE": true,
         "quiche_ROOT": "/opt/bazinga/quiche"
       }
     },
     {
-      "name": "bazinga",
+      "name": "bazinga7",
       "inherits": ["clang", "apple_layout", "bazinga_release"],
       "generator": "Ninja",
       "binaryDir": "build-bazinga"

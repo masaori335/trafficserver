@@ -139,7 +139,7 @@ Internal include files from ATS
 echo PR: %{_pr_id}
 %endif
 
-cmake -B build -S . --preset bazinga -DCMAKE_INSTALL_PREFIX=%{_prefix}
+cmake -B build -S . --preset %{_preset} -DCMAKE_INSTALL_PREFIX=%{_prefix}
 cmake --build build -j$(nproc)
 
 %check

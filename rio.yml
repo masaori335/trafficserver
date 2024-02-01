@@ -1,8 +1,12 @@
 schemaVersion: '2.0'
 
-<<: &build_machine
+<<: &build_machine_el7
   machine:
-    baseImage: docker.apple.com/edge/trafficserver_build:20230321-2-el7
+    baseImage: docker.apple.com/edge/trafficserver_build:20240131-5-el7
+
+<<: &test_machine_el7
+  machine:
+    baseImage: docker.apple.com/edge/trafficserver_autest:20240131-3-el7
 
 <<: &build_machine_el9
   machine:
@@ -139,6 +143,108 @@ builds:
   jenkins:
     concurrentBuild: true
 
+########
+# el7 pipelines
+########
+
+- branchName: master
+  group: test
+  version: unittest_el7
+  <<: *build_machine_el7
+  build:
+    template: freestyle:v4:prb
+    steps:
+    - ./apple/rio.sh --build --branch master --prb
+  finally:
+    notify:
+      pullRequestComment:
+        postOnSuccess: false
+        postOnFailure: false
+  jenkins:
+    concurrentBuild: true
+
+- branchName: master
+  group: test
+  version: autest_el7
+  <<: *test_machine_el7
+  build:
+    template: freestyle:v4:prb
+    steps:
+    - ./apple/rio.sh --test --branch master
+  finally:
+    notify:
+      pullRequestComment:
+        postOnSuccess: false
+        postOnFailure: false
+  reports:
+    junit:
+      paths:
+      - "**/*.xml"
+    logs:
+      paths:
+      - "_sandbox/**"
+  jenkins:
+    concurrentBuild: true
+
+- branchName: master
+  group: intpr_el7
+  <<: *build_machine_el7
+  build:
+    template: freestyle:v4:publish
+    buildParameters:
+    - parameter: pr_id
+      description: Internal GitHub PR ID to build
+    steps:
+    - ./apple/rio.sh --build --branch master --prid ${BUILD_PARAM_pr_id}
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+    notify:
+      pullRequestComment:
+        postOnSuccess: false
+        postOnFailure: false
+    pipelineChain:
+      - project: ist-gns-edge-trafficserver-plugins
+        pipeline: release-master-publish-10.x-el7
+  package:
+    freeform:
+      - publish:
+        - repo: yum:cdn-edge
+  jenkins:
+    concurrentBuild: true
+
+- branchName: master
+  group: release
+  version: regular_el7
+  <<: *build_machine_el7
+  build:
+    template: freestyle:v4:publish
+    steps:
+    - ./apple/rio.sh --build --branch master --tagbuild
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      enabled: false
+    pipelineChain:
+      - project: ist-gns-edge-trafficserver-plugins
+        pipeline: release-master-publish-10.x-el7
+    notify:
+      pullRequestComment:
+        postOnSuccess: false
+        postOnFailure: false
+  secrets:
+    names:
+    - TRAFFICSERVER
+  package:
+    freeform:
+      - publish:
+        - repo: yum:cdn-edge
+  jenkins:
+    concurrentBuild: true
+
 
 ########
 # Breakfix
@@ -149,7 +255,7 @@ builds:
       - breakfix-.*
       - breakfix_.*
   group: breakfix
-  <<: *build_machine
+  <<: *build_machine_el7
   build:
     template: freestyle:v4:publish
     buildParameters:
