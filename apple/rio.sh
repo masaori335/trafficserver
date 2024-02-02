@@ -66,10 +66,11 @@ function parse_version() {
 }
 
 VERSION=$(parse_version)
+COMMIT_TREE_LENGTH=$(git --git-dir=.git rev-list HEAD 2>/dev/null | wc -l)
 if [ -z ${BREAK_FIX} ]; then
-  BUILD_VERSION="${RIO_BUILD_NUMBER}"
+  BUILD_VERSION="${RIO_BUILD_NUMBER}.${COMMIT_TREE_LENGTH}"
 else
-  BUILD_VERSION=${BREAK_FIX}.${RIO_BUILD_NUMBER}
+  BUILD_VERSION=${BREAK_FIX}.${RIO_BUILD_NUMBER}.${COMMIT_TREE_LENGTH}
 fi
 export BUILD_VERSION
 
