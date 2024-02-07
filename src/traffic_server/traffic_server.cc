@@ -62,7 +62,7 @@ extern "C" int plock(int);
 #include <sys/filio.h>
 #endif
 
-#if HAVE_MCHECK_H
+#if __has_include(<mcheck.h>)
 #include <mcheck.h>
 #endif
 
@@ -2186,6 +2186,10 @@ main(int /* argc ATS_UNUSED */, const char **argv)
       plugin_init_done = true;
       lock.unlock();
       pluginInitCheck.notify_one();
+    }
+
+    if (IpAllow::has_no_rules()) {
+      Error("No ip_allow.yaml entries found.  All requests will be denied!");
     }
 
     SSLConfigParams::init_ssl_ctx_cb  = init_ssl_ctx_callback;
