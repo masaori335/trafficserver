@@ -32,6 +32,7 @@
 #include <utility>
 
 using namespace atscppapi;
+
 using std::string;
 
 /**

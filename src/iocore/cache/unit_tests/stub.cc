@@ -43,8 +43,6 @@ HttpHookState::getNext()
   return nullptr;
 }
 
-namespace tsapi::c
-{
 TSVConn
 TSHttpConnectWithPluginId(sockaddr const *addr, const char *tag, int64_t id)
 {
@@ -76,7 +74,6 @@ void
 TSIOBufferReaderConsume(TSIOBufferReader readerp, int64_t nbytes)
 {
 }
-} // namespace tsapi::c
 
 #include "proxy/FetchSM.h"
 ClassAllocator<FetchSM> FetchSMAllocator("unusedFetchSMAllocator");

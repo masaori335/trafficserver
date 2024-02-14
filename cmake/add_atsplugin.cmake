@@ -22,7 +22,20 @@ function(add_atsplugin name)
   target_link_libraries(${name} PRIVATE ts::tsapi ts::tsutil)
   set_target_properties(${name} PROPERTIES PREFIX "")
   set_target_properties(${name} PROPERTIES SUFFIX ".so")
+  remove_definitions(-DATS_BUILD) # remove the ATS_BUILD define for plugins to build without issue
   install(TARGETS ${name} DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})
+endfunction()
+
+function(verify_remap_plugin target)
+  add_test(NAME verify_${target} COMMAND $<TARGET_FILE:traffic_server> -C
+                                         "verify_remap_plugin $<TARGET_FILE:${target}>"
+  )
+endfunction()
+
+function(verify_global_plugin target)
+  add_test(NAME verify_${target} COMMAND $<TARGET_FILE:traffic_server> -C
+                                         "verify_global_plugin $<TARGET_FILE:${target}>"
+  )
 endfunction()
 
 if(APPLE)

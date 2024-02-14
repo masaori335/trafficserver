@@ -137,8 +137,10 @@ static char diags_log_filename[PATH_NAME_MAX] = DEFAULT_DIAGS_LOG_FILENAME;
 
 static const long MAX_LOGIN = ink_login_name_max();
 
-static void init_ssl_ctx_callback(void *ctx, bool server);
 extern void load_config_file_callback(const char *parent_file, const char *remap_file);
+
+static void init_ssl_ctx_callback(void *ctx, bool server);
+
 static void load_ssl_file_callback(const char *ssl_file);
 static void task_threads_started_callback();
 
@@ -1168,14 +1170,14 @@ static const struct CMD {
    "FORMAT: verify_global_plugin [global_plugin_so_file]\n"
    "\n"
    "Load a global plugin's shared object file and verify it meets\n"
-   "minimal plugin API requirements. \n",                              cmd_verify_global_plugin, false},
+   "minimal plugin API requirements. \n",                              cmd_verify_global_plugin, true },
   {"verify_remap_plugin",  "Verify a remap plugin's shared object file",
    "VERIFY_REMAP_PLUGIN\n"
    "\n"
    "FORMAT: verify_remap_plugin [remap_plugin_so_file]\n"
    "\n"
    "Load a remap plugin's shared object file and verify it meets\n"
-   "minimal plugin API requirements. \n",                              cmd_verify_remap_plugin,  false},
+   "minimal plugin API requirements. \n",                              cmd_verify_remap_plugin,  true },
   {"help",                 "Obtain a short description of a command (e.g. 'help clear')",
    "HELP\n"
    "\n"

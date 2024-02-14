@@ -39,7 +39,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-list(APPEND CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
+list(APPEND CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE -DATS_BUILD)
 
 include(layout)
 
@@ -103,7 +103,19 @@ auto_option(
   "sys/prctl.h"
 )
 auto_option(LUAJIT PACKAGE_DEPENDS luajit)
+auto_option(
+  MAGICK
+  PACKAGE_DEPENDS
+  ImageMagick
+  COMPONENTS
+  Magick++
+  MagickWand
+  MagickCore
+)
 auto_option(UNWIND FEATURE_VAR TS_USE_REMOTE_UNWINDING PACKAGE_DEPENDS unwind)
+
+# This creates the magic import target if necessary (older cmake)
+include(magick_target)
 
 option(ENABLE_ASAN "Use address sanitizer (default OFF)")
 option(ENABLE_FUZZING "Enable fuzzing (default OFF)")
@@ -234,12 +246,6 @@ if(brotli_FOUND)
   set(HAVE_BROTLI_ENCODE_H TRUE)
 endif()
 
-if(TS_USE_POSIX_CAP)
-  # These headers must have been found for capabilites to be enabled.
-  set(HAVE_SYS_CAPABILITY_H TRUE)
-  set(HAVE_SYS_PRCTL_H TRUE)
-endif()
-
 find_package(LibLZMA)
 if(LibLZMA_FOUND)
   set(HAVE_LZMA_H TRUE)
@@ -338,10 +344,6 @@ if(EXTERNAL_LIBSWOC)
   find_package(libswoc REQUIRED)
 endif()
 
-# curl is used in traffic_top
-find_package(CURL)
-set(HAVE_CURL ${CURL_FOUND})
-
 include(Check128BitCas)
 include(ConfigureTransparentProxy)
 
@@ -385,6 +387,7 @@ check_symbol_exists(strlcat string.h HAVE_STRLCAT)
 check_symbol_exists(strlcpy string.h HAVE_STRLCPY)
 check_symbol_exists(strsignal string.h HAVE_STRSIGNAL)
 check_symbol_exists(sysinfo sys/sysinfo.h HAVE_SYSINFO)
+check_symbol_exists(prctl "sys/prctl.h" HAVE_PRCTL)
 if(TS_USE_HWLOC)
   check_source_compiles(
     C "#include <hwloc.h>
@@ -568,6 +571,16 @@ endif()
 
 set(rel_cachedir var/trafficserver)
 
+if(EXISTS "${PROJECT_SOURCE_DIR}/include/ink_autoconf.h")
+  message(STATUS "Autoconf build detected in source tree. Removing autoconf headers.")
+endif()
+
+# In-tree autoconf configuration causes duplicate definitions of some symbols
+# in generated headers. If the files don't exist, no error is emitted.
+file(REMOVE "${PROJECT_SOURCE_DIR}/include/tscore/ink_config.h")
+file(REMOVE "${PROJECT_SOURCE_DIR}/include/ts/apidefs.h")
+file(REMOVE "${PROJECT_SOURCE_DIR}/include/ink_autoconf.h")
+
 configure_file(configs/storage.config.default.in configs/storage.config.default)
 configure_file(configs/records.yaml.default.in configs/records.yaml.default)
 configure_file(include/tscore/ink_config.h.cmake.in include/tscore/ink_config.h)
@@ -729,6 +742,13 @@ install(CODE "set(OWNER_USER ${TS_PKGSYSUSER})")
 install(CODE "set(OWNER_GROUP ${TS_PKGSYSGROUP})")
 install(CODE "set(CHOWN_DIRS ${CMAKE_INSTALL_FULL_LOGDIR} ${CMAKE_INSTALL_FULL_RUNSTATEDIR} ${CMAKE_INSTALL_FULL_CACHEDIR})")
 install(SCRIPT cmake/post_install.cmake)
+
+# Generate pkg-config and cmake config files
+configure_file(ts.pc.in ts.pc @ONLY)
+configure_file(Findtsapi.cmake.in Findtsapi.cmake @ONLY)
+
+install(FILES "${PROJECT_BINARY_DIR}/ts.pc" DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+install(FILES "${PROJECT_BINARY_DIR}/Findtsapi.cmake" DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake)
 
 # Display build summary
 include(CMakePrintHelpers)

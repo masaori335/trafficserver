@@ -1,6 +1,6 @@
 /** @file
 
-  simple_pool.h
+  FrequencyCounter
 
   @section license License
 
@@ -19,45 +19,24 @@
   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
   See the License for the specific language governing permissions and
   limitations under the License.
-
  */
+
 #pragma once
 
-#include <set>
-#include <mutex>
+#include <cstdint>
+#include "iocore/eventsystem/EventSystem.h"
 
-#include "connection.h"
-
-/**
- * @brief Manages a pool of connections to a single Redis server
- */
-class simple_pool
+class FrequencyCounter
 {
 public:
-  static inline simple_pool *
-  create(const std::string &host = "localhost", unsigned int port = 6379, unsigned int timeout = 5)
-  {
-    return (new simple_pool(host, port, timeout));
-  }
+  void increment(uint16_t amount = 1);
+  uint32_t get_count();
+  virtual ~FrequencyCounter() {}
 
-  /**
-   * @brief Get a working connection
-   * @return
-   */
-  connection *get();
-
-  /**
-   * @brief Put back a connection for reuse
-   * @param conn
-   */
-  void put(connection *conn);
+protected:
+  uint16_t _count[2]      = {0};
+  ink_hrtime _last_update = 0;
 
 private:
-  simple_pool(const std::string &host, unsigned int port, unsigned int timeout);
-
-  std::string _host;
-  unsigned int _port;
-  unsigned int _timeout;
-  std::set<connection *> connections;
-  std::mutex access_mutex;
+  virtual ink_hrtime _ink_get_hrtime();
 };

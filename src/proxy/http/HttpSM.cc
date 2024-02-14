@@ -2827,6 +2827,7 @@ HttpSM::tunnel_handler_trailer(int event, void *data)
   }
   // Signal the _ua.get_txn() to get ready for a trailer
   _ua.get_txn()->set_expect_send_trailer();
+  tunnel.deallocate_buffers();
   tunnel.reset();
   HttpTunnelProducer *p = tunnel.add_producer(server_entry->vc, nbytes, buf_start, &HttpSM::tunnel_handler_trailer_server,
                                               HT_HTTP_SERVER, "http server trailer");
@@ -4301,7 +4302,7 @@ HttpSM::check_sni_host()
         swoc::bwprint(error_bw_buffer, "No SNI for TLS request: connecting to {} for host='{}', returning a 403",
                       t_state.client_info.dst_addr, std::string_view{host_name, static_cast<size_t>(host_len)});
         Log::error("%s", error_bw_buffer.c_str());
-        this->t_state.client_connection_enabled = false;
+        this->t_state.client_connection_allowed = false;
       }
     } else if (strncasecmp(host_name, sni_value, host_len) != 0) { // Name mismatch
       Warning("SNI/hostname mismatch sni=%s host=%.*s action=%s", sni_value, host_len, host_name, action_value);
@@ -4310,7 +4311,7 @@ HttpSM::check_sni_host()
         swoc::bwprint(error_bw_buffer, "SNI/hostname mismatch: connecting to {} for host='{}' sni='{}', returning a 403",
                       t_state.client_info.dst_addr, std::string_view{host_name, static_cast<size_t>(host_len)}, sni_value);
         Log::error("%s", error_bw_buffer.c_str());
-        this->t_state.client_connection_enabled = false;
+        this->t_state.client_connection_allowed = false;
       }
     } else {
       SMDbg(dbg_ctl_ssl_sni, "SNI/hostname successfully match sni=%s host=%.*s", sni_value, host_len, host_name);

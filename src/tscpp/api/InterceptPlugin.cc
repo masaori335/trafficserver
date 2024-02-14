@@ -35,6 +35,7 @@
 #endif
 
 using namespace atscppapi;
+
 using std::string;
 
 /**

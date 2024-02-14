@@ -40,7 +40,7 @@
 #endif
 
 TSReturnCode
-tsapi::c::sdk_sanity_check_mutex(TSMutex mutex)
+sdk_sanity_check_mutex(TSMutex mutex)
 {
   if (mutex == nullptr) {
     return TS_ERROR;
@@ -59,7 +59,7 @@ tsapi::c::sdk_sanity_check_mutex(TSMutex mutex)
 }
 
 TSReturnCode
-tsapi::c::sdk_sanity_check_hostlookup_structure(TSHostLookupResult data)
+sdk_sanity_check_hostlookup_structure(TSHostLookupResult data)
 {
   if (data == nullptr) {
     return TS_ERROR;
@@ -69,7 +69,7 @@ tsapi::c::sdk_sanity_check_hostlookup_structure(TSHostLookupResult data)
 }
 
 TSReturnCode
-tsapi::c::sdk_sanity_check_iocore_structure(void *data)
+sdk_sanity_check_iocore_structure(void *data)
 {
   if (data == nullptr) {
     return TS_ERROR;
@@ -79,8 +79,8 @@ tsapi::c::sdk_sanity_check_iocore_structure(void *data)
 }
 
 // From InkAPI.cc
-tsapi::c::TSReturnCode sdk_sanity_check_continuation(TSCont cont);
-tsapi::c::TSReturnCode sdk_sanity_check_null_ptr(void const *ptr);
+TSReturnCode sdk_sanity_check_continuation(TSCont cont);
+TSReturnCode sdk_sanity_check_null_ptr(void const *ptr);
 
 ////////////////////////////////////////////////////////////////////
 //
@@ -132,7 +132,7 @@ ink_thread_trampoline(void *data)
  * INKqa12653. Return TSThread or null if error
  */
 TSThread
-tsapi::c::TSThreadCreate(TSThreadFunc func, void *data)
+TSThreadCreate(TSThreadFunc func, void *data)
 {
   INKThreadInternal *thread;
   ink_thread tid = 0;
@@ -160,7 +160,7 @@ tsapi::c::TSThreadCreate(TSThreadFunc func, void *data)
 // needs to delete the thread, it must first wait for the thread to
 // complete.
 void
-tsapi::c::TSThreadWait(TSThread thread)
+TSThreadWait(TSThread thread)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(thread) == TS_SUCCESS);
   INKThreadInternal *ithread = reinterpret_cast<INKThreadInternal *>(thread);
@@ -175,7 +175,7 @@ tsapi::c::TSThreadWait(TSThread thread)
 }
 
 TSThread
-tsapi::c::TSThreadInit()
+TSThreadInit()
 {
   INKThreadInternal *thread;
 
@@ -193,7 +193,7 @@ tsapi::c::TSThreadInit()
 }
 
 void
-tsapi::c::TSThreadDestroy(TSThread thread)
+TSThreadDestroy(TSThread thread)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(thread) == TS_SUCCESS);
 
@@ -213,14 +213,14 @@ tsapi::c::TSThreadDestroy(TSThread thread)
 }
 
 TSThread
-tsapi::c::TSThreadSelf(void)
+TSThreadSelf(void)
 {
   TSThread ithread = (TSThread)this_ethread();
   return ithread;
 }
 
 TSEventThread
-tsapi::c::TSEventThreadSelf(void)
+TSEventThreadSelf(void)
 {
   return reinterpret_cast<TSEventThread>(this_event_thread());
 }
@@ -235,7 +235,7 @@ tsapi::c::TSEventThreadSelf(void)
 //
 ////////////////////////////////////////////////////////////////////
 TSMutex
-tsapi::c::TSMutexCreate()
+TSMutexCreate()
 {
   ProxyMutex *mutexp = new_ProxyMutex();
 
@@ -246,7 +246,7 @@ tsapi::c::TSMutexCreate()
 }
 
 void
-tsapi::c::TSMutexDestroy(TSMutex m)
+TSMutexDestroy(TSMutex m)
 {
   sdk_assert(sdk_sanity_check_mutex(m) == TS_SUCCESS);
   ProxyMutex *mutexp = reinterpret_cast<ProxyMutex *>(m);
@@ -262,7 +262,7 @@ tsapi::c::TSMutexDestroy(TSMutex m)
    of the mutex pointer, plugins may want more control of the creation
    and destroy of the mutex.*/
 TSMutex
-tsapi::c::TSMutexCreateInternal()
+TSMutexCreateInternal()
 {
   ProxyMutex *new_mutex = new_ProxyMutex();
 
@@ -274,7 +274,7 @@ tsapi::c::TSMutexCreateInternal()
 }
 
 int
-tsapi::c::TSMutexCheck(TSMutex mutex)
+TSMutexCheck(TSMutex mutex)
 {
   ProxyMutex *mutexp = (ProxyMutex *)mutex;
 
@@ -288,7 +288,7 @@ tsapi::c::TSMutexCheck(TSMutex mutex)
 }
 
 void
-tsapi::c::TSMutexLock(TSMutex mutexp)
+TSMutexLock(TSMutex mutexp)
 {
   sdk_assert(sdk_sanity_check_mutex(mutexp) == TS_SUCCESS);
   ProxyMutex *proxy_mutex = reinterpret_cast<ProxyMutex *>(mutexp);
@@ -296,7 +296,7 @@ tsapi::c::TSMutexLock(TSMutex mutexp)
 }
 
 TSReturnCode
-tsapi::c::TSMutexLockTry(TSMutex mutexp)
+TSMutexLockTry(TSMutex mutexp)
 {
   sdk_assert(sdk_sanity_check_mutex(mutexp) == TS_SUCCESS);
   ProxyMutex *proxy_mutex = reinterpret_cast<ProxyMutex *>(mutexp);
@@ -304,7 +304,7 @@ tsapi::c::TSMutexLockTry(TSMutex mutexp)
 }
 
 void
-tsapi::c::TSMutexUnlock(TSMutex mutexp)
+TSMutexUnlock(TSMutex mutexp)
 {
   sdk_assert(sdk_sanity_check_mutex(mutexp) == TS_SUCCESS);
   ProxyMutex *proxy_mutex(reinterpret_cast<ProxyMutex *>(mutexp));
@@ -314,7 +314,7 @@ tsapi::c::TSMutexUnlock(TSMutex mutexp)
 /* VIOs */
 
 void
-tsapi::c::TSVIOReenable(TSVIO viop)
+TSVIOReenable(TSVIO viop)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(viop) == TS_SUCCESS);
 
@@ -323,7 +323,7 @@ tsapi::c::TSVIOReenable(TSVIO viop)
 }
 
 TSIOBuffer
-tsapi::c::TSVIOBufferGet(TSVIO viop)
+TSVIOBufferGet(TSVIO viop)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(viop) == TS_SUCCESS);
 
@@ -332,7 +332,7 @@ tsapi::c::TSVIOBufferGet(TSVIO viop)
 }
 
 TSIOBufferReader
-tsapi::c::TSVIOReaderGet(TSVIO viop)
+TSVIOReaderGet(TSVIO viop)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(viop) == TS_SUCCESS);
 
@@ -341,7 +341,7 @@ tsapi::c::TSVIOReaderGet(TSVIO viop)
 }
 
 int64_t
-tsapi::c::TSVIONBytesGet(TSVIO viop)
+TSVIONBytesGet(TSVIO viop)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(viop) == TS_SUCCESS);
 
@@ -350,7 +350,7 @@ tsapi::c::TSVIONBytesGet(TSVIO viop)
 }
 
 void
-tsapi::c::TSVIONBytesSet(TSVIO viop, int64_t nbytes)
+TSVIONBytesSet(TSVIO viop, int64_t nbytes)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(viop) == TS_SUCCESS);
   sdk_assert(nbytes >= 0);
@@ -360,7 +360,7 @@ tsapi::c::TSVIONBytesSet(TSVIO viop, int64_t nbytes)
 }
 
 int64_t
-tsapi::c::TSVIONDoneGet(TSVIO viop)
+TSVIONDoneGet(TSVIO viop)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(viop) == TS_SUCCESS);
 
@@ -369,7 +369,7 @@ tsapi::c::TSVIONDoneGet(TSVIO viop)
 }
 
 void
-tsapi::c::TSVIONDoneSet(TSVIO viop, int64_t ndone)
+TSVIONDoneSet(TSVIO viop, int64_t ndone)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(viop) == TS_SUCCESS);
   sdk_assert(ndone >= 0);
@@ -379,7 +379,7 @@ tsapi::c::TSVIONDoneSet(TSVIO viop, int64_t ndone)
 }
 
 int64_t
-tsapi::c::TSVIONTodoGet(TSVIO viop)
+TSVIONTodoGet(TSVIO viop)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(viop) == TS_SUCCESS);
 
@@ -388,7 +388,7 @@ tsapi::c::TSVIONTodoGet(TSVIO viop)
 }
 
 TSCont
-tsapi::c::TSVIOContGet(TSVIO viop)
+TSVIOContGet(TSVIO viop)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(viop) == TS_SUCCESS);
 
@@ -397,7 +397,7 @@ tsapi::c::TSVIOContGet(TSVIO viop)
 }
 
 TSVConn
-tsapi::c::TSVIOVConnGet(TSVIO viop)
+TSVIOVConnGet(TSVIO viop)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(viop) == TS_SUCCESS);
 
@@ -406,7 +406,7 @@ tsapi::c::TSVIOVConnGet(TSVIO viop)
 }
 
 TSMutex
-tsapi::c::TSVIOMutexGet(TSVIO viop)
+TSVIOMutexGet(TSVIO viop)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(viop) == TS_SUCCESS);
 
@@ -557,7 +557,7 @@ INKUDPPacketGet(INKUDPacketQueue queuep)
 /* Buffers */
 
 TSIOBuffer
-tsapi::c::TSIOBufferCreate()
+TSIOBufferCreate()
 {
   MIOBuffer *b = new_empty_MIOBuffer(BUFFER_SIZE_INDEX_32K);
 
@@ -567,7 +567,7 @@ tsapi::c::TSIOBufferCreate()
 }
 
 TSIOBuffer
-tsapi::c::TSIOBufferSizedCreate(TSIOBufferSizeIndex index)
+TSIOBufferSizedCreate(TSIOBufferSizeIndex index)
 {
   sdk_assert((index >= TS_IOBUFFER_SIZE_INDEX_128) && (index <= TS_IOBUFFER_SIZE_INDEX_32K));
 
@@ -579,14 +579,14 @@ tsapi::c::TSIOBufferSizedCreate(TSIOBufferSizeIndex index)
 }
 
 void
-tsapi::c::TSIOBufferDestroy(TSIOBuffer bufp)
+TSIOBufferDestroy(TSIOBuffer bufp)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(bufp) == TS_SUCCESS);
   free_MIOBuffer((MIOBuffer *)bufp);
 }
 
 TSIOBufferBlock
-tsapi::c::TSIOBufferStart(TSIOBuffer bufp)
+TSIOBufferStart(TSIOBuffer bufp)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(bufp) == TS_SUCCESS);
 
@@ -605,7 +605,7 @@ tsapi::c::TSIOBufferStart(TSIOBuffer bufp)
 }
 
 int64_t
-tsapi::c::TSIOBufferCopy(TSIOBuffer bufp, TSIOBufferReader readerp, int64_t length, int64_t offset)
+TSIOBufferCopy(TSIOBuffer bufp, TSIOBufferReader readerp, int64_t length, int64_t offset)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(bufp) == TS_SUCCESS);
   sdk_assert(sdk_sanity_check_iocore_structure(readerp) == TS_SUCCESS);
@@ -618,7 +618,7 @@ tsapi::c::TSIOBufferCopy(TSIOBuffer bufp, TSIOBufferReader readerp, int64_t leng
 }
 
 int64_t
-tsapi::c::TSIOBufferWrite(TSIOBuffer bufp, const void *buf, int64_t length)
+TSIOBufferWrite(TSIOBuffer bufp, const void *buf, int64_t length)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(bufp) == TS_SUCCESS);
   sdk_assert(sdk_sanity_check_null_ptr((void *)buf) == TS_SUCCESS);
@@ -629,7 +629,7 @@ tsapi::c::TSIOBufferWrite(TSIOBuffer bufp, const void *buf, int64_t length)
 }
 
 int64_t
-tsapi::c::TSIOBufferReaderCopy(TSIOBufferReader readerp, void *buf, int64_t length)
+TSIOBufferReaderCopy(TSIOBufferReader readerp, void *buf, int64_t length)
 {
   auto r{reinterpret_cast<IOBufferReader *>(readerp)};
   char *limit = r->memcpy(buf, length, 0);
@@ -637,7 +637,7 @@ tsapi::c::TSIOBufferReaderCopy(TSIOBufferReader readerp, void *buf, int64_t leng
 }
 
 void
-tsapi::c::TSIOBufferProduce(TSIOBuffer bufp, int64_t nbytes)
+TSIOBufferProduce(TSIOBuffer bufp, int64_t nbytes)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(bufp) == TS_SUCCESS);
   sdk_assert(nbytes >= 0);
@@ -648,7 +648,7 @@ tsapi::c::TSIOBufferProduce(TSIOBuffer bufp, int64_t nbytes)
 
 // dev API, not exposed
 void
-tsapi::c::TSIOBufferBlockDestroy(TSIOBufferBlock blockp)
+TSIOBufferBlockDestroy(TSIOBufferBlock blockp)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(blockp) == TS_SUCCESS);
 
@@ -657,7 +657,7 @@ tsapi::c::TSIOBufferBlockDestroy(TSIOBufferBlock blockp)
 }
 
 TSIOBufferBlock
-tsapi::c::TSIOBufferBlockNext(TSIOBufferBlock blockp)
+TSIOBufferBlockNext(TSIOBufferBlock blockp)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(blockp) == TS_SUCCESS);
 
@@ -667,7 +667,7 @@ tsapi::c::TSIOBufferBlockNext(TSIOBufferBlock blockp)
 
 // dev API, not exposed
 int64_t
-tsapi::c::TSIOBufferBlockDataSizeGet(TSIOBufferBlock blockp)
+TSIOBufferBlockDataSizeGet(TSIOBufferBlock blockp)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(blockp) == TS_SUCCESS);
 
@@ -676,7 +676,7 @@ tsapi::c::TSIOBufferBlockDataSizeGet(TSIOBufferBlock blockp)
 }
 
 const char *
-tsapi::c::TSIOBufferBlockReadStart(TSIOBufferBlock blockp, TSIOBufferReader readerp, int64_t *avail)
+TSIOBufferBlockReadStart(TSIOBufferBlock blockp, TSIOBufferReader readerp, int64_t *avail)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(blockp) == TS_SUCCESS);
   sdk_assert(sdk_sanity_check_iocore_structure(readerp) == TS_SUCCESS);
@@ -704,7 +704,7 @@ tsapi::c::TSIOBufferBlockReadStart(TSIOBufferBlock blockp, TSIOBufferReader read
 }
 
 int64_t
-tsapi::c::TSIOBufferBlockReadAvail(TSIOBufferBlock blockp, TSIOBufferReader readerp)
+TSIOBufferBlockReadAvail(TSIOBufferBlock blockp, TSIOBufferReader readerp)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(blockp) == TS_SUCCESS);
   sdk_assert(sdk_sanity_check_iocore_structure(readerp) == TS_SUCCESS);
@@ -726,7 +726,7 @@ tsapi::c::TSIOBufferBlockReadAvail(TSIOBufferBlock blockp, TSIOBufferReader read
 }
 
 char *
-tsapi::c::TSIOBufferBlockWriteStart(TSIOBufferBlock blockp, int64_t *avail)
+TSIOBufferBlockWriteStart(TSIOBufferBlock blockp, int64_t *avail)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(blockp) == TS_SUCCESS);
 
@@ -739,7 +739,7 @@ tsapi::c::TSIOBufferBlockWriteStart(TSIOBufferBlock blockp, int64_t *avail)
 }
 
 int64_t
-tsapi::c::TSIOBufferBlockWriteAvail(TSIOBufferBlock blockp)
+TSIOBufferBlockWriteAvail(TSIOBufferBlock blockp)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(blockp) == TS_SUCCESS);
 
@@ -748,7 +748,7 @@ tsapi::c::TSIOBufferBlockWriteAvail(TSIOBufferBlock blockp)
 }
 
 int64_t
-tsapi::c::TSIOBufferWaterMarkGet(TSIOBuffer bufp)
+TSIOBufferWaterMarkGet(TSIOBuffer bufp)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(bufp) == TS_SUCCESS);
 
@@ -757,7 +757,7 @@ tsapi::c::TSIOBufferWaterMarkGet(TSIOBuffer bufp)
 }
 
 void
-tsapi::c::TSIOBufferWaterMarkSet(TSIOBuffer bufp, int64_t water_mark)
+TSIOBufferWaterMarkSet(TSIOBuffer bufp, int64_t water_mark)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(bufp) == TS_SUCCESS);
   sdk_assert(water_mark >= 0);
@@ -767,7 +767,7 @@ tsapi::c::TSIOBufferWaterMarkSet(TSIOBuffer bufp, int64_t water_mark)
 }
 
 TSIOBufferReader
-tsapi::c::TSIOBufferReaderAlloc(TSIOBuffer bufp)
+TSIOBufferReaderAlloc(TSIOBuffer bufp)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(bufp) == TS_SUCCESS);
 
@@ -780,7 +780,7 @@ tsapi::c::TSIOBufferReaderAlloc(TSIOBuffer bufp)
 }
 
 TSIOBufferReader
-tsapi::c::TSIOBufferReaderClone(TSIOBufferReader readerp)
+TSIOBufferReaderClone(TSIOBufferReader readerp)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(readerp) == TS_SUCCESS);
 
@@ -789,7 +789,7 @@ tsapi::c::TSIOBufferReaderClone(TSIOBufferReader readerp)
 }
 
 void
-tsapi::c::TSIOBufferReaderFree(TSIOBufferReader readerp)
+TSIOBufferReaderFree(TSIOBufferReader readerp)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(readerp) == TS_SUCCESS);
 
@@ -798,7 +798,7 @@ tsapi::c::TSIOBufferReaderFree(TSIOBufferReader readerp)
 }
 
 TSIOBufferBlock
-tsapi::c::TSIOBufferReaderStart(TSIOBufferReader readerp)
+TSIOBufferReaderStart(TSIOBufferReader readerp)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(readerp) == TS_SUCCESS);
 
@@ -812,7 +812,7 @@ tsapi::c::TSIOBufferReaderStart(TSIOBufferReader readerp)
 }
 
 void
-tsapi::c::TSIOBufferReaderConsume(TSIOBufferReader readerp, int64_t nbytes)
+TSIOBufferReaderConsume(TSIOBufferReader readerp, int64_t nbytes)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(readerp) == TS_SUCCESS);
   sdk_assert(nbytes >= 0);
@@ -822,7 +822,7 @@ tsapi::c::TSIOBufferReaderConsume(TSIOBufferReader readerp, int64_t nbytes)
 }
 
 int64_t
-tsapi::c::TSIOBufferReaderAvail(TSIOBufferReader readerp)
+TSIOBufferReaderAvail(TSIOBufferReader readerp)
 {
   sdk_assert(sdk_sanity_check_iocore_structure(readerp) == TS_SUCCESS);
 

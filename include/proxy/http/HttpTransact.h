@@ -37,8 +37,8 @@
 #include "iocore/eventsystem/ConfigProcessor.h"
 #include "proxy/Transform.h"
 #include "proxy/Milestones.h"
+#include "ts/apidefs.h"
 #include "ts/remap.h"
-#include "ts/parentselectdefs.h"
 #include "proxy/http/remap/RemapPluginInfo.h"
 #include "proxy/http/remap/UrlMapping.h"
 #include "records/RecHttp.h"
@@ -682,7 +682,7 @@ public:
     bool is_upgrade_request           = false;
     bool is_websocket                 = false;
     bool did_upgrade_succeed          = false;
-    bool client_connection_enabled    = true;
+    bool client_connection_allowed    = true;
     bool acl_filtering_performed      = false;
     bool api_cleanup_cache_read       = false;
     bool api_server_response_no_store = false;

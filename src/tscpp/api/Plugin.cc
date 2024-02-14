@@ -21,6 +21,7 @@
  */
 #include "tscpp/api/Plugin.h"
 #include "ts/ts.h"
+
 const std::string atscppapi::HOOK_TYPE_STRINGS[] = {
   std::string("HOOK_READ_REQUEST_HEADERS_PRE_REMAP"), std::string("HOOK_READ_REQUEST_HEADERS_POST_REMAP"),
   std::string("HOOK_SEND_REQUEST_HEADERS"),           std::string("HOOK_READ_RESPONSE_HEADERS"),

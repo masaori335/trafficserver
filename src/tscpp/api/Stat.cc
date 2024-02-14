@@ -26,6 +26,7 @@
 #include "logging_internal.h"
 
 using namespace atscppapi;
+
 using std::string;
 
 Stat::Stat()
