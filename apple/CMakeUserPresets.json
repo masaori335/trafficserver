@@ -60,7 +60,11 @@
       "name": "bazinga7",
       "inherits": ["clang", "apple_layout", "bazinga_release"],
       "generator": "Ninja",
-      "binaryDir": "build-bazinga"
+      "binaryDir": "build-bazinga",
+      "cacheVariables": {
+        "ENABLE_QUICHE": true,
+        "quiche_ROOT": "/opt/bazinga/quiche"
+      }
     },
     {
       "name": "bazinga-autest",

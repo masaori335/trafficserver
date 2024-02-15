@@ -33,9 +33,9 @@
 %{!?_commit: %define _commit UNKNOWN}
 %{!?_gittag: %define _gittag UNKNOWN}
 %if "%{dist}" == ".el7"
-%{!?_boringssl_version %define _boringssl_version 25.20230726-39.el7}
+%{!?_libquiche_version %define _libquiche_version 0.20.0-4.el7}
 %else
-%{!?_boringssl_version %define _boringssl_version 25.20230727-4.el9}
+%{!?_libquiche_version %define _libquiche_version 0.20.0-4.el9}
 %endif
 %{!?_liburing_version %define _liburing_version 2.4}
 
@@ -66,10 +66,11 @@ BuildRequires:	bazinga-luajit-devel
 BuildRequires:	luajit-devel
 %endif
 
-%{?_with_boringssl:BuildRequires: bazinga-boringssl = %{_boringssl_version}}
+%{?_with_boringssl:BuildRequires: bazinga-boringssl}
 %{!?_with_boringssl:BuildRequires: bazinga-openssl-devel}
 BuildRequires: bazinga-llvm-lld
 %{?_with_io_uring:BuildRequires: bazinga-liburing-devel = %{_liburing_version}}
+%{?_with_quiche:BuildRequires: bazinga-quiche = %{_libquiche_version}}
 
 # trafficserver fails to build on ppc and others, TS-1131, see lib/ts/ink_queue.h
 ExclusiveArch:	%{ix86} x86_64 ia64 %{arm}
@@ -87,8 +88,9 @@ Requires:	libcurl, ncurses-libs, libcap, hwloc, libmaxminddb
 Requires:	bazinga-jemalloc >= 4.3.1
 Requires:	bazinga-brotli >= 1.0.6
 %{?_with_io_uring:Requires: bazinga-liburing = %{_liburing_version}}
-%{?_with_boringssl:Requires: bazinga-boringssl  = %{_boringssl_version}}
+%{?_with_boringssl:Requires: bazinga-boringssl}
 %{!?_with_boringssl:Requires: bazinga-openssl-libs >= 1.1.1a}
+%{?_with_quiche:Requires: bazinga-quiche = %{_libquiche_version}}
 Requires(post):	chkconfig
 Requires(preun): chkconfig initscripts
 Requires(postun): initscripts

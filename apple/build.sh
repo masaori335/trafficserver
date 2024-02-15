@@ -65,7 +65,7 @@ if [ "$RUN_AUTEST" != "" ]; then
     RPMBUILD_FLAGS+=" --with tests"
 fi
 
-RPMBUILD_FLAGS+=" --with boringssl"
+RPMBUILD_FLAGS+=" --with boringssl --with quiche"
 if [ "$OSRELEASE" = "9" ]; then
     RPMBUILD_FLAGS+=" --with io_uring"
 fi
@@ -79,7 +79,7 @@ rpmbuild $RPMBUILD_MODE $buildroot/$specfilename \
          --define "_gittag ${GIT_TAG}" \
          --define "_topdir `pwd`/$buildroot/rpmbuild" \
          --define "_pr_id ${INTERNAL_GITHUB_PR:-'%{nil}'}" \
-         --define "_boringssl_version ${BORINGSSL_VERSION:-25.20230726-39}" \
+         --define "_libquiche_version ${QUICHE_VERSION:-0.20.0-5.el7}" \
          --define "_liburing_version ${LIBURING_VERSION:-2.4}" \
          --define "_preset bazinga${OSRELEASE}" \
          ${RPMBUILD_FLAGS}
