@@ -144,8 +144,18 @@ cmake --build build -j$(nproc)
 
 %check
 
-cmake --build build -t test
+export TS_RUNROOT=${RPM_BUILD_ROOT}%{_prefix}
+export TS_ROOT=${RPM_BUILD_ROOT}%{_prefix}
+# these are needed because our layout has these outside of the runroot
+mkdir -p /var/run/trafficserver
+mkdir -p /var/log/trafficserver
+chmod a+w /var/run/trafficserver
+chmod a+w /var/log/trafficserver
+chmod a+rx /$(echo $RPM_BUILD_ROOT | awk -F "/" '{print $2}')
 
+cd build
+ctest -j$(nproc) --output-on-failure
+cd ..
 %install
 rm -rf $RPM_BUILD_ROOT
 DESTDIR=$RPM_BUILD_ROOT cmake --install build
