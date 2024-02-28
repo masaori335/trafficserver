@@ -138,6 +138,7 @@ option(ENABLE_AUTEST "Setup autest (default OFF)")
 option(ENABLE_BENCHMARKS "Build benchmarks (default OFF)")
 option(EXTERNAL_YAML_CPP "Use external yaml-cpp (default OFF)")
 option(EXTERNAL_LIBSWOC "Use external libswoc (default OFF)")
+option(LINK_PLUGINS "Link core libraries to plugins (default OFF)")
 
 # Setup user
 # NOTE: this is the user trafficserver runs as
@@ -522,6 +523,7 @@ endif(HOST_OS STREQUAL "linux")
 
 if(HOST_OS STREQUAL "darwin")
   set(CMAKE_MACOSX_RPATH 1)
+  link_libraries("-ld_classic")
 endif(HOST_OS STREQUAL "darwin")
 
 if(HOST_OS STREQUAL "freebsd")
