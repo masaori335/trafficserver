@@ -253,7 +253,7 @@ if(LibLZMA_FOUND)
 endif()
 
 find_package(PCRE REQUIRED)
-find_package(PCRE2 COMPONENTS 8BIT)
+pkg_check_modules(PCRE2 REQUIRED IMPORTED_TARGET libpcre2-8)
 
 include(CheckOpenSSLIsBoringSSL)
 include(CheckOpenSSLIsQuictls)
@@ -521,10 +521,10 @@ if(HOST_OS STREQUAL "linux")
   link_libraries(dl)
 endif(HOST_OS STREQUAL "linux")
 
-if(HOST_OS STREQUAL "darwin")
+if(CMAKE_CXX_COMPILER_ID STREQUAL AppleClang)
   set(CMAKE_MACOSX_RPATH 1)
   link_libraries("-ld_classic")
-endif(HOST_OS STREQUAL "darwin")
+endif()
 
 if(HOST_OS STREQUAL "freebsd")
   set(CMAKE_THREAD_LIBS_INIT "-lpthread")
@@ -539,7 +539,7 @@ endif()
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib;${CMAKE_INSTALL_PREFIX}/lib64;${CMAKE_INSTALL_FULL_LIBDIR}")
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
-add_compile_definitions(${HOST_OS} PACKAGE_NAME="ats" PACKAGE_VERSION="${TS_VERSION_STRING}")
+add_compile_definitions(${HOST_OS} PACKAGE_NAME="Apache Traffic Server" PACKAGE_VERSION="${TS_VERSION_STRING}")
 add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wno-invalid-offsetof>)
 
 # Enable fuzzing
