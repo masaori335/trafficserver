@@ -274,6 +274,10 @@ def MakeATSProcess(
     tmpname = os.path.join(config_dir, fname)
     p.Disk.File(tmpname, id=make_id(fname), typename="ats:config")
 
+    fname = "jsonrpc.yaml"
+    tmpname = os.path.join(config_dir, fname)
+    p.Disk.File(tmpname, id=make_id(fname), typename="ats:config")
+
     fname = "logging.yaml"
     tmpname = os.path.join(config_dir, fname)
     p.Disk.File(tmpname, id=make_id(fname), typename="ats:config")
@@ -397,6 +401,14 @@ def MakeATSProcess(
         p.Disk.records_config.update({
             'proxy.config.udp.threads': 1,
         })
+
+    p.Disk.jsonrpc_yaml.AddLine(
+"""
+rpc:
+ enabled: true
+ unix:
+   sock_path_name: "/tmp/autest"
+""")
 
     # The following message was added so that tests and users can know when
     # Traffic Server is ready to both receive and optimize traffic.
