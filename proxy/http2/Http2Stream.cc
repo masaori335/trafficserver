@@ -452,6 +452,9 @@ Http2Stream::do_io_close(int /* flags */)
       h2_proxy_ssn->connection_state.send_data_frames(this);
     }
 
+    // Adjust state, so we don't process any more data
+    _state = Http2StreamState::HTTP2_STREAM_STATE_CLOSED;
+
     _clear_timers();
     clear_io_events();
 
