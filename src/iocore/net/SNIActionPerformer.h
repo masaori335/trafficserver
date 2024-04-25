@@ -139,6 +139,18 @@ private:
   int value = -1;
 };
 
+class HTTP2MaxContinuationFramesPerMinute : public ActionItem
+{
+public:
+  HTTP2MaxContinuationFramesPerMinute(int value) : value(value) {}
+  ~HTTP2MaxContinuationFramesPerMinute() override {}
+
+  int SNIAction(SSL &ssl, const Context &ctx) const override;
+
+private:
+  int value = -1;
+};
+
 class TunnelDestination : public ActionItem
 {
   // ID of the configured variable. This will be used to know which function
@@ -243,7 +255,7 @@ public:
   static const unsigned long max_mask = SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1 | SSL_OP_NO_TLSv1_2;
 #endif
   TLSValidProtocols() : protocol_mask(max_mask) {}
-  TLSValidProtocols(unsigned long protocols) : unset(false), protocol_mask(protocols) {}
+  TLSValidProtocols(unsigned long protocols);
   TLSValidProtocols(int min_ver, int max_ver) : unset(false), protocol_mask(0), min_ver(min_ver), max_ver(max_ver) {}
 
   int SNIAction(SSL &ssl, const Context & /* ctx */) const override;

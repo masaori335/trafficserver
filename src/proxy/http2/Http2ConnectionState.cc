@@ -320,6 +320,13 @@ Http2ConnectionState::rcv_headers_frame(const Http2Frame &frame)
       stream     = this->create_stream(stream_id, error);
       new_stream = true;
       if (!stream) {
+        // Terminate the connection with COMPRESSION_ERROR because we don't decompress the field block in this HEADERS frame.
+        // TODO: try to decompress to keep HPACK Dynamic Table in sync.
+        if (error.cls == Http2ErrorClass::HTTP2_ERROR_CLASS_STREAM) {
+          return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_CONNECTION, Http2ErrorCode::HTTP2_ERROR_COMPRESSION_ERROR,
+                            error.msg);
+        }
+
         return error;
       }
     }
@@ -377,7 +384,7 @@ Http2ConnectionState::rcv_headers_frame(const Http2Frame &frame)
     }
     // Protocol error if the stream depends on itself
     if (stream_id == params.priority.stream_dependency) {
-      return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_STREAM, Http2ErrorCode::HTTP2_ERROR_PROTOCOL_ERROR,
+      return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_CONNECTION, Http2ErrorCode::HTTP2_ERROR_COMPRESSION_ERROR,
                         "recv headers self dependency");
     }
 
@@ -656,7 +663,7 @@ Http2ConnectionState::rcv_rst_stream_frame(const Http2Frame &frame)
   }
 
   if (stream != nullptr) {
-    Http2StreamDebug(this->session, stream_id, "Parsed RST_STREAM: Error Code: %u", rst_stream.error_code);
+    Http2StreamDebug(this->session, stream_id, "Parsed RST_STREAM frame: Error Code: %u", rst_stream.error_code);
     stream->set_rx_error_code({ProxyErrorClass::TXN, static_cast<uint32_t>(rst_stream.error_code)});
     stream->initiating_close();
   }
@@ -1013,6 +1020,18 @@ Http2ConnectionState::rcv_continuation_frame(const Http2Frame &frame)
     }
   }
 
+  // Update CONTINUATION frame count per minute.
+  this->increment_received_continuation_frame_count();
+  // Close this connection if its CONTINUATION frame count exceeds a limit.
+  if (configured_max_continuation_frames_per_minute != 0 &&
+      this->get_received_continuation_frame_count() > configured_max_continuation_frames_per_minute) {
+    Metrics::Counter::increment(http2_rsb.max_continuation_frames_per_minute_exceeded);
+    Http2StreamDebug(this->session, stream_id, "Observed too frequent CONTINUATION frames: %u frames within a last minute",
+                     this->get_received_continuation_frame_count());
+    return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_CONNECTION, Http2ErrorCode::HTTP2_ERROR_ENHANCE_YOUR_CALM,
+                      "reset too frequent CONTINUATION frames");
+  }
+
   uint32_t header_blocks_offset  = stream->header_blocks_length;
   stream->header_blocks_length  += payload_length;
 
@@ -1254,10 +1273,11 @@ Http2ConnectionState::init(Http2CommonSession *ssn)
   acknowledged_local_settings.set(HTTP2_SETTINGS_MAX_HEADER_LIST_SIZE,
                                   configured_settings.get(HTTP2_SETTINGS_MAX_HEADER_LIST_SIZE));
 
-  configured_max_settings_frames_per_minute   = Http2::max_settings_frames_per_minute;
-  configured_max_ping_frames_per_minute       = Http2::max_ping_frames_per_minute;
-  configured_max_priority_frames_per_minute   = Http2::max_priority_frames_per_minute;
-  configured_max_rst_stream_frames_per_minute = Http2::max_rst_stream_frames_per_minute;
+  configured_max_settings_frames_per_minute     = Http2::max_settings_frames_per_minute;
+  configured_max_ping_frames_per_minute         = Http2::max_ping_frames_per_minute;
+  configured_max_priority_frames_per_minute     = Http2::max_priority_frames_per_minute;
+  configured_max_rst_stream_frames_per_minute   = Http2::max_rst_stream_frames_per_minute;
+  configured_max_continuation_frames_per_minute = Http2::max_continuation_frames_per_minute;
   if (auto snis = session->get_netvc()->get_service<TLSSNISupport>(); snis) {
     if (snis->hints_from_sni.http2_max_settings_frames_per_minute.has_value()) {
       configured_max_settings_frames_per_minute = snis->hints_from_sni.http2_max_settings_frames_per_minute.value();
@@ -1270,6 +1290,9 @@ Http2ConnectionState::init(Http2CommonSession *ssn)
     }
     if (snis->hints_from_sni.http2_max_rst_stream_frames_per_minute.has_value()) {
       configured_max_rst_stream_frames_per_minute = snis->hints_from_sni.http2_max_rst_stream_frames_per_minute.value();
+    }
+    if (snis->hints_from_sni.http2_max_continuation_frames_per_minute.has_value()) {
+      configured_max_continuation_frames_per_minute = snis->hints_from_sni.http2_max_continuation_frames_per_minute.value();
     }
   }
 
@@ -1354,6 +1377,18 @@ Http2ConnectionState::destroy()
   if (zombie_event) {
     zombie_event->cancel();
   }
+
+  if (_priority_event) {
+    _priority_event->cancel();
+  }
+
+  if (_data_event) {
+    _data_event->cancel();
+  }
+
+  if (retransmit_event) {
+    retransmit_event->cancel();
+  }
   // release the mutex after the events are cancelled and sessions are destroyed.
   mutex = nullptr; // magic happens - assigning to nullptr frees the ProxyMutex
 }
@@ -1407,7 +1442,7 @@ Http2ConnectionState::rcv_frame(const Http2Frame *frame)
       this->send_goaway_frame(this->latest_streamid_in, error.code);
       this->session->set_half_close_local_flag(true);
       if (fini_event == nullptr) {
-        fini_event = this_ethread()->schedule_imm_local((Continuation *)this, HTTP2_SESSION_EVENT_FINI);
+        fini_event = this_ethread()->schedule_imm_local(static_cast<Continuation *>(this), HTTP2_SESSION_EVENT_FINI);
       }
 
       // The streams will be cleaned up by the HTTP2_SESSION_EVENT_FINI event
@@ -1418,6 +1453,12 @@ Http2ConnectionState::rcv_frame(const Http2Frame *frame)
               client_ip, session->get_connection_id(), stream_id, error.msg);
       }
       this->send_rst_stream_frame(stream_id, error.code);
+
+      // start closing stream on stream error
+      if (Http2Stream *stream = find_stream(stream_id); stream != nullptr) {
+        ink_assert(stream->get_state() == Http2StreamState::HTTP2_STREAM_STATE_CLOSED);
+        stream->initiating_close();
+      }
     }
   }
 }
@@ -1430,8 +1471,15 @@ Http2ConnectionState::main_event_handler(int event, void *edata)
     ink_release_assert(zombie_event == nullptr);
   } else if (edata == fini_event) {
     fini_event = nullptr;
+  } else if (edata == _priority_event) {
+    _priority_event = nullptr;
+  } else if (edata == _data_event) {
+    _data_event = nullptr;
+  } else if (edata == retransmit_event) {
+    retransmit_event = nullptr;
   }
   ++recursion;
+
   switch (event) {
   // Finalize HTTP/2 Connection
   case HTTP2_SESSION_EVENT_FINI: {
@@ -1445,18 +1493,22 @@ Http2ConnectionState::main_event_handler(int event, void *edata)
     SET_HANDLER(&Http2ConnectionState::state_closed);
   } break;
 
-  case HTTP2_SESSION_EVENT_XMIT: {
+  case HTTP2_SESSION_EVENT_PRIO: {
     REMEMBER(event, this->recursion);
     SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
     send_data_frames_depends_on_priority();
-    _priority_scheduled = false;
   } break;
 
   case HTTP2_SESSION_EVENT_DATA: {
     REMEMBER(event, this->recursion);
     SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
     this->restart_streams();
-    _data_scheduled = false;
+  } break;
+
+  case HTTP2_SESSION_EVENT_XMIT: {
+    REMEMBER(event, this->recursion);
+    SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
+    this->session->flush();
   } break;
 
   // Initiate a graceful shutdown
@@ -1470,7 +1522,8 @@ Http2ConnectionState::main_event_handler(int event, void *edata)
     // identifier set to 2^31-1 and a NO_ERROR code.
     send_goaway_frame(INT32_MAX, Http2ErrorCode::HTTP2_ERROR_NO_ERROR);
     // After allowing time for any in-flight stream creation (at least one round-trip time),
-    shutdown_cont_event = this_ethread()->schedule_in((Continuation *)this, HRTIME_SECONDS(2), HTTP2_SESSION_EVENT_SHUTDOWN_CONT);
+    shutdown_cont_event =
+      this_ethread()->schedule_in(static_cast<Continuation *>(this), HRTIME_SECONDS(2), HTTP2_SESSION_EVENT_SHUTDOWN_CONT);
   } break;
 
   // Continue a graceful shutdown
@@ -1520,8 +1573,14 @@ Http2ConnectionState::state_closed(int event, void *edata)
     ink_release_assert(zombie_event == nullptr);
   } else if (edata == fini_event) {
     fini_event = nullptr;
+  } else if (edata == _priority_event) {
+    _priority_event = nullptr;
+  } else if (edata == _data_event) {
+    _data_event = nullptr;
   } else if (edata == shutdown_cont_event) {
     shutdown_cont_event = nullptr;
+  } else if (edata == retransmit_event) {
+    retransmit_event = nullptr;
   }
   return 0;
 }
@@ -1756,6 +1815,7 @@ Http2ConnectionState::create_stream(Http2StreamId new_id, Http2Error &error)
 
   // Clear the session timeout.  Let the transaction timeouts reign
   session->get_proxy_session()->cancel_inactivity_timeout();
+  session->get_proxy_session()->set_session_active();
 
   return new_stream;
 }
@@ -2033,11 +2093,9 @@ Http2ConnectionState::schedule_stream_to_send_priority_frames(Http2Stream *strea
   SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
   dependency_tree->activate(node);
 
-  if (!_priority_scheduled) {
-    _priority_scheduled = true;
-
+  if (_priority_event == nullptr) {
     SET_HANDLER(&Http2ConnectionState::main_event_handler);
-    this_ethread()->schedule_imm_local((Continuation *)this, HTTP2_SESSION_EVENT_XMIT);
+    _priority_event = this_ethread()->schedule_imm_local(static_cast<Continuation *>(this), HTTP2_SESSION_EVENT_PRIO);
   }
 }
 
@@ -2048,11 +2106,32 @@ Http2ConnectionState::schedule_stream_to_send_data_frames(Http2Stream *stream)
 
   SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
 
-  if (!_data_scheduled) {
-    _data_scheduled = true;
-
+  if (_data_event == nullptr) {
     SET_HANDLER(&Http2ConnectionState::main_event_handler);
-    this_ethread()->schedule_in((Continuation *)this, HRTIME_MSECOND, HTTP2_SESSION_EVENT_DATA);
+    _data_event = this_ethread()->schedule_in(static_cast<Continuation *>(this), HRTIME_MSECOND, HTTP2_SESSION_EVENT_DATA);
+  }
+}
+
+void
+Http2ConnectionState::schedule_retransmit(ink_hrtime t)
+{
+  Http2StreamDebug(session, 0, "Scheduling retransmitting data frames");
+  SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
+
+  if (retransmit_event == nullptr) {
+    SET_HANDLER(&Http2ConnectionState::main_event_handler);
+    retransmit_event = this_ethread()->schedule_in(static_cast<Continuation *>(this), t, HTTP2_SESSION_EVENT_XMIT);
+  }
+}
+
+void
+Http2ConnectionState::cancel_retransmit()
+{
+  Http2StreamDebug(session, 0, "Canceling retransmitting data frames");
+  SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
+  if (retransmit_event != nullptr) {
+    retransmit_event->cancel();
+    retransmit_event = nullptr;
   }
 }
 
@@ -2098,7 +2177,10 @@ Http2ConnectionState::send_data_frames_depends_on_priority()
     break;
   }
 
-  this_ethread()->schedule_imm_local((Continuation *)this, HTTP2_SESSION_EVENT_XMIT);
+  if (_priority_event == nullptr) {
+    _priority_event = this_ethread()->schedule_imm_local(static_cast<Continuation *>(this), HTTP2_SESSION_EVENT_PRIO);
+  }
+
   return;
 }
 
@@ -2335,7 +2417,7 @@ Http2ConnectionState::send_headers_frame(Http2Stream *stream)
     this->send_goaway_frame(this->latest_streamid_in, Http2ErrorCode::HTTP2_ERROR_PROTOCOL_ERROR);
     this->session->set_half_close_local_flag(true);
     if (fini_event == nullptr) {
-      fini_event = this_ethread()->schedule_imm_local((Continuation *)this, HTTP2_SESSION_EVENT_FINI);
+      fini_event = this_ethread()->schedule_imm_local(static_cast<Continuation *>(this), HTTP2_SESSION_EVENT_FINI);
     }
 
     return;
@@ -2473,7 +2555,7 @@ Http2ConnectionState::send_push_promise_frame(Http2Stream *stream, URL &url, con
 void
 Http2ConnectionState::send_rst_stream_frame(Http2StreamId id, Http2ErrorCode ec)
 {
-  Http2StreamDebug(session, id, "Send RST_STREAM frame");
+  Http2StreamDebug(session, id, "Send RST_STREAM frame: Error Code: %u", static_cast<uint32_t>(ec));
 
   if (ec != Http2ErrorCode::HTTP2_ERROR_NO_ERROR) {
     Metrics::Counter::increment(http2_rsb.stream_errors_count);
@@ -2488,14 +2570,13 @@ Http2ConnectionState::send_rst_stream_frame(Http2StreamId id, Http2ErrorCode ec)
       this->send_goaway_frame(this->latest_streamid_in, Http2ErrorCode::HTTP2_ERROR_PROTOCOL_ERROR);
       this->session->set_half_close_local_flag(true);
       if (fini_event == nullptr) {
-        fini_event = this_ethread()->schedule_imm_local((Continuation *)this, HTTP2_SESSION_EVENT_FINI);
+        fini_event = this_ethread()->schedule_imm_local(static_cast<Continuation *>(this), HTTP2_SESSION_EVENT_FINI);
       }
 
       return;
     }
   }
 
-  Http2StreamDebug(session, id, "Sending RST_STREAM: Error Code: %u", static_cast<uint32_t>(ec));
   Http2RstStreamFrame rst_stream(id, static_cast<uint32_t>(ec));
   this->session->xmit(rst_stream);
 }
@@ -2581,7 +2662,7 @@ Http2ConnectionState::send_goaway_frame(Http2StreamId id, Http2ErrorCode ec)
 {
   ink_assert(this->session != nullptr);
 
-  Http2ConDebug(session, "Send GOAWAY frame, last_stream_id: %d", id);
+  Http2ConDebug(session, "Send GOAWAY frame: Error Code: %u, Last Stream Id: %d", static_cast<uint32_t>(ec), id);
 
   if (ec != Http2ErrorCode::HTTP2_ERROR_NO_ERROR) {
     Metrics::Counter::increment(http2_rsb.connection_errors_count);
@@ -2668,6 +2749,18 @@ uint32_t
 Http2ConnectionState::get_received_rst_stream_frame_count()
 {
   return this->_received_rst_stream_frame_counter.get_count();
+}
+
+void
+Http2ConnectionState::increment_received_continuation_frame_count()
+{
+  this->_received_continuation_frame_counter.increment();
+}
+
+uint32_t
+Http2ConnectionState::get_received_continuation_frame_count()
+{
+  return this->_received_continuation_frame_counter.get_count();
 }
 
 // Return min_concurrent_streams_in when current client streams number is larger than max_active_streams_in.

@@ -371,16 +371,16 @@ HttpSM::start_sub_sm()
 }
 
 void
-HttpSM::attach_client_session(ProxyTransaction *client_vc)
+HttpSM::attach_client_session(ProxyTransaction *txn)
 {
   milestones[TS_MILESTONE_UA_BEGIN] = ink_get_hrtime();
-  ink_assert(client_vc != nullptr);
+  ink_assert(txn != nullptr);
 
-  NetVConnection *netvc = client_vc->get_netvc();
+  NetVConnection *netvc = txn->get_netvc();
   if (!netvc) {
     return;
   }
-  _ua.set_txn(client_vc, milestones);
+  _ua.set_txn(txn, milestones);
 
   // Collect log & stats information. We've already verified that the netvc is !nullptr above,
   // and netvc == _ua.get_txn()->get_netvc().
@@ -389,7 +389,7 @@ HttpSM::attach_client_session(ProxyTransaction *client_vc)
   mptcp_state = netvc->get_mptcp_state();
 
   ink_release_assert(_ua.get_txn()->get_half_close_flag() == false);
-  mutex = client_vc->mutex;
+  mutex = txn->mutex;
   if (_ua.get_txn()->debug()) {
     debug_on = true;
   }
@@ -408,7 +408,7 @@ HttpSM::attach_client_session(ProxyTransaction *client_vc)
   // Allocate a user agent entry in the state machine's
   //   vc table
   _ua.set_entry(vc_table.new_entry());
-  _ua.get_entry()->vc      = client_vc;
+  _ua.get_entry()->vc      = txn;
   _ua.get_entry()->vc_type = HTTP_UA_VC;
 
   ats_ip_copy(&t_state.client_info.src_addr, netvc->get_remote_addr());
@@ -417,7 +417,7 @@ HttpSM::attach_client_session(ProxyTransaction *client_vc)
   t_state.client_info.port_attribute = static_cast<HttpProxyPort::TransportType>(netvc->attributes);
 
   // Record api hook set state
-  hooks_set = client_vc->has_hooks();
+  hooks_set = txn->has_hooks();
 
   // Setup for parsing the header
   _ua.get_entry()->vc_read_handler = &HttpSM::state_read_client_request_header;
@@ -434,14 +434,14 @@ HttpSM::attach_client_session(ProxyTransaction *client_vc)
   //  this hook maybe asynchronous, we need to disable IO on
   //  client but set the continuation to be the state machine
   //  so if we get an timeout events the sm handles them
-  _ua.get_entry()->read_vio  = client_vc->do_io_read(this, 0, _ua.get_txn()->get_remote_reader()->mbuf);
-  _ua.get_entry()->write_vio = client_vc->do_io_write(this, 0, nullptr);
+  _ua.get_entry()->read_vio  = txn->do_io_read(this, 0, _ua.get_txn()->get_remote_reader()->mbuf);
+  _ua.get_entry()->write_vio = txn->do_io_write(this, 0, nullptr);
 
   /////////////////////////
   // set up timeouts     //
   /////////////////////////
-  client_vc->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
-  client_vc->set_active_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_active_timeout_in));
+  txn->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
+  txn->set_active_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_active_timeout_in));
 
   ++reentrancy_count;
   // Add our state sm to the sm list
@@ -1717,8 +1717,12 @@ HttpSM::create_server_txn(PoolableSession *new_session)
     server_txn->attach_transaction(this);
     if (t_state.current.request_to == ResolveInfo::PARENT_PROXY) {
       new_session->to_parent_proxy = true;
-      Metrics::Gauge::increment(http_rsb.current_parent_proxy_connections);
-      Metrics::Counter::increment(http_rsb.total_parent_proxy_connections);
+      if (server_txn->get_proxy_ssn()->get_transact_count() == 1) {
+        // These are connection-level metrics, so only increment them for the
+        // first transaction lest they get overcounted.
+        Metrics::Gauge::increment(http_rsb.current_parent_proxy_connections);
+        Metrics::Counter::increment(http_rsb.total_parent_proxy_connections);
+      }
     } else {
       new_session->to_parent_proxy = false;
     }
@@ -2320,7 +2324,7 @@ HttpSM::state_hostdb_lookup(int event, void *data)
     pending_action = nullptr;
     process_srv_info(static_cast<HostDBRecord *>(data));
 
-    char const *host_name = t_state.dns_info.is_srv() ? t_state.dns_info.record->name() : t_state.dns_info.lookup_name;
+    char const *host_name = t_state.dns_info.is_srv() ? t_state.dns_info.srv_hostname : t_state.dns_info.lookup_name;
     HostDBProcessor::Options opt;
     opt.port    = t_state.dns_info.is_srv() ? t_state.dns_info.srv_port : t_state.server_info.dst_addr.host_order_port();
     opt.flags   = (t_state.cache_info.directives.does_client_permit_dns_storing) ? HostDBProcessor::HOSTDB_DO_NOT_FORCE_DNS :
@@ -2975,6 +2979,12 @@ int
 HttpSM::tunnel_handler(int event, void *data)
 {
   STATE_ENTER(&HttpSM::tunnel_handler, event);
+
+  // If we had already received EOS, just go away. We would sometimes see
+  // a WRITE event appear after receiving EOS from the server connection
+  if ((event == VC_EVENT_WRITE_READY || event == VC_EVENT_WRITE_COMPLETE) && server_entry->eos) {
+    return 0;
+  }
 
   ink_assert(event == HTTP_TUNNEL_EVENT_DONE || event == VC_EVENT_INACTIVITY_TIMEOUT);
   // The tunnel calls this when it is done
@@ -4431,8 +4441,8 @@ HttpSM::do_hostdb_lookup()
     }
     pending_action = hostDBProcessor.getSRVbyname_imm(this, (cb_process_result_pfn)&HttpSM::process_srv_info, d, 0, opt);
     if (pending_action.empty()) {
-      char const *host_name = t_state.dns_info.resolved_p ? t_state.dns_info.srv_hostname : t_state.dns_info.lookup_name;
-      opt.port              = t_state.dns_info.resolved_p            ? t_state.dns_info.srv_port :
+      char const *host_name = t_state.dns_info.is_srv() ? t_state.dns_info.srv_hostname : t_state.dns_info.lookup_name;
+      opt.port              = t_state.dns_info.is_srv()              ? t_state.dns_info.srv_port :
                               t_state.server_info.dst_addr.isValid() ? t_state.server_info.dst_addr.host_order_port() :
                                                                        t_state.hdr_info.client_request.port_get();
       opt.flags   = (t_state.cache_info.directives.does_client_permit_dns_storing) ? HostDBProcessor::HOSTDB_DO_NOT_FORCE_DNS :

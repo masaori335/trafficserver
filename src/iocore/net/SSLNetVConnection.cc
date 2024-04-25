@@ -1291,7 +1291,7 @@ SSLNetVConnection::sslServerHandShakeEvent(int &err)
     Metrics::Counter::increment(ssl_rsb.total_attempts_handshake_count_in);
     if (!curHook) {
       Dbg(dbg_ctl_ssl, "Initialize preaccept curHook from NULL");
-      curHook = g_ssl_hooks->get(TSSslHookInternalID(TS_VCONN_START_HOOK));
+      curHook = SSLAPIHooks::instance()->get(TSSslHookInternalID(TS_VCONN_START_HOOK));
     } else {
       curHook = curHook->next();
     }
@@ -1507,7 +1507,10 @@ SSLNetVConnection::sslServerHandShakeEvent(int &err)
 #elif SSL_ERROR_WANT_X509_LOOKUP
   case SSL_ERROR_WANT_X509_LOOKUP:
 #endif
-#if defined(SSL_ERROR_WANT_SNI_RESOLVE) || defined(SSL_ERROR_WANT_X509_LOOKUP)
+#ifdef SSL_ERROR_PENDING_CERTIFICATE
+  case SSL_ERROR_PENDING_CERTIFICATE:
+#endif
+#if defined(SSL_ERROR_WANT_SNI_RESOLVE) || defined(SSL_ERROR_WANT_X509_LOOKUP) || defined(SSL_ERROR_PENDING_CERTIFICATE)
     if (this->attributes == HttpProxyPort::TRANSPORT_BLIND_TUNNEL || SSL_HOOK_OP_TUNNEL == hookOpRequested) {
       this->attributes   = HttpProxyPort::TRANSPORT_BLIND_TUNNEL;
       sslHandshakeStatus = SSLHandshakeStatus::SSL_HANDSHAKE_ONGOING;
@@ -1593,7 +1596,7 @@ SSLNetVConnection::sslClientHandShakeEvent(int &err)
     Metrics::Counter::increment(ssl_rsb.total_attempts_handshake_count_out);
     if (!curHook) {
       Dbg(dbg_ctl_ssl, "Initialize outbound connect curHook from NULL");
-      curHook = g_ssl_hooks->get(TSSslHookInternalID(TS_VCONN_OUTBOUND_START_HOOK));
+      curHook = SSLAPIHooks::instance()->get(TSSslHookInternalID(TS_VCONN_OUTBOUND_START_HOOK));
     } else {
       curHook = curHook->next();
     }
@@ -1868,7 +1871,7 @@ SSLNetVConnection::callHooks(TSEvent eventId)
   case HANDSHAKE_HOOKS_CLIENT_HELLO:
   case HANDSHAKE_HOOKS_CLIENT_HELLO_INVOKE:
     if (!curHook) {
-      curHook = g_ssl_hooks->get(TSSslHookInternalID(TS_SSL_CLIENT_HELLO_HOOK));
+      curHook = SSLAPIHooks::instance()->get(TSSslHookInternalID(TS_SSL_CLIENT_HELLO_HOOK));
     } else {
       curHook = curHook->next();
     }
@@ -1882,14 +1885,14 @@ SSLNetVConnection::callHooks(TSEvent eventId)
     // The server verify event addresses ATS to origin handshake
     // All the other events are for client to ATS
     if (!curHook) {
-      curHook = g_ssl_hooks->get(TSSslHookInternalID(TS_SSL_VERIFY_SERVER_HOOK));
+      curHook = SSLAPIHooks::instance()->get(TSSslHookInternalID(TS_SSL_VERIFY_SERVER_HOOK));
     } else {
       curHook = curHook->next();
     }
     break;
   case HANDSHAKE_HOOKS_SNI:
     if (!curHook) {
-      curHook = g_ssl_hooks->get(TSSslHookInternalID(TS_SSL_SERVERNAME_HOOK));
+      curHook = SSLAPIHooks::instance()->get(TSSslHookInternalID(TS_SSL_SERVERNAME_HOOK));
     } else {
       curHook = curHook->next();
     }
@@ -1900,7 +1903,7 @@ SSLNetVConnection::callHooks(TSEvent eventId)
   case HANDSHAKE_HOOKS_CERT:
   case HANDSHAKE_HOOKS_CERT_INVOKE:
     if (!curHook) {
-      curHook = g_ssl_hooks->get(TSSslHookInternalID(TS_SSL_CERT_HOOK));
+      curHook = SSLAPIHooks::instance()->get(TSSslHookInternalID(TS_SSL_CERT_HOOK));
     } else {
       curHook = curHook->next();
     }
@@ -1913,7 +1916,7 @@ SSLNetVConnection::callHooks(TSEvent eventId)
   case HANDSHAKE_HOOKS_CLIENT_CERT:
   case HANDSHAKE_HOOKS_CLIENT_CERT_INVOKE:
     if (!curHook) {
-      curHook = g_ssl_hooks->get(TSSslHookInternalID(TS_SSL_VERIFY_CLIENT_HOOK));
+      curHook = SSLAPIHooks::instance()->get(TSSslHookInternalID(TS_SSL_VERIFY_CLIENT_HOOK));
     } else {
       curHook = curHook->next();
     }
@@ -1923,14 +1926,14 @@ SSLNetVConnection::callHooks(TSEvent eventId)
     if (eventId == TS_EVENT_VCONN_CLOSE) {
       sslHandshakeHookState = HANDSHAKE_HOOKS_DONE;
       if (curHook == nullptr) {
-        curHook = g_ssl_hooks->get(TSSslHookInternalID(TS_VCONN_CLOSE_HOOK));
+        curHook = SSLAPIHooks::instance()->get(TSSslHookInternalID(TS_VCONN_CLOSE_HOOK));
       } else {
         curHook = curHook->next();
       }
     } else if (eventId == TS_EVENT_VCONN_OUTBOUND_CLOSE) {
       sslHandshakeHookState = HANDSHAKE_HOOKS_DONE;
       if (curHook == nullptr) {
-        curHook = g_ssl_hooks->get(TSSslHookInternalID(TS_VCONN_OUTBOUND_CLOSE_HOOK));
+        curHook = SSLAPIHooks::instance()->get(TSSslHookInternalID(TS_VCONN_OUTBOUND_CLOSE_HOOK));
       } else {
         curHook = curHook->next();
       }
@@ -2581,7 +2584,7 @@ SSLNetVConnection::_ssl_read_buffer(void *buf, int64_t nbytes, int64_t &nread)
       ssize_t read_bytes = 0;
 #endif
 
-#ifdef HAVE_SSL_READ_EARLY_DATA
+#if HAVE_SSL_READ_EARLY_DATA
       ret = SSL_read_early_data(ssl, buf, static_cast<size_t>(nbytes), &read_bytes);
       if (ret == SSL_READ_EARLY_DATA_ERROR) {
         had_error_on_reading_early_data = true;

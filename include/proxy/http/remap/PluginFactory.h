@@ -31,8 +31,6 @@
 #include "proxy/http/remap/PluginDso.h"
 #include "proxy/http/remap/RemapPluginInfo.h"
 
-#include "tscore/Ptr.h"
-
 #include "tscore/ink_uuid.h"
 #include "ts/apidefs.h"
 
@@ -95,6 +93,7 @@ public:
   virtual ~PluginFactory();
 
   PluginFactory &setRuntimeDir(const fs::path &runtimeDir);
+  PluginFactory &setCompilerPath(const fs::path &compilerPath);
   PluginFactory &addSearchDir(const fs::path &searchDir);
 
   RemapPluginInst *getRemapPlugin(const fs::path &configPath, int argc, char **argv, std::string &error, bool dynamicReloadEnabled);
@@ -112,6 +111,7 @@ protected:
 
   std::vector<fs::path> _searchDirs; /** @brief ordered list of search paths where we look for plugins */
   fs::path _runtimeDir;              /** @brief the path where we would create a temporary copies of the plugins to load */
+  fs::path _compilerPath;            /** @brief the compilation script to use for cripts and other non-DSO plugins */
 
   PluginInstList _instList;
 
@@ -120,4 +120,13 @@ protected:
   bool _preventiveCleaning = true;
 
   static constexpr const char *const _tag = "plugin_factory"; /** @brief log tag used by this class */
+  static const DbgCtl &_dbg_ctl();
 };
+
+inline const DbgCtl &
+PluginFactory::_dbg_ctl()
+{
+  static DbgCtl dc{_tag};
+
+  return dc;
+}

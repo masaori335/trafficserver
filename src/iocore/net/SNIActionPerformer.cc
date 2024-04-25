@@ -134,6 +134,15 @@ HTTP2MaxRstStreamFramesPerMinute::SNIAction(SSL &ssl, const Context &ctx) const
   return SSL_TLSEXT_ERR_OK;
 }
 
+int
+HTTP2MaxContinuationFramesPerMinute::SNIAction(SSL &ssl, const Context &ctx) const
+{
+  if (auto snis = TLSSNISupport::getInstance(&ssl)) {
+    snis->hints_from_sni.http2_max_continuation_frames_per_minute = value;
+  }
+  return SSL_TLSEXT_ERR_OK;
+}
+
 TunnelDestination::TunnelDestination(const std::string_view &dest, SNIRoutingType type, YamlSNIConfig::TunnelPreWarm prewarm,
                                      const std::vector<int> &alpn)
   : destination(dest), type(type), tunnel_prewarm(prewarm), alpn_ids(alpn)
@@ -317,6 +326,11 @@ HostSniPolicy::TestClientSNIAction(const char *servername, const IpEndpoint &ep,
   return false;
 }
 
+TLSValidProtocols::TLSValidProtocols(unsigned long protocols) : unset(false), protocol_mask(protocols)
+{
+  Warning("valid_tls_versions_in is deprecated. Use valid_tls_version_min_in and ivalid_tls_version_max_in instead.");
+}
+
 int
 TLSValidProtocols::SNIAction(SSL &ssl, const Context & /* ctx */) const
 {
@@ -337,7 +351,6 @@ TLSValidProtocols::SNIAction(SSL &ssl, const Context & /* ctx */) const
       const char *servername = snis->get_sni_server_name();
       Dbg(dbg_ctl_ssl_sni, "TLSValidProtocol param 0%x, fqdn [%s]", static_cast<unsigned int>(this->protocol_mask), servername);
       tbs->set_valid_tls_protocols(protocol_mask, TLSValidProtocols::max_mask);
-      Warning("valid_tls_versions_in is deprecated. Use valid_tls_version_min_in and ivalid_tls_version_max_in instead.");
     }
   }
 

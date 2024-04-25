@@ -158,6 +158,8 @@ public:
   void schedule_stream_to_send_priority_frames(Http2Stream *stream);
   void send_data_frames_depends_on_priority();
   void schedule_stream_to_send_data_frames(Http2Stream *stream);
+  void schedule_retransmit(ink_hrtime t);
+  void cancel_retransmit();
   void send_data_frames(Http2Stream *stream);
   Http2SendDataFrameResult send_a_data_frame(Http2Stream *stream, size_t &payload_length);
   void send_headers_frame(Http2Stream *stream);
@@ -197,6 +199,8 @@ public:
   uint32_t get_received_priority_frame_count();
   void increment_received_rst_stream_frame_count();
   uint32_t get_received_rst_stream_frame_count();
+  void increment_received_continuation_frame_count();
+  uint32_t get_received_continuation_frame_count();
 
   ssize_t get_peer_rwnd() const;
   Http2ErrorCode increment_peer_rwnd(size_t amount);
@@ -331,6 +335,7 @@ private:
   FrequencyCounter _received_ping_frame_counter;
   FrequencyCounter _received_priority_frame_counter;
   FrequencyCounter _received_rst_stream_frame_counter;
+  FrequencyCounter _received_continuation_frame_counter;
 
   /** Records the various settings for each SETTINGS frame that we've sent.
    *
@@ -388,8 +393,6 @@ private:
   //     "If the END_HEADERS bit is not set, this frame MUST be followed by
   //     another CONTINUATION frame."
   Http2StreamId continued_stream_id = 0;
-  bool _priority_scheduled          = false;
-  bool _data_scheduled              = false;
   bool fini_received                = false;
   bool in_destroy                   = false;
   int recursion                     = 0;
@@ -398,11 +401,15 @@ private:
   Event *shutdown_cont_event        = nullptr;
   Event *fini_event                 = nullptr;
   Event *zombie_event               = nullptr;
+  Event *_priority_event            = nullptr;
+  Event *_data_event                = nullptr;
+  Event *retransmit_event           = nullptr;
 
-  uint32_t configured_max_settings_frames_per_minute   = 0;
-  uint32_t configured_max_ping_frames_per_minute       = 0;
-  uint32_t configured_max_priority_frames_per_minute   = 0;
-  uint32_t configured_max_rst_stream_frames_per_minute = 0;
+  uint32_t configured_max_settings_frames_per_minute     = 0;
+  uint32_t configured_max_ping_frames_per_minute         = 0;
+  uint32_t configured_max_priority_frames_per_minute     = 0;
+  uint32_t configured_max_rst_stream_frames_per_minute   = 0;
+  uint32_t configured_max_continuation_frames_per_minute = 0;
 };
 
 ///////////////////////////////////////////////

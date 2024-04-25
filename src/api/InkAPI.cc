@@ -55,6 +55,8 @@
 #include "../iocore/hostdb/P_HostDB.h"
 #include "../iocore/cache/P_Cache.h"
 #include "records/RecCore.h"
+#include "../records/P_RecCore.h"
+#include "../records/P_RecDefs.h"
 #include "../iocore/net/P_SSLConfig.h"
 #include "../iocore/net/P_SSLClientUtils.h"
 #include "iocore/net/ConnectionTracker.h"
@@ -3701,7 +3703,7 @@ TSHttpHookAdd(TSHttpHookID id, TSCont contp)
 
   TSSslHookInternalID internalId{id};
   if (internalId.is_in_bounds()) {
-    g_ssl_hooks->append(internalId, icontp);
+    SSLAPIHooks::instance()->append(internalId, icontp);
   } else { // Follow through the regular HTTP hook framework
     http_global_hooks->append(id, icontp);
   }
@@ -4846,6 +4848,25 @@ TSHttpTxnErrorBodySet(TSHttpTxn txnp, char *buf, size_t buflength, char *mimetyp
   s->internal_msg_buffer_fast_allocator_size = -1;
 
   s->internal_msg_buffer_type = mimetype;
+}
+
+char *
+TSHttpTxnErrorBodyGet(TSHttpTxn txnp, size_t *buflength, char **mimetype)
+{
+  sdk_assert(sdk_sanity_check_txn(txnp) == TS_SUCCESS);
+
+  HttpSM *sm             = (HttpSM *)txnp;
+  HttpTransact::State *s = &(sm->t_state);
+
+  if (buflength) {
+    *buflength = s->internal_msg_buffer_size;
+  }
+
+  if (mimetype) {
+    *mimetype = s->internal_msg_buffer_type;
+  }
+
+  return s->internal_msg_buffer;
 }
 
 void
@@ -8794,6 +8815,9 @@ TSRPCRegister(const char *provider_name, size_t provider_len, const char *yaml_v
   // TSYaml to the YAML::Node, in order for them to make sure the version compatibility they need to register here and make sure
   // the version is the same.
   if (std::string_view{yaml_version, yamlcpp_lib_len} != YAMLCPP_LIB_VERSION) {
+    Debug("rpc.api", "[%.*s] YAML version check failed. Passed='%.*s', expected='%s'", static_cast<int>(provider_len),
+          provider_name, static_cast<int>(yamlcpp_lib_len), yaml_version, YAMLCPP_LIB_VERSION);
+
     return nullptr;
   }
 

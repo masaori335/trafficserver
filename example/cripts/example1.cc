@@ -91,6 +91,7 @@ do_send_response()
   conn.congestion = "bbr";
   conn.dscp       = 8;
   conn.pacing     = 100000;
+  conn.mark       = 17;
 
   // Some file operations (note that the paths aren't required here, can just be strings, but it's a good practice)
   static const File::Path p1("/tmp/foo");
@@ -156,6 +157,10 @@ do_remap()
   CDebug("Path is {}", url.path);
   CDebug("Path[1] is {}", url.path[1]);
   CDebug("Query is {}", url.query);
+
+  auto testing_trim = url.path.trim();
+
+  CDebug("Trimmed path is {}", testing_trim);
 
   if (url.query["foo"] > 100) {
     CDebug("Query[foo] is > 100");
