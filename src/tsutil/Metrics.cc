@@ -23,6 +23,9 @@
 
 #include "tsutil/Assert.h"
 #include <memory>
+#include <mutex>
+#include <variant>
+#include <vector>
 #include "tsutil/Metrics.h"
 
 namespace ts
@@ -33,7 +36,7 @@ Metrics::instance()
 {
   // This is the singleton instance of the metrics storage class.
   static std::shared_ptr<Storage> _metrics_store = std::make_shared<Storage>();
-  thread_local Metrics _instance(_metrics_store);
+  thread_local Metrics            _instance(_metrics_store);
 
   return _instance;
 }
@@ -54,15 +57,15 @@ Metrics::IdType
 Metrics::Storage::create(std::string_view name)
 {
   std::lock_guard lock(_mutex);
-  auto it = _lookups.find(name);
+  auto            it = _lookups.find(name);
 
   if (it != _lookups.end()) {
     return it->second;
   }
 
-  Metrics::IdType id             = _makeId(_cur_blob, _cur_off);
-  Metrics::NamesAndAtomics *blob = _blobs[_cur_blob];
-  Metrics::NameStorage &names    = std::get<0>(*blob);
+  Metrics::IdType           id    = _makeId(_cur_blob, _cur_off);
+  Metrics::NamesAndAtomics *blob  = _blobs[_cur_blob];
+  Metrics::NameStorage     &names = std::get<0>(*blob);
 
   names[_cur_off] = std::make_tuple(std::string(name), id);
   _lookups.emplace(std::get<0>(names[_cur_off]), id);
@@ -78,7 +81,7 @@ Metrics::IdType
 Metrics::Storage::lookup(const std::string_view name) const
 {
   std::lock_guard lock(_mutex);
-  auto it = _lookups.find(name);
+  auto            it = _lookups.find(name);
 
   if (it != _lookups.end()) {
     return it->second;
@@ -109,7 +112,7 @@ Metrics::Storage::lookup(Metrics::IdType id, std::string_view *out_name) const
 Metrics::AtomicType *
 Metrics::Storage::lookup(const std::string_view name, Metrics::IdType *out_id) const
 {
-  Metrics::IdType id          = lookup(name);
+  Metrics::IdType      id     = lookup(name);
   Metrics::AtomicType *result = nullptr;
 
   if (id != NOT_FOUND) {
@@ -150,10 +153,10 @@ Metrics::Storage::createSpan(size_t size, Metrics::IdType *id)
     addBlob();
   }
 
-  Metrics::IdType span_start      = _makeId(_cur_blob, _cur_off);
-  Metrics::NamesAndAtomics *blob  = _blobs[_cur_blob];
-  Metrics::AtomicStorage &atomics = std::get<1>(*blob);
-  Metrics::SpanType span          = Metrics::SpanType(&atomics[_cur_off], size);
+  Metrics::IdType           span_start = _makeId(_cur_blob, _cur_off);
+  Metrics::NamesAndAtomics *blob       = _blobs[_cur_blob];
+  Metrics::AtomicStorage   &atomics    = std::get<1>(*blob);
+  Metrics::SpanType         span       = Metrics::SpanType(&atomics[_cur_off], size);
 
   if (id) {
     *id = span_start;
@@ -175,7 +178,7 @@ Metrics::Storage::rename(Metrics::IdType id, std::string_view name)
     return false;
   }
 
-  std::string &cur = std::get<0>(std::get<0>(*blob)[offset]);
+  std::string    &cur = std::get<0>(std::get<0>(*blob)[offset]);
   std::lock_guard lock(_mutex);
 
   if (cur.length() > 0) {
@@ -199,6 +202,78 @@ Metrics::iterator::next()
   }
 
   _it = _makeId(blob, offset);
+}
+
+namespace details
+{
+  struct DerivedMetric {
+    Metrics::IdType                    metric;
+    std::vector<Metrics::AtomicType *> derived_from;
+  };
+
+  struct DerivativeMetrics {
+    std::vector<DerivedMetric> metrics;
+    std::mutex                 metrics_lock;
+
+    void
+    update()
+    {
+      auto           &instance = Metrics::instance();
+      std::lock_guard l(metrics_lock);
+
+      for (auto &m : metrics) {
+        int64_t sum = 0;
+
+        for (auto d : m.derived_from) {
+          sum += d->load();
+        }
+        instance[m.metric].store(sum);
+      }
+    }
+
+    void
+    push_back(const DerivedMetric &m)
+    {
+      std::lock_guard l(metrics_lock);
+      metrics.push_back(std::move(m));
+    }
+
+    static DerivativeMetrics &
+    instance()
+    {
+      static DerivativeMetrics theDerivedMetrics;
+      return theDerivedMetrics;
+    }
+  };
+
+} // namespace details
+
+void
+Metrics::Derived::derive(const std::initializer_list<Metrics::Derived::DerivedMetricSpec> &metrics)
+{
+  auto &instance = Metrics::instance();
+
+  for (auto &m : metrics) {
+    details::DerivedMetric dm{};
+    dm.metric = instance._create(m.derived_name);
+
+    for (auto &d : m.derived_from) {
+      if (std::holds_alternative<Metrics::AtomicType *>(d)) {
+        dm.derived_from.push_back(std::get<Metrics::AtomicType *>(d));
+      } else if (std::holds_alternative<Metrics::IdType>(d)) {
+        dm.derived_from.push_back(instance.lookup(std::get<Metrics::IdType>(d)));
+      } else if (std::holds_alternative<std::string_view>(d)) {
+        dm.derived_from.push_back(instance.lookup(instance.lookup(std::get<std::string_view>(d))));
+      }
+    }
+    details::DerivativeMetrics::instance().push_back(dm);
+  }
+}
+
+void
+Metrics::Derived::update_derived()
+{
+  details::DerivativeMetrics::instance().update();
 }
 
 } // namespace ts
