@@ -26,6 +26,8 @@
 #include "ts/remap.h"
 #include "ts/remap_version.h"
 
+#include "proxy/http/remap/PluginFactory.h"
+
 #include "parser.h"
 #include "ruleset.h"
 #include "resources.h"
@@ -35,19 +37,26 @@
 // Debugs
 const char PLUGIN_NAME[]     = "header_rewrite";
 const char PLUGIN_NAME_DBG[] = "dbg_header_rewrite";
-
 namespace header_rewrite_ns
 {
 DbgCtl dbg_ctl{PLUGIN_NAME_DBG};
 DbgCtl pi_dbg_ctl{PLUGIN_NAME};
+
+std::once_flag initHRWLibs;
+PluginFactory  plugin_factory;
 } // namespace header_rewrite_ns
 
-static std::once_flag initGeoLibs;
-
 static void
-initGeoLib(const std::string &dbPath)
+initHRWLibraries(const std::string &dbPath)
 {
+  header_rewrite_ns::plugin_factory.setRuntimeDir(RecConfigReadRuntimeDir()).addSearchDir(RecConfigReadPluginDir());
+
+  if (dbPath.empty()) {
+    return;
+  }
+
   Dbg(pi_dbg_ctl, "Loading geo db %s", dbPath.c_str());
+
 #if TS_USE_HRW_GEOIP
   GeoIPConditionGeo::initLibrary(dbPath);
 #elif TS_USE_HRW_MAXMINDDB
@@ -99,7 +108,7 @@ public:
     return _rules[hook];
   }
 
-  bool parse_config(const std::string &fname, TSHttpHookID default_hook);
+  bool parse_config(const std::string &fname, TSHttpHookID default_hook, char *from_url = nullptr, char *to_url = nullptr);
 
 private:
   bool add_rule(RuleSet *rule);
@@ -133,7 +142,7 @@ RulesConfig::add_rule(RuleSet *rule)
 // anyways (or reload for remap.config), so not really in the critical path.
 //
 bool
-RulesConfig::parse_config(const std::string &fname, TSHttpHookID default_hook)
+RulesConfig::parse_config(const std::string &fname, TSHttpHookID default_hook, char *from_url, char *to_url)
 {
   RuleSet      *rule = nullptr;
   std::string   filename;
@@ -177,7 +186,7 @@ RulesConfig::parse_config(const std::string &fname, TSHttpHookID default_hook)
       continue;
     }
 
-    Parser p;
+    Parser p(from_url, to_url);
 
     // Tokenize and parse this line
     if (!p.parse_line(line)) {
@@ -356,7 +365,7 @@ TSPluginInit(int argc, const char *argv[])
 
   Dbg(pi_dbg_ctl, "Global geo db %s", geoDBpath.c_str());
 
-  std::call_once(initGeoLibs, [&geoDBpath]() { initGeoLib(geoDBpath); });
+  std::call_once(initHRWLibs, [&geoDBpath]() { initHRWLibraries(geoDBpath); });
 
   // Parse the global config file(s). All rules are just appended
   // to the "global" Rules configuration.
@@ -414,6 +423,9 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char * /* errbuf ATS_UNUSE
     return TS_ERROR;
   }
 
+  char *from_url = argv[0];
+  char *to_url   = argv[1];
+
   // argv contains the "to" and "from" URLs. Skip the first so that the
   // second one poses as the program name.
   --argc;
@@ -439,15 +451,15 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char * /* errbuf ATS_UNUSE
     }
 
     Dbg(pi_dbg_ctl, "Remap geo db %s", geoDBpath.c_str());
-
-    std::call_once(initGeoLibs, [&geoDBpath]() { initGeoLib(geoDBpath); });
   }
+
+  std::call_once(initHRWLibs, [&geoDBpath]() { initHRWLibraries(geoDBpath); });
 
   RulesConfig *conf = new RulesConfig;
 
   for (int i = optind; i < argc; ++i) {
     Dbg(pi_dbg_ctl, "Loading remap configuration file %s", argv[i]);
-    if (!conf->parse_config(argv[i], TS_REMAP_PSEUDO_HOOK)) {
+    if (!conf->parse_config(argv[i], TS_REMAP_PSEUDO_HOOK, from_url, to_url)) {
       TSError("[%s] Unable to create remap instance", PLUGIN_NAME);
       delete conf;
       return TS_ERROR;
@@ -473,6 +485,7 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char * /* errbuf ATS_UNUSE
 void
 TSRemapDeleteInstance(void *ih)
 {
+  Dbg(pi_dbg_ctl, "Deleting RulesConfig");
   delete static_cast<RulesConfig *>(ih);
 }
 
