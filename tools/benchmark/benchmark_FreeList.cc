@@ -78,13 +78,9 @@ thread_affinity()
   }
   case 4: {
     // assign threads to logical processing units
-#if HAVE_HWLOC_OBJ_PU
-    // Older versions of libhwloc (eg. Ubuntu 10.04) don't have HWLOC_OBJ_PU.
     obj_type = HWLOC_OBJ_PU;
     obj_name = "Logical Processor";
     break;
-#endif // HAVE_HWLOC_OBJ_PU
-    [[fallthrough]];
   }
   default: // assign threads to the machine as a whole (a level below SYSTEM)
     obj_type = HWLOC_OBJ_MACHINE;

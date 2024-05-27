@@ -31,17 +31,23 @@
 find_library(hwloc_LIBRARY NAMES hwloc)
 find_path(hwloc_INCLUDE_DIR NAMES hwloc.h)
 
-mark_as_advanced(hwloc_FOUND hwloc_LIBRARY hwloc_INCLUDE_DIR)
+file(STRINGS "${hwloc_INCLUDE_DIR}/hwloc.h" api_version_line REGEX "^#define HWLOC_API_VERSION 0x[0-9]+")
+string(REGEX MATCH "0x[0-9]+" api_version ${api_version_line})
 
-include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(hwloc REQUIRED_VARS hwloc_LIBRARY hwloc_INCLUDE_DIR)
+if(api_version VERSION_GREATER_EQUAL "0x00020000")
+  mark_as_advanced(hwloc_FOUND hwloc_LIBRARY hwloc_INCLUDE_DIR)
 
-if(hwloc_FOUND)
-  set(hwloc_INCLUDE_DIRS ${hwloc_INCLUDE_DIR})
+  include(FindPackageHandleStandardArgs)
+  find_package_handle_standard_args(hwloc REQUIRED_VARS hwloc_LIBRARY hwloc_INCLUDE_DIR)
+
+  if(hwloc_FOUND)
+    set(hwloc_INCLUDE_DIRS ${hwloc_INCLUDE_DIR})
+  endif()
+
+  if(hwloc_FOUND AND NOT TARGET hwloc::hwloc)
+    add_library(hwloc::hwloc INTERFACE IMPORTED)
+    target_include_directories(hwloc::hwloc INTERFACE ${hwloc_INCLUDE_DIRS})
+    target_link_libraries(hwloc::hwloc INTERFACE ${hwloc_LIBRARY})
+  endif()
 endif()
 
-if(hwloc_FOUND AND NOT TARGET hwloc::hwloc)
-  add_library(hwloc::hwloc INTERFACE IMPORTED)
-  target_include_directories(hwloc::hwloc INTERFACE ${hwloc_INCLUDE_DIRS})
-  target_link_libraries(hwloc::hwloc INTERFACE ${hwloc_LIBRARY})
-endif()

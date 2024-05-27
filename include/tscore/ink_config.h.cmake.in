@@ -71,8 +71,6 @@
 #cmakedefine01 HAVE_PRCTL
 #cmakedefine HAVE_SO_TXTIME 1
 
-#cmakedefine01 HAVE_HWLOC_OBJ_PU
-
 #cmakedefine01 HAVE_SSL_CTX_SET_TLSEXT_TICKET_KEY_CB
 #cmakedefine01 TS_HAS_TLS_KEYLOGGING
 

@@ -51,11 +51,7 @@ int
 ink_number_of_processors()
 {
 #if TS_USE_HWLOC
-#if HAVE_HWLOC_OBJ_PU
   return hwloc_get_nbobjs_by_type(ink_get_topology(), HWLOC_OBJ_PU);
-#else
-  return hwloc_get_nbobjs_by_type(ink_get_topology(), HWLOC_OBJ_CORE);
-#endif
 #elif defined(freebsd)
   int mib[2], n;
   mib[0]     = CTL_HW;
