@@ -1504,7 +1504,7 @@ HttpTransact::HandleRequest(State *s)
 {
   TxnDbg(dbg_ctl_http_trans, "START HttpTransact::HandleRequest");
 
-  if (!s->state_machine->is_waiting_for_full_body && !s->state_machine->is_using_post_buffer) {
+  if (!s->state_machine->is_waiting_for_full_body && !s->state_machine->is_buffering_request_body) {
     ink_assert(!s->hdr_info.server_request.valid());
 
     Metrics::Counter::increment(http_rsb.incoming_requests);
@@ -8568,8 +8568,8 @@ HttpTransact::client_result_stat(State *s, ink_hrtime total_time, ink_hrtime req
 }
 
 void
-HttpTransact::update_size_and_time_stats(State *s, ink_hrtime total_time, ink_hrtime user_agent_write_time,
-                                         ink_hrtime origin_server_read_time, int user_agent_request_header_size,
+HttpTransact::update_size_and_time_stats(State *s, ink_hrtime total_time, ink_hrtime /* user_agent_write_time ATS_UNUSED */,
+                                         ink_hrtime /* origin_server_read_time ATS_UNUSED */, int user_agent_request_header_size,
                                          int64_t user_agent_request_body_size, int user_agent_response_header_size,
                                          int64_t user_agent_response_body_size, int origin_server_request_header_size,
                                          int64_t origin_server_request_body_size, int origin_server_response_header_size,

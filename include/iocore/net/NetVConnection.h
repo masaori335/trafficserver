@@ -466,13 +466,13 @@ public:
   }
 
   virtual int
-  populate_protocol(std::string_view *results, int n) const
+  populate_protocol(std::string_view * /* results ATS_UNUSED */, int /* n ATS_UNUSED */) const
   {
     return 0;
   }
 
   virtual const char *
-  protocol_contains(std::string_view prefix) const
+  protocol_contains(std::string_view /* prefix ATS_UNUSED */) const
   {
     return nullptr;
   }
@@ -541,7 +541,8 @@ protected:
   bool got_local_addr  = false;
   bool got_remote_addr = false;
 
-  bool is_internal_request  = false;
+  bool is_internal_request = false;
+  /// Indicate whether remapping will be done for this connection.
   bool is_unmanaged_request = false;
   /// Set if this connection is transparent.
   bool is_transparent = false;

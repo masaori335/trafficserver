@@ -200,14 +200,8 @@ cryptoErrStr(char *buffer, size_t bufferLen)
  */
 size_t
 cryptoMessageDigestGet(const char *digestType, const char *data, size_t dataLen, const char *key, size_t keyLen, char *out,
-                       size_t outLen)
+                       size_t /* outLen ATS_UNUSED */)
 {
-#ifndef HAVE_HMAC_CTX_NEW
-  HMAC_CTX ctx[1];
-#else
-  HMAC_CTX *ctx;
-#endif
-
   const EVP_MD *md  = nullptr;
   unsigned int  len = 0;
   char          buffer[256];
@@ -217,32 +211,10 @@ cryptoMessageDigestGet(const char *digestType, const char *data, size_t dataLen,
     return 0;
   }
 
-#ifndef HAVE_HMAC_CTX_NEW
-  HMAC_CTX_init(ctx);
-#else
-  ctx = HMAC_CTX_new();
-#endif
-  if (!HMAC_Init_ex(ctx, key, keyLen, md, nullptr)) {
-    AccessControlError("failed to create EVP message digest context: %s", cryptoErrStr(buffer, sizeof(buffer)));
-    goto err;
+  if (!HMAC(md, reinterpret_cast<const unsigned char *>(key), keyLen, reinterpret_cast<const unsigned char *>(data), dataLen,
+            reinterpret_cast<unsigned char *>(out), &len)) {
+    AccessControlError("failed to get the signing hash: %s", cryptoErrStr(buffer, sizeof(buffer)));
   }
-
-  if (!HMAC_Update(ctx, reinterpret_cast<const unsigned char *>(data), dataLen)) {
-    AccessControlError("failed to update the signing hash: %s", cryptoErrStr(buffer, sizeof(buffer)));
-    goto err;
-  }
-
-  if (!HMAC_Final(ctx, reinterpret_cast<unsigned char *>(out), &len)) {
-    AccessControlError("failed to finalize the signing hash: %s", cryptoErrStr(buffer, sizeof(buffer)));
-    goto err;
-  }
-
-err:
-#ifndef HAVE_HMAC_CTX_NEW
-  HMAC_CTX_cleanup(ctx);
-#else
-  HMAC_CTX_free(ctx);
-#endif
   return len;
 }
 
@@ -288,7 +260,7 @@ cryptoBase64EncodedSize(size_t decodedSize)
  * @return output buffer size
  */
 size_t
-cryptoBase64DecodeSize(const char *encoded, size_t encodedLen)
+cryptoBase64DecodeSize(const char * /* encoded ATS_UNUSED */, size_t encodedLen)
 {
   return ats_base64_decode_dstlen(encodedLen);
 }
