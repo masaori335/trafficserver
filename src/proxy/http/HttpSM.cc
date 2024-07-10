@@ -4404,6 +4404,7 @@ HttpSM::do_remap_request(bool run_inline)
 
   if (!ret) {
     SMDbg(dbg_ctl_url_rewrite, "Could not find a valid remapping entry for this request");
+    Metrics::Counter::increment(http_rsb.no_remap_matched);
     if (!run_inline) {
       handleEvent(EVENT_REMAP_COMPLETE, nullptr);
     }
@@ -7552,14 +7553,6 @@ HttpSM::update_stats()
     } else if (client_request_hdr_bytes == 0) {
       Error("[%" PRId64 "] Zero length request header received", sm_id);
       dump_state_on_assert();
-    }
-  }
-
-  if (is_action_tag_set("assert_jtest_length")) {
-    if (t_state.hdr_info.client_response.valid() && t_state.hdr_info.client_response.status_get() == HTTP_STATUS_OK) {
-      int64_t p_resp_cl = t_state.hdr_info.client_response.get_content_length();
-      int64_t resp_size = client_response_body_bytes;
-      ink_release_assert(p_resp_cl == -1 || p_resp_cl == resp_size || resp_size == 0);
     }
   }
 

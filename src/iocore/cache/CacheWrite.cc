@@ -734,27 +734,14 @@ Stripe::_agg_copy(CacheVC *vc)
         ProxyMutex *mutex ATS_UNUSED = this->mutex.get();
         ink_assert(mutex->thread_holding == this_ethread());
 
-#ifdef DEBUG
         Metrics::Counter::increment(cache_rsb.write_bytes, vc->write_len);
         Metrics::Counter::increment(this->cache_vol->vol_rsb.write_bytes, vc->write_len);
-#endif
       }
       if (vc->f.rewrite_resident_alt) {
         iobufferblock_memcpy(doc->data(), vc->write_len, res_alt_blk, 0);
       } else {
         iobufferblock_memcpy(doc->data(), vc->write_len, vc->blocks.get(), vc->offset);
       }
-#ifdef VERIFY_JTEST_DATA
-      if (f.use_first_key && header_len) {
-        int  ib = 0, xd = 0;
-        char xx[500];
-        new_info.request_get().url_get().print(xx, 500, &ib, &xd);
-        char *x = xx;
-        for (int q = 0; q < 3; q++)
-          x = strchr(x + 1, '/');
-        ink_assert(!memcmp(doc->hdr(), x, ib - (x - xx)));
-      }
-#endif
     }
     if (cache_config_enable_checksum) {
       doc->checksum = 0;
@@ -776,10 +763,8 @@ Stripe::_agg_copy(CacheVC *vc)
     Doc *doc = reinterpret_cast<Doc *>(vc->buf->data());
     int  l   = this->round_to_approx_size(doc->len);
 
-#ifdef DEBUG
     Metrics::Counter::increment(cache_rsb.gc_frags_evacuated);
     Metrics::Counter::increment(this->cache_vol->vol_rsb.gc_frags_evacuated);
-#endif
 
     doc->sync_serial  = this->header->sync_serial;
     doc->write_serial = this->header->write_serial;
