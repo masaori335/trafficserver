@@ -137,13 +137,16 @@ fi
 set -e
 
 # Note: -Wdangling-pointer=0
-# We may have some issues with latest GCC compilers, so disabling -Wdangling-pointer=
+#   We may have some issues with latest GCC compilers, so disabling -Wdangling-pointer=
+# Note: -UBORINGSSL_HAVE_LIBUNWIND
+#   Disable related libunwind test builds, there are some version number issues
+#   with this pkg in Ubuntu 20.04, so disable this to make sure it builds.
 cmake \
   -B build-shared \
   -DGO_EXECUTABLE=${GO_BINARY_PATH} \
   -DCMAKE_INSTALL_PREFIX=${BASE}/boringssl \
   -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_CXX_FLAGS='-Wno-error=ignored-attributes' \
+  -DCMAKE_CXX_FLAGS='-Wno-error=ignored-attributes -UBORINGSSL_HAVE_LIBUNWIND' \
   -DCMAKE_C_FLAGS=${BSSL_C_FLAGS} \
   -DBUILD_SHARED_LIBS=1
 cmake \
@@ -151,7 +154,7 @@ cmake \
   -DGO_EXECUTABLE=${GO_BINARY_PATH} \
   -DCMAKE_INSTALL_PREFIX=${BASE}/boringssl \
   -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_CXX_FLAGS='-Wno-error=ignored-attributes' \
+  -DCMAKE_CXX_FLAGS='-Wno-error=ignored-attributes -UBORINGSSL_HAVE_LIBUNWIND' \
   -DCMAKE_C_FLAGS=${BSSL_C_FLAGS} \
   -DBUILD_SHARED_LIBS=0
 cmake --build build-shared -j ${num_threads}
@@ -168,12 +171,14 @@ echo "Building quiche"
 QUICHE_BASE="${BASE:-/opt}/quiche"
 [ ! -d quiche ] && git clone  https://github.com/cloudflare/quiche.git
 cd quiche
-git checkout 0.21.0
+git checkout 0.22.0
 QUICHE_BSSL_PATH=${BORINGSSL_LIB_PATH} QUICHE_BSSL_LINK_KIND=dylib cargo build -j4 --package quiche --release --features ffi,pkg-config-meta,qlog
 sudo mkdir -p ${QUICHE_BASE}/lib/pkgconfig
 sudo mkdir -p ${QUICHE_BASE}/include
 sudo cp target/release/libquiche.a ${QUICHE_BASE}/lib/
 [ -f target/release/libquiche.so ] && sudo cp target/release/libquiche.so ${QUICHE_BASE}/lib/
+# Why a link? https://github.com/cloudflare/quiche/issues/1808#issuecomment-2196233378
+sudo ln -s ${QUICHE_BASE}/lib/libquiche.so ${QUICHE_BASE}/lib/libquiche.so.0
 sudo cp quiche/include/quiche.h ${QUICHE_BASE}/include/
 sudo cp target/release/quiche.pc ${QUICHE_BASE}/lib/pkgconfig
 sudo chmod -R a+rX ${BASE}

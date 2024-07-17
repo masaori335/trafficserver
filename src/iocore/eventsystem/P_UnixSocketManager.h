@@ -31,31 +31,16 @@
 ****************************************************************************/
 #pragma once
 
-#include "UnixSocket.h"
-
 #include "tscore/ink_platform.h"
 #include "tscore/ink_sock.h"
 #include "iocore/eventsystem/SocketManager.h"
+#include "iocore/eventsystem/UnixSocket.h"
 
 //
 // These limits are currently disabled
 //
 // 1024 - stdin, stderr, stdout
 #define EPOLL_MAX_DESCRIPTOR_SIZE 32768
-
-TS_INLINE int
-SocketManager::open(const char *path, int oflag, mode_t mode)
-{
-  int s;
-  do {
-    s = ::open(path, oflag, mode);
-    if (likely(s >= 0)) {
-      break;
-    }
-    s = -errno;
-  } while (transient_error());
-  return s;
-}
 
 TS_INLINE int64_t
 SocketManager::read(int fd, void *buf, int size, void * /* pOLP ATS_UNUSED */)
