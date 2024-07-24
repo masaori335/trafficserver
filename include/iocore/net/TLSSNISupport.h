@@ -45,12 +45,10 @@ public:
 
   int perform_sni_action(SSL &ssl);
   // Callback functions for OpenSSL libraries
-#if TS_USE_HELLO_CB || defined(OPENSSL_IS_BORINGSSL)
-#ifdef OPENSSL_IS_BORINGSSL
-  void on_client_hello(const SSL_CLIENT_HELLO *client_hello);
-#else
+#if HAVE_SSL_CTX_SET_CLIENT_HELLO_CB
   void on_client_hello(SSL *ssl, int *al, void *arg);
-#endif
+#elif HAVE_SSL_CTX_SET_SELECT_CERTIFICATE_CB
+  void on_client_hello(const SSL_CLIENT_HELLO *client_hello);
 #endif
   void on_servername(SSL *ssl, int *al, void *arg);
 
@@ -61,11 +59,11 @@ public:
     std::optional<uint32_t>         http2_buffer_water_mark;
     std::optional<uint32_t>         server_max_early_data;
     std::optional<uint32_t>         http2_initial_window_size_in;
-    std::optional<uint32_t>         http2_max_settings_frames_per_minute;
-    std::optional<uint32_t>         http2_max_ping_frames_per_minute;
-    std::optional<uint32_t>         http2_max_priority_frames_per_minute;
-    std::optional<uint32_t>         http2_max_rst_stream_frames_per_minute;
-    std::optional<uint32_t>         http2_max_continuation_frames_per_minute;
+    std::optional<int32_t>          http2_max_settings_frames_per_minute;
+    std::optional<int32_t>          http2_max_ping_frames_per_minute;
+    std::optional<int32_t>          http2_max_priority_frames_per_minute;
+    std::optional<int32_t>          http2_max_rst_stream_frames_per_minute;
+    std::optional<int32_t>          http2_max_continuation_frames_per_minute;
     std::optional<std::string_view> outbound_sni_policy;
   } hints_from_sni;
 
