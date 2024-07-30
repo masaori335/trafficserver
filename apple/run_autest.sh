@@ -32,6 +32,8 @@ if [ "$FILTER_TESTS" != "" ]; then
     AUTEST_FLAGS+=" --filter=$FILTER_TESTS"
 fi
 
+export LD_LIBRARY_PATH=/opt/bazinga/lib64
+
 cmake --preset bazinga-autest -DAUTEST_SANDBOX=$AUTEST_SANDBOX
 cmake --build build-autest
 cmake --install build-autest
@@ -39,9 +41,14 @@ cd build-autest/tests
 rm -rf $AUTEST_SANDBOX
 mkdir -p $AUTEST_SANDBOX
 chown bazinga:bazinga $AUTEST_SANDBOX
+chmod a+rx /workspace
+chmod a+rx /workspace/build-autest
 chmod a+rwx .
-/usr/local/bin/pipenv install
-./autest.sh --sandbox $AUTEST_SANDBOX --disable-color | /usr/bin/au2junit-report --output-filename autest.xml
+
+# Some tests write generated data into the test directory
+chmod -R a+rwx /workspace/tests/gold_tests
+su --command "pipenv install" bazinga
+su --command "./autest.sh --sandbox $AUTEST_SANDBOX --disable-color" bazinga | /usr/bin/au2junit-report --output-filename autest.xml
 
 if [ "$RIO_BUILD_NUMBER" != "" ]; then
     cp -r $AUTEST_SANDBOX /workspace

@@ -32,21 +32,21 @@
 %{!?_archive: %define _archive %{srcdir}.tar.gz}
 %{!?_commit: %define _commit UNKNOWN}
 %{!?_gittag: %define _gittag UNKNOWN}
-%if "%{dist}" == ".el7"
-%{!?_libquiche_version %define _libquiche_version 0.20.0-4.el7}
-%else
-%{!?_libquiche_version %define _libquiche_version 0.20.0-4.el9}
-%endif
+%{!?_libquiche_version %define _libquiche_version 0.20.0-4}
 %{!?_liburing_version %define _liburing_version 2.4}
 
 
-%define release %{?boring_release_prefix}%{?asan_release_prefix}%{?lsan_release_prefix}%{?debug_release_prefix}%{?pr_release_prefix}%{_release}
+%if %{?_with_variant:1}%{!?_with_variant:0}
+%define release %{?_variant}%{?pr_release_prefix}%{_release}
+%else
+%define release %{?pr_release_prefix}%{_release}
+%endif
 
 Summary:	Apache Traffic Server, a reverse, forward and transparent HTTP proxy cache
 Vendor:		GNS Edge Services, Apple Inc.
 Name:		%{package_name}
 Version:	%{_version}
-Epoch:		1
+Epoch:		2
 Release:	%{release}%{?dist}
 License:	ASL 2.0
 Group:		System Environment/Daemons
@@ -60,11 +60,7 @@ BuildRequires: bazinga-llvm
 BuildRequires:	bazinga-jemalloc-devel >= 4.3.1, bazinga-brotli-devel
 BuildRequires:	expat-devel, pcre-devel, zlib-devel, xz-devel, hwloc-devel
 BuildRequires:	libcurl-devel, ncurses-devel, libcap-devel
-%if "%{dist}" == ".el7"
-BuildRequires:	bazinga-luajit-devel
-%else
 BuildRequires:	luajit-devel
-%endif
 
 %{?_with_boringssl:BuildRequires: bazinga-boringssl}
 %{!?_with_boringssl:BuildRequires: bazinga-openssl-devel}
@@ -88,7 +84,7 @@ Requires:	libcurl, ncurses-libs, libcap, hwloc, libmaxminddb
 Requires:	bazinga-jemalloc >= 4.3.1
 Requires:	bazinga-brotli >= 1.0.6
 %{?_with_io_uring:Requires: bazinga-liburing = %{_liburing_version}}
-%{?_with_boringssl:Requires: bazinga-boringssl}
+%{?_with_boringssl:Requires: bazinga-boringssl = %{_boringssl_version}}
 %{!?_with_boringssl:Requires: bazinga-openssl-libs >= 1.1.1a}
 %{?_with_quiche:Requires: bazinga-quiche = %{_libquiche_version}}
 Requires(post):	chkconfig
@@ -142,7 +138,7 @@ echo PR: %{_pr_id}
 %endif
 
 cmake -B build -S . --preset %{_preset} -DCMAKE_INSTALL_PREFIX=%{_prefix} -DBUILD_NUMBER=%{release}
-cmake --build build -j$(nproc)
+cmake --build build -j$(nproc) -v
 
 %check
 
@@ -155,9 +151,8 @@ chmod a+w /var/run/trafficserver
 chmod a+w /var/log/trafficserver
 chmod a+rx /$(echo $RPM_BUILD_ROOT | awk -F "/" '{print $2}')
 
-cd build
-ctest -j$(nproc) --output-on-failure
-cd ..
+ctest --preset %{_preset} -j$(nproc)
+
 %install
 rm -rf $RPM_BUILD_ROOT
 DESTDIR=$RPM_BUILD_ROOT cmake --install build
@@ -211,7 +206,6 @@ rm -rf $RPM_BUILD_ROOT
 %attr(0755,root,root) %dir %{_prefix}/lib/trafficserver
 %attr(0755,root,root) %dir %{_prefix}/lib/trafficserver/plugins
 %attr(0755,root,root) %{_prefix}/lib/trafficserver/*.so*
-%attr(0755,root,root) %{_prefix}/lib/trafficserver/*.a
 %exclude %{_prefix}/include
 
 %config(noreplace) %{_prefix}/etc/trafficserver/*

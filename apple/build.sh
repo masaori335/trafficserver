@@ -40,7 +40,7 @@ archive_path=rpmbuild/SOURCES/$archive
 specfilename=bazinga-trafficserver.spec
 
 # Copy spec file to the buildroot
-cp ${SRC_REPO}/apple/specs/bazinga-trafficserver.spec $buildroot/$specfilename
+cp $TS_BUILD_REPO/apple/specs/bazinga-trafficserver.spec $buildroot/$specfilename
 
 
 mkdir -p $(dirname $buildroot/$archive_path)
@@ -54,6 +54,10 @@ fi
 
 RPMBUILD_FLAGS=()
 
+if [ "$VARIATION" != "" ]; then
+    RPMBUILD_FLAGS+=" --with variant"
+fi
+
 if [ "$INTERNAL_GITHUB_PR" != "" ]; then
     RPMBUILD_FLAGS+=" --with pr"
 fi
@@ -65,10 +69,7 @@ if [ "$RUN_AUTEST" != "" ]; then
     RPMBUILD_FLAGS+=" --with tests"
 fi
 
-RPMBUILD_FLAGS+=" --with boringssl --with quiche"
-if [ "$OSRELEASE" = "9" ]; then
-    RPMBUILD_FLAGS+=" --with io_uring"
-fi
+RPMBUILD_FLAGS+=" --with boringssl --with quiche --with io_uring"
 
 rpmbuild $RPMBUILD_MODE $buildroot/$specfilename \
          --define "_version ${VERSION}" \
@@ -80,6 +81,8 @@ rpmbuild $RPMBUILD_MODE $buildroot/$specfilename \
          --define "_topdir `pwd`/$buildroot/rpmbuild" \
          --define "_pr_id ${INTERNAL_GITHUB_PR:-'%{nil}'}" \
          --define "_libquiche_version ${QUICHE_VERSION:-0.20.0-5.el7}" \
+         --define "_boringssl_version ${BORINGSSL_VERSION:-29}" \
          --define "_liburing_version ${LIBURING_VERSION:-2.4}" \
-         --define "_preset bazinga${OSRELEASE}" \
+         --define "_preset bazinga${VARIATION}" \
+         --define "_variant ${VARIATION:-default}" \
          ${RPMBUILD_FLAGS}

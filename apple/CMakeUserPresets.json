@@ -12,9 +12,12 @@
 
       "environment": {
         "LDFLAGS": "-fuse-ld=lld --ld-path=/opt/bazinga/bin/ld.lld -Wl,--build-id=sha1",
-        "CXXFLAGS": "-march=native -fPIE -fstack-protector -fno-omit-frame-pointer -flto=thin -gdwarf-4 -stdlib=libc++ -I/opt/bazinga/include/c++/v1",
+        "CXXFLAGS": "-fPIE -fstack-protector -fno-omit-frame-pointer -flto=thin -gdwarf-4 -stdlib=libc++ -I/opt/bazinga/include/c++/v1",
         "CC": "/opt/bazinga/bin/clang",
         "CXX": "/opt/bazinga/bin/clang++"
+      },
+      "cacheVariables": {
+	"CMAKE_CXX_FLAGS_RELWITHDEBINFO": "-O3 -g -DNDEBUG"
       }
     },
     {
@@ -35,35 +38,44 @@
       "name": "bazinga_release",
       "hidden": true,
       "inherits": ["apple_layout"],
+      "binaryDir": "build",
+      "generator": "Ninja",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "jemalloc_ROOT": "/opt/bazinga",
         "ENABLE_JEMALLOC": true,
+        "ENABLE_CRIPTS": true,
+        "ENABLE_MALLOC_ALLOCATOR": true,
         "OPENSSL_ROOT_DIR": "/opt/bazinga/boringssl",
         "BUILD_TESTING": true,
-        "BUILD_EXPERIMENTAL_PLUGINS": true
-      }
-    },
-    {
-      "name": "bazinga9",
-      "inherits": ["clang", "apple_layout", "bazinga_release"],
-      "generator": "Ninja",
-      "binaryDir": "build-bazinga",
-      "cacheVariables": {
-        "USE_IOURING": true,
-        "ENABLE_MALLOC_ALLOCATOR": true,
+        "ENABLE_TXN_BOX": false,
+        "BUILD_EXPERIMENTAL_PLUGINS": true,
         "ENABLE_QUICHE": true,
         "quiche_ROOT": "/opt/bazinga/quiche"
       }
     },
     {
-      "name": "bazinga7",
+      "name": "bazinga",
       "inherits": ["clang", "apple_layout", "bazinga_release"],
       "generator": "Ninja",
-      "binaryDir": "build-bazinga",
       "cacheVariables": {
-        "ENABLE_QUICHE": true,
-        "quiche_ROOT": "/opt/bazinga/quiche"
+        "USE_IOURING": true
+      }
+    },
+    {
+      "name": "bazingaasan",
+      "inherits": ["bazinga"],
+      "cacheVariables": {
+        "ENABLE_ASAN": true,
+        "ENABLE_JEMALLOC": false,
+        "BUILD_TESTING": false
+      }
+    },
+    {
+      "name": "bazingabpf",
+      "inherits": ["bazinga"],
+      "cacheVariables": {
+        "ENABLE_PROBES": true
       }
     },
     {
@@ -73,8 +85,36 @@
       "binaryDir": "build-autest",
       "cacheVariables": {
         "BUILD_TESTING": false,
-        "ENABLE_AUTEST": true
+        "ENABLE_AUTEST": true,
+        "AUTEST_SANDBOX": "/workspace/_sandbox",
+        "ENABLE_EXAMPLE": true
       }
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "bazinga",
+      "configurePreset": "bazinga",
+      "output": {"outputOnFailure": true},
+      "execution": {"noTestsAction": "ignore", "stopOnFailure": false}
+    },
+    {
+      "name": "bazingaasan",
+      "configurePreset": "bazingaasan",
+      "environment": {
+        "LSAN_OPTIONS": "suppressions=${sourceDir}/ci/asan_leak_suppression/unit_tests.txt"
+      },
+      "output": {"outputOnFailure": true},
+      "execution": {"noTestsAction": "ignore", "stopOnFailure": false}
+    },
+    {
+      "name": "bazingabpf",
+      "configurePreset": "bazingabpf",
+      "environment": {
+        "LSAN_OPTIONS": "suppressions=${sourceDir}/ci/asan_leak_suppression/unit_tests.txt"
+      },
+      "output": {"outputOnFailure": true},
+      "execution": {"noTestsAction": "ignore", "stopOnFailure": false}
     }
   ]
 }

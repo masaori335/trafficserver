@@ -8,10 +8,12 @@ zparseopts -E -D -- b=BUILD -build=BUILD \
                     e=TEST -test=TEST \
                     r=PRB -prb=PRB \
                     p:=PR_ID -prid:=PR_ID \
+                    y=RELEASE -release=RELEASE \
                     a:=BRANCH -branch:=BRANCH \
                     v:=inVARIATION -variation:=inVARIATION \
                     f:=TEST_FILTER -filter-test:=TEST_FILTER \
-                    x:=BREAK_FIX -breakfix:=BREAK_FIX
+                    x:=BREAK_FIX -breakfix:=BREAK_FIX \
+                    z:=BUILD_NUMBER -number:=BUILD_NUMBER
 
 if (( $# )); then
     end_opts=$@[(i)(--|-)]
@@ -26,39 +28,58 @@ fi
 if grep -q "release 9" /etc/redhat-release; then
   OSRELEASE="9"
 else
-  OSRELEASE="7"
+  echo "Currently only supports rhel9 builds"
+  exit 1
 fi
 
 
-if [ "$OSRELEASE" = "9" ]; then
-  QUICHE_VERSION=0.20.0-5.el9
-else
-  QUICHE_VERSION=0.20.0-5.el7
-fi
+QUICHE_VERSION=0.22.0
+BORINGSSL_VERSION=32.20240522
 LIBURING_VERSION=2.4
 BUILD=${#BUILD}
 PRB=${#PRB}
 TAGBUILD=${#TAGBUILD}
 TEST=${#TEST}
+RELEASE=${#RELEASE}
 BRANCH=${BRANCH[-1]}
 PR_ID=${PR_ID[-1]:=${GIT_PR_ID}}
 TEST_FILTER=${TEST_FILTER[-1]}
 BREAK_FIX=${BREAK_FIX[-1]}
+BUILD_NUMBER=${BUILD_NUMBER[-1]}
 
 inVARIATION=${inVARIATION[-1]}
-if [[ ! -z ${inVARIATION} ]]; then
+if [[ ! -z ${inVARIATION} && ! "$inVARIATION" = "default" ]]; then
   VARIATION=${inVARIATION}
 fi
 export VARIATION
 echo VARIATION: $VARIATION
 
-RIO_BUILD_NUMBER=${RIO_BUILD_NUMBER:-1}
+# Resolv build number
+# for non-release builds we can use the rio build number
+# release builds must pass the real number in
+if [ $RELEASE -ne 1 ]; then
+  BUILD_NUMBER=${RIO_BUILD_NUMBER:-1}
+else
+  if [ -z ${BUILD_NUMBER} ]; then
+    echo "BUILD_NUMBER not set!"
+    exit 1
+  fi
+  BUILD_NUMBER=$((BUILD_NUMBER + 200))
+fi
 
-# git checkout $BRANCH
+git checkout $BRANCH
 
 if [[ ! -z $PR_ID && $PR_ID -gt 0 ]]; then
   git fetch origin pull/${PR_ID}/head
   git merge FETCH_HEAD -m 'Auto Merge: PR ${PR_ID}'
+fi
+
+if [ ! -z ${RIO_BUILD_NUMBER} ]; then
+git submodule init
+git submodule sync
+git submodule update --rebase --remote
+else
+  echo "Not syncing submodules outside of rio"
 fi
 
 function parse_version() {
@@ -68,9 +89,9 @@ function parse_version() {
 VERSION=$(parse_version)
 COMMIT_TREE_LENGTH=$(git --git-dir=.git rev-list HEAD 2>/dev/null | wc -l)
 if [ -z ${BREAK_FIX} ]; then
-  BUILD_VERSION="${RIO_BUILD_NUMBER}.${COMMIT_TREE_LENGTH}"
+  BUILD_VERSION="${BUILD_NUMBER}.${COMMIT_TREE_LENGTH}"
 else
-  BUILD_VERSION=${BREAK_FIX}.${RIO_BUILD_NUMBER}.${COMMIT_TREE_LENGTH}
+  BUILD_VERSION=${BREAK_FIX}.${BUILD_NUMBER}.${COMMIT_TREE_LENGTH}
 fi
 export BUILD_VERSION
 
@@ -80,19 +101,15 @@ if [ $PRB -eq 1 ]; then
 fi
 
 if [ ! -z "$VARIATION" ]; then
-    export GIT_TAG=bazinga/$VERSION/${VARIATION:1}.$BUILD_VERSION
+    export GIT_TAG=bazinga/$VERSION/${VARIATION}.$BUILD_VERSION
 fi
 
-LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-quiche-${QUICHE_VERSION}
+LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-boringssl-${BORINGSSL_VERSION} bazinga-quiche-${QUICHE_VERSION}
 LD_LIBRARY_PATH=/lib64 yum erase -d1 -y bazinga-openssl-devel
 
-# Master builds enable io_uring for 10
-if [ "$OSRELEASE" = "9" ]; then
-LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-liburing-devel-${LIBURING_VERSION}
-
-# Need to add ninja to el9 build image
-yum install -y ninja-build
-fi
+# Temp remove fmt and install bazinga-fmt until build image updates
+yum remove -y fmt fmt-devel
+LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-liburing-devel-${LIBURING_VERSION} bazinga-fmt-devel
 
 # copy user presets
 cp apple/CMakeUserPresets.json .
@@ -100,7 +117,9 @@ cp apple/CMakeUserPresets.json .
 if [ $BUILD -eq 1 ]; then
   export LIBURING_VERSION
   export QUICHE_VERSION
+  export BORINGSSL_VERSION
   export OSRELEASE
+  export VARIATION
   if [[ ! -z $PR_ID && $PR_ID -gt 0 ]]; then
      ./apple/build.sh $BUILD_VERSION $PR_ID
   else
@@ -124,10 +143,6 @@ if [ $TAGBUILD -eq 1 ]; then
 fi
 
 if [ $TEST -eq 1 ]; then
-  if [ "$OSRELEASE" = "9" ]; then
-    update-crypto-policies --set DEFAULT:SHA1
-    ./apple/run_autest.sh "$TEST_FILTER"
-  else
-    scl enable rh-python38 "./apple/run_autest.sh '$TEST_FILTER'"
-  fi
+  update-crypto-policies --set DEFAULT:SHA1
+  ./apple/run_autest.sh "$TEST_FILTER"
 fi
