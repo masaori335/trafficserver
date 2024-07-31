@@ -58,6 +58,25 @@ SetHomePageRedirectFlag(url_mapping *new_mapping, URL &new_to_url)
 } // end anonymous namespace
 
 bool
+UrlRewrite::get_acl_matching_policy(ACLMatchingPolicy &policy)
+{
+  int matching_policy = 0;
+  REC_ReadConfigInteger(matching_policy, "proxy.config.url_remap.acl_matching_policy");
+  switch (matching_policy) {
+  case 0:
+    policy = ACLMatchingPolicy::MATCH_ON_IP_AND_METHOD;
+    break;
+  case 1:
+    policy = ACLMatchingPolicy::MATCH_ON_IP_ONLY;
+    break;
+  default:
+    Warning("unkown ACL Matching Policy: %d", matching_policy);
+    return false;
+  }
+  return true;
+}
+
+bool
 UrlRewrite::load()
 {
   ats_scoped_str config_file_path;
@@ -128,17 +147,7 @@ UrlRewrite::load()
   }
 
   // ACL Matching Policy
-  int matching_policy = 0;
-  REC_ReadConfigInteger(matching_policy, "proxy.config.url_remap.acl_matching_policy");
-  switch (matching_policy) {
-  case 0:
-    _acl_matching_policy = ACLMatchingPolicy::MATCH_ON_IP_AND_METHOD;
-    break;
-  case 1:
-    _acl_matching_policy = ACLMatchingPolicy::MATCH_ON_IP_ONLY;
-    break;
-  default:
-    Warning("unkown ACL Matching Policy :%d", matching_policy);
+  if (!get_acl_matching_policy(_acl_matching_policy)) {
     _valid = false;
   }
 
@@ -561,10 +570,16 @@ UrlRewrite::PerformACLFiltering(HttpTransact::State *s, const url_mapping *const
           break;
         }
 
-        if (_acl_matching_policy == ACLMatchingPolicy::MATCH_ON_IP_ONLY) {
+        // @action=add_allow and @action=add_deny behave the same for each ACL
+        // policy behavior. The difference in behavior applies to @action=allow
+        // and @action=deny. For these, in Match on IP and Method mode they are
+        // synonyms for @action=add_allow and @action=add_deny because that is
+        // how they behaved pre-10.x.  For the Match on IP Only behavior, they
+        // behave like the corresponding ip_allow actions.
+        if (!rp->add_flag && _acl_matching_policy == ACLMatchingPolicy::MATCH_ON_IP_ONLY) {
           // Flipping the action for unspecified methods.
           Dbg(dbg_ctl_url_rewrite, "ACL rule matched on IP but not on method, action: %s, %s the request",
-              (rp->allow_flag ? "allow" : "deny"), (rp->allow_flag ? "denying" : "allowing"));
+              rp->get_action_description(), (rp->allow_flag ? "denying" : "allowing"));
           s->client_connection_allowed = !rp->allow_flag;
 
           // Since IP match and configured policy is MATCH_ON_IP_ONLY, no need to process other filters nor ip_allow.yaml rules.
