@@ -71,6 +71,7 @@ Statement::initialize_hooks()
   add_allowed_hook(TS_REMAP_PSEUDO_HOOK);
   add_allowed_hook(TS_HTTP_TXN_START_HOOK);
   add_allowed_hook(TS_HTTP_TXN_CLOSE_HOOK);
+  add_allowed_hook(TS_SSL_VERIFY_CLIENT_HOOK);
 }
 
 void

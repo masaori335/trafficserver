@@ -116,6 +116,7 @@ See set-plugin-cntl for the setting values and the effect.
 ~~~~~~~~~~~~~~~~~~~~~~~
 This applies ``set-plugin-cntl INBOUND_IP_SOURCE <value>`` to every transaction unconditionally.
 See set-plugin-cntl for the setting values and the effect.
+For global configuration only, `traffic_ctl config reload` will reload configurations without needing a restart.
 
 Enabling Per-Mapping
 --------------------
@@ -799,6 +800,50 @@ TCP-INFO
 
 This operation records TCP Info struct field values as an Internal remap as well as global header at the event hook specified by the condition. Supported hook conditions include TXN_START_HOOK, SEND_RESPONSE_HEADER_HOOK and TXN_CLOSE_HOOK in the Global plugin and REMAP_PSEUDO_HOOK, SEND_RESPONSE_HEADER_HOOK and TXN_CLOSE_HOOK in the Remap plugin. Conditions supported as request headers include TXN_START_HOOK and REMAP_PSEUDO_HOOK. The other conditions are supported as response headers. TCP Info fields currently recorded include rtt, rto, snd_cwnd and all_retrans. This operation is not supported on transactions originated within Traffic Server (for e.g using the |TS| :func:`TSHttpTxnIsInternal`)
 
+CLIENT-CERT
+~~~~~~~~
+::
+
+    cond %{CLIENT-CERT:APRN-VALIDATED}
+
+Return true if APRN is validated against global rules. Format is defined below. It must be <= 512 characters, have at least 7 fields that are separated by ':',
+have non-empty fields for (zone, domain, resource-type, resource-id), valid characters for each field, start with literal string "aprn", and
+have a valid zone per the APRN spec ("apple", "apz", "cn").
+::
+
+    cond %{CLIENT-CERT:<part>} <operand>
+
+The below conditions require an operand to match to its value.
+::
+
+    %{CLIENT-CERT:APRN-RAW}           Full APRN string
+    %{CLIENT-CERT:APRN-ZONE}          Zone of APRN string
+    %{CLIENT-CERT:APRN-DOMAIN}        Domain of APRN string
+    %{CLIENT-CERT:APRN-REGION}        Region of APRN string
+    %{CLIENT-CERT:APRN-PROJECT-ID}    Project ID of APRN string
+    %{CLIENT-CERT:APRN-RESOURCE-TYPE} Resource Type of APRN string
+    %{CLIENT-CERT:APRN-RESOURCE-ID}   Resource ID of APRN string
+    %{CLIENT-CERT:ISSUER-DN}          Full Issuer information of certificate
+    %{CLIENT-CERT:SERIAL}             Serial number of certificate
+
+The client certificate properties used by Apple internally. Check for APRN string with SAN URI of client certificate.
+The format is ``aprn:{zone}:{domain}:{region}:{project-id}:{resource-type}:{resource-id}``.
+Only valid with ``SSL_VERIFY_CLIENT_HOOK``, ``READ_REQUEST_HDR_HOOK`` and ``PRE_REMAP_HOOK`` as a global plugin and ``REMAP_PSEUDO_HOOK`` as a remap plugin.
+
+In order for client certificate to be checked, `verify_client` in sni.yaml for specific fqdns or
+`proxy.config.ssl.client.certification_level` in records.config has to be set to either 1 (MODERATE) or 2 (STRICT).
+
+SNI
+~~~~~~
+::
+
+    cond %{SNI} <operand>
+
+SNI (Server Name Indication) value from the TLS negotiation. Only valid with ``SSL_VERIFY_CLIENT_HOOK`` as a global plugin.
+
+In order for SNI to be checked, `verify_client` in sni.yaml for specific fqdns or
+`proxy.config.ssl.client.certification_level` in records.config has to be set to either 1 (MODERATE) or 2 (STRICT).
+
 Condition Operands
 ------------------
 
@@ -1238,6 +1283,15 @@ If ``PROXY`` is set, and PROXY protocol is used, the source IP address provided 
 
 .. note::
     The conditions return an empty string if the source is set to ``PROXY`` but PROXY protocol header does not present.
+
+
+deny-tls
+~~~~~~~~~~
+::
+
+  deny-tls
+
+Denies the TLS Handshake of a connection when verifying client certificate. Only valid with ``SSL_VERIFY_CLIENT_HOOK`` as a global plugin.
 
 Operator Flags
 --------------

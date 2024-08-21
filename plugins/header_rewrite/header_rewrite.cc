@@ -47,6 +47,9 @@ int timezone        = 0;
 int inboundIpSource = 0;
 
 } // namespace header_rewrite_ns
+static TSCont global_contp;
+static bool   global_rules[TS_HTTP_LAST_HOOK + 1];
+static int    global_config_id = 0;
 
 static void
 initHRWLibraries(const std::string &dbPath)
@@ -74,17 +77,23 @@ static int cont_rewrite_headers(TSCont, TSEvent, void *);
 class RulesConfig
 {
 public:
-  RulesConfig()
+  RulesConfig(bool global = false)
   {
     Dbg(dbg_ctl, "RulesConfig CTOR");
-    _cont = TSContCreate(cont_rewrite_headers, nullptr);
-    TSContDataSet(_cont, static_cast<void *>(this));
+
+    _global = global;
+    if (!_global) {
+      _cont = TSContCreate(cont_rewrite_headers, nullptr);
+      TSContDataSet(_cont, static_cast<void *>(this));
+    }
   }
 
   ~RulesConfig()
   {
     Dbg(dbg_ctl, "RulesConfig DTOR");
-    TSContDestroy(_cont);
+    if (!_global) {
+      TSContDestroy(_cont);
+    }
   }
 
   [[nodiscard]] TSCont
@@ -113,6 +122,7 @@ private:
   TSCont                                                      _cont;
   std::array<std::unique_ptr<RuleSet>, TS_HTTP_LAST_HOOK + 1> _rules{};
   std::array<ResourceIDs, TS_HTTP_LAST_HOOK + 1>              _resids{};
+  bool                                                        _global = false;
 };
 
 void
@@ -320,7 +330,7 @@ RulesConfig::parse_config(const std::string &fname, TSHttpHookID default_hook, c
     add_rule(std::move(rule));
   }
 
-  // Collect all resource IDs that we need
+  // Collect all resource IDs that we need, including PSEUDO_REMAP_HOOK
   for (size_t i = TS_HTTP_READ_REQUEST_HDR_HOOK; i <= TS_HTTP_LAST_HOOK; ++i) {
     if (_rules[i]) {
       _resids[i] = _rules[i]->get_all_resource_ids();
@@ -348,14 +358,68 @@ setPluginControlValues(TSHttpTxn txnp)
 ///////////////////////////////////////////////////////////////////////////////
 // Continuation
 //
+bool
+eval_helper(Resources &res, TSHttpHookID hook, RulesConfig *conf)
+{
+  bool     reenable{true};
+  RuleSet *rule = conf->rule(hook);
+  // Get the resources necessary to process this event
+  res.gather(conf->resid(hook), hook);
+  // Evaluation of all ssl_verify hook
+  while (rule) {
+    const RuleSet::OperatorAndMods &ops = rule->eval(res);
+    const OperModifiers             rt  = rule->exec(ops, res);
+
+    if (rt & OPER_NO_REENABLE) {
+      reenable = false;
+    }
+
+    if (rule->last() || (rt & OPER_LAST)) {
+      break; // Conditional break, force a break with [L]
+    }
+    rule = rule->next.get();
+  }
+  return reenable;
+}
+
 static int
 cont_rewrite_headers(TSCont contp, TSEvent event, void *edata)
 {
-  auto         txnp = static_cast<TSHttpTxn>(edata);
+  RulesConfig *conf     = nullptr;
+  TSConfig     conf_ref = TSConfigGet(global_config_id);
+  bool         reenable{true};
+  // only remap configs are stored in continuation
+  auto data = TSContDataGet(contp);
+  if (data) {
+    conf = static_cast<RulesConfig *>(data);
+  } else if (conf_ref) {
+    conf = static_cast<RulesConfig *>(TSConfigDataGet(conf_ref));
+  }
   TSHttpHookID hook = TS_HTTP_LAST_HOOK;
-  auto        *conf = static_cast<RulesConfig *>(TSContDataGet(contp));
+  TSHttpTxn    txnp = static_cast<TSHttpTxn>(edata);
 
   switch (event) {
+  case TS_EVENT_VCONN_CLOSE:
+    if (global_config_id) {
+      TSConfigRelease(global_config_id, conf_ref);
+    }
+    return 0;
+  case TS_EVENT_SSL_VERIFY_CLIENT: {
+    // global reload can't remove old hooks
+    if (conf != nullptr && conf->rule(TS_SSL_VERIFY_CLIENT_HOOK)) {
+      TSVConn   conn = static_cast<TSVConn>(edata);
+      Resources res(conn, contp);
+
+      reenable = eval_helper(res, TS_SSL_VERIFY_CLIENT_HOOK, conf);
+      if (reenable) {
+        TSVConnReenable(conn);
+      }
+    }
+    if (global_config_id) {
+      TSConfigRelease(global_config_id, conf_ref);
+    }
+    return 0;
+  }
   case TS_EVENT_HTTP_READ_RESPONSE_HDR:
     hook = TS_HTTP_READ_RESPONSE_HDR_HOOK;
     break;
@@ -384,35 +448,22 @@ cont_rewrite_headers(TSCont contp, TSEvent event, void *edata)
     break;
   }
 
-  bool reenable{true};
-
-  if (hook != TS_HTTP_LAST_HOOK) {
-    RuleSet  *rule = conf->rule(hook);
+  if (hook != TS_HTTP_LAST_HOOK && conf != nullptr && conf->rule(hook)) {
     Resources res(txnp, contp);
-
-    // Get the resources necessary to process this event
-    res.gather(conf->resid(hook), hook);
-
     // Evaluation of all rules. This code is sort of duplicate in DoRemap as well.
-    while (rule) {
-      const RuleSet::OperatorAndMods &ops = rule->eval(res);
-      const OperModifiers             rt  = rule->exec(ops, res);
-
-      if (rt & OPER_NO_REENABLE) {
-        reenable = false;
-      }
-
-      if (rule->last() || (rt & OPER_LAST)) {
-        break; // Conditional break, force a break with [L]
-      }
-      rule = rule->next.get();
+    reenable = eval_helper(res, hook, conf);
+    // When extracting from txn, ref count of x509 cert gets incremented
+    if (res.client_cert) {
+      X509_free(res.client_cert);
     }
   }
 
   if (reenable) {
     TSHttpTxnReenable(txnp, TS_EVENT_HTTP_CONTINUE);
   }
-
+  if (global_config_id) {
+    TSConfigRelease(global_config_id, conf_ref);
+  }
   return 0;
 }
 
@@ -422,6 +473,52 @@ static const struct option longopt[] = {
   {.name = "inbound-ip-source", .has_arg = required_argument, .flag = nullptr, .val = 'i' },
   {.name = nullptr,             .has_arg = no_argument,       .flag = nullptr, .val = '\0'}
 };
+
+static void
+load_global_config(const char *files)
+{
+  bool         got_config = false;
+  RulesConfig *new_config = new RulesConfig(true);
+  // get config filenames to parse
+  std::string        configs(files);
+  std::istringstream iss(configs);
+  std::string        file;
+  while (getline(iss, file, ',')) {
+    if (new_config->parse_config(file, TS_HTTP_READ_RESPONSE_HDR_HOOK)) {
+      Dbg(pi_dbg_ctl, "Successfully loaded global config file %s", file.c_str());
+      got_config = true;
+    }
+  }
+
+  if (got_config) {
+    global_config_id = TSConfigSet(global_config_id, new_config, [](void *cfg) {
+      Dbg(pi_dbg_ctl, "Deleting old configs: %p", cfg);
+      delete static_cast<RulesConfig *>(cfg);
+    });
+    for (int i = TS_HTTP_READ_REQUEST_HDR_HOOK; i < TS_HTTP_LAST_HOOK; ++i) {
+      // avoid adding multiple of the same hook
+      if (new_config->rule(i) && !global_rules[i]) {
+        Dbg(pi_dbg_ctl, "Adding global ruleset to hook=%s", TSHttpHookNameLookup(static_cast<TSHttpHookID>(i)));
+        TSHttpHookAdd(static_cast<TSHttpHookID>(i), global_contp);
+        global_rules[i] = true;
+      }
+    }
+
+  } else {
+    TSError("[%s] Failed to parse any configuration file", PLUGIN_NAME);
+    delete new_config;
+  }
+}
+
+static int
+reconfigure_update(TSCont contp, TSEvent event, void * /* edata ATS_UNUSED */)
+{
+  TSReleaseAssert(event == TS_EVENT_MGMT_UPDATE);
+  Dbg(pi_dbg_ctl, "Reconfiguring global configs");
+  const char *files = static_cast<const char *>(TSContDataGet(contp));
+  load_global_config(files);
+  return 0;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // Initialize the InkAPI plugin for the global hooks we support.
@@ -485,39 +582,21 @@ TSPluginInit(int argc, const char *argv[])
 
   // Parse the global config file(s). All rules are just appended
   // to the "global" Rules configuration.
-  auto *conf       = new RulesConfig;
-  bool  got_config = false;
-
+  std::ostringstream configs;
   for (int i = optind; i < argc; ++i) {
-    // Parse the config file(s). Note that multiple config files are
-    // just appended to the configurations.
-    Dbg(pi_dbg_ctl, "Loading global configuration file %s", argv[i]);
-    if (conf->parse_config(argv[i], TS_HTTP_READ_RESPONSE_HDR_HOOK)) {
-      Dbg(pi_dbg_ctl, "Successfully loaded global config file %s", argv[i]);
-      got_config = true;
-    } else {
-      TSError("[%s] failed to parse configuration file %s", PLUGIN_NAME, argv[i]);
+    configs << argv[i];
+    if (i < argc - 1) {
+      configs << ',';
     }
   }
+  char *files = TSstrdup(configs.str().c_str());
+  // Allow header_rewrite to reload on global changes
+  TSCont reconfigure_contp = TSContCreate(reconfigure_update, nullptr);
+  TSContDataSet(reconfigure_contp, (void *)files);
+  TSMgmtUpdateRegister(reconfigure_contp, PLUGIN_NAME);
 
-  if (got_config) {
-    TSCont contp = TSContCreate(cont_rewrite_headers, nullptr);
-    TSContDataSet(contp, conf);
-
-    // We always need to hook TXN_START to call setPluginControlValues at the beginning.
-    TSHttpHookAdd(TS_HTTP_TXN_START_HOOK, contp);
-
-    for (int i = TS_HTTP_READ_REQUEST_HDR_HOOK; i < TS_HTTP_LAST_HOOK; ++i) {
-      if (conf->rule(i)) {
-        Dbg(pi_dbg_ctl, "Adding global ruleset to hook=%s", TSHttpHookNameLookup(static_cast<TSHttpHookID>(i)));
-        TSHttpHookAdd(static_cast<TSHttpHookID>(i), contp);
-      }
-    }
-  } else {
-    // Didn't get anything, nuke it.
-    TSError("[%s] failed to parse any configuration file", PLUGIN_NAME);
-    delete conf;
-  }
+  global_contp = TSContCreate(cont_rewrite_headers, nullptr);
+  load_global_config(files);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -602,6 +681,10 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char * /* errbuf ATS_UNUSE
       TSError("[%s] Unable to create remap instance", PLUGIN_NAME);
       delete conf;
       return TS_ERROR;
+    } else if (conf->rule(TS_SSL_VERIFY_CLIENT_HOOK)) {
+      TSError("[%s] TS_SSL_VERIFY_CLIENT_HOOK only allowed as global hook, not remap hook", PLUGIN_NAME);
+      delete conf;
+      return TS_ERROR;
     } else {
       Dbg(pi_dbg_ctl, "Successfully loaded remap config file %s", argv[i]);
     }
@@ -668,6 +751,9 @@ TSRemapDoRemap(void *ih, TSHttpTxn rh, TSRemapRequestInfo *rri)
       }
 
     } while ((rule = rule->next.get()));
+  }
+  if (res.client_cert) {
+    X509_free(res.client_cert);
   }
 
   Dbg(dbg_ctl, "Returning from TSRemapDoRemap with status: %d", rval);

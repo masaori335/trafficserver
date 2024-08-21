@@ -277,6 +277,10 @@ Parser::cond_is_hook(TSHttpHookID &hook) const
     hook = TS_HTTP_TXN_CLOSE_HOOK;
     return true;
   }
+  if ("SSL_VERIFY_CLIENT_HOOK" == _op) {
+    hook = TS_SSL_VERIFY_CLIENT_HOOK;
+    return true;
+  }
 
   return false;
 }

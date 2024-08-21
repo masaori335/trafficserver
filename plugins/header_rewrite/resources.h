@@ -22,6 +22,8 @@
 #pragma once
 
 #include <string>
+#include <map>
+#include <openssl/x509.h>
 
 #include "ts/ts.h"
 #include "ts/remap.h"
@@ -40,6 +42,7 @@ enum ResourceIDs {
   RSRC_CLIENT_REQUEST_HEADERS  = 1 << 2, // 4
   RSRC_CLIENT_RESPONSE_HEADERS = 1 << 3, // 8
   RSRC_RESPONSE_STATUS         = 1 << 4, // 16
+  RSRC_CLIENT_CERT             = 1 << 5, // 32
 #if TS_HAS_CRIPTS
   RSRC_CLIENT_CONNECTION  = 1 << 5, // 32
   RSRC_SERVER_CONNECTION  = 1 << 6, // 64
@@ -65,6 +68,11 @@ public:
 
   explicit Resources(TSHttpTxn txnptr, TSRemapRequestInfo *rri) : _rri(rri) { _initialize(txnptr, "RemapAPI"); }
 
+  Resources(TSVConn vconnptr, TSCont contptr) : vconn(vconnptr), contp(contptr)
+  {
+    Dbg(dbg_ctl, "Calling CTOR for Resources for SSL Hook");
+  }
+
   ~Resources() { destroy(); }
 
   // noncopyable
@@ -72,18 +80,22 @@ public:
   void operator=(const Resources &) = delete;
 
   void gather(const ResourceIDs ids, TSHttpHookID hook);
+  void gather_client_cert(TSHttpHookID hook);
   bool
   ready() const
   {
     return _ready;
   }
 
-  TSCont              contp          = nullptr;
-  TSRemapRequestInfo *_rri           = nullptr;
-  TSMBuffer           bufp           = nullptr;
-  TSMLoc              hdr_loc        = nullptr;
-  TSMBuffer           client_bufp    = nullptr;
-  TSMLoc              client_hdr_loc = nullptr;
+  TSVConn                            vconn          = nullptr;
+  TSCont                             contp          = nullptr;
+  TSRemapRequestInfo                *_rri           = nullptr;
+  TSMBuffer                          bufp           = nullptr;
+  TSMLoc                             hdr_loc        = nullptr;
+  TSMBuffer                          client_bufp    = nullptr;
+  TSMLoc                             client_hdr_loc = nullptr;
+  X509                              *client_cert    = nullptr;
+  std::map<std::string, std::string> internal_hdrs;
 #if TS_HAS_CRIPTS
   cripts::Transaction         state; // This now holds txpn / ssnp
   cripts::Client::Connection *client_conn = nullptr;

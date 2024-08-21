@@ -23,6 +23,8 @@
 
 #include <string>
 #include <cstring>
+#include <unordered_set>
+#include <openssl/x509.h>
 
 #include "ts/ts.h"
 #include "tscore/ink_string.h"
@@ -31,6 +33,13 @@
 #include "matcher.h"
 #include "value.h"
 #include "lulu.h"
+
+#ifdef HAVE_PCRE_PCRE_H
+#include <pcre/pcre.h>
+#else
+#include <pcre.h>
+#endif
+
 // #include <mdbm.h>
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -935,4 +944,69 @@ protected:
 
 private:
   int _ix = -1;
+};
+
+// Client Cert
+class ConditionClientCert : public Condition
+{
+  using MatcherType = Matchers<std::string>;
+
+public:
+  explicit ConditionClientCert() { Dbg(dbg_ctl, "Calling CTOR for ConditionClientCert"); }
+
+  ~ConditionClientCert() override
+  {
+    if (_regex != nullptr) {
+      pcre_free(_regex);
+    }
+    if (_regex_extra != nullptr) {
+      pcre_free(_regex_extra);
+    }
+  }
+
+  // noncopyable
+  ConditionClientCert(const ConditionClientCert &) = delete;
+  void operator=(const ConditionClientCert &)      = delete;
+
+  void initialize(Parser &p) override;
+  void set_qualifier(const std::string &q) override;
+  void append_value(std::string &s, const Resources &res) override;
+  void get_aprn(std::string &s, X509 *client_cert);
+
+protected:
+  bool eval(const Resources &res) override;
+  void initialize_hooks() override;
+
+private:
+  ClientCertQualifiers         _client_qual          = CLIENT_QUAL_APRN_RAW;
+  bool                         _parse_aprn           = true;
+  pcre                        *_regex                = nullptr;
+  pcre_extra                  *_regex_extra          = nullptr;
+  static constexpr const char *_aprn_regex           = "^aprn:([^:]*):([^:]*):([^:]*):([^:]*):([^:]*):(.*)$";
+  pcre                        *_regex_validate       = nullptr;
+  pcre_extra                  *_regex_extra_validate = nullptr;
+  static constexpr const char *_aprn_regex_validate = "^aprn:([a-z0-9\\-\\.\\_]+):(?:[a-z0-9\\-\\.\\_]+):(?:[a-z0-9\\-\\.\\_]*:){2}"
+                                                      "(?:[a-z0-9\\-\\.\\_]+):(?:[a-z0-9\\-\\.\\_A-Z\\/%\\:]+)$";
+  int                          _aprn_max_len        = 512;
+  std::array<std::string_view, 3> _valid_zones      = {"apple", "apz", "cn"};
+};
+
+// SNI of TLS Handshake
+class ConditionSNI : public Condition
+{
+  using MatcherType = Matchers<std::string>;
+
+public:
+  ConditionSNI() { Dbg(dbg_ctl, "Calling CTOR for ConditionSNI"); }
+
+  // noncopyable
+  ConditionSNI(const ConditionSNI &)   = delete;
+  void operator=(const ConditionSNI &) = delete;
+
+  void initialize(Parser &p) override;
+  void append_value(std::string &s, const Resources &res) override;
+
+protected:
+  bool eval(const Resources &res) override;
+  void initialize_hooks() override;
 };

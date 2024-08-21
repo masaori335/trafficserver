@@ -28,6 +28,10 @@
 #include <sstream>
 #include <array>
 #include <atomic>
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
+#include <openssl/x509v3.h>
+#include <openssl/bio.h>
 
 #include "ts/ts.h"
 
@@ -247,6 +251,13 @@ ConditionHeader::append_value(std::string &s, const Resources &res)
       }
       TSHandleMLocRelease(bufp, hdr_loc, field_loc);
       field_loc = next_field_loc;
+    }
+  } else if (res.vconn) {
+    auto it = res.internal_hdrs.find(_qualifier);
+    if (it != res.internal_hdrs.end()) {
+      std::string hdr = it->second;
+      Dbg(pi_dbg_ctl, "Appending HEADER(%s) to evaluation value -> %s", _qualifier.c_str(), hdr.c_str());
+      s.append(hdr);
     }
   }
 }
@@ -1764,4 +1775,239 @@ getClientAddr(TSHttpTxn txnp, int txn_private_slot)
     break;
   }
   return addr;
+}
+
+void
+ConditionClientCert::initialize(Parser &p)
+{
+  Condition::initialize(p);
+
+  auto match = std::make_unique<MatcherType>(_cond_op);
+  match->set(p.get_arg(), mods());
+  _matcher = std::move(match);
+}
+
+void
+ConditionClientCert::initialize_hooks()
+{
+  add_allowed_hook(TS_REMAP_PSEUDO_HOOK);
+  add_allowed_hook(TS_SSL_VERIFY_CLIENT_HOOK);
+  add_allowed_hook(TS_HTTP_READ_REQUEST_HDR_HOOK);
+  add_allowed_hook(TS_HTTP_PRE_REMAP_HOOK);
+}
+
+void
+ConditionClientCert::set_qualifier(const std::string &q)
+{
+  Condition::set_qualifier(q);
+
+  Dbg(pi_dbg_ctl, "\tParsing %%{CLIENT-CERT:%s} qualifier", q.c_str());
+
+  if (q == "APRN-RAW") {
+    _client_qual = CLIENT_QUAL_APRN_RAW;
+    _parse_aprn  = false;
+  } else if (q == "APRN-ZONE") {
+    _client_qual = CLIENT_QUAL_APRN_ZONE;
+  } else if (q == "APRN-DOMAIN") {
+    _client_qual = CLIENT_QUAL_APRN_DOMAIN;
+  } else if (q == "APRN-REGION") {
+    _client_qual = CLIENT_QUAL_APRN_REGION;
+  } else if (q == "APRN-PROJECT-ID") {
+    _client_qual = CLIENT_QUAL_APRN_PROJECT_ID;
+  } else if (q == "APRN-RESOURCE-TYPE") {
+    _client_qual = CLIENT_QUAL_APRN_RESOURCE_TYPE;
+  } else if (q == "APRN-RESOURCE-ID") {
+    _client_qual = CLIENT_QUAL_APRN_RESOURCE_ID;
+  } else if (q == "APRN-VALIDATED") {
+    _client_qual           = CLIENT_QUAL_APRN_VALIDATED;
+    const char *errorComp  = nullptr;
+    const char *errorStudy = nullptr;
+    int         erroffset;
+
+    _regex_validate = pcre_compile(_aprn_regex_validate, 0, &errorComp, &erroffset, nullptr);
+    if (_regex_validate != nullptr) {
+      _regex_extra_validate = pcre_study(_regex_validate, 0, &errorStudy);
+    }
+    _parse_aprn = false;
+  } else if (q == "ISSUER-DN") {
+    _client_qual = CLIENT_QUAL_ISSUER_DN;
+    _parse_aprn  = false;
+  } else if (q == "SERIAL") {
+    _client_qual = CLIENT_QUAL_SERIAL_NUM;
+    _parse_aprn  = false;
+  } else {
+    TSError("[%s] Unknown CLIENT-CERT() qualifier: %s", PLUGIN_NAME, q.c_str());
+    return;
+  }
+
+  require_resources(RSRC_CLIENT_CERT);
+  if (_parse_aprn) {
+    // Define the APRN regex pattern
+    const char *errorComp  = nullptr;
+    const char *errorStudy = nullptr;
+    int         erroffset;
+
+    _regex = pcre_compile(_aprn_regex, 0, &errorComp, &erroffset, nullptr);
+    if (_regex != nullptr) {
+      _regex_extra = pcre_study(_regex, 0, &errorStudy);
+    }
+  }
+}
+
+bool
+ConditionClientCert::eval(const Resources &res)
+{
+  std::string s;
+
+  if (_parse_aprn && (_regex == nullptr || _regex_extra == nullptr)) {
+    TSError("[%s] PCRE pattern did not compile successfully for APRN conditional", PLUGIN_NAME);
+  } else if (_client_qual == CLIENT_QUAL_APRN_VALIDATED) {
+    Dbg(pi_dbg_ctl, "Validating APRN string");
+    get_aprn(s, res.client_cert);
+    const char *aprn     = s.c_str();
+    int         aprn_len = static_cast<int>(s.length());
+    // APRN string must be <= 512 and contain no wildcard
+    if (aprn == nullptr || aprn_len > _aprn_max_len || aprn_len == 0 || strchr(aprn, '*') != nullptr) {
+      return false;
+    }
+    // APRN must have at least 7 fields split by ':'
+    int ovector[OVECCOUNT];
+    int match = pcre_exec(_regex_validate, _regex_extra_validate, aprn, aprn_len, 0, 0, ovector, OVECCOUNT);
+    // Only 1 capture group needed to validate content
+    if (match != 2) {
+      return false;
+    }
+    int              start = ovector[2];
+    int              end   = ovector[3];
+    std::string_view zone(aprn + start, end - start);
+    return std::any_of(_valid_zones.begin(), _valid_zones.end(), [&zone](std::string_view vzone) { return zone == vzone; });
+  } else {
+    append_value(s, res);
+  }
+
+  return static_cast<const Matchers<std::string> *>(_matcher.get())->test(s, res);
+}
+
+void
+ConditionClientCert::append_value(std::string &s, const Resources &res)
+{
+  if (!res.client_cert) {
+    TSError("[%s] Client certificate is empty, no rules applied", PLUGIN_NAME);
+    return;
+  }
+  if (_client_qual == CLIENT_QUAL_ISSUER_DN) {
+    // Return RAW Issuer string in readable string
+    X509_NAME *issuer_name = X509_get_issuer_name(res.client_cert);
+    BIO       *bio         = BIO_new(BIO_s_mem());
+    char      *data        = nullptr;
+    long       len         = 0;
+    if (X509_NAME_print_ex(bio, issuer_name, 0, XN_FLAG_ONELINE) > 0) {
+      len = BIO_get_mem_data(bio, &data);
+      if (len > 0 && data != nullptr) {
+        std::string issuer = std::string(data, len);
+        Dbg(pi_dbg_ctl, "Appending '%s' to evaluation value", issuer.c_str());
+        s += issuer;
+      }
+    }
+    BIO_free(bio);
+  } else if (_client_qual == CLIENT_QUAL_SERIAL_NUM) {
+    ASN1_INTEGER *asn    = X509_get_serialNumber(res.client_cert);
+    int64_t       num    = ASN1_INTEGER_get(asn);
+    std::string   serial = std::to_string(num);
+    Dbg(pi_dbg_ctl, "Appending '%s' to evaluation value", serial.c_str());
+    s += serial;
+  } else {
+    // Read from APRN string in the SAN URI
+    std::string san_uri;
+    get_aprn(san_uri, res.client_cert);
+    const char *aprn     = san_uri.c_str();
+    int         aprn_len = static_cast<int>(san_uri.length());
+    if (aprn == nullptr) {
+      return;
+    }
+    // Return RAW APRN string
+    if (_client_qual == CLIENT_QUAL_APRN_RAW) {
+      Dbg(pi_dbg_ctl, "Appending '%s' to evaluation value", aprn);
+      s.append(aprn, aprn_len);
+      return;
+    }
+    // If APRN field, parse using regex pcre
+    int ovector[OVECCOUNT];
+    int match = pcre_exec(_regex, _regex_extra, aprn, aprn_len, 0, 0, ovector, OVECCOUNT);
+    // Should match with 6 capturing groups
+    if (match != 7) {
+      return;
+    }
+    int              start = ovector[2 * _client_qual];
+    int              end   = ovector[2 * _client_qual + 1];
+    std::string_view aprn_field(aprn + start, end - start);
+    Dbg(pi_dbg_ctl, "Appending '%.*s' to evaluation value", static_cast<int>(aprn_field.size()), aprn_field.data());
+    s += aprn_field;
+  }
+}
+
+void
+ConditionClientCert::get_aprn(std::string &s, X509 *client_cert)
+{
+  if (!client_cert) {
+    TSError("[%s] Client certificate is empty, no rules applied", PLUGIN_NAME);
+    return;
+  }
+  // Read from APRN string in the SAN URI
+  GENERAL_NAMES *names = static_cast<GENERAL_NAMES *>(X509_get_ext_d2i(client_cert, NID_subject_alt_name, nullptr, nullptr));
+  if (names != nullptr) {
+    unsigned count = sk_GENERAL_NAME_num(names);
+    for (unsigned i = 0; i < count; ++i) {
+      GENERAL_NAME *name = sk_GENERAL_NAME_value(names, i);
+      if (name->type == GEN_URI) {
+        const char *uri     = reinterpret_cast<const char *>(ASN1_STRING_get0_data(name->d.ia5));
+        int         uri_len = ASN1_STRING_length(name->d.ia5);
+        if (uri != nullptr) {
+          s.append(uri, uri_len);
+        }
+        break;
+      }
+    }
+    GENERAL_NAMES_free(names);
+  }
+}
+
+// ConditionSNI
+void
+ConditionSNI::initialize(Parser &p)
+{
+  Condition::initialize(p);
+  auto match = std::make_unique<MatcherType>(_cond_op);
+  match->set(p.get_arg(), mods());
+  _matcher = std::move(match);
+}
+
+void
+ConditionSNI::initialize_hooks()
+{
+  add_allowed_hook(TS_SSL_VERIFY_CLIENT_HOOK);
+}
+
+bool
+ConditionSNI::eval(const Resources &res)
+{
+  std::string s;
+  append_value(s, res);
+  return static_cast<const Matchers<std::string> *>(_matcher.get())->test(s, res);
+}
+
+void
+ConditionSNI::append_value(std::string &s, const Resources &res)
+{
+  if (res.vconn) {
+    TSSslConnection   sslConn  = TSVConnSslConnectionGet(res.vconn);
+    SSL              *ssl      = reinterpret_cast<SSL *>(sslConn);
+    char const *const sni_name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+    if (sni_name) {
+      Dbg(pi_dbg_ctl, "Appending '%s' to evaluation value", sni_name);
+      s += sni_name;
+    }
+  } else {
+    TSError("[%s] Failed to get TSVConn of session, no rules applied", PLUGIN_NAME);
+  }
 }

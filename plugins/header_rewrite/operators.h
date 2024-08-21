@@ -626,3 +626,17 @@ protected:
 private:
   Value _value;
 };
+
+class OperatorDenyTLS : public Operator
+{
+public:
+  OperatorDenyTLS() { Dbg(dbg_ctl, "Calling CTOR for OperatorDenyTLS"); }
+
+  // noncopyable
+  OperatorDenyTLS(const OperatorDenyTLS &) = delete;
+  void operator=(const OperatorDenyTLS &)  = delete;
+
+protected:
+  void initialize_hooks() override;
+  bool exec(const Resources &res) const override;
+};

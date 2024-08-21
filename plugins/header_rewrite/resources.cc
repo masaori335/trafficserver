@@ -19,6 +19,9 @@
 // resources.cc: Implementation of the resources class.
 //
 //
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
+
 #include "ts/ts.h"
 
 #include "resources.h"
@@ -40,8 +43,13 @@ Resources::gather(const ResourceIDs ids, TSHttpHookID hook)
 
   Dbg(pi_dbg_ctl, "Gathering resources for hook %s with IDs %d", TSHttpHookNameLookup(hook), ids);
 
+  // If we need client cert, make it available per txn hook or session
+  if (ids & RSRC_CLIENT_CERT) {
+    gather_client_cert(hook);
+  }
+
   // If we need the client request headers, make sure it's also available in the client vars.
-  if (ids & RSRC_CLIENT_REQUEST_HEADERS) {
+  if (ids & RSRC_CLIENT_REQUEST_HEADERS && hook != TS_SSL_VERIFY_CLIENT_HOOK) {
     Dbg(pi_dbg_ctl, "\tAdding TXN client request header buffers");
     if (TSHttpTxnClientReqGet(state.txnp, &client_bufp, &client_hdr_loc) != TS_SUCCESS) {
       Dbg(pi_dbg_ctl, "could not gather bufp/hdr_loc for request");
@@ -159,6 +167,30 @@ Resources::gather(const ResourceIDs ids, TSHttpHookID hook)
 #endif
 
   _ready = true;
+}
+
+void
+Resources::gather_client_cert(TSHttpHookID hook)
+{
+  Dbg(pi_dbg_ctl, "\tAdding client certificate");
+  // If SSL hook, certificate is available before txn
+  if (hook == TS_SSL_VERIFY_CLIENT_HOOK && vconn) {
+    X509_STORE_CTX *ctx = reinterpret_cast<X509_STORE_CTX *>(TSVConnSslVerifyCTXGet(vconn));
+    client_cert         = X509_STORE_CTX_get0_cert(ctx);
+  } else {
+    TSHttpSsn ssn  = TSHttpTxnSsnGet(state.txnp);
+    TSVConn   conn = TSHttpSsnClientVConnGet(ssn);
+    if (!conn) {
+      Dbg(pi_dbg_ctl, "could not gather TSVConn from txn");
+      return;
+    }
+    TSSslConnection sslobj = TSVConnSslConnectionGet(conn);
+    if (!sslobj) {
+      Dbg(pi_dbg_ctl, "could not gather TSSslConnection from TSVConn");
+      return;
+    }
+    client_cert = SSL_get_peer_certificate(reinterpret_cast<SSL *>(sslobj));
+  }
 }
 
 void

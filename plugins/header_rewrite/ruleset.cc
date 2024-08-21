@@ -54,6 +54,8 @@ RuleSet::make_condition(Parser &p, const char *filename, int lineno)
   c->initialize(p);
   if (!c->set_hook(_hook)) {
     delete c;
+    Dbg(pi_dbg_ctl, "in %s:%d: can't use this condition in hook=%s: %%{%s} with arg: %s", filename, lineno,
+        TSHttpHookNameLookup(_hook), p.get_op().c_str(), p.get_arg().c_str());
     TSError("[%s] in %s:%d: can't use this condition in hook=%s: %%{%s} with arg: %s", PLUGIN_NAME, filename, lineno,
             TSHttpHookNameLookup(_hook), p.get_op().c_str(), p.get_arg().c_str());
     return nullptr;

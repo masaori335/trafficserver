@@ -87,6 +87,8 @@ operator_factory(const std::string &op)
     o = new OperatorSetStateInt8();
   } else if (op == "set-state-int16") {
     o = new OperatorSetStateInt16();
+  } else if (op == "deny-tls") {
+    o = new OperatorDenyTLS();
   } else {
     TSError("[%s] Unknown operator: %s", PLUGIN_NAME, op.c_str());
     return nullptr;
@@ -182,6 +184,10 @@ condition_factory(const std::string &cond)
     c = new ConditionStateInt16();
   } else if (c_name == "LAST-CAPTURE") {
     c = new ConditionLastCapture();
+  } else if (c_name == "CLIENT-CERT") {
+    c = new ConditionClientCert();
+  } else if (c_name == "SNI") {
+    c = new ConditionSNI();
   } else {
     TSError("[%s] Unknown condition %s", PLUGIN_NAME, c_name.c_str());
     return nullptr;

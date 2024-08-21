@@ -758,6 +758,8 @@ OperatorSetHeader::exec(const Resources &res) const
     return true;
   }
 
+  Dbg(pi_dbg_ctl, "OperatorSetHeader::exec() invoked on %s: %s", _header.c_str(), value.c_str());
+
   if (res.bufp && res.hdr_loc) {
     TSMLoc field_loc = TSMimeHdrFieldFind(res.bufp, res.hdr_loc, _header_wks ? _header_wks : _header.c_str(), _header.size());
 
@@ -790,6 +792,8 @@ OperatorSetHeader::exec(const Resources &res) const
         field_loc = tmp;
       }
     }
+  } else if (res.vconn) {
+    const_cast<Resources &>(res).internal_hdrs[_header] = value;
   }
   return true;
 }
@@ -1581,5 +1585,24 @@ OperatorSetStateInt16::exec(const Resources &res) const
   ptr |= (static_cast<uint64_t>(val) << 48);
   TSUserArgSet(res.state.txnp, _txn_slot, reinterpret_cast<void *>(ptr));
 
+  return true;
+}
+
+void
+OperatorDenyTLS::initialize_hooks()
+{
+  add_allowed_hook(TS_SSL_VERIFY_CLIENT_HOOK);
+}
+
+bool
+OperatorDenyTLS::exec(const Resources &res) const
+{
+  if (res.vconn) {
+    TSVConnReenableEx(res.vconn, TS_EVENT_ERROR);
+    Dbg(pi_dbg_ctl, "Denying TLS Handshake during client verification");
+    return false;
+  } else {
+    TSError(PLUGIN_NAME, "Failed to get vconn & deny TLS Handshake when needed");
+  }
   return true;
 }
