@@ -82,7 +82,6 @@ class Stripe
 {
 public:
   ats_scoped_str hash_text;
-  char          *path = nullptr;
 
   char                *raw_dir{nullptr};
   Dir                 *dir{};
