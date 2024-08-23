@@ -141,7 +141,7 @@ int
 StripeSM::clear_dir()
 {
   size_t dir_len = this->dirlen();
-  this->_clear_init();
+  this->_clear_init(this->disk->hw_sector_size);
 
   if (pwrite(this->fd, this->raw_dir, dir_len, this->skip) < 0) {
     Warning("unable to clear cache directory '%s'", this->hash_text.get());
@@ -298,7 +298,7 @@ int
 StripeSM::clear_dir_aio()
 {
   size_t dir_len = this->dirlen();
-  this->_clear_init();
+  this->_clear_init(this->disk->hw_sector_size);
 
   SET_HANDLER(&StripeSM::handle_dir_clear);
 
