@@ -155,7 +155,7 @@ protected:
   void _clear_init();
   void _init_dir();
   void _init_data();
-  bool flush_aggregate_write_buffer();
+  bool flush_aggregate_write_buffer(int fd);
 
 private:
   void _init_data_internal();
