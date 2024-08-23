@@ -95,8 +95,7 @@ public:
   off_t                len{};
   off_t                data_blocks{};
 
-  CacheDisk *disk{};
-  uint32_t   sector_size{};
+  uint32_t sector_size{};
 
   CacheVol *cache_vol{};
 
