@@ -31,6 +31,7 @@
 
 #include "iocore/eventsystem/EThread.h"
 
+#include "iocore/eventsystem/Lock.h"
 #include "tscore/CryptoHash.h"
 #include "tscore/List.h"
 
@@ -61,7 +62,7 @@ struct Cache;
 struct StripeInitInfo;
 class CacheEvacuateDocVC;
 
-class StripeSM : public Continuation, public Stripe
+class StripeSM : public Continuation
 {
 public:
   CryptoHash hash_id;
@@ -94,6 +95,9 @@ public:
   CacheKey          first_fragment_key;
   int64_t           first_fragment_offset = 0;
   Ptr<IOBufferData> first_fragment_data;
+
+  template <typename U, typename Func> U stripe_read_op(Func);
+  template <typename U, typename Func> U stripe_write_op(Func);
 
   void cancel_trigger();
 
@@ -222,10 +226,19 @@ public:
 
 private:
   mutable PreservationTable _preserved_dirs;
+  mutable AggregateWriteBuffer _write_buffer;
+  mutable std::atomic<Stripe *> _astripe;
+  // guard to update stripe, this will be replaced with hazard_pointer or RCU
+  ProxyMutex _stripe_mutex;
 
   int _agg_copy(CacheVC *vc);
   int _copy_writer_to_aggregation(CacheVC *vc);
   int _copy_evacuator_to_aggregation(CacheVC *vc);
+  bool _flush_aggregate_write_buffer();
+
+  const Stripe *_load_stripe() const;
+  Stripe       *_copy_stripe() const;
+  Stripe       *_update_stripe(Stripe *);
 };
 
 // Global Data
@@ -281,4 +294,55 @@ StripeSM::within_hit_evacuate_window(Dir const *xdir) const
   } else {
     return -delta > (data_blocks - hit_evacuate_window) && -delta < data_blocks;
   }
+}
+
+inline int
+StripeSM::get_agg_buf_pos() const
+{
+  return this->_write_buffer.get_buffer_pos();
+}
+
+inline const Stripe *
+StripeSM::_load_stripe() const
+{
+  return _astripe.load(std::memory_order_relaxed);
+}
+
+inline Stripe *
+StripeSM::_copy_stripe() const
+{
+  Stripe *current_stripe = _astripe.load(std::memory_order_relaxed);
+
+  Stripe *stripe = new Stripe(*current_stripe);
+
+  return stripe;
+}
+
+inline Stripe *
+StripeSM::_update_stripe(Stripe *that)
+{
+  return _astripe.exchange(that);
+}
+
+template <typename U = void, typename Func>
+U
+StripeSM::stripe_read_op(Func read_op)
+{
+  const Stripe *stripe = this->_load_stripe();
+
+  return read_op(stripe);
+}
+
+template <typename U = void, typename Func>
+U
+StripeSM::stripe_write_op(Func write_op)
+{
+  Stripe *new_stripe = this->_copy_stripe();
+
+  U res = write_op(new_stripe);
+
+  Stripe *old_stripe = _update_stripe(new_stripe);
+  delete old_stripe;
+
+  return res;
 }
