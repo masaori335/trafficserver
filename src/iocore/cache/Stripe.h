@@ -81,7 +81,7 @@ struct StripteHeaderFooter {
 class Stripe
 {
 public:
-  ats_scoped_str hash_text;
+  StripeSM *stripe_sm{nullptr};
 
   char                *raw_dir{nullptr};
   Dir                 *dir{};
@@ -96,8 +96,6 @@ public:
   off_t                data_blocks{};
 
   uint32_t sector_size{};
-
-  CacheVol *cache_vol{};
 
   int dir_check();
 

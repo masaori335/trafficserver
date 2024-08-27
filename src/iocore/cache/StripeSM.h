@@ -65,6 +65,7 @@ class StripeSM : public Continuation, public Stripe
 {
 public:
   CryptoHash hash_id;
+  ats_scoped_str hash_text;
   char      *path = nullptr;
   int        fd{-1};
 
@@ -78,6 +79,7 @@ public:
 
   Event *trigger = nullptr;
 
+  CacheVol  *cache_vol{};
   CacheDisk *disk{};
 
   OpenDir              open_dir;
@@ -162,6 +164,7 @@ public:
 
   StripeSM() : Continuation(new_ProxyMutex())
   {
+    stripe_sm      = this;
     open_dir.mutex = mutex;
     SET_HANDLER(&StripeSM::aggWrite);
   }

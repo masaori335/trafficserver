@@ -366,12 +366,12 @@ dir_clean_bucket(Dir *b, int s, Stripe *stripe)
 #endif
     if (!dir_valid(stripe, e) || !dir_offset(e)) {
       if (dbg_ctl_dir_clean.on()) {
-        Dbg(dbg_ctl_dir_clean, "cleaning Stripe:%s: %p tag %X boffset %" PRId64 " b %p p %p bucket len %d", stripe->hash_text.get(),
-            e, dir_tag(e), dir_offset(e), b, p, dir_bucket_length(b, s, stripe));
+        Dbg(dbg_ctl_dir_clean, "cleaning Stripe:%s: %p tag %X boffset %" PRId64 " b %p p %p bucket len %d",
+            stripe->stripe_sm->hash_text.get(), e, dir_tag(e), dir_offset(e), b, p, dir_bucket_length(b, s, stripe));
       }
       if (dir_offset(e)) {
         Metrics::Gauge::decrement(cache_rsb.direntries_used);
-        Metrics::Gauge::decrement(stripe->cache_vol->vol_rsb.direntries_used);
+        Metrics::Gauge::decrement(stripe->stripe_sm->cache_vol->vol_rsb.direntries_used);
       }
       e = dir_delete_entry(e, p, s, stripe);
       continue;
@@ -407,7 +407,7 @@ dir_clear_range(off_t start, off_t end, Stripe *stripe)
     Dir *e = dir_index(stripe, i);
     if (dir_offset(e) >= static_cast<int64_t>(start) && dir_offset(e) < static_cast<int64_t>(end)) {
       Metrics::Gauge::decrement(cache_rsb.direntries_used);
-      Metrics::Gauge::decrement(stripe->cache_vol->vol_rsb.direntries_used);
+      Metrics::Gauge::decrement(stripe->stripe_sm->cache_vol->vol_rsb.direntries_used);
       dir_set_offset(e, 0); // delete
     }
   }
