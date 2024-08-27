@@ -148,6 +148,7 @@ public:
    */
   void aggregate_pending_writes(Queue<CacheVC, Continuation::Link_link> &tocall);
   void agg_wrap();
+  int  get_agg_buf_pos() const;
 
   int evacuateWrite(CacheEvacuateDocVC *evacuator, int event, Event *e);
   int evacuateDocReadDone(int event, Event *e);
@@ -220,12 +221,28 @@ public:
     return this->_preserved_dirs;
   }
 
+  /**
+   * Retrieve a document from the aggregate write buffer.
+   *
+   * This is used to speed up reads by copying from the in-memory write buffer
+   * instead of reading from disk. If the document is not in the write buffer,
+   * nothing will be copied.
+   *
+   * @param dir: The directory entry for the desired document.
+   * @param dest: The destination buffer where the document will be copied to.
+   * @param nbytes: The size of the document (number of bytes to copy).
+   * @return Returns true if the document was copied, false otherwise.
+   */
+  bool copy_from_aggregate_write_buffer(char *dest, Dir const &dir, size_t nbytes) const;
+
 private:
   mutable PreservationTable _preserved_dirs;
+  mutable AggregateWriteBuffer _write_buffer;
 
   int _agg_copy(CacheVC *vc);
   int _copy_writer_to_aggregation(CacheVC *vc);
   int _copy_evacuator_to_aggregation(CacheVC *vc);
+  bool _flush_aggregate_write_buffer();
 };
 
 // Global Data
@@ -281,4 +298,10 @@ StripeSM::within_hit_evacuate_window(Dir const *xdir) const
   } else {
     return -delta > (data_blocks - hit_evacuate_window) && -delta < data_blocks;
   }
+}
+
+inline int
+StripeSM::get_agg_buf_pos() const
+{
+  return this->_write_buffer.get_buffer_pos();
 }

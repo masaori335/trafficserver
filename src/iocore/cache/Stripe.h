@@ -81,6 +81,7 @@ struct StripteHeaderFooter {
 class Stripe
 {
 public:
+  StripeSM      *stripe_sm;
   ats_scoped_str hash_text;
   char          *path = nullptr;
   int            fd{-1};
@@ -137,29 +138,10 @@ public:
    */
   off_t vol_relative_length(off_t start_offset) const;
 
-  int get_agg_buf_pos() const;
-
-  /**
-   * Retrieve a document from the aggregate write buffer.
-   *
-   * This is used to speed up reads by copying from the in-memory write buffer
-   * instead of reading from disk. If the document is not in the write buffer,
-   * nothing will be copied.
-   *
-   * @param dir: The directory entry for the desired document.
-   * @param dest: The destination buffer where the document will be copied to.
-   * @param nbytes: The size of the document (number of bytes to copy).
-   * @return Returns true if the document was copied, false otherwise.
-   */
-  bool copy_from_aggregate_write_buffer(char *dest, Dir const &dir, size_t nbytes) const;
-
 protected:
-  AggregateWriteBuffer _write_buffer;
-
   void _clear_init();
   void _init_dir();
   void _init_data();
-  bool flush_aggregate_write_buffer();
 
 private:
   void _init_data_internal();
@@ -239,19 +221,6 @@ Stripe::vol_out_of_phase_write_valid(Dir const *e) const
   return (dir_offset(e) - 1 >= ((this->header->write_pos - this->start) / CACHE_BLOCK_SIZE));
 }
 
-inline int
-Stripe::vol_in_phase_valid(Dir const *e) const
-{
-  return (dir_offset(e) - 1 < ((this->header->write_pos + this->_write_buffer.get_buffer_pos() - this->start) / CACHE_BLOCK_SIZE));
-}
-
-inline int
-Stripe::vol_in_phase_agg_buf_valid(Dir const *e) const
-{
-  return (this->vol_offset(e) >= this->header->write_pos &&
-          this->vol_offset(e) < (this->header->write_pos + this->_write_buffer.get_buffer_pos()));
-}
-
 inline off_t
 Stripe::vol_offset(Dir const *e) const
 {
@@ -274,10 +243,4 @@ inline off_t
 Stripe::vol_relative_length(off_t start_offset) const
 {
   return (this->len + this->skip) - start_offset;
-}
-
-inline int
-Stripe::get_agg_buf_pos() const
-{
-  return this->_write_buffer.get_buffer_pos();
 }

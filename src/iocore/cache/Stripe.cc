@@ -224,6 +224,19 @@ Stripe::dir_check()
   return 0;
 }
 
+int
+Stripe::vol_in_phase_valid(Dir const *e) const
+{
+  return (dir_offset(e) - 1 < ((this->header->write_pos + this->stripe_sm->get_agg_buf_pos() - this->start) / CACHE_BLOCK_SIZE));
+}
+
+int
+Stripe::vol_in_phase_agg_buf_valid(Dir const *e) const
+{
+  return (this->vol_offset(e) >= this->header->write_pos &&
+          this->vol_offset(e) < (this->header->write_pos + this->stripe_sm->get_agg_buf_pos()));
+}
+
 void
 Stripe::_clear_init()
 {
@@ -282,34 +295,4 @@ Stripe::_init_data()
   this->_init_data_internal();
   this->_init_data_internal();
   this->_init_data_internal();
-}
-
-bool
-Stripe::flush_aggregate_write_buffer()
-{
-  // set write limit
-  this->header->agg_pos = this->header->write_pos + this->_write_buffer.get_buffer_pos();
-
-  if (!this->_write_buffer.flush(this->fd, this->header->write_pos)) {
-    return false;
-  }
-  this->header->last_write_pos  = this->header->write_pos;
-  this->header->write_pos      += this->_write_buffer.get_buffer_pos();
-  ink_assert(this->header->write_pos == this->header->agg_pos);
-  this->_write_buffer.reset_buffer_pos();
-  this->header->write_serial++;
-
-  return true;
-}
-
-bool
-Stripe::copy_from_aggregate_write_buffer(char *dest, Dir const &dir, size_t nbytes) const
-{
-  if (!this->dir_agg_buf_valid(&dir)) {
-    return false;
-  }
-
-  int agg_offset = this->vol_offset(&dir) - this->header->write_pos;
-  this->_write_buffer.copy_from(dest, agg_offset, nbytes);
-  return true;
 }

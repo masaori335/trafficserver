@@ -1365,7 +1365,7 @@ StripeSM::shutdown(EThread *shutdown_thread)
   // directories have not been inserted for these writes
   if (!this->_write_buffer.is_empty()) {
     Dbg(dbg_ctl_cache_dir_sync, "Dir %s: flushing agg buffer first", this->hash_text.get());
-    this->flush_aggregate_write_buffer();
+    this->_flush_aggregate_write_buffer();
   }
 
   // We already asserted that dirlen > 0.
@@ -1425,4 +1425,38 @@ int
 StripeSM::close_write(CacheVC *cont)
 {
   return open_dir.close_write(cont);
+}
+
+bool
+StripeSM::_flush_aggregate_write_buffer()
+{
+  Stripe *stripe = this; // temporal hack
+
+  // set write limit
+  stripe->header->agg_pos = stripe->header->write_pos + this->_write_buffer.get_buffer_pos();
+
+  if (!this->_write_buffer.flush(this->fd, stripe->header->write_pos)) {
+    return false;
+  }
+  stripe->header->last_write_pos  = stripe->header->write_pos;
+  stripe->header->write_pos      += this->_write_buffer.get_buffer_pos();
+  ink_assert(stripe->header->write_pos == stripe->header->agg_pos);
+  this->_write_buffer.reset_buffer_pos();
+  stripe->header->write_serial++;
+
+  return true;
+}
+
+bool
+StripeSM::copy_from_aggregate_write_buffer(char *dest, Dir const &dir, size_t nbytes) const
+{
+  const Stripe *stripe = this; // temporal hack
+
+  if (!stripe->dir_agg_buf_valid(&dir)) {
+    return false;
+  }
+
+  int agg_offset = stripe->vol_offset(&dir) - stripe->header->write_pos;
+  this->_write_buffer.copy_from(dest, agg_offset, nbytes);
+  return true;
 }
