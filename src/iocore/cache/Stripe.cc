@@ -21,9 +21,8 @@
   limitations under the License.
  */
 
-#include "P_CacheDoc.h"
 #include "P_CacheInternal.h"
-#include "P_CacheVol.h"
+#include "StripeSM.h"
 
 #include "tscore/ink_assert.h"
 #include "tscore/ink_memory.h"
@@ -135,7 +134,7 @@ Stripe::dir_check()
             chain_mark[e_idx] = mark;
           }
 
-          if (!dir_valid(this, e)) {
+          if (!this->dir_valid(e)) {
             ++seg_stale;
           } else {
             uint64_t size = dir_approx_size(e);
@@ -306,7 +305,7 @@ Stripe::flush_aggregate_write_buffer()
 bool
 Stripe::copy_from_aggregate_write_buffer(char *dest, Dir const &dir, size_t nbytes) const
 {
-  if (!dir_agg_buf_valid(this, &dir)) {
+  if (!this->dir_agg_buf_valid(&dir)) {
     return false;
   }
 
