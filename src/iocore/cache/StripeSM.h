@@ -66,8 +66,14 @@ class StripeSM : public Continuation
 {
 public:
   CryptoHash hash_id;
+  ats_scoped_str hash_text;
+  char          *path = nullptr;
+  int            fd{-1};
 
   int hit_evacuate_window{};
+
+  CacheDisk *disk{};
+  CacheVol  *cache_vol{};
 
   off_t               recover_pos      = 0;
   off_t               prev_recover_pos = 0;
@@ -96,7 +102,7 @@ public:
   int64_t           first_fragment_offset = 0;
   Ptr<IOBufferData> first_fragment_data;
 
-  template <typename U, typename Func> U stripe_read_op(Func);
+  template <typename U, typename Func> U stripe_read_op(Func) const;
   template <typename U, typename Func> U stripe_write_op(Func);
 
   void cancel_trigger();
@@ -152,6 +158,22 @@ public:
    */
   void aggregate_pending_writes(Queue<CacheVC, Continuation::Link_link> &tocall);
   void agg_wrap();
+
+  int get_agg_buf_pos() const;
+
+  /**
+   * Retrieve a document from the aggregate write buffer.
+   *
+   * This is used to speed up reads by copying from the in-memory write buffer
+   * instead of reading from disk. If the document is not in the write buffer,
+   * nothing will be copied.
+   *
+   * @param dir: The directory entry for the desired document.
+   * @param dest: The destination buffer where the document will be copied to.
+   * @param nbytes: The size of the document (number of bytes to copy).
+   * @return Returns true if the document was copied, false otherwise.
+   */
+  bool copy_from_aggregate_write_buffer(char *dest, Dir const &dir, size_t nbytes) const;
 
   int evacuateWrite(CacheEvacuateDocVC *evacuator, int event, Event *e);
   int evacuateDocReadDone(int event, Event *e);
@@ -286,14 +308,16 @@ StripeSM::get_pending_writers()
 inline int
 StripeSM::within_hit_evacuate_window(Dir const *xdir) const
 {
-  off_t oft       = dir_offset(xdir) - 1;
-  off_t write_off = (header->write_pos + AGG_SIZE - start) / CACHE_BLOCK_SIZE;
-  off_t delta     = oft - write_off;
-  if (delta >= 0) {
-    return delta < hit_evacuate_window;
-  } else {
-    return -delta > (data_blocks - hit_evacuate_window) && -delta < data_blocks;
-  }
+  return this->stripe_read_op<int>([&](const Stripe *stripe) {
+    off_t oft       = dir_offset(xdir) - 1;
+    off_t write_off = (stripe->header->write_pos + AGG_SIZE - stripe->start) / CACHE_BLOCK_SIZE;
+    off_t delta     = oft - write_off;
+    if (delta >= 0) {
+      return delta < hit_evacuate_window;
+    } else {
+      return -delta > (stripe->data_blocks - hit_evacuate_window) && -delta < stripe->data_blocks;
+    }
+  });
 }
 
 inline int
@@ -326,7 +350,7 @@ StripeSM::_update_stripe(Stripe *that)
 
 template <typename U = void, typename Func>
 U
-StripeSM::stripe_read_op(Func read_op)
+StripeSM::stripe_read_op(Func read_op) const
 {
   const Stripe *stripe = this->_load_stripe();
 
