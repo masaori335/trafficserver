@@ -793,7 +793,7 @@ StripeSM::aggWriteDone(int event, Event *e)
   CacheVC *c = nullptr;
   while ((c = sync.dequeue())) {
     if (this->stripe_read_op<bool>(
-          [&](const Stripe *stripe) { UINT_WRAP_LTE(c->write_serial + 2, stripe->header->write_serial); })) {
+          [&](const Stripe *stripe) { return UINT_WRAP_LTE(c->write_serial + 2, stripe->header->write_serial); })) {
       eventProcessor.schedule_imm(c, ET_CALL, AIO_EVENT_DONE);
     } else {
       sync.push(c); // put it back on the front
@@ -918,7 +918,7 @@ StripeSM::aggWrite(int event, void * /* e ATS_UNUSED */)
 void
 StripeSM::aggregate_pending_writes(Queue<CacheVC, Continuation::Link_link> &tocall)
 {
-  this->stripe_read_op<int>([&](const Stripe *stripe) {
+  this->stripe_read_op<>([&](const Stripe *stripe) {
     for (auto *c = static_cast<CacheVC *>(this->_write_buffer.get_pending_writers().head); c;) {
       int writelen = c->agg_len;
       // [amc] this is checked multiple places, on here was it strictly less.
@@ -1378,7 +1378,7 @@ StripeSM::shutdown(EThread *shutdown_thread)
   // be another aggWrite in progress
   MUTEX_TAKE_LOCK(this->mutex, shutdown_thread);
 
-  this->stripe_write_op<int>([&](Stripe *stripe) {
+  this->stripe_write_op([&](Stripe *stripe) {
     if (DISK_BAD(this->disk)) {
       Dbg(dbg_ctl_cache_dir_sync, "Dir %s: ignoring -- bad disk", this->hash_text.get());
       return;

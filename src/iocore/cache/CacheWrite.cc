@@ -243,7 +243,8 @@ CacheVC::handleWrite(int event, Event * /* e ATS_UNUSED */)
   bool max_doc_error = (cache_config_max_doc_size && (cache_config_max_doc_size < vio.ndone ||
                                                       (vio.nbytes != INT64_MAX && (cache_config_max_doc_size < vio.nbytes))));
   // Make sure the size is correct for checking error conditions before calling add_writer(this).
-  agg_len = stripe->round_to_approx_size(write_len + header_len + frag_len + sizeof(Doc));
+  agg_len = stripe->stripe_read_op<uint32_t>(
+    [&](const Stripe *s) { return s->round_to_approx_size(write_len + header_len + frag_len + sizeof(Doc)); });
   if (max_doc_error || !stripe->add_writer(this)) {
     Metrics::Counter::increment(cache_rsb.write_backlog_failure);
     Metrics::Counter::increment(stripe->cache_vol->vol_rsb.write_backlog_failure);
@@ -690,8 +691,10 @@ CacheVC::openWriteStartDone(int event, Event *e)
          to nullptr.
        */
       if (!stripe->dir_valid(&dir)) {
-        DDbg(dbg_ctl_cache_write, "OpenReadStartDone: Dir not valid: Write Head: %" PRId64 ", Dir: %" PRId64,
-             (int64_t)stripe->offset_to_vol_offset(stripe->header->write_pos), dir_offset(&dir));
+        stripe->stripe_read_op([&](const Stripe *s) {
+          DDbg(dbg_ctl_cache_write, "OpenReadStartDone: Dir not valid: Write Head: %" PRId64 ", Dir: %" PRId64,
+               static_cast<int64_t>(s->offset_to_vol_offset(s->header->write_pos)), dir_offset(&dir));
+        });
         last_collision = nullptr;
         goto Lcollision;
       }

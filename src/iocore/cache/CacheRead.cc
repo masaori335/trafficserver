@@ -421,15 +421,17 @@ CacheVC::openReadClose(int event, Event * /* e ATS_UNUSED */)
   if (!lock.is_locked()) {
     VC_SCHED_LOCK_RETRY();
   }
-  if (f.hit_evacuate && stripe->dir_valid(&first_dir) && closed > 0) {
-    ink_assert(stripe->mutex->thread_holding == this_ethread());
-    if (f.single_fragment) {
-      stripe->force_evacuate_head(&first_dir, dir_pinned(&first_dir));
-    } else if (stripe->dir_valid(&earliest_dir)) {
-      stripe->force_evacuate_head(&first_dir, dir_pinned(&first_dir));
-      stripe->force_evacuate_head(&earliest_dir, dir_pinned(&earliest_dir));
+  stripe->stripe_read_op([&](const Stripe *s) {
+    if (f.hit_evacuate && s->dir_valid(&first_dir) && closed > 0) {
+      ink_assert(stripe->mutex->thread_holding == this_ethread());
+      if (f.single_fragment) {
+        stripe->force_evacuate_head(&first_dir, dir_pinned(&first_dir));
+      } else if (s->dir_valid(&earliest_dir)) {
+        stripe->force_evacuate_head(&first_dir, dir_pinned(&first_dir));
+        stripe->force_evacuate_head(&earliest_dir, dir_pinned(&earliest_dir));
+      }
     }
-  }
+  });
   stripe->close_read(this);
   return free_CacheVC(this);
 }
@@ -449,9 +451,11 @@ CacheVC::openReadReadDone(int event, Event *e)
     if (!lock.is_locked()) {
       VC_SCHED_LOCK_RETRY();
     }
+
     if (event == AIO_EVENT_DONE && !io.ok()) {
       goto Lerror;
     }
+
     if (last_collision &&        // no missed lock
         stripe->dir_valid(&dir)) // object still valid
     {
@@ -802,8 +806,10 @@ CacheVC::openReadStartEarliest(int /* event ATS_UNUSED */, Event * /* e ATS_UNUS
     stripe->begin_read(this);
     if (stripe->within_hit_evacuate_window(&earliest_dir) &&
         (!cache_config_hit_evacuate_size_limit || doc_len <= static_cast<uint64_t>(cache_config_hit_evacuate_size_limit))) {
-      DDbg(dbg_ctl_cache_hit_evac, "dir: %" PRId64 ", write: %" PRId64 ", phase: %d", dir_offset(&earliest_dir),
-           stripe->offset_to_vol_offset(stripe->header->write_pos), stripe->header->phase);
+      stripe->stripe_read_op([&](const Stripe *s) {
+        DDbg(dbg_ctl_cache_hit_evac, "dir: %" PRId64 ", write: %" PRId64 ", phase: %d", dir_offset(&earliest_dir),
+             s->offset_to_vol_offset(s->header->write_pos), s->header->phase);
+      });
       f.hit_evacuate = 1;
     }
     goto Lsuccess;
@@ -1106,8 +1112,10 @@ CacheVC::openReadStartHead(int event, Event *e)
 
     if (stripe->within_hit_evacuate_window(&dir) &&
         (!cache_config_hit_evacuate_size_limit || doc_len <= static_cast<uint64_t>(cache_config_hit_evacuate_size_limit))) {
-      DDbg(dbg_ctl_cache_hit_evac, "dir: %" PRId64 ", write: %" PRId64 ", phase: %d", dir_offset(&dir),
-           stripe->offset_to_vol_offset(stripe->header->write_pos), stripe->header->phase);
+      stripe->stripe_read_op([&](const Stripe *s) {
+        DDbg(dbg_ctl_cache_hit_evac, "dir: %" PRId64 ", write: %" PRId64 ", phase: %d", dir_offset(&dir),
+             s->offset_to_vol_offset(s->header->write_pos), s->header->phase);
+      });
       f.hit_evacuate = 1;
     }
 

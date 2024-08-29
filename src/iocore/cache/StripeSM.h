@@ -102,6 +102,8 @@ public:
   int64_t           first_fragment_offset = 0;
   Ptr<IOBufferData> first_fragment_data;
 
+  template <typename Func> void          stripe_read_op(Func) const;
+  template <typename Func> void          stripe_write_op(Func);
   template <typename U, typename Func> U stripe_read_op(Func) const;
   template <typename U, typename Func> U stripe_write_op(Func);
 
@@ -120,6 +122,10 @@ public:
 
   int clear_dir_aio();
   int clear_dir();
+
+  bool dir_valid(const Dir *dir) const;
+  bool dir_agg_valid(const Dir *dir) const;
+  bool dir_agg_buf_valid(const Dir *dir) const;
 
   int init(char *s, off_t blocks, off_t dir_skip, bool clear);
 
@@ -326,6 +332,24 @@ StripeSM::get_agg_buf_pos() const
   return this->_write_buffer.get_buffer_pos();
 }
 
+inline bool
+StripeSM::dir_valid(const Dir *dir) const
+{
+  return this->stripe_read_op<bool>([&](const Stripe *stripe) { return stripe->dir_valid(dir); });
+}
+
+inline bool
+StripeSM::dir_agg_valid(const Dir *dir) const
+{
+  return this->stripe_read_op<bool>([&](const Stripe *stripe) { return stripe->dir_agg_valid(dir); });
+}
+
+inline bool
+StripeSM::dir_agg_buf_valid(const Dir *dir) const
+{
+  return this->stripe_read_op<bool>([&](const Stripe *stripe) { return stripe->dir_agg_buf_valid(dir); });
+}
+
 inline const Stripe *
 StripeSM::_load_stripe() const
 {
@@ -348,7 +372,28 @@ StripeSM::_update_stripe(Stripe *that)
   return _astripe.exchange(that);
 }
 
-template <typename U = void, typename Func>
+template <typename Func>
+void
+StripeSM::stripe_read_op(Func read_op) const
+{
+  const Stripe *stripe = this->_load_stripe();
+
+  read_op(stripe);
+}
+
+template <typename Func>
+void
+StripeSM::stripe_write_op(Func write_op)
+{
+  Stripe *new_stripe = this->_copy_stripe();
+
+  write_op(new_stripe);
+
+  Stripe *old_stripe = _update_stripe(new_stripe);
+  delete old_stripe;
+}
+
+template <typename U, typename Func>
 U
 StripeSM::stripe_read_op(Func read_op) const
 {
@@ -357,7 +402,7 @@ StripeSM::stripe_read_op(Func read_op) const
   return read_op(stripe);
 }
 
-template <typename U = void, typename Func>
+template <typename U, typename Func>
 U
 StripeSM::stripe_write_op(Func write_op)
 {

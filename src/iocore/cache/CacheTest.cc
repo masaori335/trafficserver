@@ -452,8 +452,8 @@ REGRESSION_TEST(cache_disk_replacement_stability)(RegressionTest *t, int level, 
   for (int i = 0; i < MAX_VOLS; ++i) {
     stripe_ptrs[i]  = stripes + i;
     stripes[i].disk = &disk;
-    stripes[i].len  = DEFAULT_STRIPE_SIZE;
-    snprintf(buff, sizeof(buff), "/dev/sd%c %" PRIu64 ":%" PRIu64, 'a' + i, DEFAULT_SKIP, stripes[i].len);
+    stripes[i].stripe_write_op([&](Stripe *stripe) { stripe->len = DEFAULT_STRIPE_SIZE; });
+    snprintf(buff, sizeof(buff), "/dev/sd%c %" PRIu64 ":%" PRIu64, 'a' + i, DEFAULT_SKIP, DEFAULT_STRIPE_SIZE);
     CryptoContext().hash_immediate(stripes[i].hash_id, buff, strlen(buff));
   }
 
@@ -467,8 +467,10 @@ REGRESSION_TEST(cache_disk_replacement_stability)(RegressionTest *t, int level, 
   hr2.num_vols       = MAX_VOLS;
 
   sample      = stripes + sample_idx;
-  sample->len = 1024ULL * 1024 * 1024 * (1024 + 128); // 1.1 TB
-  snprintf(buff, sizeof(buff), "/dev/sd%c %" PRIu64 ":%" PRIu64, 'a' + sample_idx, DEFAULT_SKIP, sample->len);
+  sample->stripe_write_op([&](Stripe *stripe) {
+    stripe->len = 1024ULL * 1024 * 1024 * (1024 + 128); // 1.1 TB
+    snprintf(buff, sizeof(buff), "/dev/sd%c %" PRIu64 ":%" PRIu64, 'a' + sample_idx, DEFAULT_SKIP, stripe->len);
+  });
   CryptoContext().hash_immediate(sample->hash_id, buff, strlen(buff));
   build_vol_hash_table(&hr2);
 

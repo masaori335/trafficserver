@@ -469,11 +469,13 @@ CacheVC::handleRead(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
     return EVENT_RETURN;
   }
 
-  io.aiocb.aio_fildes = stripe->fd;
-  io.aiocb.aio_offset = stripe->vol_offset(&dir);
-  if (static_cast<off_t>(io.aiocb.aio_offset + io.aiocb.aio_nbytes) > static_cast<off_t>(stripe->skip + stripe->len)) {
-    io.aiocb.aio_nbytes = stripe->skip + stripe->len - io.aiocb.aio_offset;
-  }
+  stripe->stripe_read_op([&](const Stripe *s) {
+    io.aiocb.aio_fildes = stripe->fd;
+    io.aiocb.aio_offset = s->vol_offset(&dir);
+    if (static_cast<off_t>(io.aiocb.aio_offset + io.aiocb.aio_nbytes) > static_cast<off_t>(s->skip + s->len)) {
+      io.aiocb.aio_nbytes = s->skip + s->len - io.aiocb.aio_offset;
+    }
+  });
   buf              = new_IOBufferData(iobuffer_size_to_index(io.aiocb.aio_nbytes, MAX_BUFFER_SIZE_INDEX), MEMALIGNED);
   io.aiocb.aio_buf = buf->data();
   io.action        = this;
@@ -691,209 +693,211 @@ CacheVC::scanObject(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
     return EVENT_CONT;
   }
 
-  if (!fragment) { // initialize for first read
-    fragment            = 1;
-    scan_stripe_map     = make_vol_map(stripe);
-    io.aiocb.aio_offset = next_in_map(stripe, scan_stripe_map, stripe->vol_offset_to_offset(0));
-    if (io.aiocb.aio_offset >= static_cast<off_t>(stripe->skip + stripe->len)) {
-      goto Lnext_vol;
-    }
-    io.aiocb.aio_nbytes = SCAN_BUF_SIZE;
-    io.aiocb.aio_buf    = buf->data();
-    io.action           = this;
-    io.thread           = AIO_CALLBACK_THREAD_ANY;
-    Dbg(dbg_ctl_cache_scan_truss, "read %p:scanObject", this);
-    goto Lread;
-  }
-
-  if (!io.ok()) {
-    result = reinterpret_cast<void *>(-ECACHE_READ_FAIL);
-    goto Ldone;
-  }
-
-  doc = reinterpret_cast<Doc *>(buf->data() + offset);
-  // If there is data in the buffer before the start that is from a partial object read previously
-  // Fix things as if we read it this time.
-  if (scan_fix_buffer_offset) {
-    io.aio_result          += scan_fix_buffer_offset;
-    io.aiocb.aio_nbytes    += scan_fix_buffer_offset;
-    io.aiocb.aio_offset    -= scan_fix_buffer_offset;
-    io.aiocb.aio_buf        = static_cast<char *>(io.aiocb.aio_buf) - scan_fix_buffer_offset;
-    scan_fix_buffer_offset  = 0;
-  }
-  while (static_cast<off_t>(reinterpret_cast<char *>(doc) - buf->data()) + next_object_len <
-         static_cast<off_t>(io.aiocb.aio_nbytes)) {
-    might_need_overlap_read = false;
-    doc                     = reinterpret_cast<Doc *>(reinterpret_cast<char *>(doc) + next_object_len);
-    next_object_len         = stripe->round_to_approx_size(doc->len);
-    int  i;
-    bool changed;
-
-    if (doc->magic != DOC_MAGIC) {
-      next_object_len = CACHE_BLOCK_SIZE;
-      Dbg(dbg_ctl_cache_scan_truss, "blockskip %p:scanObject", this);
-      continue;
-    }
-
-    if (doc->doc_type != CACHE_FRAG_TYPE_HTTP || !doc->hlen) {
-      goto Lskip;
-    }
-
-    last_collision = nullptr;
-    while (true) {
-      if (!dir_probe(&doc->first_key, stripe, &dir, &last_collision)) {
-        goto Lskip;
+  return stripe->stripe_write_op<int>([&](Stripe *s) {
+    if (!fragment) { // initialize for first read
+      fragment            = 1;
+      scan_stripe_map     = make_vol_map(s);
+      io.aiocb.aio_offset = next_in_map(s, scan_stripe_map, s->vol_offset_to_offset(0));
+      if (io.aiocb.aio_offset >= static_cast<off_t>(s->skip + s->len)) {
+        goto Lnext_vol;
       }
-      if (!stripe->dir_agg_valid(&dir) || !dir_head(&dir) ||
-          (stripe->vol_offset(&dir) != io.aiocb.aio_offset + (reinterpret_cast<char *>(doc) - buf->data()))) {
+      io.aiocb.aio_nbytes = SCAN_BUF_SIZE;
+      io.aiocb.aio_buf    = buf->data();
+      io.action           = this;
+      io.thread           = AIO_CALLBACK_THREAD_ANY;
+      Dbg(dbg_ctl_cache_scan_truss, "read %p:scanObject", this);
+      goto Lread;
+    }
+
+    if (!io.ok()) {
+      result = reinterpret_cast<void *>(-ECACHE_READ_FAIL);
+      goto Ldone;
+    }
+
+    doc = reinterpret_cast<Doc *>(buf->data() + offset);
+    // If there is data in the buffer before the start that is from a partial object read previously
+    // Fix things as if we read it this time.
+    if (scan_fix_buffer_offset) {
+      io.aio_result          += scan_fix_buffer_offset;
+      io.aiocb.aio_nbytes    += scan_fix_buffer_offset;
+      io.aiocb.aio_offset    -= scan_fix_buffer_offset;
+      io.aiocb.aio_buf        = static_cast<char *>(io.aiocb.aio_buf) - scan_fix_buffer_offset;
+      scan_fix_buffer_offset  = 0;
+    }
+    while (static_cast<off_t>(reinterpret_cast<char *>(doc) - buf->data()) + next_object_len <
+           static_cast<off_t>(io.aiocb.aio_nbytes)) {
+      might_need_overlap_read = false;
+      doc                     = reinterpret_cast<Doc *>(reinterpret_cast<char *>(doc) + next_object_len);
+      next_object_len         = s->round_to_approx_size(doc->len);
+      int  i;
+      bool changed;
+
+      if (doc->magic != DOC_MAGIC) {
+        next_object_len = CACHE_BLOCK_SIZE;
+        Dbg(dbg_ctl_cache_scan_truss, "blockskip %p:scanObject", this);
         continue;
       }
-      break;
-    }
-    if (doc->data() - buf->data() > static_cast<int>(io.aiocb.aio_nbytes)) {
-      might_need_overlap_read = true;
-      goto Lskip;
-    }
-    {
-      char *tmp = doc->hdr();
-      int   len = doc->hlen;
-      while (len > 0) {
-        int r = HTTPInfo::unmarshal(tmp, len, buf.get());
-        if (r < 0) {
-          ink_assert(!"CacheVC::scanObject unmarshal failed");
+
+      if (doc->doc_type != CACHE_FRAG_TYPE_HTTP || !doc->hlen) {
+        goto Lskip;
+      }
+
+      last_collision = nullptr;
+      while (true) {
+        if (!dir_probe(&doc->first_key, stripe, &dir, &last_collision)) {
           goto Lskip;
         }
-        len -= r;
-        tmp += r;
+        if (!stripe->dir_agg_valid(&dir) || !dir_head(&dir) ||
+            (s->vol_offset(&dir) != io.aiocb.aio_offset + (reinterpret_cast<char *>(doc) - buf->data()))) {
+          continue;
+        }
+        break;
       }
-    }
-    if (this->load_http_info(&vector, doc) != doc->hlen) {
-      goto Lskip;
-    }
-    changed         = false;
-    hostinfo_copied = false;
-    for (i = 0; i < vector.count(); i++) {
-      if (!vector.get(i)->valid()) {
+      if (doc->data() - buf->data() > static_cast<int>(io.aiocb.aio_nbytes)) {
+        might_need_overlap_read = true;
         goto Lskip;
       }
-      if (!hostinfo_copied) {
-        memccpy(hname, vector.get(i)->request_get()->host_get(&hlen), 0, 500);
-        hname[hlen] = 0;
-        Dbg(dbg_ctl_cache_scan, "hostname = '%s', hostlen = %d", hname, hlen);
-        hostinfo_copied = true;
+      {
+        char *tmp = doc->hdr();
+        int   len = doc->hlen;
+        while (len > 0) {
+          int r = HTTPInfo::unmarshal(tmp, len, buf.get());
+          if (r < 0) {
+            ink_assert(!"CacheVC::scanObject unmarshal failed");
+            goto Lskip;
+          }
+          len -= r;
+          tmp += r;
+        }
       }
-      vector.get(i)->object_key_get(&key);
-      alternate_index = i;
-      // verify that the earliest block exists, reducing 'false hit' callbacks
-      if (!(key == doc->key)) {
-        last_collision = nullptr;
-        if (!dir_probe(&key, stripe, &earliest_dir, &last_collision)) {
+      if (this->load_http_info(&vector, doc) != doc->hlen) {
+        goto Lskip;
+      }
+      changed         = false;
+      hostinfo_copied = false;
+      for (i = 0; i < vector.count(); i++) {
+        if (!vector.get(i)->valid()) {
+          goto Lskip;
+        }
+        if (!hostinfo_copied) {
+          memccpy(hname, vector.get(i)->request_get()->host_get(&hlen), 0, 500);
+          hname[hlen] = 0;
+          Dbg(dbg_ctl_cache_scan, "hostname = '%s', hostlen = %d", hname, hlen);
+          hostinfo_copied = true;
+        }
+        vector.get(i)->object_key_get(&key);
+        alternate_index = i;
+        // verify that the earliest block exists, reducing 'false hit' callbacks
+        if (!(key == doc->key)) {
+          last_collision = nullptr;
+          if (!dir_probe(&key, stripe, &earliest_dir, &last_collision)) {
+            continue;
+          }
+        }
+        earliest_key = key;
+        int result1  = _action.continuation->handleEvent(CACHE_EVENT_SCAN_OBJECT, vector.get(i));
+        switch (result1) {
+        case CACHE_SCAN_RESULT_CONTINUE:
+          continue;
+        case CACHE_SCAN_RESULT_DELETE:
+          changed = true;
+          vector.remove(i, true);
+          i--;
+          continue;
+        case CACHE_SCAN_RESULT_DELETE_ALL_ALTERNATES:
+          changed = true;
+          vector.clear();
+          i = 0;
+          break;
+        case CACHE_SCAN_RESULT_UPDATE:
+          ink_assert(alternate_index >= 0);
+          vector.insert(&alternate, alternate_index);
+          if (!vector.get(alternate_index)->valid()) {
+            continue;
+          }
+          changed = true;
+          continue;
+        case EVENT_DONE:
+          goto Lcancel;
+        default:
+          ink_assert(!"unexpected CACHE_SCAN_RESULT");
           continue;
         }
       }
-      earliest_key = key;
-      int result1  = _action.continuation->handleEvent(CACHE_EVENT_SCAN_OBJECT, vector.get(i));
-      switch (result1) {
-      case CACHE_SCAN_RESULT_CONTINUE:
-        continue;
-      case CACHE_SCAN_RESULT_DELETE:
-        changed = true;
-        vector.remove(i, true);
-        i--;
-        continue;
-      case CACHE_SCAN_RESULT_DELETE_ALL_ALTERNATES:
-        changed = true;
-        vector.clear();
-        i = 0;
-        break;
-      case CACHE_SCAN_RESULT_UPDATE:
-        ink_assert(alternate_index >= 0);
-        vector.insert(&alternate, alternate_index);
-        if (!vector.get(alternate_index)->valid()) {
-          continue;
+      if (changed) {
+        if (!vector.count()) {
+          ink_assert(hostinfo_copied);
+          SET_HANDLER(&CacheVC::scanRemoveDone);
+          // force remove even if there is a writer
+          cacheProcessor.remove(this, &doc->first_key, CACHE_FRAG_TYPE_HTTP, hname, hlen);
+          return EVENT_CONT;
+        } else {
+          offset            = reinterpret_cast<char *>(doc) - buf->data();
+          write_len         = 0;
+          frag_type         = CACHE_FRAG_TYPE_HTTP;
+          f.use_first_key   = 1;
+          f.evac_vector     = 1;
+          alternate_index   = CACHE_ALT_REMOVED;
+          writer_lock_retry = 0;
+
+          first_key = key = doc->first_key;
+          earliest_key.clear();
+
+          SET_HANDLER(&CacheVC::scanOpenWrite);
+          return scanOpenWrite(EVENT_NONE, nullptr);
         }
-        changed = true;
-        continue;
-      case EVENT_DONE:
-        goto Lcancel;
-      default:
-        ink_assert(!"unexpected CACHE_SCAN_RESULT");
-        continue;
       }
+      continue;
+    Lskip:;
     }
-    if (changed) {
-      if (!vector.count()) {
-        ink_assert(hostinfo_copied);
-        SET_HANDLER(&CacheVC::scanRemoveDone);
-        // force remove even if there is a writer
-        cacheProcessor.remove(this, &doc->first_key, CACHE_FRAG_TYPE_HTTP, hname, hlen);
-        return EVENT_CONT;
-      } else {
-        offset            = reinterpret_cast<char *>(doc) - buf->data();
-        write_len         = 0;
-        frag_type         = CACHE_FRAG_TYPE_HTTP;
-        f.use_first_key   = 1;
-        f.evac_vector     = 1;
-        alternate_index   = CACHE_ALT_REMOVED;
-        writer_lock_retry = 0;
-
-        first_key = key = doc->first_key;
-        earliest_key.clear();
-
-        SET_HANDLER(&CacheVC::scanOpenWrite);
-        return scanOpenWrite(EVENT_NONE, nullptr);
-      }
+    vector.clear();
+    // If we had an object that went past the end of the buffer, and it is small enough to fix,
+    // fix it.
+    if (might_need_overlap_read &&
+        (static_cast<off_t>(reinterpret_cast<char *>(doc) - buf->data()) + next_object_len >
+         static_cast<off_t>(io.aiocb.aio_nbytes)) &&
+        next_object_len > 0) {
+      off_t partial_object_len = io.aiocb.aio_nbytes - (reinterpret_cast<char *>(doc) - buf->data());
+      // Copy partial object to beginning of the buffer.
+      memmove(buf->data(), reinterpret_cast<char *>(doc), partial_object_len);
+      io.aiocb.aio_offset    += io.aiocb.aio_nbytes;
+      io.aiocb.aio_nbytes     = SCAN_BUF_SIZE - partial_object_len;
+      io.aiocb.aio_buf        = buf->data() + partial_object_len;
+      scan_fix_buffer_offset  = partial_object_len;
+    } else { // Normal case, where we ended on a object boundary.
+      io.aiocb.aio_offset += (reinterpret_cast<char *>(doc) - buf->data()) + next_object_len;
+      Dbg(dbg_ctl_cache_scan_truss, "next %p:scanObject %" PRId64, this, (int64_t)io.aiocb.aio_offset);
+      io.aiocb.aio_offset = next_in_map(s, scan_stripe_map, io.aiocb.aio_offset);
+      Dbg(dbg_ctl_cache_scan_truss, "next_in_map %p:scanObject %" PRId64, this, (int64_t)io.aiocb.aio_offset);
+      io.aiocb.aio_nbytes    = SCAN_BUF_SIZE;
+      io.aiocb.aio_buf       = buf->data();
+      scan_fix_buffer_offset = 0;
     }
-    continue;
-  Lskip:;
-  }
-  vector.clear();
-  // If we had an object that went past the end of the buffer, and it is small enough to fix,
-  // fix it.
-  if (might_need_overlap_read &&
-      (static_cast<off_t>(reinterpret_cast<char *>(doc) - buf->data()) + next_object_len >
-       static_cast<off_t>(io.aiocb.aio_nbytes)) &&
-      next_object_len > 0) {
-    off_t partial_object_len = io.aiocb.aio_nbytes - (reinterpret_cast<char *>(doc) - buf->data());
-    // Copy partial object to beginning of the buffer.
-    memmove(buf->data(), reinterpret_cast<char *>(doc), partial_object_len);
-    io.aiocb.aio_offset    += io.aiocb.aio_nbytes;
-    io.aiocb.aio_nbytes     = SCAN_BUF_SIZE - partial_object_len;
-    io.aiocb.aio_buf        = buf->data() + partial_object_len;
-    scan_fix_buffer_offset  = partial_object_len;
-  } else { // Normal case, where we ended on a object boundary.
-    io.aiocb.aio_offset += (reinterpret_cast<char *>(doc) - buf->data()) + next_object_len;
-    Dbg(dbg_ctl_cache_scan_truss, "next %p:scanObject %" PRId64, this, (int64_t)io.aiocb.aio_offset);
-    io.aiocb.aio_offset = next_in_map(stripe, scan_stripe_map, io.aiocb.aio_offset);
-    Dbg(dbg_ctl_cache_scan_truss, "next_in_map %p:scanObject %" PRId64, this, (int64_t)io.aiocb.aio_offset);
-    io.aiocb.aio_nbytes    = SCAN_BUF_SIZE;
-    io.aiocb.aio_buf       = buf->data();
-    scan_fix_buffer_offset = 0;
-  }
 
-  if (io.aiocb.aio_offset >= stripe->skip + stripe->len) {
-  Lnext_vol:
-    SET_HANDLER(&CacheVC::scanStripe);
-    eventProcessor.schedule_in(this, HRTIME_MSECONDS(scan_msec_delay));
+    if (io.aiocb.aio_offset >= s->skip + s->len) {
+    Lnext_vol:
+      SET_HANDLER(&CacheVC::scanStripe);
+      eventProcessor.schedule_in(this, HRTIME_MSECONDS(scan_msec_delay));
+      return EVENT_CONT;
+    }
+
+  Lread:
+    io.aiocb.aio_fildes = stripe->fd;
+    if (static_cast<off_t>(io.aiocb.aio_offset + io.aiocb.aio_nbytes) > static_cast<off_t>(s->skip + s->len)) {
+      io.aiocb.aio_nbytes = s->skip + s->len - io.aiocb.aio_offset;
+    }
+    offset = 0;
+    ink_assert(ink_aio_read(&io) >= 0);
+    Dbg(dbg_ctl_cache_scan_truss, "read %p:scanObject %" PRId64 " %zu", this, (int64_t)io.aiocb.aio_offset,
+        (size_t)io.aiocb.aio_nbytes);
     return EVENT_CONT;
-  }
 
-Lread:
-  io.aiocb.aio_fildes = stripe->fd;
-  if (static_cast<off_t>(io.aiocb.aio_offset + io.aiocb.aio_nbytes) > static_cast<off_t>(stripe->skip + stripe->len)) {
-    io.aiocb.aio_nbytes = stripe->skip + stripe->len - io.aiocb.aio_offset;
-  }
-  offset = 0;
-  ink_assert(ink_aio_read(&io) >= 0);
-  Dbg(dbg_ctl_cache_scan_truss, "read %p:scanObject %" PRId64 " %zu", this, (int64_t)io.aiocb.aio_offset,
-      (size_t)io.aiocb.aio_nbytes);
-  return EVENT_CONT;
-
-Ldone:
-  Dbg(dbg_ctl_cache_scan_truss, "done %p:scanObject", this);
-  _action.continuation->handleEvent(CACHE_EVENT_SCAN_DONE, result);
-Lcancel:
-  return free_CacheVC(this);
+  Ldone:
+    Dbg(dbg_ctl_cache_scan_truss, "done %p:scanObject", this);
+    _action.continuation->handleEvent(CACHE_EVENT_SCAN_DONE, result);
+  Lcancel:
+    return free_CacheVC(this);
+  });
 }
 
 int
@@ -954,7 +958,8 @@ CacheVC::scanOpenWrite(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
     Dir *l = nullptr;
     Dir  d;
     Doc *doc = reinterpret_cast<Doc *>(buf->data() + offset);
-    offset   = reinterpret_cast<char *>(doc) - buf->data() + stripe->round_to_approx_size(doc->len);
+    offset   = reinterpret_cast<char *>(doc) - buf->data() +
+             stripe->stripe_read_op<uint32_t>([&](const Stripe *s) { return s->round_to_approx_size(doc->len); });
     // if the doc contains some data, then we need to create
     // a new directory entry for this fragment. Remember the
     // offset and the key in earliest_key
