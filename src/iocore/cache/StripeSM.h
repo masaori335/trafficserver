@@ -194,6 +194,7 @@ public:
   {
     open_dir.mutex = mutex;
     SET_HANDLER(&StripeSM::aggWrite);
+    this->_astripe.store(new Stripe());
   }
 
   Queue<CacheVC, Continuation::Link_link> &get_pending_writers();

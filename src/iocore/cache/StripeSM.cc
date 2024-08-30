@@ -168,7 +168,10 @@ StripeSM::init(char *s, off_t blocks, off_t dir_skip, bool clear)
   path = ats_strdup(s);
 
   // Stripe
-  this->stripe_write_op([&](Stripe *stripe) { stripe->init_data(blocks, dir_skip); });
+  this->stripe_write_op([&](Stripe *stripe) {
+    stripe->stripe_sm = this;
+    stripe->init_data(blocks, dir_skip);
+  });
 
   // Evacuation
   return this->stripe_read_op<int>([&](const Stripe *stripe) {
