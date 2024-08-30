@@ -70,6 +70,19 @@ struct StripeInitInfo {
 //
 
 int
+Stripe::vol_in_phase_valid(Dir const *e) const
+{
+  return (dir_offset(e) - 1 < ((this->header->write_pos + this->stripe_sm->get_agg_buf_pos() - this->start) / CACHE_BLOCK_SIZE));
+}
+
+int
+Stripe::vol_in_phase_agg_buf_valid(Dir const *e) const
+{
+  return (this->vol_offset(e) >= this->header->write_pos &&
+          this->vol_offset(e) < (this->header->write_pos + this->stripe_sm->get_agg_buf_pos()));
+}
+
+int
 Stripe::dir_check()
 {
   static int const SEGMENT_HISTOGRAM_WIDTH           = 16;
@@ -89,7 +102,7 @@ Stripe::dir_check()
 
   ink_zero(frag_demographics);
 
-  printf("Stripe '[%s]'\n", hash_text.get());
+  printf("Stripe '[%s]'\n", this->stripe_sm->hash_text.get());
   printf("  Directory Bytes: %" PRIu64 "\n", total_buckets * SIZEOF_DIR);
   printf("  Segments:  %d\n", segments);
   printf("  Buckets per segment:   %" PRIu64 "\n", buckets);
@@ -226,7 +239,7 @@ Stripe::dir_check()
 }
 
 void
-Stripe::_clear_init()
+Stripe::clear_init()
 {
   size_t dir_len = this->dirlen();
   memset(this->raw_dir, 0, dir_len);
@@ -240,7 +253,7 @@ Stripe::_clear_init()
   this->header->cycle                                              = 0;
   this->header->create_time                                        = time(nullptr);
   this->header->dirty                                              = 0;
-  this->sector_size = this->header->sector_size = this->disk->hw_sector_size;
+  this->sector_size = this->header->sector_size = this->stripe_sm->disk->hw_sector_size;
   *this->footer                                 = *this->header;
 }
 
@@ -277,7 +290,7 @@ Stripe::_init_data_internal()
 }
 
 void
-Stripe::_init_data(off_t blocks, off_t dir_skip)
+Stripe::init_data(off_t blocks, off_t dir_skip)
 {
   len = blocks * STORE_BLOCK_SIZE;
   ink_assert(len <= MAX_STRIPE_SIZE);
@@ -306,34 +319,4 @@ Stripe::_init_data(off_t blocks, off_t dir_skip)
   dir    = reinterpret_cast<Dir *>(raw_dir + this->headerlen());
   header = reinterpret_cast<StripteHeaderFooter *>(raw_dir);
   footer = reinterpret_cast<StripteHeaderFooter *>(raw_dir + this->dirlen() - ROUND_TO_STORE_BLOCK(sizeof(StripteHeaderFooter)));
-}
-
-bool
-Stripe::flush_aggregate_write_buffer()
-{
-  // set write limit
-  this->header->agg_pos = this->header->write_pos + this->_write_buffer.get_buffer_pos();
-
-  if (!this->_write_buffer.flush(this->fd, this->header->write_pos)) {
-    return false;
-  }
-  this->header->last_write_pos  = this->header->write_pos;
-  this->header->write_pos      += this->_write_buffer.get_buffer_pos();
-  ink_assert(this->header->write_pos == this->header->agg_pos);
-  this->_write_buffer.reset_buffer_pos();
-  this->header->write_serial++;
-
-  return true;
-}
-
-bool
-Stripe::copy_from_aggregate_write_buffer(char *dest, Dir const &dir, size_t nbytes) const
-{
-  if (!this->dir_agg_buf_valid(&dir)) {
-    return false;
-  }
-
-  int agg_offset = this->vol_offset(&dir) - this->header->write_pos;
-  this->_write_buffer.copy_from(dest, agg_offset, nbytes);
-  return true;
 }

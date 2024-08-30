@@ -31,6 +31,7 @@
 
 #include "iocore/eventsystem/EThread.h"
 
+#include "iocore/eventsystem/Lock.h"
 #include "tscore/CryptoHash.h"
 #include "tscore/List.h"
 
@@ -61,12 +62,18 @@ struct Cache;
 struct StripeInitInfo;
 class CacheEvacuateDocVC;
 
-class StripeSM : public Continuation, public Stripe
+class StripeSM : public Continuation
 {
 public:
   CryptoHash hash_id;
+  ats_scoped_str hash_text;
+  char          *path = nullptr;
+  int            fd{-1};
 
   int hit_evacuate_window{};
+
+  CacheDisk *disk{};
+  CacheVol  *cache_vol{};
 
   off_t               recover_pos      = 0;
   off_t               prev_recover_pos = 0;
@@ -95,6 +102,11 @@ public:
   int64_t           first_fragment_offset = 0;
   Ptr<IOBufferData> first_fragment_data;
 
+  template <typename Func> void          stripe_read_op(Func) const;
+  template <typename Func> void          stripe_write_op(Func);
+  template <typename U, typename Func> U stripe_read_op(Func) const;
+  template <typename U, typename Func> U stripe_write_op(Func);
+
   void cancel_trigger();
 
   int recover_data();
@@ -111,6 +123,10 @@ public:
   int clear_dir_aio();
   int clear_dir();
 
+  bool dir_valid(const Dir *dir) const;
+  bool dir_agg_valid(const Dir *dir) const;
+  bool dir_agg_buf_valid(const Dir *dir) const;
+
   int init(char *s, off_t blocks, off_t dir_skip, bool clear);
 
   int handle_dir_clear(int event, void *data);
@@ -126,6 +142,8 @@ public:
 
   int aggWriteDone(int event, Event *e);
   int aggWrite(int event, void *e);
+
+  uint32_t round_to_approx_size(uint32_t l) const;
 
   /**
    * Copies virtual connection buffers into the aggregate write buffer.
@@ -149,6 +167,22 @@ public:
   void aggregate_pending_writes(Queue<CacheVC, Continuation::Link_link> &tocall);
   void agg_wrap();
 
+  int get_agg_buf_pos() const;
+
+  /**
+   * Retrieve a document from the aggregate write buffer.
+   *
+   * This is used to speed up reads by copying from the in-memory write buffer
+   * instead of reading from disk. If the document is not in the write buffer,
+   * nothing will be copied.
+   *
+   * @param dir: The directory entry for the desired document.
+   * @param dest: The destination buffer where the document will be copied to.
+   * @param nbytes: The size of the document (number of bytes to copy).
+   * @return Returns true if the document was copied, false otherwise.
+   */
+  bool copy_from_aggregate_write_buffer(char *dest, Dir const &dir, size_t nbytes) const;
+
   int evacuateWrite(CacheEvacuateDocVC *evacuator, int event, Event *e);
   int evacuateDocReadDone(int event, Event *e);
 
@@ -160,6 +194,7 @@ public:
   {
     open_dir.mutex = mutex;
     SET_HANDLER(&StripeSM::aggWrite);
+    this->_astripe.store(new Stripe());
   }
 
   Queue<CacheVC, Continuation::Link_link> &get_pending_writers();
@@ -222,10 +257,19 @@ public:
 
 private:
   mutable PreservationTable _preserved_dirs;
+  mutable AggregateWriteBuffer _write_buffer;
+  mutable std::atomic<Stripe *> _astripe;
+  // guard to update stripe, this will be replaced with hazard_pointer or RCU
+  ProxyMutex _stripe_mutex;
 
   int _agg_copy(CacheVC *vc);
   int _copy_writer_to_aggregation(CacheVC *vc);
   int _copy_evacuator_to_aggregation(CacheVC *vc);
+  bool _flush_aggregate_write_buffer();
+
+  const Stripe *_load_stripe() const;
+  Stripe       *_copy_stripe() const;
+  Stripe       *_update_stripe(Stripe *);
 };
 
 // Global Data
@@ -273,12 +317,113 @@ StripeSM::get_pending_writers()
 inline int
 StripeSM::within_hit_evacuate_window(Dir const *xdir) const
 {
-  off_t oft       = dir_offset(xdir) - 1;
-  off_t write_off = (header->write_pos + AGG_SIZE - start) / CACHE_BLOCK_SIZE;
-  off_t delta     = oft - write_off;
-  if (delta >= 0) {
-    return delta < hit_evacuate_window;
-  } else {
-    return -delta > (data_blocks - hit_evacuate_window) && -delta < data_blocks;
-  }
+  return this->stripe_read_op<int>([&](const Stripe *stripe) {
+    off_t oft       = dir_offset(xdir) - 1;
+    off_t write_off = (stripe->header->write_pos + AGG_SIZE - stripe->start) / CACHE_BLOCK_SIZE;
+    off_t delta     = oft - write_off;
+    if (delta >= 0) {
+      return delta < hit_evacuate_window;
+    } else {
+      return -delta > (stripe->data_blocks - hit_evacuate_window) && -delta < stripe->data_blocks;
+    }
+  });
+}
+
+inline int
+StripeSM::get_agg_buf_pos() const
+{
+  return this->_write_buffer.get_buffer_pos();
+}
+
+inline bool
+StripeSM::dir_valid(const Dir *dir) const
+{
+  return this->stripe_read_op<bool>([&](const Stripe *stripe) { return stripe->dir_valid(dir); });
+}
+
+inline bool
+StripeSM::dir_agg_valid(const Dir *dir) const
+{
+  return this->stripe_read_op<bool>([&](const Stripe *stripe) { return stripe->dir_agg_valid(dir); });
+}
+
+inline bool
+StripeSM::dir_agg_buf_valid(const Dir *dir) const
+{
+  return this->stripe_read_op<bool>([&](const Stripe *stripe) { return stripe->dir_agg_buf_valid(dir); });
+}
+
+/**
+  TODO: Move Stripe::round_to_approx_size and related code here
+ */
+inline uint32_t
+StripeSM::round_to_approx_size(uint32_t l) const
+{
+  return this->stripe_read_op<uint32_t>([&](const Stripe *stripe) { return stripe->round_to_approx_size(l); });
+}
+
+inline const Stripe *
+StripeSM::_load_stripe() const
+{
+  return _astripe.load(std::memory_order_relaxed);
+}
+
+inline Stripe *
+StripeSM::_copy_stripe() const
+{
+  Stripe *current_stripe = _astripe.load(std::memory_order_relaxed);
+
+  Stripe *stripe = new Stripe(*current_stripe);
+
+  return stripe;
+}
+
+inline Stripe *
+StripeSM::_update_stripe(Stripe *that)
+{
+  return _astripe.exchange(that);
+}
+
+template <typename Func>
+void
+StripeSM::stripe_read_op(Func read_op) const
+{
+  const Stripe *stripe = this->_load_stripe();
+
+  read_op(stripe);
+}
+
+template <typename Func>
+void
+StripeSM::stripe_write_op(Func write_op)
+{
+  Stripe *new_stripe = this->_copy_stripe();
+
+  write_op(new_stripe);
+
+  Stripe *old_stripe = _update_stripe(new_stripe);
+  delete old_stripe;
+}
+
+template <typename U, typename Func>
+U
+StripeSM::stripe_read_op(Func read_op) const
+{
+  const Stripe *stripe = this->_load_stripe();
+
+  return read_op(stripe);
+}
+
+template <typename U, typename Func>
+U
+StripeSM::stripe_write_op(Func write_op)
+{
+  Stripe *new_stripe = this->_copy_stripe();
+
+  U res = write_op(new_stripe);
+
+  Stripe *old_stripe = _update_stripe(new_stripe);
+  delete old_stripe;
+
+  return res;
 }

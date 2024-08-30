@@ -105,34 +105,37 @@ attach_tmpfile_to_stripe(StripeSM &stripe)
 // We can't return a stripe from this function because the copy
 // and move constructors are deleted.
 static std::FILE *
-init_stripe_for_writing(StripeSM &stripe, StripteHeaderFooter &header, CacheVol &cache_vol)
+init_stripe_for_writing(StripeSM &stripe_sm, StripteHeaderFooter &header, CacheVol &cache_vol)
 {
-  stripe.cache_vol                             = &cache_vol;
+  stripe_sm.cache_vol                             = &cache_vol;
   cache_rsb.write_bytes                        = Metrics::Counter::createPtr("unit_test.write.bytes");
-  stripe.cache_vol->vol_rsb.write_bytes        = Metrics::Counter::createPtr("unit_test.write.bytes");
+  stripe_sm.cache_vol->vol_rsb.write_bytes        = Metrics::Counter::createPtr("unit_test.write.bytes");
   cache_rsb.gc_frags_evacuated                 = Metrics::Counter::createPtr("unit_test.gc.frags.evacuated");
-  stripe.cache_vol->vol_rsb.gc_frags_evacuated = Metrics::Counter::createPtr("unit_test.gc.frags.evacuated");
+  stripe_sm.cache_vol->vol_rsb.gc_frags_evacuated = Metrics::Counter::createPtr("unit_test.gc.frags.evacuated");
 
   // A number of things must be initialized in a certain way for Stripe
   // not to segfault, hit an assertion, or exhibit zero-division.
   // I just picked values that happen to work.
-  stripe.sector_size = 256;
-  stripe.skip        = 0;
-  stripe.len         = 600000000000000;
-  stripe.segments    = 1;
-  stripe.buckets     = 4;
-  stripe.start       = stripe.skip + 2 * stripe.dirlen();
-  stripe.raw_dir     = static_cast<char *>(ats_memalign(ats_pagesize(), stripe.dirlen()));
-  stripe.dir         = reinterpret_cast<Dir *>(stripe.raw_dir + stripe.headerlen());
+  stripe_sm.stripe_write_op([&](Stripe *stripe) {
+    stripe->sector_size = 256;
+    stripe->skip        = 0;
+    stripe->len         = 600000000000000;
+    stripe->segments    = 1;
+    stripe->buckets     = 4;
+    stripe->start       = stripe->skip + 2 * stripe->dirlen();
+    stripe->raw_dir     = static_cast<char *>(ats_memalign(ats_pagesize(), stripe->dirlen()));
+    stripe->dir         = reinterpret_cast<Dir *>(stripe->raw_dir + stripe->headerlen());
 
-  stripe.get_preserved_dirs().evacuate = static_cast<DLL<EvacuationBlock> *>(ats_malloc(2024));
-  memset(static_cast<void *>(stripe.get_preserved_dirs().evacuate), 0, 2024);
+    stripe_sm.get_preserved_dirs().evacuate = static_cast<DLL<EvacuationBlock> *>(ats_malloc(2024));
+    memset(static_cast<void *>(stripe_sm.get_preserved_dirs().evacuate), 0, 2024);
 
-  header.write_pos = 50000;
-  header.agg_pos   = 1;
-  header.phase     = 0;
-  stripe.header    = &header;
-  return attach_tmpfile_to_stripe(stripe);
+    header.write_pos = 50000;
+    header.agg_pos   = 1;
+    header.phase     = 0;
+    stripe->header   = &header;
+  });
+
+  return attach_tmpfile_to_stripe(stripe_sm);
 }
 
 TEST_CASE("The behavior of StripeSM::add_writer.")
@@ -294,7 +297,7 @@ TEST_CASE("aggWrite behavior with f.evacuator unset")
     cache_config_enable_checksum = false;
   }
 
-  ats_free(stripe.raw_dir);
+  stripe.stripe_write_op([&](Stripe *s) { ats_free(s->raw_dir); });
   ats_free(stripe.get_preserved_dirs().evacuate);
 }
 
@@ -391,6 +394,6 @@ TEST_CASE("aggWrite behavior with f.evacuator set")
   }
 
   delete[] source;
-  ats_free(stripe.raw_dir);
+  stripe.stripe_write_op([&](Stripe *s) { ats_free(s->raw_dir); });
   ats_free(stripe.get_preserved_dirs().evacuate);
 }
