@@ -98,7 +98,7 @@ public:
   {
     SET_HANDLER(&WaitingVC::handle_call);
     this->stripe = stripe;
-    this->dir    = *stripe->dir;
+    stripe->stripe_read_op([&](const Stripe *s) { this->dir = *s->dir; });
   }
 
   void

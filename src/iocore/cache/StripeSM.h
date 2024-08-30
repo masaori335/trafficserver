@@ -143,6 +143,8 @@ public:
   int aggWriteDone(int event, Event *e);
   int aggWrite(int event, void *e);
 
+  uint32_t round_to_approx_size(uint32_t l) const;
+
   /**
    * Copies virtual connection buffers into the aggregate write buffer.
    *
@@ -348,6 +350,15 @@ inline bool
 StripeSM::dir_agg_buf_valid(const Dir *dir) const
 {
   return this->stripe_read_op<bool>([&](const Stripe *stripe) { return stripe->dir_agg_buf_valid(dir); });
+}
+
+/**
+  TODO: Move Stripe::round_to_approx_size and related code here
+ */
+inline uint32_t
+StripeSM::round_to_approx_size(uint32_t l) const
+{
+  return this->stripe_read_op<uint32_t>([&](const Stripe *stripe) { return stripe->round_to_approx_size(l); });
 }
 
 inline const Stripe *
