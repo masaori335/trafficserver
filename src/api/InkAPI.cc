@@ -37,6 +37,7 @@
 
 #include "tscore/Version.h"
 #include "api/InkAPIInternal.h"
+#include "api/HttpAPIHooks.h"
 #include "proxy/logging/Log.h"
 #include "proxy/hdrs/URL.h"
 #include "proxy/hdrs/MIME.h"
@@ -44,7 +45,6 @@
 #include "proxy/ProxySession.h"
 #include "proxy/http2/Http2ClientSession.h"
 #include "proxy/PoolableSession.h"
-#include "proxy/HttpAPIHooks.h"
 #include "proxy/http/HttpSM.h"
 #include "proxy/http/HttpConfig.h"
 #include "proxy/PluginHttpConnect.h"
@@ -393,7 +393,26 @@ sdk_sanity_check_mbuffer(TSMBuffer bufp)
     return TS_ERROR;
   }
 
+  // ToDo: Can we safely check here that TSMbufferIsValid() is true?
+
   return TS_SUCCESS;
+}
+
+// This will reset the TSMBuffer's genid to the current genid of the heap. Any TS API
+// that returns a TSMBuffer should call this function before returning the buffer to the user.
+// The user (plugin) is responsible for calling TSMBufferIsValid() before using any previous
+// values returned by the TS API for the TSMBuffer.
+inline void
+sdk_revalidate_mbuffer(TSMBuffer bufp)
+{
+  HdrHeapSDKHandle *sdk_heap = (HdrHeapSDKHandle *)bufp;
+
+  // Lets not segfault in here, even though the bufp should have been validated before calling this function.
+  if (unlikely(bufp == nullptr || sdk_heap->m_heap == nullptr)) {
+    return;
+  }
+
+  sdk_heap->m_genid = sdk_heap->m_heap->m_genid;
 }
 
 TSReturnCode
@@ -884,6 +903,15 @@ TSMBufferDestroy(TSMBuffer bufp)
   sdk_heap->m_heap->destroy();
   delete sdk_heap;
   return TS_SUCCESS;
+}
+
+bool
+TSMBufferIsValid(TSMBuffer bufp)
+{
+  sdk_assert(sdk_sanity_check_mbuffer(bufp) == TS_SUCCESS);
+  HdrHeapSDKHandle *sdk_heap = (HdrHeapSDKHandle *)bufp;
+
+  return (sdk_heap->m_heap->m_genid == sdk_heap->m_genid);
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -3086,6 +3114,7 @@ TSCacheHttpInfoReqGet(TSCacheHttpInfo infop, TSMBuffer *bufp, TSMLoc *obj)
   *(reinterpret_cast<HTTPHdr **>(bufp)) = info->request_get();
   *obj                                  = reinterpret_cast<TSMLoc>(info->request_get()->m_http);
   sdk_assert(sdk_sanity_check_mbuffer(*bufp) == TS_SUCCESS);
+  sdk_revalidate_mbuffer(*bufp);
 }
 
 void
@@ -3096,6 +3125,7 @@ TSCacheHttpInfoRespGet(TSCacheHttpInfo infop, TSMBuffer *bufp, TSMLoc *obj)
   *(reinterpret_cast<HTTPHdr **>(bufp)) = info->response_get();
   *obj                                  = reinterpret_cast<TSMLoc>(info->response_get()->m_http);
   sdk_assert(sdk_sanity_check_mbuffer(*bufp) == TS_SUCCESS);
+  sdk_revalidate_mbuffer(*bufp);
 }
 
 time_t
@@ -3868,8 +3898,9 @@ TSHttpTxnClientReqGet(TSHttpTxn txnp, TSMBuffer *bufp, TSMLoc *obj)
     *obj                                  = reinterpret_cast<TSMLoc>(hptr->m_http);
     if (sdk_sanity_check_mbuffer(*bufp) == TS_SUCCESS) {
       hptr->mark_target_dirty();
+      sdk_revalidate_mbuffer(*bufp);
+
       return TS_SUCCESS;
-      ;
     }
   }
   return TS_ERROR;
@@ -3891,6 +3922,7 @@ TSHttpTxnPristineUrlGet(TSHttpTxn txnp, TSMBuffer *bufp, TSMLoc *url_loc)
     *url_loc                              = (TSMLoc)sm->t_state.unmapped_url.m_url_impl;
 
     if (sdk_sanity_check_mbuffer(*bufp) == TS_SUCCESS) {
+      sdk_revalidate_mbuffer(*bufp);
       if (*url_loc == nullptr) {
         *url_loc = (TSMLoc)hptr->m_http->u.req.m_url_impl;
       }
@@ -3976,6 +4008,8 @@ TSHttpTxnClientRespGet(TSHttpTxn txnp, TSMBuffer *bufp, TSMLoc *obj)
     *(reinterpret_cast<HTTPHdr **>(bufp)) = hptr;
     *obj                                  = reinterpret_cast<TSMLoc>(hptr->m_http);
     sdk_assert(sdk_sanity_check_mbuffer(*bufp) == TS_SUCCESS);
+    sdk_revalidate_mbuffer(*bufp);
+
     return TS_SUCCESS;
   }
 
@@ -3996,6 +4030,8 @@ TSHttpTxnServerReqGet(TSHttpTxn txnp, TSMBuffer *bufp, TSMLoc *obj)
     *(reinterpret_cast<HTTPHdr **>(bufp)) = hptr;
     *obj                                  = reinterpret_cast<TSMLoc>(hptr->m_http);
     sdk_assert(sdk_sanity_check_mbuffer(*bufp) == TS_SUCCESS);
+    sdk_revalidate_mbuffer(*bufp);
+
     return TS_SUCCESS;
   }
 
@@ -4016,6 +4052,8 @@ TSHttpTxnServerRespGet(TSHttpTxn txnp, TSMBuffer *bufp, TSMLoc *obj)
     *(reinterpret_cast<HTTPHdr **>(bufp)) = hptr;
     *obj                                  = reinterpret_cast<TSMLoc>(hptr->m_http);
     sdk_assert(sdk_sanity_check_mbuffer(*bufp) == TS_SUCCESS);
+    sdk_revalidate_mbuffer(*bufp);
+
     return TS_SUCCESS;
   }
 
@@ -4056,6 +4094,7 @@ TSHttpTxnCachedReqGet(TSHttpTxn txnp, TSMBuffer *bufp, TSMLoc *obj)
   *(reinterpret_cast<HdrHeapSDKHandle **>(bufp)) = *handle;
   *obj                                           = reinterpret_cast<TSMLoc>(cached_hdr->m_http);
   sdk_assert(sdk_sanity_check_mbuffer(*bufp) == TS_SUCCESS);
+  sdk_revalidate_mbuffer(*bufp);
 
   return TS_SUCCESS;
 }
@@ -4095,6 +4134,7 @@ TSHttpTxnCachedRespGet(TSHttpTxn txnp, TSMBuffer *bufp, TSMLoc *obj)
   *(reinterpret_cast<HdrHeapSDKHandle **>(bufp)) = *handle;
   *obj                                           = reinterpret_cast<TSMLoc>(cached_hdr->m_http);
   sdk_assert(sdk_sanity_check_mbuffer(*bufp) == TS_SUCCESS);
+  sdk_revalidate_mbuffer(*bufp);
 
   return TS_SUCCESS;
 }
@@ -4131,6 +4171,7 @@ TSHttpTxnCachedRespModifiableGet(TSHttpTxn txnp, TSMBuffer *bufp, TSMLoc *obj)
   *(reinterpret_cast<HTTPHdr **>(bufp)) = c_resp;
   *obj                                  = reinterpret_cast<TSMLoc>(c_resp->m_http);
   sdk_assert(sdk_sanity_check_mbuffer(*bufp) == TS_SUCCESS);
+  sdk_revalidate_mbuffer(*bufp);
 
   return TS_SUCCESS;
 }
@@ -4563,6 +4604,7 @@ TSHttpTxnTransformRespGet(TSHttpTxn txnp, TSMBuffer *bufp, TSMLoc *obj)
   if (hptr->valid()) {
     *(reinterpret_cast<HTTPHdr **>(bufp)) = hptr;
     *obj                                  = reinterpret_cast<TSMLoc>(hptr->m_http);
+    sdk_revalidate_mbuffer(*bufp);
     return sdk_sanity_check_mbuffer(*bufp);
   }
 
@@ -5496,6 +5538,7 @@ TSHttpAltInfoClientReqGet(TSHttpAltInfo infop, TSMBuffer *bufp, TSMLoc *obj)
 
   *(reinterpret_cast<HTTPHdr **>(bufp)) = &info->m_client_req;
   *obj                                  = reinterpret_cast<TSMLoc>(info->m_client_req.m_http);
+  sdk_revalidate_mbuffer(*bufp);
 
   return sdk_sanity_check_mbuffer(*bufp);
 }
@@ -5509,6 +5552,7 @@ TSHttpAltInfoCachedReqGet(TSHttpAltInfo infop, TSMBuffer *bufp, TSMLoc *obj)
 
   *(reinterpret_cast<HTTPHdr **>(bufp)) = &info->m_cached_req;
   *obj                                  = reinterpret_cast<TSMLoc>(info->m_cached_req.m_http);
+  sdk_revalidate_mbuffer(*bufp);
 
   return sdk_sanity_check_mbuffer(*bufp);
 }
@@ -5522,6 +5566,7 @@ TSHttpAltInfoCachedRespGet(TSHttpAltInfo infop, TSMBuffer *bufp, TSMLoc *obj)
 
   *(reinterpret_cast<HTTPHdr **>(bufp)) = &info->m_cached_resp;
   *obj                                  = reinterpret_cast<TSMLoc>(info->m_cached_resp.m_http);
+  sdk_revalidate_mbuffer(*bufp);
 
   return sdk_sanity_check_mbuffer(*bufp);
 }
@@ -6567,6 +6612,7 @@ TSFetchPageRespGet(TSHttpTxn txnp, TSMBuffer *bufp, TSMLoc *obj)
   if (hptr->valid()) {
     *(reinterpret_cast<HTTPHdr **>(bufp)) = hptr;
     *obj                                  = reinterpret_cast<TSMLoc>(hptr->m_http);
+    sdk_revalidate_mbuffer(*bufp);
     return sdk_sanity_check_mbuffer(*bufp);
   }
 
@@ -7950,10 +7996,10 @@ TSVConnSslSniGet(TSVConn sslp, int *length)
 TSSslVerifyCTX
 TSVConnSslVerifyCTXGet(TSVConn sslp)
 {
-  NetVConnection    *vc     = reinterpret_cast<NetVConnection *>(sslp);
-  SSLNetVConnection *ssl_vc = dynamic_cast<SSLNetVConnection *>(vc);
-  if (ssl_vc != nullptr) {
-    return reinterpret_cast<TSSslVerifyCTX>(ssl_vc->get_verify_cert());
+  NetVConnection  *vc    = reinterpret_cast<NetVConnection *>(sslp);
+  TLSBasicSupport *tlsbs = vc->get_service<TLSBasicSupport>();
+  if (tlsbs != nullptr) {
+    return reinterpret_cast<TSSslVerifyCTX>(tlsbs->get_tls_cert_to_verify());
   }
   return nullptr;
 }
