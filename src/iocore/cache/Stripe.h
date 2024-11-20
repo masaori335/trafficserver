@@ -51,6 +51,8 @@ struct CacheVol {
   int          scheme           = 0;
   off_t        size             = 0;
   int          num_vols         = 0;
+  int          avg_obj_size     = -1; // Defer to the records.config if not overriden
+  int          fragment_size    = -1; // Defer to the records.config if not overriden
   bool         ramcache_enabled = true;
   StripeSM   **stripes          = nullptr;
   DiskStripe **disk_stripes     = nullptr;
@@ -85,6 +87,7 @@ public:
   ats_scoped_str hash_text;
   char          *path = nullptr;
   int            fd{-1};
+  int            frag_size{-1};
 
   char                *raw_dir{nullptr};
   Dir                 *dir{};
@@ -114,7 +117,7 @@ public:
    *
    * @see START_POS
    */
-  Stripe(CacheDisk *disk, off_t blocks, off_t dir_skip);
+  Stripe(CacheDisk *disk, off_t blocks, off_t dir_skip, int avg_obj_size = -1, int fragment_size = -1);
 
   int dir_check();
 
@@ -176,8 +179,8 @@ protected:
 
 private:
   void _init_hash_text(char const *seed, off_t blocks, off_t dir_skip);
-  void _init_data(off_t store_block_size);
-  void _init_data_internal();
+  void _init_data(off_t store_block_size, int avg_obj_size = -1);
+  void _init_data_internal(int avg_obj_size = -1); // Defaults to cache_config_min_average_object_size;
   void _init_directory(std::size_t directory_size, int header_size, int footer_size);
 };
 

@@ -296,6 +296,8 @@ struct ConfigVol {
   bool      in_percent;
   bool      ramcache_enabled;
   int       percent;
+  int       avg_obj_size;
+  int       fragment_size;
   CacheVol *cachep;
   LINK(ConfigVol, link);
 };

@@ -52,8 +52,8 @@
 #define LOOKASIDE_SIZE               256
 #define AIO_NOT_IN_PROGRESS          -1
 #define AIO_AGG_WRITE_IN_PROGRESS    -2
-#define AUTO_SIZE_RAM_CACHE          -1                      // 1-1 with directory size
-#define DEFAULT_TARGET_FRAGMENT_SIZE (1048576 - sizeof(Doc)) // 1MB
+#define AUTO_SIZE_RAM_CACHE          -1       // 1-1 with directory size
+#define DEFAULT_TARGET_FRAGMENT_SIZE 1048576; // 1MB. Note: Should not exclude sizeof(Doc)
 #define STORE_BLOCKS_PER_STRIPE      (STRIPE_BLOCK_SIZE / STORE_BLOCK_SIZE)
 
 // Documents
@@ -165,10 +165,14 @@ public:
    * @param blocks: Number of blocks. Must be at least 10.
    * @param dir_skip: Offset into the disk at which to start the stripe.
    * If this value is less than START_POS, START_POS will be used instead.
+   * @param avg_obj_size: Optional average object size. If not provided, use default
+   * from proxy.config.cache.min_average_object_size.
+   * @param fragment_size: Optional fragment size. If not provided, use default
+   * from proxy.config.cache.target_fragment_size.
    *
    * @see START_POS
    */
-  StripeSM(CacheDisk *disk, off_t blocks, off_t dir_skip);
+  StripeSM(CacheDisk *disk, off_t blocks, off_t dir_skip, int avg_obj_size = -1, int fragment_size = -1);
 
   Queue<CacheVC, Continuation::Link_link> &get_pending_writers();
 
