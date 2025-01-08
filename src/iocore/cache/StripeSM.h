@@ -158,7 +158,11 @@ public:
 
   int evac_range(off_t start, off_t end, int evac_phase);
 
-  int within_hit_evacuate_window(Dir const *dir) const;
+  /**
+   * Recompute the hit evacuate window after a config change.
+   */
+  void recompute_hit_evacuate_window();
+  int  within_hit_evacuate_window(Dir const *dir) const;
 
   /**
    * StripeSM constructor.
@@ -289,7 +293,7 @@ inline int
 StripeSM::within_hit_evacuate_window(Dir const *xdir) const
 {
   off_t oft       = dir_offset(xdir) - 1;
-  off_t write_off = (header->write_pos + AGG_SIZE - start) / CACHE_BLOCK_SIZE;
+  off_t write_off = (directory.header->write_pos + AGG_SIZE - start) / CACHE_BLOCK_SIZE;
   off_t delta     = oft - write_off;
   if (delta >= 0) {
     return delta < hit_evacuate_window;
