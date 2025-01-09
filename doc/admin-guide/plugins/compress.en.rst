@@ -109,6 +109,24 @@ range-request
 When set to ``true``, causes |TS| to compress responses to Range Requests.
 Disabled by default. Setting this to true while setting cache to false leads to delivering corrupted content.
 
+range-request-ctrl
+------------------
+
+How to handle request if it has both of ``Accept-Encoding`` and ``Range`` header.
+
+================== =========================================
+Value              Description
+================== =========================================
+``ignore-range``   Ignore ``Range`` header (default)
+``no-compression`` Do NOT compress contents if range request
+``none``           Do nothing
+================== =========================================
+
+.. Warning::
+
+   Do NOT set this to ``none`` if cache is set to false. This combination will deliver corrupted content.
+   Using ``ignore-range`` or ``no-compression`` is highly recommended.
+
 compressible-content-type
 -------------------------
 

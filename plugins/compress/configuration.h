@@ -41,6 +41,12 @@ enum CompressionAlgorithm {
   ALGORITHM_BROTLI  = 4 // For bit manipulations
 };
 
+enum class RangeRequestCtrl : int {
+  IGNORE_RANGE   = 0, ///< Ignore Range Header (default)
+  NO_COMPRESSION = 1, ///< Do NOT compress if it's a range request
+  NONE           = 2, ///< Do nothing
+};
+
 class HostConfiguration : private atscppapi::noncopyable
 {
 public:
@@ -48,7 +54,6 @@ public:
     : host_(host),
       enabled_(true),
       cache_(true),
-      range_request_(false),
       remove_accept_encoding_(false),
       flush_(false),
       compression_algorithms_(ALGORITHM_GZIP),
@@ -66,15 +71,15 @@ public:
   {
     enabled_ = x;
   }
-  bool
-  range_request()
+  RangeRequestCtrl
+  range_request_ctrl()
   {
-    return range_request_;
+    return range_request_ctrl_;
   }
   void
-  set_range_request(bool x)
+  set_range_request_ctrl(RangeRequestCtrl ctrl)
   {
-    range_request_ = x;
+    range_request_ctrl_ = ctrl;
   }
   bool
   cache()
@@ -139,14 +144,14 @@ public:
   int  compression_algorithms();
 
 private:
-  std::string  host_;
-  bool         enabled_;
-  bool         cache_;
-  bool         range_request_;
-  bool         remove_accept_encoding_;
-  bool         flush_;
-  int          compression_algorithms_;
-  unsigned int minimum_content_length_;
+  std::string      host_;
+  bool             enabled_;
+  bool             cache_;
+  bool             remove_accept_encoding_;
+  bool             flush_;
+  int              compression_algorithms_;
+  RangeRequestCtrl range_request_ctrl_ = RangeRequestCtrl::IGNORE_RANGE;
+  unsigned int     minimum_content_length_;
 
   StringContainer compressible_content_types_;
   StringContainer allows_;

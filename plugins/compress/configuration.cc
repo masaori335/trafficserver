@@ -105,7 +105,7 @@ enum ParserState {
   kParseRemoveAcceptEncoding,
   kParseEnable,
   kParseCache,
-  kParseRangeRequest,
+  kParseRangeRequestCtrl,
   kParseFlush,
   kParseAllow,
   kParseMinimumContentLength
@@ -348,8 +348,8 @@ Configuration::Parse(const char *path)
           state = kParseEnable;
         } else if (token == "cache") {
           state = kParseCache;
-        } else if (token == "range-request") {
-          state = kParseRangeRequest;
+        } else if (token == "range-request-ctrl") {
+          state = kParseRangeRequestCtrl;
         } else if (token == "flush") {
           state = kParseFlush;
         } else if (token == "supported-algorithms") {
@@ -382,10 +382,23 @@ Configuration::Parse(const char *path)
         current_host_configuration->set_cache(token == "true");
         state = kParseStart;
         break;
-      case kParseRangeRequest:
-        current_host_configuration->set_range_request(token == "true");
+      case kParseRangeRequestCtrl: {
+        RangeRequestCtrl ctrl = RangeRequestCtrl::IGNORE_RANGE;
+        if (token == "ignore-range") {
+          ctrl = RangeRequestCtrl::IGNORE_RANGE;
+        } else if (token == "no-compression") {
+          ctrl = RangeRequestCtrl::NO_COMPRESSION;
+        } else if (token == "none") {
+          ctrl = RangeRequestCtrl::NONE;
+        } else {
+          error("invalid arg for range-request-ctrl: %s", token.c_str());
+        }
+
+        current_host_configuration->set_range_request_ctrl(ctrl);
         state = kParseStart;
+
         break;
+      }
       case kParseFlush:
         current_host_configuration->set_flush(token == "true");
         state = kParseStart;
