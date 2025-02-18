@@ -33,9 +33,11 @@ extern DbgCtl dbg_ctl;
 }
 using namespace compress_ns;
 
-#define debug(fmt, args...)                                                                          \
-  do {                                                                                               \
-    Dbg(compress_ns::dbg_ctl, "DEBUG: [%s:%d] [%s] " fmt, __FILE__, __LINE__, __FUNCTION__, ##args); \
+#define FILE_NAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
+
+#define debug(fmt, args...)                                                                           \
+  do {                                                                                                \
+    Dbg(compress_ns::dbg_ctl, "DEBUG: [%s:%d] [%s] " fmt, FILE_NAME, __LINE__, __FUNCTION__, ##args); \
   } while (0)
 
 #define info(fmt, args...)                           \

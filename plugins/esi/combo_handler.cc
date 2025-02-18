@@ -72,15 +72,17 @@ static vector<string> HEADER_ALLOWLIST;
 #define DEFAULT_COMBO_HANDLER_PATH "admin/v1/combo"
 static string COMBO_HANDLER_PATH{DEFAULT_COMBO_HANDLER_PATH};
 
-#define LOG_ERROR(fmt, args...)                                                         \
-  do {                                                                                  \
-    TSError("[%s:%d] [%s] ERROR: " fmt, __FILE__, __LINE__, __FUNCTION__, ##args);      \
-    Dbg(dbg_ctl, "[%s:%d] [%s] ERROR: " fmt, __FILE__, __LINE__, __FUNCTION__, ##args); \
+#define FILE_NAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
+
+#define LOG_ERROR(fmt, args...)                                                          \
+  do {                                                                                   \
+    TSError("[%s:%d] [%s] ERROR: " fmt, __FILE__, __LINE__, __FUNCTION__, ##args);       \
+    Dbg(dbg_ctl, "[%s:%d] [%s] ERROR: " fmt, FILE_NAME, __LINE__, __FUNCTION__, ##args); \
   } while (0)
 
-#define LOG_DEBUG(fmt, args...)                                                         \
-  do {                                                                                  \
-    Dbg(dbg_ctl, "[%s:%d] [%s] DEBUG: " fmt, __FILE__, __LINE__, __FUNCTION__, ##args); \
+#define LOG_DEBUG(fmt, args...)                                                          \
+  do {                                                                                   \
+    Dbg(dbg_ctl, "[%s:%d] [%s] DEBUG: " fmt, FILE_NAME, __LINE__, __FUNCTION__, ##args); \
   } while (0)
 
 using StringList = list<string>;

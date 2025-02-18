@@ -54,15 +54,17 @@ void PrintToStdErr(const char *fmt, ...);
 #else /* ACCESS_CONTROL_UNIT_TEST */
 #include "ts/ts.h"
 
-#define AccessControlDebug(fmt, ...)                                              \
-  do {                                                                            \
-    Dbg(dbg_ctl, "%s:%d:%s() " fmt, __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
+#define FILE_NAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
+
+#define AccessControlDebug(fmt, ...)                                               \
+  do {                                                                             \
+    Dbg(dbg_ctl, "%s:%d:%s() " fmt, FILE_NAME, __LINE__, __func__, ##__VA_ARGS__); \
   } while (0)
 
-#define AccessControlError(fmt, ...)                                              \
-  do {                                                                            \
-    TSError("(%s) " fmt, PLUGIN_NAME, ##__VA_ARGS__);                             \
-    Dbg(dbg_ctl, "%s:%d:%s() " fmt, __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
+#define AccessControlError(fmt, ...)                                               \
+  do {                                                                             \
+    TSError("(%s) " fmt, PLUGIN_NAME, ##__VA_ARGS__);                              \
+    Dbg(dbg_ctl, "%s:%d:%s() " fmt, FILE_NAME, __LINE__, __func__, ##__VA_ARGS__); \
   } while (0)
 
 namespace access_control_ns

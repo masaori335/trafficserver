@@ -30,9 +30,11 @@ extern DbgCtl dbg_ctl;
 }
 using namespace money_trace_ns;
 
-#define LOG_DEBUG(fmt, ...)                                                          \
-  do {                                                                               \
-    Dbg(dbg_ctl, "[%s:%d] %s(): " fmt, __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
+#define FILE_NAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
+
+#define LOG_DEBUG(fmt, ...)                                                           \
+  do {                                                                                \
+    Dbg(dbg_ctl, "[%s:%d] %s(): " fmt, FILE_NAME, __LINE__, __func__, ##__VA_ARGS__); \
   } while (0)
 
 #define LOG_ERROR(fmt, ...)                                                     \

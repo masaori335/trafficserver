@@ -32,6 +32,7 @@
 
 /* Quick and dirty development only output, @todo will do something more useful later so we can use it in production debugging */
 #define DEBUG_OUTPUT_ENABLED false
+#define FILE_NAME            (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 
 #define DEBUG_PRINT(x)          \
   do {                          \
@@ -40,11 +41,11 @@
     }                           \
   } while (0)
 
-#define DEBUG_START(x)                                 \
-  do {                                                 \
-    if (DEBUG_OUTPUT_ENABLED) {                        \
-      std::cerr << __FILE__ << ":" << __LINE__ << " "; \
-    }                                                  \
+#define DEBUG_START(x)                                  \
+  do {                                                  \
+    if (DEBUG_OUTPUT_ENABLED) {                         \
+      std::cerr << FILE_NAME << ":" << __LINE__ << " "; \
+    }                                                   \
   } while (0)
 
 #define DEBUG_END(x)            \
