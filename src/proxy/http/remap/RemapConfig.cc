@@ -45,6 +45,7 @@ namespace
 {
 DbgCtl dbg_ctl_url_rewrite{"url_rewrite"};
 DbgCtl dbg_ctl_remap_plugin{"remap_plugin"};
+DbgCtl dbg_ctl_reamp_verify{"remap_verify"};
 DbgCtl dbg_ctl_url_rewrite_regex{"url_rewrite_regex"};
 } // end anonymous namespace
 
@@ -148,9 +149,15 @@ process_filter_opt(url_mapping *mp, const BUILD_TABLE_INFO *bti, char *errStrBuf
     if (rp->active_queue_flag) {
       Dbg(dbg_ctl_url_rewrite, "[process_filter_opt] Add active main filter \"%s\" (argc=%d)",
           rp->filter_name ? rp->filter_name : "<nullptr>", rp->argc);
+
+      if (rp->filter_name) {
+        Dbg(dbg_ctl_reamp_verify, "  filter: %s", rp->filter_name);
+      }
+
       for (rpp = &mp->filter; *rpp; rpp = &((*rpp)->next)) {
         ;
       }
+
       if ((errStr = remap_validate_filter_args(rpp, rp->argv, rp->argc, errStrBuf, errStrBufSize, bti->behavior_policy)) !=
           nullptr) {
         break;
@@ -1117,6 +1124,7 @@ remap_parse_config_bti(const char *path, BUILD_TABLE_INFO *bti)
     }
 
     Dbg(dbg_ctl_url_rewrite, "[BuildTable] Parsing: \"%s\"", cur_line);
+    Dbg(dbg_ctl_reamp_verify, "[BuildTable] Parsing: \"%s\"", cur_line);
 
     tok_count = whiteTok.Initialize(cur_line, (SHARE_TOKS | ALLOW_SPACES));
 

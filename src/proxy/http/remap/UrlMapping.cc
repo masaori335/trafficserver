@@ -99,6 +99,10 @@ url_mapping::Print() const
   printf("\t %s %s=> %s %s <%s> [plugins %s enabled; running with %zu plugins]\n", from_url_buf, unique ? "(unique)" : "",
          to_url_buf, homePageRedirect ? "(R)" : "", tag ? tag : "", _plugin_inst_list.size() > 0 ? "are" : "not",
          _plugin_inst_list.size());
+
+  if (this->filter && this->filter->filter_name) {
+    printf("\t \tACL filters: %s", this->filter->filter_name);
+  }
 }
 
 std::string
