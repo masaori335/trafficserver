@@ -32,6 +32,7 @@
 #include "proxy/logging/LogBuffer.h"
 #include "tscore/Encoding.h"
 #include "../private/SSLProxySession.h"
+#include "tscore/ink_inet.h"
 
 char INVALID_STR[] = "!INVALID_STR!";
 
@@ -427,6 +428,12 @@ LogAccess::marshal_ip(char *dest, sockaddr const *ip)
       data._ip6._addr   = ats_ip6_addr_cast(ip);
     }
     len = sizeof(data._ip6);
+  } else if (ats_is_unix(ip)) {
+    if (dest) {
+      data._un._family = AF_UNIX;
+      strncpy(data._un._path, ats_unix_cast(ip)->sun_path, TS_UNIX_SIZE);
+    }
+    len = sizeof(data._un);
   } else {
     data._ip._family = AF_UNSPEC;
   }
@@ -1584,6 +1591,19 @@ LogAccess::marshal_proxy_protocol_dst_ip(char *buf)
     ip = &m_http_sm->t_state.pp_info.dst_addr.sa;
   }
   return marshal_ip(buf, ip);
+}
+
+int
+LogAccess::marshal_proxy_protocol_authority(char *buf)
+{
+  if (buf && m_http_sm) {
+    if (auto authority = m_http_sm->t_state.pp_info.get_tlv(PP2_TYPE_AUTHORITY)) {
+      int len = static_cast<int>(authority->size());
+      marshal_str(buf, authority->data(), len);
+      return len;
+    }
+  }
+  return 0;
 }
 
 /*-------------------------------------------------------------------------
@@ -3029,8 +3049,8 @@ LogAccess::marshal_cache_collapsed_connection_success(char *buf)
     if (m_http_sm) {
       SquidLogCode code = m_http_sm->t_state.squid_codes.log_code;
 
-      // We increment open_write_tries beyond the max when we want to jump back to the read state for collapsing
-      if ((m_http_sm->get_cache_sm().get_open_write_tries() > (m_http_sm->t_state.txn_conf->max_cache_open_write_retries)) &&
+      // We attempted an open write, but ended up with some sort of HIT which means we must have gone back to the read state
+      if ((m_http_sm->get_cache_sm().get_open_write_tries() > (0)) &&
           ((code == SQUID_LOG_TCP_HIT) || (code == SQUID_LOG_TCP_MEM_HIT) || (code == SQUID_LOG_TCP_DISK_HIT) ||
            (code == SQUID_LOG_TCP_CF_HIT))) {
         // Attempted collapsed connection and got a hit, success
