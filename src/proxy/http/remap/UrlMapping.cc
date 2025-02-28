@@ -100,8 +100,14 @@ url_mapping::Print() const
          to_url_buf, homePageRedirect ? "(R)" : "", tag ? tag : "", _plugin_inst_list.size() > 0 ? "are" : "not",
          _plugin_inst_list.size());
 
-  if (this->filter && this->filter->filter_name) {
-    printf("\t \tACL filters: %s", this->filter->filter_name);
+  if (this->filter != nullptr) {
+    printf("\t\tACL filters: ");
+
+    for (auto f = this->filter; f != nullptr; f = f->next) {
+      printf("%s ", f->filter_name);
+    }
+
+    printf("\n");
   }
 }
 

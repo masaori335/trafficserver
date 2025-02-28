@@ -35,6 +35,7 @@ namespace
 {
 DbgCtl dbg_ctl_url_rewrite_regex{"url_rewrite_regex"};
 DbgCtl dbg_ctl_url_rewrite{"url_rewrite"};
+DbgCtl dbg_ctl_reamp_verify{"remap_verify"};
 
 /**
   Determines where we are in a situation where a virtual path is
@@ -135,7 +136,7 @@ UrlRewrite::load()
     REC_ReadConfigInteger(required_rules, "proxy.config.url_remap.min_rules_required");
     if (n_rules >= required_rules) {
       _valid = true;
-      if (dbg_ctl_url_rewrite.on()) {
+      if (dbg_ctl_url_rewrite.on() || dbg_ctl_reamp_verify.on()) {
         Print();
       }
     } else {

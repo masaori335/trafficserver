@@ -36,6 +36,7 @@
 #include "tscore/Filenames.h"
 #include "proxy/IPAllow.h"
 #include "proxy/http/remap/PluginFactory.h"
+#include <cstring>
 
 #define modulePrefix "[ReverseProxy]"
 
@@ -45,7 +46,6 @@ namespace
 {
 DbgCtl dbg_ctl_url_rewrite{"url_rewrite"};
 DbgCtl dbg_ctl_remap_plugin{"remap_plugin"};
-DbgCtl dbg_ctl_reamp_verify{"remap_verify"};
 DbgCtl dbg_ctl_url_rewrite_regex{"url_rewrite_regex"};
 } // end anonymous namespace
 
@@ -150,10 +150,6 @@ process_filter_opt(url_mapping *mp, const BUILD_TABLE_INFO *bti, char *errStrBuf
       Dbg(dbg_ctl_url_rewrite, "[process_filter_opt] Add active main filter \"%s\" (argc=%d)",
           rp->filter_name ? rp->filter_name : "<nullptr>", rp->argc);
 
-      if (rp->filter_name) {
-        Dbg(dbg_ctl_reamp_verify, "  filter: %s", rp->filter_name);
-      }
-
       for (rpp = &mp->filter; *rpp; rpp = &((*rpp)->next)) {
         ;
       }
@@ -163,6 +159,10 @@ process_filter_opt(url_mapping *mp, const BUILD_TABLE_INFO *bti, char *errStrBuf
         break;
       }
       if (auto rule = *rpp; rule) {
+        if (rp->filter_name != nullptr) {
+          // TODO: make sure this filter_name is freed on reconfigure
+          rule->filter_name = ats_strdup(rp->filter_name);
+        }
         // If no IP addresses are listed, treat that like `@src_ip=all`.
         if (rule->src_ip_valid == 0 && rule->src_ip_cnt == 0) {
           src_ip_info_t *ipi       = &rule->src_ip_array[rule->src_ip_cnt];
@@ -1124,7 +1124,6 @@ remap_parse_config_bti(const char *path, BUILD_TABLE_INFO *bti)
     }
 
     Dbg(dbg_ctl_url_rewrite, "[BuildTable] Parsing: \"%s\"", cur_line);
-    Dbg(dbg_ctl_reamp_verify, "[BuildTable] Parsing: \"%s\"", cur_line);
 
     tok_count = whiteTok.Initialize(cur_line, (SHARE_TOKS | ALLOW_SPACES));
 
