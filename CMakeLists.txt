@@ -24,7 +24,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
 endif()
 
 cmake_minimum_required(VERSION 3.20..3.27)
-project(ats VERSION 10.1.0)
+project(ats VERSION 10.2.0)
 
 set(TS_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
 set(TS_VERSION_MINOR ${PROJECT_VERSION_MINOR})
@@ -44,6 +44,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 list(APPEND CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE -DATS_BUILD)
+
+# Setup default install directory
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  set(CMAKE_INSTALL_PREFIX
+      /usr/local/trafficserver
+      CACHE PATH "Default install path" FORCE
+  )
+endif()
 
 include(layout)
 include(ClangTidy)
@@ -160,14 +168,6 @@ else()
   set(TS_PKGSYSGROUP ${WITH_GROUP})
 endif()
 set(TS_PKGSYSUSER ${WITH_USER})
-
-# Setup default install directory
-if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-  set(CMAKE_INSTALL_PREFIX
-      /usr/local/trafficserver
-      CACHE PATH "Default install path" FORCE
-  )
-endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL Linux)
   set(DEFAULT_POSIX_CAP ON)
