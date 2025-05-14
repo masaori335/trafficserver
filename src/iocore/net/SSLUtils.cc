@@ -1077,28 +1077,6 @@ ssl_callback_info(const SSL *ssl, int where, int ret)
       }
       Metrics::Counter::increment(it->second);
     }
-
-#if defined(OPENSSL_IS_BORINGSSL)
-    uint16_t group_id = SSL_get_group_id(ssl);
-    if (group_id != 0) {
-      const char *group_name = SSL_get_group_name(group_id);
-      if (auto it = tls_group_map.find(group_name); it != tls_group_map.end()) {
-        Metrics::Counter::increment(it->second);
-      } else {
-        Warning("Unknown TLS Group");
-      }
-    }
-#elif defined(SSL_get_negotiated_group)
-    int nid = SSL_get_negotiated_group(const_cast<SSL *>(ssl));
-    if (nid != NID_undef) {
-      if (auto it = tls_group_map.find(nid); it != tls_group_map.end()) {
-        Metrics::Counter::increment(it->second);
-      } else {
-        auto other = tls_group_map.find(SSL_GROUP_STAT_OTHER_KEY);
-        Metrics::Counter::increment(other->second);
-      }
-    }
-#endif // OPENSSL_IS_BORINGSSL or SSL_get_negotiated_group
   }
 }
 
@@ -1967,7 +1945,7 @@ SSLMultiCertConfigLoader::load(SSLCertLookup *lookup)
   // Optionally elevate/allow file access to read root-only
   // certificates. The destructor will drop privilege for us.
   uint32_t elevate_setting = 0;
-  REC_ReadConfigInteger(elevate_setting, "proxy.config.ssl.cert.load_elevated");
+  elevate_setting          = RecGetRecordInt("proxy.config.ssl.cert.load_elevated").value_or(0);
   ElevateAccess elevate_access(elevate_setting ? ElevateAccess::FILE_PRIVILEGE : 0);
 
   line = tokLine(content.data(), &tok_state);
