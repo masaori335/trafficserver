@@ -237,7 +237,6 @@ findParent(HttpTransact::State *s)
 inline static void
 markParentDown(HttpTransact::State *s)
 {
-  Metrics::Counter::increment(http_rsb.total_parent_marked_down_count);
   url_mapping *mp = s->url_map.getMapping();
 
   TxnDbg(dbg_ctl_http_trans, "enable_parent_timeout_markdowns: %d, disable_parent_markdowns: %d",
@@ -248,9 +247,14 @@ markParentDown(HttpTransact::State *s)
     return;
   }
 
-  if (s->current.state == HttpTransact::INACTIVE_TIMEOUT && s->txn_conf->enable_parent_timeout_markdowns == 0) {
-    return;
+  if (s->current.state == HttpTransact::INACTIVE_TIMEOUT) {
+    if (s->txn_conf->enable_parent_timeout_markdowns == 0) {
+      return;
+    }
+    Metrics::Counter::increment(http_rsb.total_parent_marked_down_timeout);
   }
+  // Increment metric when config allows ATS to mark parent down
+  Metrics::Counter::increment(http_rsb.total_parent_marked_down_count);
 
   if (s->response_action.handled) {
     // Do nothing. If a plugin handled the response, let it handle markdown.
@@ -6594,7 +6598,7 @@ HttpTransact::will_this_request_self_loop(State *s)
     // Now check for a loop using the Via string.
     int              count     = 0;
     MIMEField       *via_field = s->hdr_info.client_request.field_find(static_cast<std::string_view>(MIME_FIELD_VIA));
-    std::string_view uuid{Machine::instance()->uuid.getString()};
+    std::string_view uuid{Machine::instance()->process_uuid.getString()};
 
     while (via_field) {
       // No need to waste cycles comma separating the via values since we want to do a match anywhere in the
