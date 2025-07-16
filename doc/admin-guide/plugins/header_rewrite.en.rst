@@ -318,6 +318,8 @@ Per-Mapping`_ above.
 The ``<part>`` allows the operand to match against just a component of the URL,
 as documented in `URL Parts`_ below.
 
+.. _admin-plugins-header-rewrite-geo:
+
 GEO
 ~~~
 ::
@@ -429,6 +431,8 @@ are of the same name as for `set-http-cntl`_. This condition returns a ``true`` 
 
 would only continue evaluation if logging is turned off.
 
+.. _admin-plugins-header-rewrite-id:
+
 ID
 ~~
 ::
@@ -448,6 +452,8 @@ Now, even though these are conditionals, their primary use are as value
 arguments to another operator. For example::
 
     set-header ATS-Req-UUID %{ID:UNIQUE}
+
+.. _admin-plugins-header-rewrite-inbound:
 
 INBOUND
 ~~~~~~~
@@ -595,6 +601,8 @@ For example::
     cond %{SEND_REQUEST_HDR_HOOK} [AND]
     cond %{NEXT-HOP:HOST} =www.secondparent.com
         set-header Host vhost.secondparent.com
+
+.. _admin-plugins-header-rewrite-now:
 
 NOW
 ~~~
@@ -1116,6 +1124,8 @@ set-cookie
 Replaces the value of cookie ``<name>`` with ``<value>``, creating the cookie
 if necessary.
 
+.. _admin-plugins-header-rewrite-set-http-cntl:
+
 set-http-cntl
 ~~~~~~~~~~~~~
 ::
@@ -1147,12 +1157,16 @@ set-plugin-cntl
 This operator lets you control the fundamental behavior of this plugin for a particular transaction.
 The available controllers are:
 
-================== ===================== =============================================================================================
-Controller         Operators/Conditions  Description
-================== ===================== =============================================================================================
-TIMEZONE           ``NOW``               If ``GMT`` is passed, the operators and conditions use GMT regardles of the timezone setting
-                                         on your system. The default value is ``LOCAL``.
-================== ===================== =============================================================================================
++===================+========================+==============================================================================================+
+| Controller        | Operators/Conditions   | Description                                                                                  |
++===================+========================+==============================================================================================+
+| TIMEZONE          | ``NOW``                | If ``GMT`` is passed, the operators and conditions use GMT regardles of the timezone setting |
+|                   |                        | on your system. The default value is ``LOCAL``.                                              |
++===================+========================+==============================================================================================+
+| INBOUND_IP_SOURCE | ``IP``, ``INBOUND``,   | Selects which IP address to use for the operators and conditions. Available sources are      |
+|                   | ``CIDR``, and ``GEO``  | ``PEER`` (Uses the IP address of the peer), and ``PROXY`` (Uses the IP address from PROXY    |
+|                   |                        | protocol)                                                                                    |
++===================+========================+==============================================================================================+
 
 Operator Flags
 --------------
@@ -1197,6 +1211,8 @@ Old expansion variable   Condition variable to use with concatenations
 %<cque>                  %[CLIENT-URL}
 %<cquup>                 %{CLIENT-URL:PATH}
 ======================== ==========================================================================
+
+.. _admin-plugins-header-rewrite-url-parts:
 
 URL Parts
 ---------
@@ -1685,3 +1701,26 @@ This rule will deny all requests for URIs with the ``.php`` file extension::
    cond %{REMAP_PSEUDO_HOOK} [AND]
    cond %{CLIENT-URL:PATH} ="php" [EXT,NOCASE]
       set-status 403
+
+Use GMT regardless of system timezone setting
+---------------------------------------------
+
+This rule will change the behavior of %{NOW}. It will always return time in GMT.
+
+   cond %{READ_REQUEST_HDR_HOOK}
+      set-plugin-cntl TIMEZONE GMT
+
+   cond %{SEND_RESPONSE_HDR_HOOK}
+     set-header hour %{NOW:HOUR}
+
+Use IP address provided by PROXY protocol
+-----------------------------------------
+
+This rule will change the behavior of all header_rewrite conditions which use the client's IP address on a connection.
+Those will pick the address provided by PROXY protocol, instead of the peer's address.
+
+   cond %{READ_REQUEST_HDR_HOOK}
+      set-plugin-cntl INBOUND_IP_SOURCE PROXY
+
+   cond %{SEND_RESPONSE_HDR_HOOK}
+      set-header real-ip %{INBOUND:REMOTE-ADDR}
