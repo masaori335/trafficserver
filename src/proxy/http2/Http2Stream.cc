@@ -594,7 +594,7 @@ Http2Stream::transaction_done()
   SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
   super::transaction_done();
 
-  if (!closed && _state == Http2StreamState::HTTP2_STREAM_STATE_CLOSED) {
+  if (!closed) {
     do_io_close(); // Make sure we've been closed.  If we didn't close the _proxy_ssn session better still be open
   }
   Http2ConnectionState &state = this->get_connection_state();
@@ -1093,12 +1093,7 @@ Http2Stream::clear_io_events()
 void
 Http2Stream::release()
 {
-  if (_state == Http2StreamState::HTTP2_STREAM_STATE_CLOSED) {
-    this->do_io_close();
-    return;
-  }
-
-  Http2StreamDebug("Delaying do_io_close() until stream is in the closed state");
+  this->do_io_close();
 }
 
 void
