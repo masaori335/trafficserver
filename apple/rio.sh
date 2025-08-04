@@ -33,8 +33,8 @@ else
 fi
 
 
-QUICHE_VERSION=0.22.0
-BORINGSSL_VERSION=32.20240522
+QUICHE_VERSION=0.24.4
+BORINGSSL_VERSION=36.20250724
 LIBURING_VERSION=2.4
 BUILD=${#BUILD}
 PRB=${#PRB}
@@ -74,14 +74,6 @@ if [[ ! -z $PR_ID && $PR_ID -gt 0 ]]; then
   git merge FETCH_HEAD -m 'Auto Merge: PR ${PR_ID}'
 fi
 
-if [ ! -z ${RIO_BUILD_NUMBER} ]; then
-git submodule init
-git submodule sync
-git submodule update --rebase --remote
-else
-  echo "Not syncing submodules outside of rio"
-fi
-
 function parse_version() {
     awk -F ' |)' '/^project/ { print $3 }' CMakeLists.txt
 }
@@ -104,7 +96,7 @@ if [ ! -z "$VARIATION" ]; then
     export GIT_TAG=bazinga/$VERSION/${VARIATION}.$BUILD_VERSION
 fi
 
-LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-boringssl-${BORINGSSL_VERSION} bazinga-quiche-${QUICHE_VERSION}
+LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-boringssl-devel-${BORINGSSL_VERSION} bazinga-quiche-${QUICHE_VERSION}
 LD_LIBRARY_PATH=/lib64 yum erase -d1 -y bazinga-openssl-devel
 
 # Temp remove fmt and install bazinga-fmt until build image updates

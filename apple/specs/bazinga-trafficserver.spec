@@ -87,8 +87,7 @@ Requires:	bazinga-brotli >= 1.0.6
 %{?_with_boringssl:Requires: bazinga-boringssl = %{_boringssl_version}}
 %{!?_with_boringssl:Requires: bazinga-openssl-libs >= 1.1.1a}
 %{?_with_quiche:Requires: bazinga-quiche = %{_libquiche_version}}
-Requires(post):	chkconfig
-Requires(preun): chkconfig initscripts
+Requires(preun): initscripts
 Requires(postun): initscripts
 
 %description
@@ -107,8 +106,7 @@ Summary: Apache Traffic Server devel package
 Group: Development/Libraries
 Requires: %{package_name}
 Requires: initscripts
-Requires(post): chkconfig
-Requires(preun): chkconfig initscripts
+Requires(preun): initscripts
 Requires(postun): initscripts
 %description devel
 Include files and various tools for ATS developers.
@@ -137,8 +135,10 @@ Internal include files from ATS
 echo PR: %{_pr_id}
 %endif
 
-cmake -B build -S . --preset %{_preset} -DCMAKE_INSTALL_PREFIX=%{_prefix} -DBUILD_NUMBER=%{release}
+cmake -B build-shared -S . --preset %{_preset} -DCMAKE_INSTALL_PREFIX=%{_prefix} -DBUILD_NUMBER=%{release} -DBUILD_SHARED_LIBS=ON
+cmake -B build -S . --preset %{_preset} -DCMAKE_INSTALL_PREFIX=%{_prefix} -DBUILD_NUMBER=%{release} -DBUILD_SHARED_LIBS=OFF
 cmake --build build -j$(nproc) -v
+cmake --build build-shared -j$(nproc) -v
 
 %check
 
@@ -155,6 +155,7 @@ ctest --preset %{_preset} -j$(nproc)
 
 %install
 rm -rf $RPM_BUILD_ROOT
+DESTDIR=$RPM_BUILD_ROOT cmake --install build-shared
 DESTDIR=$RPM_BUILD_ROOT cmake --install build
 
 ## Currently we have 5 or 4 "bazinga" libraries we link against.
