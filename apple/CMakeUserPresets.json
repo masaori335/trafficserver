@@ -52,7 +52,7 @@
         "BUILD_TESTING": true,
         "ENABLE_TXN_BOX": false,
         "BUILD_EXPERIMENTAL_PLUGINS": true,
-        "ENABLE_QUICHE": true,
+        "ENABLE_QUICHE": false,
         "quiche_ROOT": "/opt/bazinga/quiche"
       }
     },

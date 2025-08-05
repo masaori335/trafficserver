@@ -69,7 +69,7 @@ if [ "$RUN_AUTEST" != "" ]; then
     RPMBUILD_FLAGS+=" --with tests"
 fi
 
-RPMBUILD_FLAGS+=" --with boringssl --with quiche --with io_uring"
+RPMBUILD_FLAGS+=" --with boringssl --with io_uring"
 
 rpmbuild $RPMBUILD_MODE $buildroot/$specfilename \
          --define "_version ${VERSION}" \
