@@ -40,7 +40,8 @@ class SymbolResolver:
         "outbound.req.": (["rm-header", "set-header"], Validator.http_token(), False, {"PRE_REMAP", "REMAP", "READ_REQUEST"}),
         "outbound.resp.":
             (["rm-header", "set-header"], Validator.http_token(), False, {"PRE_REMAP", "REMAP", "READ_REQUEST", "SEND_REQUEST"}),
-        "outbound.status.reason": ("set-status-reason", Validator.range(0, 999), False, {"PRE_REMAP", "REMAP", "READ_REQUEST"}),
+        "outbound.status.reason":
+            ("set-status-reason", Validator.quoted_or_simple(), False, {"PRE_REMAP", "REMAP", "READ_REQUEST"}),
         "outbound.status": ("set-status", Validator.range(0, 999), False, {"PRE_REMAP", "REMAP", "READ_REQUEST"}),
     }
 
@@ -92,13 +93,13 @@ class SymbolResolver:
         "geo.": ("GEO", Validator.suffix_group(types.SuffixGroup.GEO_FIELDS), True, None, True),
         "http.cntl.": ("HTTP-CNTL", Validator.suffix_group(types.SuffixGroup.HTTP_CNTL_FIELDS), True, None, False),
         "id.": ("ID", Validator.suffix_group(types.SuffixGroup.ID_FIELDS), True, None, False),
-        "inbound.conn.": ("INBOUND", Validator.suffix_group(types.SuffixGroup.CONN_FIELDS), True, None, False),
+        "inbound.conn.": ("INBOUND", Validator.suffix_group(types.SuffixGroup.CONN_FIELDS), True, None, True),
         "inbound.cookie.": ("COOKIE", Validator.http_token(), False, None, True),
         "inbound.req.": ("CLIENT-HEADER", None, False, None, True),
         "inbound.resp.": ("HEADER", None, False, None, True),
         "inbound.url.": ("CLIENT-URL", Validator.suffix_group(types.SuffixGroup.URL_FIELDS), True, None, True),
         "now.": ("NOW", Validator.suffix_group(types.SuffixGroup.DATE_FIELDS), True, None, False),
-        "outbound.conn.": ("OUTBOUND", Validator.suffix_group(types.SuffixGroup.CONN_FIELDS), True, None, False),
+        "outbound.conn.": ("OUTBOUND", Validator.suffix_group(types.SuffixGroup.CONN_FIELDS), True, None, True),
         "outbound.cookie.": ("COOKIE", Validator.http_token(), False, None, True),
         "outbound.req.": ("HEADER", None, False, {"PRE_REMAP", "REMAP", "READ_REQUEST"}, True),
         "outbound.resp.": ("HEADER", None, False, {"PRE_REMAP", "REMAP", "READ_REQUEST", "SEND_REQUEST"}, True),
