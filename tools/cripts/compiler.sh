@@ -25,11 +25,14 @@
 
 # Configurable parts
 : ${ATS_ROOT:="/tmp/ats"}
-: ${CXX:="clang++"}
+
 if [[ "$(uname)" == "Darwin" ]]; then
+    : ${CXX:="clang++"}
     : ${CXXFLAGS:="-x c++ -std=c++20 -I/opt/homebrew/include -undefined dynamic_lookup"}
 else
-    : ${CXXFLAGS:="-x c++ -std=c++20"}
+    CXX="/opt/bazinga/bin/clang++ -fuse-ld=lld --ld-path=/opt/bazinga/bin/ld.lld"
+    CXXFLAGS="-DNDEBUG -L/opt/bazinga/lib64 -x c++ -std=c++20 -O3 -shared -fPIE -fstack-protector -fno-omit-frame-pointer -flto=thin -stdlib=libc++ -fPIC -Wall -Werror -g -gdwarf-4 -I${ATS_ROOT}/include -I/opt/bazinga/boringssl/include -L${ATS_ROOT}/lib/trafficserver -lcripts"
+    LDFLAGS="-Wl,-z,relro -Wl,-z,now -L/opt/bazinga/lib64 -Wl,-rpath,/opt/bazinga/boringssl/lib64 -Wl,-rpath,/opt/bazinga/lib64 -stdlib=libc++ -L/opt/bazinga/lib/trafficserver -Wl,-rpath,/opt/bazinga/lib/trafficserver -Wl,--build-id=sha1"
 fi
 
 # Probably don't need to change these ?
@@ -85,7 +88,7 @@ if [ -d "$CACHE_DIR" ]; then
 fi
 
 # Compile the plugin
-${CXX} ${CXXFLAGS} ${STDFLAGS} -o "$DEST" "$SOURCE"
+${CXX} -v ${CXXFLAGS} ${LDFLAGS} -o "$DEST" "$SOURCE"
 exit_code=$?
 
 if [ "$exit_code" -ne 0 ]; then
