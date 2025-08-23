@@ -19,7 +19,7 @@
   limitations under the License.
  */
 
-#include "catch.hpp"
+#include <catch2/catch_test_macros.hpp>
 
 #include "tscore/Layout.h"
 #include "tscore/ink_platform.h"
@@ -70,6 +70,7 @@ TEST_CASE("layout create test", "[create]")
 TEST_CASE("relative test", "[relative]")
 {
   unsetenv("TS_ROOT");
+  Layout::create();
   // relative (1 argument)
   std::string_view sv("file");
   std::string      str1 = append_slash(TS_BUILD_PREFIX) + "file";
@@ -79,6 +80,7 @@ TEST_CASE("relative test", "[relative]")
 TEST_CASE("relative to test", "[relative_to]")
 {
   unsetenv("TS_ROOT");
+  Layout::create();
   // relative to (2 parameters)
   std::string str1 = append_slash(TS_BUILD_PREFIX) + "file";
   REQUIRE(Layout::relative_to(Layout::get()->prefix, "file") == str1);
@@ -94,6 +96,7 @@ TEST_CASE("relative to test", "[relative_to]")
 TEST_CASE("update_sysconfdir test", "[update_sysconfdir]")
 {
   unsetenv("TS_ROOT");
+  Layout::create();
   Layout::get()->update_sysconfdir("/abc");
   REQUIRE(Layout::get()->sysconfdir == "/abc");
 }
