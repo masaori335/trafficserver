@@ -31,10 +31,14 @@
 #include "SSLSessionTicket.h"
 #include "SSLDynlock.h" // IWYU pragma: keep - for ssl_dyn_*
 
+#include "iocore/net/NetHandler.h"
 #include "iocore/net/SSLMultiCertConfigLoader.h"
 #include "iocore/net/SSLAPIHooks.h"
 #include "iocore/net/SSLDiags.h"
 #include "iocore/net/TLSSessionResumptionSupport.h"
+#include "iocore/resource/Resource.h"
+
+#include "iocore/resource/ResourceConstraints.h"
 #include "records/RecHttp.h"
 #include "tscore/MatcherUtils.h"
 #include "tscore/ink_config.h"
@@ -106,6 +110,7 @@ static DbgCtl dbg_ctl_ssl_load{"ssl_load"};
 static DbgCtl dbg_ctl_ssl_session_cache{"ssl.session_cache"};
 static DbgCtl dbg_ctl_ssl_error{"ssl.error"};
 static DbgCtl dbg_ctl_ssl_verify{"ssl_verify"};
+static DbgCtl dbg_ctl_harmony{"resource-harmony"};
 
 /* Using pthread thread ID and mutex functions directly, instead of
  * ATS this_ethread / ProxyMutex, so that other linked libraries
@@ -327,6 +332,20 @@ ssl_client_hello_callback(const SSL_CLIENT_HELLO *client_hello)
   } else {
     Dbg(dbg_ctl_ssl_error, "ssl_client_hello_callback call back on stale netvc");
     return CLIENT_HELLO_ERROR;
+  }
+
+  // CDN Harmony
+  SSLNetVConnection *netvc   = SSLNetVCAccess(s);
+  auto              &manager = netvc->nh->resource_local_manager;
+  uint64_t           tag_id  = snis->hints_from_sni.tag_id.value_or(UNKNOWN_TID);
+
+  {
+    SCOPED_MUTEX_LOCK(lock, manager.mutex, this_ethread());
+
+    manager.inc(tag_id, ResourceType::SNI);
+    if (manager.is_full(tag_id, ResourceType::SNI)) {
+      return CLIENT_HELLO_ERROR;
+    }
   }
 
   return CLIENT_HELLO_SUCCESS;

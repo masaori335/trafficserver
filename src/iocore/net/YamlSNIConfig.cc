@@ -185,6 +185,9 @@ YamlSNIConfig::Item::populate_sni_actions(action_vector_t &actions)
   if (http2_max_continuation_frames_per_minute.has_value()) {
     actions.push_back(std::make_unique<HTTP2MaxContinuationFramesPerMinute>(http2_max_continuation_frames_per_minute.value()));
   }
+  if (!tag.empty()) {
+    actions.push_back(std::make_unique<SNITag>(tag));
+  }
 
   actions.push_back(std::make_unique<ServerMaxEarlyData>(server_max_early_data));
   actions.push_back(std::make_unique<SNI_IpAllow>(ip_allow, fqdn));
@@ -246,7 +249,9 @@ std::set<std::string> valid_sni_config_keys = {TS_fqdn,
                                                TS_valid_tls_version_max_in,
 #endif
                                                TS_host_sni_policy,
-                                               TS_server_max_early_data};
+                                               TS_server_max_early_data,
+                                               TS_tag,
+                                               TS_disable_harmony};
 
 namespace YAML
 {
@@ -486,6 +491,14 @@ template <> struct convert<YamlSNIConfig::Item> {
       item.server_max_early_data = node[TS_server_max_early_data].as<uint32_t>();
     } else {
       item.server_max_early_data = SSLConfigParams::server_max_early_data;
+    }
+
+    if (node[TS_tag]) {
+      item.tag = node[TS_tag].as<std::string>();
+    }
+
+    if (node[TS_disable_harmony]) {
+      item.disable_harmony = node[TS_disable_harmony].as<bool>();
     }
 
     return true;

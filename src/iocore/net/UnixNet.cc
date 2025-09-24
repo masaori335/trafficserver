@@ -159,6 +159,14 @@ public:
     nh.manage_active_queue(nullptr, true); // close any connections over the active timeout
     nh.manage_keep_alive_queue();
 
+    // Temporally hack for Resource Constraints
+    // InactivityCop might start earlier than ResourceManager
+    if (nh.resource_local_manager.mutex && nh.resource_local_manager.running()) {
+      // Guard for the race with reconfigure
+      SCOPED_MUTEX_LOCK(lock, nh.resource_local_manager.mutex, this_ethread());
+      nh.resource_local_manager.reserve();
+    }
+
     return 0;
   }
 };

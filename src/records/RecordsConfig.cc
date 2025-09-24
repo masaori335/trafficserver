@@ -1530,6 +1530,25 @@ static constexpr RecordElement RecordsConfig[] =
   {RECT_CONFIG, "proxy.config.aio.mode", RECD_STRING, "auto", RECU_DYNAMIC, RR_NULL, RECC_STR, "(auto|io_uring|thread)", RECA_NULL},
 #endif
 
+  //####
+  //# CDN Harmony
+  //####
+  // restart
+  {RECT_CONFIG, "proxy.config.resource.max_stats_size", RECD_INT, "1000", RECU_RESTART_TS, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+  // dynamic
+  {RECT_CONFIG, "proxy.config.resource.top_n", RECD_INT, "10", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+
+  // sni
+  {RECT_CONFIG, "proxy.config.resource.sni.mode", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_INT, "[0-2]", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.sni.limit", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.sni.penalty_duration", RECD_INT, "60", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.resource.sni.red_zone", RECD_FLOAT, "0.2", RECU_DYNAMIC, RR_NULL, RECC_NULL, nullptr, RECA_NULL}
+  ,
 };
 // clang-format on
 

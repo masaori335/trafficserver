@@ -28,6 +28,7 @@
 #include "iocore/eventsystem/Continuation.h"
 #include "iocore/eventsystem/EThread.h"
 #include "iocore/net/NetEvent.h"
+#include "iocore/resource/ResourceConstraints.h"
 
 //
 // NetHandler
@@ -155,6 +156,8 @@ public:
   /// updated. Event type threads that use @c NetHandler must set the
   /// corresponding bit.
   static std::bitset<std::numeric_limits<unsigned int>::digits> active_thread_types;
+
+  ResourceLocalManager resource_local_manager;
 
   int        mainNetEvent(int event, Event *data);
   int        waitForActivity(ink_hrtime timeout) override;

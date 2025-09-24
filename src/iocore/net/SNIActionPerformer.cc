@@ -524,3 +524,13 @@ ServerGroupsList::SNIAction(SSL &ssl, const Context & /* ctx ATS_UNUSED */) cons
   }
   return SSL_TLSEXT_ERR_OK;
 }
+
+int
+SNITag::SNIAction(SSL &ssl, const Context & /* ctx */) const
+{
+  if (auto snis = TLSSNISupport::getInstance(&ssl)) {
+    snis->hints_from_sni.tag_id = _tag_id;
+  }
+
+  return SSL_TLSEXT_ERR_OK;
+}

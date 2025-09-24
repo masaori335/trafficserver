@@ -26,6 +26,7 @@
 #include "iocore/net/SNIActionItem.h"
 #include "iocore/net/SSLTypes.h"
 #include "iocore/net/YamlSNIConfig.h"
+#include "iocore/resource/Resource.h"
 #include "tscore/ink_inet.h"
 
 #include <string>
@@ -356,4 +357,16 @@ public:
 
 private:
   std::string const server_groups_list{};
+};
+
+class SNITag : public ActionItem
+{
+public:
+  SNITag(std::string &name) : _tag_id(ResourceConstraints::hash(name)){};
+  ~SNITag() override {}
+
+  int SNIAction(SSL &ssl, const Context &ctx) const override;
+
+private:
+  uint64_t _tag_id = 0;
 };

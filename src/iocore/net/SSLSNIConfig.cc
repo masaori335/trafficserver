@@ -33,6 +33,7 @@
 #include "P_SSLConfig.h"
 #include "iocore/net/SSLSNIConfig.h"
 #include "iocore/net/SNIActionItem.h"
+#include "iocore/resource/ResourceManager.h"
 #include "tscore/Diags.h"
 #include "tscore/Layout.h"
 #include "tscore/TSSystemState.h"
@@ -330,6 +331,7 @@ SNIConfig::reconfigure()
     if (SNIConfig::on_reconfigure) {
       SNIConfig::on_reconfigure();
     }
+    resourceManager.reconfigure();
   } else {
     delete params;
   }

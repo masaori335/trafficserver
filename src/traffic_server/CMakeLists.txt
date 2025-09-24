@@ -42,6 +42,7 @@ target_link_libraries(
           ts::jsonrpc_protocol
           ts::jsonrpc_server
           ts::rpcpublichandlers
+          ts::resource
 )
 if(NOT APPLE)
   # Skipping apple because macOS doesn't seem to provide an equivalent option
