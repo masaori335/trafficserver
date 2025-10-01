@@ -640,3 +640,28 @@ protected:
   void initialize_hooks() override;
   bool exec(const Resources &res) const override;
 };
+
+class OperatorSetEffectiveAddress : public Operator
+{
+public:
+  OperatorSetEffectiveAddress() { Dbg(dbg_ctl, "Calling CTOR for OperatorSetEffectiveAddress"); }
+
+  // noncopyable
+  OperatorSetEffectiveAddress(const OperatorSetEffectiveAddress &) = delete;
+  void operator=(const OperatorSetEffectiveAddress &)              = delete;
+
+  void initialize(Parser &p) override;
+
+protected:
+  void initialize_hooks() override;
+  bool exec(const Resources &res) const override;
+
+  bool
+  need_txn_private_slot() const override
+  {
+    return true;
+  }
+
+private:
+  Value _value;
+};

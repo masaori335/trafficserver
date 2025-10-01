@@ -77,11 +77,11 @@ static int cont_rewrite_headers(TSCont, TSEvent, void *);
 class RulesConfig
 {
 public:
-  RulesConfig(bool global = false)
+  RulesConfig(int timezone, int inboundIpSource, bool global = false)
+    : _timezone(timezone), _inboundIpSource(inboundIpSource), _global(global)
   {
     Dbg(dbg_ctl, "RulesConfig CTOR");
 
-    _global = global;
     if (!_global) {
       _cont = TSContCreate(cont_rewrite_headers, nullptr);
       TSContDataSet(_cont, static_cast<void *>(this));
@@ -114,6 +114,18 @@ public:
     return _rules[hook].get();
   }
 
+  [[nodiscard]] int
+  timezone() const
+  {
+    return _timezone;
+  }
+
+  [[nodiscard]] int
+  inboundIpSource() const
+  {
+    return _inboundIpSource;
+  }
+
   bool parse_config(const std::string &fname, TSHttpHookID default_hook, char *from_url = nullptr, char *to_url = nullptr);
 
 private:
@@ -122,7 +134,9 @@ private:
   TSCont                                                      _cont;
   std::array<std::unique_ptr<RuleSet>, TS_HTTP_LAST_HOOK + 1> _rules{};
   std::array<ResourceIDs, TS_HTTP_LAST_HOOK + 1>              _resids{};
-  bool                                                        _global = false;
+  int                                                         _timezone        = 0;
+  int                                                         _inboundIpSource = 0;
+  bool                                                        _global          = false;
 };
 
 void
@@ -341,16 +355,16 @@ RulesConfig::parse_config(const std::string &fname, TSHttpHookID default_hook, c
 }
 
 static void
-setPluginControlValues(TSHttpTxn txnp)
+setPluginControlValues(TSHttpTxn txnp, RulesConfig *conf)
 {
-  if (header_rewrite_ns::timezone != 0 || header_rewrite_ns::inboundIpSource != 0) {
+  if (conf->timezone() != 0 || conf->inboundIpSource() != 0) {
     ConditionNow temporal_statement; // This could be any statement that use the private slot.
     int          slot = temporal_statement.get_txn_private_slot();
 
     PrivateSlotData private_data;
     private_data.raw       = reinterpret_cast<uint64_t>(TSUserArgGet(txnp, slot));
-    private_data.timezone  = header_rewrite_ns::timezone;
-    private_data.ip_source = header_rewrite_ns::inboundIpSource;
+    private_data.timezone  = conf->timezone();
+    private_data.ip_source = conf->inboundIpSource();
     TSUserArgSet(txnp, slot, reinterpret_cast<void *>(private_data.raw));
   }
 }
@@ -437,7 +451,7 @@ cont_rewrite_headers(TSCont contp, TSEvent event, void *edata)
     break;
   case TS_EVENT_HTTP_TXN_START:
     hook = TS_HTTP_TXN_START_HOOK;
-    setPluginControlValues(txnp);
+    setPluginControlValues(txnp, conf);
     break;
   case TS_EVENT_HTTP_TXN_CLOSE:
     hook = TS_HTTP_TXN_CLOSE_HOOK;
@@ -478,7 +492,7 @@ static void
 load_global_config(const char *files)
 {
   bool         got_config = false;
-  RulesConfig *new_config = new RulesConfig(true);
+  RulesConfig *new_config = new RulesConfig(header_rewrite_ns::timezone, header_rewrite_ns::inboundIpSource, true);
   // get config filenames to parse
   std::string        configs(files);
   std::istringstream iss(configs);
@@ -546,7 +560,7 @@ TSPluginInit(int argc, const char *argv[])
       geoDBpath = optarg;
       break;
     case 't':
-      Dbg(pi_dbg_ctl, "Global timezone %s", optarg);
+      Dbg(pi_dbg_ctl, "Default timezone %s", optarg);
       if (strcmp(optarg, "LOCAL") == 0) {
         header_rewrite_ns::timezone = TIMEZONE_LOCAL;
       } else if (strcmp(optarg, "GMT") == 0) {
@@ -556,7 +570,7 @@ TSPluginInit(int argc, const char *argv[])
       }
       break;
     case 'i':
-      Dbg(pi_dbg_ctl, "Global inbound IP source %s", optarg);
+      Dbg(pi_dbg_ctl, "Default inbound IP source %s", optarg);
       if (strcmp(optarg, "PEER") == 0) {
         header_rewrite_ns::inboundIpSource = IP_SRC_PEER;
       } else if (strcmp(optarg, "PROXY") == 0) {
@@ -632,6 +646,8 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char * /* errbuf ATS_UNUSE
   ++argv;
 
   std::string geoDBpath;
+  int         timezone        = 0;
+  int         inboundIpSource = 0;
   while (true) {
     int opt = getopt_long(argc, (char *const *)argv, "m:t:i:", longopt, nullptr);
 
@@ -640,23 +656,23 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char * /* errbuf ATS_UNUSE
       geoDBpath = optarg;
       break;
     case 't':
-      Dbg(pi_dbg_ctl, "Global timezone %s", optarg);
+      Dbg(pi_dbg_ctl, "Default timezone %s", optarg);
       if (strcmp(optarg, "LOCAL") == 0) {
-        header_rewrite_ns::timezone = TIMEZONE_LOCAL;
+        timezone = TIMEZONE_LOCAL;
       } else if (strcmp(optarg, "GMT") == 0) {
-        header_rewrite_ns::timezone = TIMEZONE_GMT;
+        timezone = TIMEZONE_GMT;
       } else {
         TSError("[%s] Unknown value for timezone parameter: %s", PLUGIN_NAME, optarg);
       }
       break;
     case 'i':
-      Dbg(pi_dbg_ctl, "Global inbound IP source %s", optarg);
+      Dbg(pi_dbg_ctl, "Default inbound IP source %s", optarg);
       if (strcmp(optarg, "PEER") == 0) {
-        header_rewrite_ns::inboundIpSource = IP_SRC_PEER;
+        inboundIpSource = IP_SRC_PEER;
       } else if (strcmp(optarg, "PROXY") == 0) {
-        header_rewrite_ns::inboundIpSource = IP_SRC_PROXY;
+        inboundIpSource = IP_SRC_PROXY;
       } else if (strcmp(optarg, "PLUGIN") == 0) {
-        header_rewrite_ns::inboundIpSource = IP_SRC_PLUGIN;
+        inboundIpSource = IP_SRC_PLUGIN;
       } else {
         TSError("[%s] Unknown value for inbound-ip-source parameter: %s", PLUGIN_NAME, optarg);
       }
@@ -677,7 +693,7 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char * /* errbuf ATS_UNUSE
     std::call_once(initHRWLibs, [&geoDBpath]() { initHRWLibraries(geoDBpath); });
   }
 
-  auto *conf = new RulesConfig;
+  auto *conf = new RulesConfig(timezone, inboundIpSource);
 
   for (int i = optind; i < argc; ++i) {
     Dbg(pi_dbg_ctl, "Loading remap configuration file %s", argv[i]);
@@ -718,10 +734,10 @@ TSRemapDoRemap(void *ih, TSHttpTxn rh, TSRemapRequestInfo *rri)
     return TSREMAP_NO_REMAP;
   }
 
-  setPluginControlValues(rh);
-
   TSRemapStatus rval = TSREMAP_NO_REMAP;
   auto         *conf = static_cast<RulesConfig *>(ih);
+
+  setPluginControlValues(rh, conf);
 
   // Go through all hooks we support, and setup the txn hook(s) as necessary
   for (int i = TS_HTTP_READ_REQUEST_HDR_HOOK; i < TS_HTTP_LAST_HOOK; ++i) {

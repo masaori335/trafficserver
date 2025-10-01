@@ -89,6 +89,8 @@ operator_factory(const std::string &op)
     o = new OperatorSetStateInt16();
   } else if (op == "deny-tls") {
     o = new OperatorDenyTLS();
+  } else if (op == "set-effective-address") {
+    o = new OperatorSetEffectiveAddress();
   } else {
     TSError("[%s] Unknown operator: %s", PLUGIN_NAME, op.c_str());
     return nullptr;
