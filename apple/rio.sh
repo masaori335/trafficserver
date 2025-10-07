@@ -96,7 +96,7 @@ if [ ! -z "$VARIATION" ]; then
     export GIT_TAG=bazinga/$VERSION/${VARIATION}.$BUILD_VERSION
 fi
 
-LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-boringssl-devel-${BORINGSSL_VERSION} bazinga-quiche-${QUICHE_VERSION}
+LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-boringssl-devel-${BORINGSSL_VERSION}
 LD_LIBRARY_PATH=/lib64 yum erase -d1 -y bazinga-openssl-devel
 
 # Temp remove fmt and install bazinga-fmt until build image updates
