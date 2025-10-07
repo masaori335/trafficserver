@@ -509,6 +509,10 @@ load_global_config(const char *files)
       Dbg(pi_dbg_ctl, "Deleting old configs: %p", cfg);
       delete static_cast<RulesConfig *>(cfg);
     });
+
+    // We always need to hook TXN_START to call setPluginControlValues at the beginning.
+    TSHttpHookAdd(TS_HTTP_TXN_START_HOOK, global_contp);
+
     for (int i = TS_HTTP_READ_REQUEST_HDR_HOOK; i < TS_HTTP_LAST_HOOK; ++i) {
       // avoid adding multiple of the same hook
       if (new_config->rule(i) && !global_rules[i]) {
