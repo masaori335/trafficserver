@@ -225,12 +225,11 @@ builds:
     template: freestyle:v4:publish
     buildParameters:
     - parameter: variation
-      defaultValue: boringssl
       description: Build variation [boringssl (deault), asan, or debug]
     - parameter: version
       description: Build version for package name (i.e. 52.1234)
     steps:
-    - ./apple/rio.sh --build --branch ${RIO_BRANCH_NAME} --breakfix ${BUILD_PARAM_version} --variation -${BUILD_PARAM_variation} --tagbuild
+    - ./apple/rio.sh --build --branch ${RIO_BRANCH_NAME} --breakfix ${BUILD_PARAM_version} --variation ${BUILD_PARAM_variation} --tagbuild
   trigger:
     gitPush: false
   finally:
