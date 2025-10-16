@@ -297,6 +297,13 @@ Regex::compile(std::string_view pattern, std::string &error, int &erroroffset, u
 
 //----------------------------------------------------------------------------
 bool
+Regex::exec(std::string_view subject) const
+{
+  return this->exec(subject, 0);
+}
+
+//----------------------------------------------------------------------------
+bool
 Regex::exec(std::string_view subject, uint32_t flags) const
 {
   if (_Code::get(_code) == nullptr) {
@@ -305,7 +312,14 @@ Regex::exec(std::string_view subject, uint32_t flags) const
   RegexMatches matches;
 
   int count = this->exec(subject, matches, flags);
-  return count > 0;
+  return count >= 0;
+}
+
+//----------------------------------------------------------------------------
+int32_t
+Regex::exec(std::string_view subject, RegexMatches &matches) const
+{
+  return this->exec(subject, matches, 0);
 }
 
 //----------------------------------------------------------------------------
@@ -316,7 +330,7 @@ Regex::exec(std::string_view subject, RegexMatches &matches, uint32_t flags) con
 
   // check if there is a compiled regex
   if (code == nullptr) {
-    return 0;
+    return PCRE2_ERROR_NULL;
   }
   int count = pcre2_match(code, reinterpret_cast<PCRE2_SPTR>(subject.data()), subject.size(), 0, flags,
                           RegexMatches::_MatchData::get(matches._match_data), RegexContext::get_instance()->get_match_context());
