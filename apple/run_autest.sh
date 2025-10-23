@@ -48,7 +48,7 @@ chmod a+rwx .
 # Some tests write generated data into the test directory
 chmod -R a+rwx /workspace/tests/gold_tests
 su --command "pipenv install" bazinga
-su --command "./autest.sh --sandbox $AUTEST_SANDBOX --disable-color" bazinga | /usr/bin/au2junit-report --output-filename autest.xml
+su --command "./autest.sh --sandbox $AUTEST_SANDBOX $AUTEST_FLAGS" bazinga | /usr/bin/au2junit-report --output-filename autest.xml
 
 if [ "$RIO_BUILD_NUMBER" != "" ]; then
     cp -r $AUTEST_SANDBOX /workspace
