@@ -127,7 +127,7 @@ builds:
           postOnFailure: false
       pipelineChain:
         - project: ist-gns-edge-trafficserver-plugins
-          pipeline: release-master-publish-master-el9
+          pipeline: release-master-publish-10.x-el9
     package:
       freeform:
         - publish:
@@ -155,7 +155,7 @@ builds:
         enabled: false
       pipelineChain:
         - project: ist-gns-edge-trafficserver-plugins
-          pipeline: release-master-publish-master-el9
+          pipeline: release-master-publish-10.x-el9
       notify:
         pullRequestComment:
           postOnSuccess: false
@@ -190,7 +190,7 @@ builds:
         enabled: false
       pipelineChain:
         - project: ist-gns-edge-trafficserver-plugins
-          pipeline: release-master-publish-master-el9
+          pipeline: release-master-publish-10.x-el9
       notify:
         pullRequestComment:
           postOnSuccess: false
