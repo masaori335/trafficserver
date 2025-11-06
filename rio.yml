@@ -2,7 +2,7 @@
 # Pipeline naming convention: https://quip-apple.com/SYBPApmmz4QH
 #
 
-schemaVersion: '2.0'
+schemaVersion: "2.0"
 
 <<: &build_machine
   machine:
@@ -15,294 +15,288 @@ schemaVersion: '2.0'
 timeout: 90
 
 builds:
-- branchName: master
-  group: sync
-  <<: *build_machine
-  build:
-    template: freestyle:v4:build
-    steps:
-    - git remote add asf https://github.com/apache/trafficserver.git || true
-    - git fetch asf
-    - 'git merge -m "Merge remote-tracking branch ''asf/master'' into master" -m "($PIPELINE_SPEC_ID $RIO_BUILD_NUMBER)" --no-ff asf/master'
-    - SSH_AUTH_SOCK=${SSH_AUTH_SOCK_TRAFFICSERVER} git push origin master
-  trigger:
-    timer: '@weekly'
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-  secrets:
-    names:
-    - TRAFFICSERVER
-  jenkins:
-    concurrentBuild: false
+  - branchName: master
+    group: sync
+    <<: *build_machine
+    build:
+      template: freestyle:v4:build
+      steps:
+        - git remote add asf https://github.com/apache/trafficserver.git || true
+        - git fetch asf
+        - 'git merge -m "Merge remote-tracking branch ''asf/master'' into master" -m "($PIPELINE_SPEC_ID $RIO_BUILD_NUMBER)" --no-ff asf/master'
+        - SSH_AUTH_SOCK=${SSH_AUTH_SOCK_TRAFFICSERVER} git push origin master
+    trigger:
+      timer: "@weekly"
+      gitPush: false
+    finally:
+      tag:
+        enabled: false
+    secrets:
+      names:
+        - TRAFFICSERVER
+    jenkins:
+      concurrentBuild: false
 
-- branchName: master
-  group: test
-  version: unittest
-  <<: *build_machine
-  build:
-    template: freestyle:v4:prb
-    steps:
-    - ./apple/rio.sh --build --branch master --prb
-  finally:
-    notify:
-      pullRequestComment:
-        postOnSuccess: false
-        postOnFailure: false
-  jenkins:
-    concurrentBuild: true
+  - branchName: master
+    group: test
+    version: unittest
+    <<: *build_machine
+    build:
+      template: freestyle:v4:prb
+      steps:
+        - ./apple/rio.sh --build --branch master --prb
+    finally:
+      notify:
+        pullRequestComment:
+          postOnSuccess: false
+          postOnFailure: false
+    jenkins:
+      concurrentBuild: true
 
-- branchName: master
-  group: test
-  version: autest
-  <<: *test_machine
-  build:
-    template: freestyle:v4:prb
-    steps:
-    - ./apple/rio.sh --test --branch master
-  finally:
-    notify:
-      pullRequestComment:
-        postOnSuccess: false
-        postOnFailure: false
-  reports:
-    junit:
-      paths:
-      - "**/*.xml"
-    logs:
-      paths:
-      - "_sandbox/**"
-  jenkins:
-    concurrentBuild: true
+  - branchName: master
+    group: test
+    version: autest
+    <<: *test_machine
+    build:
+      template: freestyle:v4:prb
+      steps:
+        - ./apple/rio.sh --test --branch master
+    finally:
+      notify:
+        pullRequestComment:
+          postOnSuccess: false
+          postOnFailure: false
+    reports:
+      junit:
+        paths:
+          - "**/*.xml"
+      logs:
+        paths:
+          - "_sandbox/**"
+    jenkins:
+      concurrentBuild: true
 
-- branchName: master
-  group: test
-  version: autest
-  <<: *test_machine
-  build:
-    template: freestyle:v4:publish
-    buildParameters:
-    - parameter: test_filter
-      description: Tests to run
-      defaultValue: '*'
-    steps:
-    - ./apple/rio.sh --test --branch master -f "${BUILD_PARAM_test_filter}"
-  reports:
-    junit:
-      paths:
-      - "**/*.xml"
-    logs:
-      paths:
-      - "_sandbox/**"
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-  jenkins:
-    concurrentBuild: true
+  - branchName: master
+    group: test
+    version: autest
+    <<: *test_machine
+    build:
+      template: freestyle:v4:publish
+      buildParameters:
+        - parameter: test_filter
+          description: Tests to run
+          defaultValue: "*"
+      steps:
+        - ./apple/rio.sh --test --branch master -f "${BUILD_PARAM_test_filter}"
+    reports:
+      junit:
+        paths:
+          - "**/*.xml"
+      logs:
+        paths:
+          - "_sandbox/**"
+    trigger:
+      gitPush: false
+    finally:
+      tag:
+        enabled: false
+    jenkins:
+      concurrentBuild: true
 
-- branchName: master
-  group: intpr
-  <<: *build_machine
-  build:
-    template: freestyle:v4:publish
-    buildParameters:
-    - parameter: pr_id
-      description: Internal GitHub PR ID to build
-    - parameter: variation
-      defaultValue: default
-      description: Build variant to use
-    steps:
-    - ./apple/rio.sh --build --branch master --prid ${BUILD_PARAM_pr_id} --variation ${BUILD_PARAM_variation}
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-    notify:
-      pullRequestComment:
-        postOnSuccess: false
-        postOnFailure: false
-    pipelineChain:
-      - project: ist-gns-edge-trafficserver-plugins
-        pipeline: release-master-publish-10.x-el9
-      - project: ist-gns-edge-apple-cripts
-        pipeline: release-main-publish-10.x-el9
-  package:
-    freeform:
-      - publish:
-        - repo: yum:cdn-edge
-  jenkins:
-    concurrentBuild: true
+  - branchName: master
+    group: intpr
+    <<: *build_machine
+    build:
+      template: freestyle:v4:publish
+      buildParameters:
+        - parameter: pr_id
+          description: Internal GitHub PR ID to build
+        - parameter: variation
+          defaultValue: default
+          description: Build variant to use
+      steps:
+        - ./apple/rio.sh --build --branch master --prid ${BUILD_PARAM_pr_id} --variation ${BUILD_PARAM_variation}
+    trigger:
+      gitPush: false
+    finally:
+      tag:
+        enabled: false
+      notify:
+        pullRequestComment:
+          postOnSuccess: false
+          postOnFailure: false
+      pipelineChain:
+        - project: ist-gns-edge-trafficserver-plugins
+          pipeline: release-master-publish-master-el9
+    package:
+      freeform:
+        - publish:
+            - repo: yum:cdn-edge
+    jenkins:
+      concurrentBuild: true
 
-- branchName: master
-  group: release
-  version: regular
-  <<: *build_machine
-  build:
-    template: freestyle:v4:publish
-    buildParameters:
-    - parameter: build_number
-      description: DO NOT RUN PIPELINE. Build version will be created from running 'release-master-publish-all' pipeline
-    - parameter: trigger_rats_h3_pipeline
-      description: True to trigger the H3 release pipeline for RATS instead of normal ATS release
-    steps:
-    - ./apple/rio.sh --build --branch master --tagbuild --release --number ${BUILD_PARAM_build_number}
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-    pipelineChain:
-      - project: ist-gns-edge-trafficserver-plugins
-        pipeline: release-master-publish-master-el9
-      - project: ist-gns-edge-apple-cripts
-        pipeline: release-main-publish-master-el9
-    notify:
-      pullRequestComment:
-        postOnSuccess: false
-        postOnFailure: false
-  secrets:
-    names:
-    - TRAFFICSERVER
-  package:
-    freeform:
-      - publish:
-        - repo: yum:cdn-edge
-  jenkins:
-    concurrentBuild: true
+  - branchName: master
+    group: release
+    version: regular
+    <<: *build_machine
+    build:
+      template: freestyle:v4:publish
+      buildParameters:
+        - parameter: build_number
+          description: DO NOT RUN PIPELINE. Build version will be created from running 'release-master-publish-all' pipeline
+        - parameter: trigger_rats_h3_pipeline
+          description: True to trigger the H3 release pipeline for RATS instead of normal ATS release
+      steps:
+        - ./apple/rio.sh --build --branch master --tagbuild --release --number ${BUILD_PARAM_build_number}
+    trigger:
+      gitPush: false
+    finally:
+      tag:
+        enabled: false
+      pipelineChain:
+        - project: ist-gns-edge-trafficserver-plugins
+          pipeline: release-master-publish-master-el9
+      notify:
+        pullRequestComment:
+          postOnSuccess: false
+          postOnFailure: false
+    secrets:
+      names:
+        - TRAFFICSERVER
+    package:
+      freeform:
+        - publish:
+            - repo: yum:cdn-edge
+    jenkins:
+      concurrentBuild: true
 
-- branchName: master
-  group: release
-  version: variant
-  <<: *build_machine
-  build:
-    template: freestyle:v4:publish
-    buildParameters:
-    - parameter: variation
-      description: Build variant to use
-    - parameter: build_number
-      description: DO NOT RUN PIPELINE. Build version will be created from running 'release-master-publish-all' pipeline
-    steps:
-    - ./apple/rio.sh --build --branch master --variation ${BUILD_PARAM_variation} --release --number ${BUILD_PARAM_build_number} --tagbuild
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-    pipelineChain:
-      - project: ist-gns-edge-trafficserver-plugins
-        pipeline: release-10.0.x-publish-10.x-el9
-      - project: ist-gns-edge-apple-cripts
-        pipeline: release-main-publish-10.x-el9
-    notify:
-      pullRequestComment:
-        postOnSuccess: false
-        postOnFailure: false
-  secrets:
-    names:
-    - TRAFFICSERVER
-  package:
-    freeform:
-      - publish:
-        - repo: yum:cdn-edge
-  jenkins:
-    concurrentBuild: true
+  - branchName: master
+    group: release
+    version: variant
+    <<: *build_machine
+    build:
+      template: freestyle:v4:publish
+      buildParameters:
+        - parameter: variation
+          description: Build variant to use
+        - parameter: build_number
+          description: DO NOT RUN PIPELINE. Build version will be created from running 'release-master-publish-all' pipeline
+      steps:
+        - ./apple/rio.sh --build --branch master --variation ${BUILD_PARAM_variation} --release --number ${BUILD_PARAM_build_number} --tagbuild
+    trigger:
+      gitPush: false
+    finally:
+      tag:
+        enabled: false
+      pipelineChain:
+        - project: ist-gns-edge-trafficserver-plugins
+          pipeline: release-master-publish-master-el9
+      notify:
+        pullRequestComment:
+          postOnSuccess: false
+          postOnFailure: false
+    secrets:
+      names:
+        - TRAFFICSERVER
+    package:
+      freeform:
+        - publish:
+            - repo: yum:cdn-edge
+    jenkins:
+      concurrentBuild: true
 
-########
-# Breakfix
-########
-- branchRules:
-    includePatterns:
-      - breakfix/.*
-      - breakfix-.*
-      - breakfix_.*
-  group: breakfix
-  <<: *build_machine
-  build:
-    template: freestyle:v4:publish
-    buildParameters:
-    - parameter: variation
-      description: Build variation [boringssl (deault), asan, or debug]
-    - parameter: version
-      description: Build version for package name (i.e. 52.1234)
-    steps:
-    - ./apple/rio.sh --build --branch ${RIO_BRANCH_NAME} --breakfix ${BUILD_PARAM_version} --variation ${BUILD_PARAM_variation} --tagbuild
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-  secrets:
-    names:
-    - TRAFFICSERVER
-  package:
-    freeform:
-      - publish:
-        - repo: yum:cdn-edge
-  jenkins:
-    concurrentBuild: true
+  ########
+  # Breakfix
+  ########
+  - branchRules:
+      includePatterns:
+        - breakfix/.*
+        - breakfix-.*
+        - breakfix_.*
+    group: breakfix
+    <<: *build_machine
+    build:
+      template: freestyle:v4:publish
+      buildParameters:
+        - parameter: variation
+          description: Build variation [boringssl (deault), asan, or debug]
+        - parameter: version
+          description: Build version for package name (i.e. 52.1234)
+      steps:
+        - ./apple/rio.sh --build --branch ${RIO_BRANCH_NAME} --breakfix ${BUILD_PARAM_version} --variation ${BUILD_PARAM_variation} --tagbuild
+    trigger:
+      gitPush: false
+    finally:
+      tag:
+        enabled: false
+    secrets:
+      names:
+        - TRAFFICSERVER
+    package:
+      freeform:
+        - publish:
+            - repo: yum:cdn-edge
+    jenkins:
+      concurrentBuild: true
 
-########
-# Multibuild release pipeline
-########
-- branchName: master
-  group: release
-  version: all
-  <<: *build_machine
-  build:
-    template: freestyle:v4:publish
-    buildParameters:
-    - parameter: trigger_rats_h3_pipeline
-      description: True to trigger the H3 release pipeline for RATS instead of normal ATS release
-      defaultValue: "false"
-    steps:
-    - echo "There's nothing to do on this pipeline itself."
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-    pipelineChain:
-      - pipeline: release-master-publish-regular
-        buildArguments:
-          - name: "build_number"
-            value: ${RIO_BUILD_NUMBER}
-          - name: "trigger_rats_h3_pipeline"
-            value: ${BUILD_PARAM_trigger_rats_h3_pipeline}
-      - pipeline: release-master-publish-variant
-        buildArguments:
-          - name: "variation"
-            value: "asan"
-          - name: "build_number"
-            value: ${RIO_BUILD_NUMBER}
+  ########
+  # Multibuild release pipeline
+  ########
+  - branchName: master
+    group: release
+    version: all
+    <<: *build_machine
+    build:
+      template: freestyle:v4:publish
+      buildParameters:
+        - parameter: trigger_rats_h3_pipeline
+          description: True to trigger the H3 release pipeline for RATS instead of normal ATS release
+          defaultValue: "false"
+      steps:
+        - echo "There's nothing to do on this pipeline itself."
+    trigger:
+      gitPush: false
+    finally:
+      tag:
+        enabled: false
+      pipelineChain:
+        - pipeline: release-master-publish-regular
+          buildArguments:
+            - name: "build_number"
+              value: ${RIO_BUILD_NUMBER}
+            - name: "trigger_rats_h3_pipeline"
+              value: ${BUILD_PARAM_trigger_rats_h3_pipeline}
+        - pipeline: release-master-publish-variant
+          buildArguments:
+            - name: "variation"
+              value: "asan"
+            - name: "build_number"
+              value: ${RIO_BUILD_NUMBER}
 
-- branchName: master
-  group: intpr
-  version: all
-  <<: *build_machine
-  build:
-    template: freestyle:v4:publish
-    buildParameters:
-    - parameter: pr_id
-      description: Internal GitHub PR ID to build
-    steps:
-    - echo "There's nothing to do on this pipeline itself."
-  trigger:
-    gitPush: false
-  finally:
-    tag:
-      enabled: false
-    pipelineChain:
-      - pipeline: intpr-master-publish
-        buildArguments:
-          - name: "pr_id"
-            value: ${BUILD_PARAM_pr_id}
-      - pipeline: intpr-master-publish
-        buildArguments:
-          - name: "pr_id"
-            value: ${BUILD_PARAM_pr_id}
-          - name: "variation"
-            value: "asan"
+  - branchName: master
+    group: intpr
+    version: all
+    <<: *build_machine
+    build:
+      template: freestyle:v4:publish
+      buildParameters:
+        - parameter: pr_id
+          description: Internal GitHub PR ID to build
+      steps:
+        - echo "There's nothing to do on this pipeline itself."
+    trigger:
+      gitPush: false
+    finally:
+      tag:
+        enabled: false
+      pipelineChain:
+        - pipeline: intpr-master-publish
+          buildArguments:
+            - name: "pr_id"
+              value: ${BUILD_PARAM_pr_id}
+        - pipeline: intpr-master-publish
+          buildArguments:
+            - name: "pr_id"
+              value: ${BUILD_PARAM_pr_id}
+            - name: "variation"
+              value: "asan"
