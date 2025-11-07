@@ -99,8 +99,6 @@ RUN git clone --depth 1 -b v1.12.0 https://github.com/ngtcp2/nghttp3.git \
  && cd .. \
  && rm -rf nghttp3
 
-RUN find ${BASE}/boringssl
-
 RUN git clone --depth 1 -b v1.17.0 https://github.com/ngtcp2/ngtcp2.git \
  && cd ngtcp2 \
  && autoreconf -if \
