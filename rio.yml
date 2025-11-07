@@ -302,3 +302,39 @@ builds:
               value: ${BUILD_PARAM_pr_id}
             - name: "variation"
               value: "asan"
+
+  - name: docker-build-image
+    branchName: master
+    build:
+      template: buildozer:v4:publish
+    package:
+      dockerfile:
+        - dockerfilePath: apple/docker/Dockerfile.build
+          version: "latest"
+          extraTags: ["$(date +%Y%m%d)-${RIO_BUILD_NUMBER}"]
+          perApplication: false
+          publish:
+            - repo: docker.apple.com/edge/trafficserver-builder
+    trigger:
+      gitPush: false
+
+  - branchName: master
+    build:
+      template: buildozer:v4:publish
+      buildParameters:
+        - parameter: ats_version
+          description: The ats version to use
+        - parameter: ats_release
+          description: The ats release string (i.e. 202.12345)
+    package:
+      dockerfile:
+        - dockerfilePath: apple/docker/Dockerfile
+          version: "latest"
+          extraTags: ["${BUILD_PARAM_ats_version}.${BUILD_PARAM_ats_release}"]
+          env:
+            ATS_VERSION: bazinga/${BUILD_PARAM_ats_version}/${BUILD_PARAM_ats_release}.el9
+          perApplication: false
+          publish:
+            - repo: docker.apple.com/edge/trafficserver-dev
+    trigger:
+      gitPush: false

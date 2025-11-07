@@ -1,0 +1,154 @@
+FROM docker.apple.com/base-images/ubi9/swift6.2-builder
+
+ARG GO_VERSION=1.21.6
+ARG BASE=/opt/bazinga
+
+ENV PATH="/opt/go/bin:${PATH}"
+
+RUN groupadd bazinga && \
+    adduser bazinga -g bazinga && \
+    yum --enablerepo=epel-9 -y --setopt=tsflags=nodocs install \
+           brotli-devel \
+           jemalloc-devel \
+           liburing-devel \
+           rpm-build \
+           autoconf \
+           automake \
+           cmake3 \
+           ninja-build \
+           libtool \
+           make \
+           fmt-devel \
+           luajit-devel \
+           openssl-devel \
+           expat-devel \
+           pcre-devel \
+           pcre2-devel \
+           zlib-devel \
+           xz-devel \
+           hwloc-devel \
+           libcurl-devel \
+           ncurses-devel \
+           libcap-devel \
+           tar \
+           perl-URI \
+           protobuf-compiler \
+           sudo \
+           libmaxminddb-devel \
+           krb5-devel \
+           which \
+           zsh \
+           libpsl-devel \
+           git && \
+           yum clean all
+
+RUN mkdir -p ${BASE} && chmod a+rX ${BASE}
+
+RUN if [ `uname -m` = "arm64" -o `uname -m` = "aarch64" ]; then echo "arm64" > /arch; else echo "amd64" > /arch; fi \
+  && wget -qO- https://go.dev/dl/go1.21.6.linux-$(cat /arch).tar.gz | tar -C ${BASE} -xzf -
+
+
+ENV CC=clang
+ENV CXX=clang++
+ENV GO_BINARY_PATH=${BASE}/go/bin/go
+
+RUN git clone -b 0.20250701.0 --depth 1 https://boringssl.googlesource.com/boringssl \
+ && cd boringssl \
+ && cmake \
+  -B build-shared \
+  -G Ninja \
+  -DGO_EXECUTABLE=${GO_BINARY_PATH} \
+  -DCMAKE_INSTALL_PREFIX=${BASE}/boringssl \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_FLAGS='-Wno-error=ignored-attributes -UBORINGSSL_HAVE_LIBUNWIND' \
+  -DCMAKE_C_FLAGS=${BSSL_C_FLAGS} \
+  -DBUILD_SHARED_LIBS=1 \
+ && cmake \
+  -B build-static \
+  -G Ninja \
+  -DGO_EXECUTABLE=${GO_BINARY_PATH} \
+  -DCMAKE_INSTALL_PREFIX=${BASE}/boringssl \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_FLAGS='-Wno-error=ignored-attributes -UBORINGSSL_HAVE_LIBUNWIND' \
+  -DCMAKE_C_FLAGS="${BSSL_C_FLAGS}" \
+  -DBUILD_SHARED_LIBS=0 \
+ && cmake --build build-shared  \
+ && cmake --build build-static  \
+ && cmake --install build-shared \
+ && cmake --install build-static \
+ && cd .. \
+ && rm -rf boringssl
+
+ENV LDFLAGS="-Wl,-rpath,${BASE}/boringssl/lib"
+ENV CFLAGS="-O3"
+ENV CXXFLAGS="-O3"
+ENV PKG_CONFIG_PATH="${BASE}/lib/pkgconfig:${BASE}/boringssl/lib/pkgconfig"
+
+RUN git clone --depth 1 -b v1.12.0 https://github.com/ngtcp2/nghttp3.git \
+ && cd nghttp3 \
+ && git submodule update --init \
+ && autoreconf -if \
+ && ./configure \
+  --prefix=${BASE} \
+  CFLAGS="${CFLAGS}" \
+  CXXFLAGS="${CXXFLAGS}" \
+  LDFLAGS="${LDFLAGS}" \
+  --enable-lib-only \
+ && make -j $(nproc) \
+ && make install \
+ && cd .. \
+ && rm -rf nghttp3
+
+RUN find ${BASE}/boringssl
+
+RUN git clone --depth 1 -b v1.17.0 https://github.com/ngtcp2/ngtcp2.git \
+ && cd ngtcp2 \
+ && autoreconf -if \
+ && ./configure \
+  --prefix=${BASE} \
+  --with-boringssl \
+  BORINGSSL_CFLAGS=-I${BASE}/boringssl/include \
+  BORINGSSL_LIBS="-L${BASE}/boringssl/lib64 -lssl -lcrypto" \
+  CFLAGS="${CFLAGS} -fPIC" \
+  CXXFLAGS="${CXXFLAGS} -fPIC" \
+  LDFLAGS="${LDFLAGS}" \
+  --enable-lib-only \
+ && make -j $(nproc) \
+ && make install \
+ && cd .. \
+ && rm -rf ngtcp2
+
+RUN git clone --depth 1 -b v1.68.0 https://github.com/tatsuhiro-t/nghttp2.git \
+ && cd nghttp2 \
+ && git submodule update --init \
+ && autoreconf -if \
+ && ./configure \
+  --prefix=${BASE} \
+  CFLAGS="${CFLAGS} -I${BASE}/boringssl/include" \
+  CXXFLAGS="${CXXFLAGS} -I${BASE}/boringssl/include" \
+  LDFLAGS="${LDFLAGS}" \
+  OPENSSL_LIBS="-L${BASE}/boringssl/lib64 -lcrypto -lssl" \
+  --enable-http3 \
+  --disable-examples \
+#  --enable-app \
+ && make -j $(nproc) \
+ && make install \
+ && cd .. \
+ && rm -rf nghttp2
+
+RUN git clone --depth 1 -b curl-8_15_0 https://github.com/curl/curl.git \
+ && cd curl \
+ && autoreconf -fi \
+ && ./configure \
+  --prefix=${BASE} \
+  --with-openssl="${BASE}/boringssl" \
+  --with-nghttp2=${BASE} \
+  --with-nghttp3=${BASE} \
+  --with-ngtcp2=${BASE} \
+  LDFLAGS="${LDFLAGS} -L${BASE}/boringssl/lib64 -Wl,-rpath,${BASE}/boringssl/lib" \
+  CFLAGS="${CFLAGS}" \
+  CXXFLAGS="${CXXFLAGS}" \
+ && make -j $(nproc) \
+ && make install \
+ && cd .. \
+ && rm -rf curl
