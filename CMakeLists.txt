@@ -589,6 +589,11 @@ if(ENABLE_AUTEST)
       ""
       CACHE STRING "Additional options for autest (default \"\")"
   )
+  # Also create AUTEST_OPTIONS_LIST from the string for use in cmake targets.
+  # This prevents cmake from escaping spaces in the arguments, which confuses
+  # the autest command. The original AUTEST_OPTIONS string is used in the
+  # autest.sh script.
+  separate_arguments(AUTEST_OPTIONS_LIST UNIX_COMMAND "${AUTEST_OPTIONS}")
   set(PROXY_VERIFIER_VERSION "v2.12.0")
   set(PROXY_VERIFIER_HASH "SHA1=8e9adc6e0b31251ca8e6fc2064ae54e5d752bb72")
   include(proxy-verifier)
@@ -801,10 +806,18 @@ add_custom_target(
   VERBATIM
 )
 
+add_custom_target(
+  whitespace-format
+  ${CMAKE_SOURCE_DIR}/tools/whitespace-format.sh
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  COMMENT "fixing whitespace issues (trailing whitespace, DOS line endings)"
+  VERBATIM
+)
+
 # Add a format target that runs all the formatters.
 add_custom_target(
   format
-  DEPENDS clang-format yapf cmake-format
+  DEPENDS clang-format yapf cmake-format whitespace-format
   COMMENT "formatting all files"
 )
 

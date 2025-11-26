@@ -1,5 +1,6 @@
-/**
-  @file AcidPtr defines global LockPools for accessing and committing
+/** @file
+
+  Stub file for test_proxy
 
   @section license License
 
@@ -18,26 +19,8 @@
   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
   See the License for the specific language governing permissions and
   limitations under the License.
-*/
+ */
 
-#include "tscore/AcidPtr.h"
+#include "proxy/IPAllow.h"
 
-const int READLOCKCOUNT = 61; // a prime larger than number of readers
-
-AcidPtrMutex &
-AcidPtrMutexGet(void const *ptr)
-{
-  static LockPool<AcidPtrMutex> read_locks(READLOCKCOUNT);
-  static_assert(sizeof(void *) == sizeof(size_t));
-  return read_locks.getMutex(reinterpret_cast<size_t>(ptr));
-}
-
-const int WRITELOCKCOUNT = 31; // a prime larger than number of writers
-
-AcidCommitMutex &
-AcidCommitMutexGet(void const *ptr)
-{
-  static LockPool<AcidCommitMutex> write_locks(WRITELOCKCOUNT);
-  static_assert(sizeof(void *) == sizeof(size_t));
-  return write_locks.getMutex(reinterpret_cast<size_t>(ptr));
-}
+uint8_t IpAllow::subjects[IpAllow::Subject::MAX_SUBJECTS];
