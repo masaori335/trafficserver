@@ -251,7 +251,7 @@ public:
   IOBufferData &operator=(const IOBufferData &) = delete;
 };
 
-extern ClassAllocator<IOBufferData> ioDataAllocator;
+extern ClassAllocator<IOBufferData, false> ioDataAllocator;
 
 /**
   A linkable portion of IOBufferData. IOBufferBlock is a chainable
@@ -494,7 +494,7 @@ public:
   IOBufferBlock &operator=(const IOBufferBlock &) = delete;
 };
 
-extern ClassAllocator<IOBufferBlock> ioBlockAllocator;
+extern ClassAllocator<IOBufferBlock, false> ioBlockAllocator;
 
 /** A class for holding a chain of IO buffer blocks.
     This class is intended to be used as a member variable for other classes that
@@ -1513,4 +1513,45 @@ inline IOBufferChain::iterator::value_type *
 IOBufferChain::iterator::operator->() const
 {
   return _b;
+}
+
+//////////////////////////////////////////////////////////////
+//
+// returns 0 for DEFAULT_BUFFER_BASE_SIZE,
+// +1 for each power of 2
+//
+//////////////////////////////////////////////////////////////
+inline int64_t
+buffer_size_to_index(int64_t size, int64_t max)
+{
+  int64_t r = max;
+
+  while (r && BUFFER_SIZE_FOR_INDEX(r - 1) >= size) {
+    r--;
+  }
+  return r;
+}
+
+inline int64_t
+iobuffer_size_to_index(int64_t size, int64_t max)
+{
+  if (size > BUFFER_SIZE_FOR_INDEX(max)) {
+    return BUFFER_SIZE_INDEX_FOR_XMALLOC_SIZE(size);
+  }
+  return buffer_size_to_index(size, max);
+}
+
+inline int64_t
+index_to_buffer_size(int64_t idx)
+{
+  if (BUFFER_SIZE_INDEX_IS_FAST_ALLOCATED(idx)) {
+    return BUFFER_SIZE_FOR_INDEX(idx);
+  } else if (BUFFER_SIZE_INDEX_IS_XMALLOCED(idx)) {
+    return BUFFER_SIZE_FOR_XMALLOC(idx);
+    // coverity[dead_error_condition]
+  } else if (BUFFER_SIZE_INDEX_IS_CONSTANT(idx)) {
+    return BUFFER_SIZE_FOR_CONSTANT(idx);
+  }
+  // coverity[dead_error_line]
+  return 0;
 }

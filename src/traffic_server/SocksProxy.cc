@@ -28,7 +28,6 @@
 
 */
 #include "../iocore/net/P_Socks.h"
-#include "../iocore/eventsystem/P_VConnection.h"
 #include "iocore/utils/OneWayTunnel.h"
 #include "proxy/http/HttpSessionAccept.h"
 #include "tsutil/Metrics.h"
@@ -139,7 +138,7 @@ private:
   int           recursion = 0;
 };
 
-ClassAllocator<SocksProxy> socksProxyAllocator("socksProxyAllocator");
+ClassAllocator<SocksProxy, false> socksProxyAllocator("socksProxyAllocator");
 
 void
 SocksProxy::init(NetVConnection *netVC)

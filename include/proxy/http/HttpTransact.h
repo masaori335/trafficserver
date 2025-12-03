@@ -636,6 +636,7 @@ public:
     bool            trust_response_cl          = false;
     ResponseError_t response_error             = ResponseError_t::NO_RESPONSE_HEADER_ERROR;
     bool            extension_method           = false;
+    std::string     server_response_transfer_encoding; ///< Storage for logging.
 
     _HeaderInfo() {}
   };
@@ -850,6 +851,8 @@ public:
       //      memset((void *)&host_db_info, 0, sizeof(host_db_info));
     }
 
+    ~State() { destroy(); }
+
     void
     destroy()
     {
@@ -858,8 +861,10 @@ public:
       free_internal_msg_buffer();
       ats_free(internal_msg_buffer_type);
 
-      ParentConfig::release(parent_params);
-      parent_params = nullptr;
+      if (parent_params != nullptr) {
+        ParentConfig::release(parent_params);
+        parent_params = nullptr;
+      }
 
       hdr_info.client_request.destroy();
       hdr_info.client_response.destroy();
@@ -878,15 +883,12 @@ public:
       url_map.clear();
       arena.reset();
       unmapped_url.clear();
-      dns_info.~ResolveInfo();
       outbound_conn_track_state.clear();
 
       delete[] ranges;
       ranges      = nullptr;
       range_setup = RangeSetup_t::NONE;
 
-      // This avoids a potential leak since sometimes this class is not destructed (ClassAllocated via HttpSM)
-      pp_info.~ProxyProtocol();
       return;
     }
 

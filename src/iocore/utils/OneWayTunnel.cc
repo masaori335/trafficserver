@@ -32,7 +32,7 @@
    anything to do with HTTP, so it has been renamed to OneWayTunnel.
  ****************************************************************************/
 
-#include "../eventsystem/P_IOBuffer.h"
+#include "iocore/eventsystem/IOBuffer.h"
 #include "iocore/utils/OneWayTunnel.h"
 
 // #define TEST
@@ -43,7 +43,7 @@
 //
 //////////////////////////////////////////////////////////////////////////////
 
-ClassAllocator<OneWayTunnel> OneWayTunnelAllocator("OneWayTunnelAllocator");
+ClassAllocator<OneWayTunnel, false> OneWayTunnelAllocator("OneWayTunnelAllocator");
 
 namespace
 {

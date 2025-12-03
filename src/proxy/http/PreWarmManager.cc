@@ -26,7 +26,6 @@
 
 #include "proxy/http/HttpConfig.h"
 #include "iocore/net/SSLSNIConfig.h"
-#include "../../iocore/eventsystem/P_VConnection.h"
 #include "iocore/net/NetProcessor.h"
 #include "iocore/net/PreWarm.h"
 
@@ -40,8 +39,8 @@
 #define PreWarmSMDbg(fmt, ...)  Dbg(dbg_ctl_prewarm_sm, "[%p] " fmt, this, ##__VA_ARGS__);
 #define PreWarmSMVDbg(fmt, ...) Dbg(dbg_ctl_v_prewarm_sm, "[%p] " fmt, this, ##__VA_ARGS__);
 
-ClassAllocator<PreWarmSM> preWarmSMAllocator("preWarmSMAllocator");
-PreWarmManager            prewarmManager;
+ClassAllocator<PreWarmSM, false> preWarmSMAllocator("preWarmSMAllocator");
+PreWarmManager                   prewarmManager;
 
 namespace
 {

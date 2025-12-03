@@ -32,14 +32,13 @@
 
 #include "P_Socks.h"
 #include "P_Net.h"
-#include "../eventsystem/P_VConnection.h"
 #include "iocore/net/NetProcessor.h"
 #include "tscore/InkErrno.h"
 #include "swoc/swoc_file.h"
 
 using namespace swoc::literals;
 
-ClassAllocator<SocksEntry> socksAllocator("socksAllocator");
+ClassAllocator<SocksEntry, false> socksAllocator("socksAllocator");
 
 namespace
 {
