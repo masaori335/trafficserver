@@ -1829,15 +1829,11 @@ ConditionClientCert::set_qualifier(const std::string &q)
   } else if (q == "APRN-RESOURCE-ID") {
     _client_qual = CLIENT_QUAL_APRN_RESOURCE_ID;
   } else if (q == "APRN-VALIDATED") {
-    _client_qual           = CLIENT_QUAL_APRN_VALIDATED;
-    const char *errorComp  = nullptr;
-    const char *errorStudy = nullptr;
-    int         erroffset;
+    _client_qual = CLIENT_QUAL_APRN_VALIDATED;
+    std::string errorValidate;
+    int         errorOffsetValidate;
+    _regex_validate.compile(_aprn_regex_validate, errorValidate, errorOffsetValidate, 0);
 
-    _regex_validate = pcre_compile(_aprn_regex_validate, 0, &errorComp, &erroffset, nullptr);
-    if (_regex_validate != nullptr) {
-      _regex_extra_validate = pcre_study(_regex_validate, 0, &errorStudy);
-    }
     _parse_aprn = false;
   } else if (q == "ISSUER-DN") {
     _client_qual = CLIENT_QUAL_ISSUER_DN;
@@ -1853,14 +1849,9 @@ ConditionClientCert::set_qualifier(const std::string &q)
   require_resources(RSRC_CLIENT_CERT);
   if (_parse_aprn) {
     // Define the APRN regex pattern
-    const char *errorComp  = nullptr;
-    const char *errorStudy = nullptr;
-    int         erroffset;
-
-    _regex = pcre_compile(_aprn_regex, 0, &errorComp, &erroffset, nullptr);
-    if (_regex != nullptr) {
-      _regex_extra = pcre_study(_regex, 0, &errorStudy);
-    }
+    std::string error;
+    int         errorOffset;
+    _regex.compile(_aprn_regex, error, errorOffset, 0);
   }
 }
 
@@ -1869,8 +1860,8 @@ ConditionClientCert::eval(const Resources &res)
 {
   std::string s;
 
-  if (_parse_aprn && (_regex == nullptr || _regex_extra == nullptr)) {
-    TSError("[%s] PCRE pattern did not compile successfully for APRN conditional", PLUGIN_NAME);
+  if (_parse_aprn && _regex.empty()) {
+    TSError("[%s] Regex pattern did not compile successfully for APRN conditional", PLUGIN_NAME);
   } else if (_client_qual == CLIENT_QUAL_APRN_VALIDATED) {
     Dbg(pi_dbg_ctl, "Validating APRN string");
     get_aprn(s, res.client_cert);
@@ -1881,15 +1872,13 @@ ConditionClientCert::eval(const Resources &res)
       return false;
     }
     // APRN must have at least 7 fields split by ':'
-    int ovector[OVECCOUNT];
-    int match = pcre_exec(_regex_validate, _regex_extra_validate, aprn, aprn_len, 0, 0, ovector, OVECCOUNT);
+    RegexMatches matches;
+    int          match = _regex_validate.exec(aprn, matches);
     // Only 1 capture group needed to validate content
     if (match != 2) {
       return false;
     }
-    int              start = ovector[2];
-    int              end   = ovector[3];
-    std::string_view zone(aprn + start, end - start);
+    auto zone = matches[1];
     return std::any_of(_valid_zones.begin(), _valid_zones.end(), [&zone](std::string_view vzone) { return zone == vzone; });
   } else {
     append_value(s, res);
@@ -1941,16 +1930,14 @@ ConditionClientCert::append_value(std::string &s, const Resources &res)
       s.append(aprn, aprn_len);
       return;
     }
-    // If APRN field, parse using regex pcre
-    int ovector[OVECCOUNT];
-    int match = pcre_exec(_regex, _regex_extra, aprn, aprn_len, 0, 0, ovector, OVECCOUNT);
+    // If APRN field, parse the regex
+    RegexMatches matches;
+    int          match = _regex.exec(aprn, matches);
     // Should match with 6 capturing groups
     if (match != 7) {
       return;
     }
-    int              start = ovector[2 * _client_qual];
-    int              end   = ovector[2 * _client_qual + 1];
-    std::string_view aprn_field(aprn + start, end - start);
+    auto aprn_field = matches[_client_qual];
     Dbg(pi_dbg_ctl, "Appending '%.*s' to evaluation value", static_cast<int>(aprn_field.size()), aprn_field.data());
     s += aprn_field;
   }

@@ -34,11 +34,7 @@
 #include "value.h"
 #include "lulu.h"
 
-#ifdef HAVE_PCRE_PCRE_H
-#include <pcre/pcre.h>
-#else
-#include <pcre.h>
-#endif
+#include "tsutil/Regex.h"
 
 // #include <mdbm.h>
 
@@ -960,16 +956,6 @@ class ConditionClientCert : public Condition
 public:
   explicit ConditionClientCert() { Dbg(dbg_ctl, "Calling CTOR for ConditionClientCert"); }
 
-  ~ConditionClientCert() override
-  {
-    if (_regex != nullptr) {
-      pcre_free(_regex);
-    }
-    if (_regex_extra != nullptr) {
-      pcre_free(_regex_extra);
-    }
-  }
-
   // noncopyable
   ConditionClientCert(const ConditionClientCert &) = delete;
   void operator=(const ConditionClientCert &)      = delete;
@@ -984,13 +970,11 @@ protected:
   void initialize_hooks() override;
 
 private:
-  ClientCertQualifiers         _client_qual          = CLIENT_QUAL_APRN_RAW;
-  bool                         _parse_aprn           = true;
-  pcre                        *_regex                = nullptr;
-  pcre_extra                  *_regex_extra          = nullptr;
-  static constexpr const char *_aprn_regex           = "^aprn:([^:]*):([^:]*):([^:]*):([^:]*):([^:]*):(.*)$";
-  pcre                        *_regex_validate       = nullptr;
-  pcre_extra                  *_regex_extra_validate = nullptr;
+  ClientCertQualifiers         _client_qual = CLIENT_QUAL_APRN_RAW;
+  bool                         _parse_aprn  = true;
+  Regex                        _regex;
+  Regex                        _regex_validate;
+  static constexpr const char *_aprn_regex          = "^aprn:([^:]*):([^:]*):([^:]*):([^:]*):([^:]*):(.*)$";
   static constexpr const char *_aprn_regex_validate = "^aprn:([a-z0-9\\-\\.\\_]+):(?:[a-z0-9\\-\\.\\_]+):(?:[a-z0-9\\-\\.\\_]*:){2}"
                                                       "(?:[a-z0-9\\-\\.\\_]+):(?:[a-z0-9\\-\\.\\_A-Z\\/%\\:]+)$";
   int                          _aprn_max_len        = 512;
