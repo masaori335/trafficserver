@@ -31,6 +31,8 @@ builds:
     finally:
       tag:
         enabled: false
+      pipelineChain:
+        - pipeline: release-master-publish-all
     secrets:
       names:
         - TRAFFICSERVER
