@@ -25,7 +25,7 @@
 #include "iocore/resource/ResourceManager.h"
 
 #include "iocore/net/SSLSNIConfig.h"
-#include "../eventsystem/P_VConnection.h"
+#include "iocore/eventsystem/VConnection.h"
 
 namespace
 {
