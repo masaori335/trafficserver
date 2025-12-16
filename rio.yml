@@ -26,7 +26,7 @@ builds:
         - 'git merge -m "Merge remote-tracking branch ''asf/master'' into master" -m "($PIPELINE_SPEC_ID $RIO_BUILD_NUMBER)" --no-ff asf/master'
         - SSH_AUTH_SOCK=${SSH_AUTH_SOCK_TRAFFICSERVER} git push origin master
     trigger:
-      timer: "@weekly"
+      timer: "@daily"
       gitPush: false
     finally:
       tag:
