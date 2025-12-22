@@ -9,7 +9,12 @@ RUN git clone --depth 1 -b ${ATS_VERSION} https://github.pie.apple.com/ats/traff
      -Bbuild \
      -GNinja \
      -DCMAKE_INSTALL_PREFIX=${BASE} \
-     -DCMAKE_BUILD_TYPE=Release \
+     -DCMAKE_BUILD_TYPE=ReleaseWithDebInfo \
+     -DCMAKE_INSTALL_LIBDIR=lib/trafficserver \
+     -DCMAKE_INSTALL_LIBEXECDIR=lib/trafficserver/plugins \
+     -DCMAKE_INSTALL_LOGDIR=/var/log/trafficserver \
+     -DCMAKE_INSTALL_CACHEDIR=/var/cache/trafficserver \
+     -DCMAKE_INSTALL_RUNSTATEDIR=/var/run/trafficserver \
      -DBUILD_TESTING=OFF \
      -DBUILD_REGRESSION_TESTING=OFF \
      -DENABLE_AUTEST=OFF \
@@ -33,7 +38,12 @@ RUN git clone --depth 1 -b ${ATS_VERSION} https://github.pie.apple.com/ats/plugi
      -Bbuild \
      -GNinja \
      -DCMAKE_INSTALL_PREFIX=${BASE} \
-     -DCMAKE_BUILD_TYPE=Release \
+     -DCMAKE_BUILD_TYPE=ReleaseWithDebInfo \
+     -DCMAKE_INSTALL_LIBDIR=lib/trafficserver \
+     -DCMAKE_INSTALL_LIBEXECDIR=lib/trafficserver/plugins \
+     -DCMAKE_INSTALL_LOGDIR=/var/log/trafficserver \
+     -DCMAKE_INSTALL_CACHEDIR=/var/cache/trafficserver \
+     -DCMAKE_INSTALL_RUNSTATEDIR=/var/run/trafficserver \
      -DBUILD_TESTING=OFF \
      -Dtsapi_ROOT=${BASE} \
      -DOPENSSL_ROOT_DIR=${BASE}/boringssl \
@@ -63,8 +73,8 @@ RUN groupadd bazinga && \
       microdnf clean all
 
 COPY --from=build /opt /opt
-RUN mkdir -p /opt/bazinga/var/trafficserver /opt/bazinga/var/log/trafficserver
-RUN chown bazinga /opt/bazinga/var/trafficserver /opt/bazinga/var/log/trafficserver
+RUN mkdir -p /var/run/trafficserver /var/log/trafficserver /var/cache/trafficserver
+RUN chown bazinga /var/run/trafficserver /var/log/trafficserver /var/cache/trafficserver
 ENV PATH="$PATH:/opt/bazinga/bin"
 
 USER bazinga
