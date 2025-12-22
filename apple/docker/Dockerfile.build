@@ -22,7 +22,6 @@ RUN groupadd bazinga && \
            luajit-devel \
            openssl-devel \
            expat-devel \
-           pcre-devel \
            pcre2-devel \
            zlib-devel \
            xz-devel \
@@ -79,74 +78,3 @@ RUN git clone -b 0.20250701.0 --depth 1 https://boringssl.googlesource.com/borin
  && cd .. \
  && rm -rf boringssl
 
-ENV LDFLAGS="-Wl,-rpath,${BASE}/boringssl/lib"
-ENV CFLAGS="-O3"
-ENV CXXFLAGS="-O3"
-ENV PKG_CONFIG_PATH="${BASE}/lib/pkgconfig:${BASE}/boringssl/lib/pkgconfig"
-
-RUN git clone --depth 1 -b v1.12.0 https://github.com/ngtcp2/nghttp3.git \
- && cd nghttp3 \
- && git submodule update --init \
- && autoreconf -if \
- && ./configure \
-  --prefix=${BASE} \
-  CFLAGS="${CFLAGS}" \
-  CXXFLAGS="${CXXFLAGS}" \
-  LDFLAGS="${LDFLAGS}" \
-  --enable-lib-only \
- && make -j $(nproc) \
- && make install \
- && cd .. \
- && rm -rf nghttp3
-
-RUN git clone --depth 1 -b v1.17.0 https://github.com/ngtcp2/ngtcp2.git \
- && cd ngtcp2 \
- && autoreconf -if \
- && ./configure \
-  --prefix=${BASE} \
-  --with-boringssl \
-  BORINGSSL_CFLAGS=-I${BASE}/boringssl/include \
-  BORINGSSL_LIBS="-L${BASE}/boringssl/lib64 -lssl -lcrypto" \
-  CFLAGS="${CFLAGS} -fPIC" \
-  CXXFLAGS="${CXXFLAGS} -fPIC" \
-  LDFLAGS="${LDFLAGS}" \
-  --enable-lib-only \
- && make -j $(nproc) \
- && make install \
- && cd .. \
- && rm -rf ngtcp2
-
-RUN git clone --depth 1 -b v1.68.0 https://github.com/tatsuhiro-t/nghttp2.git \
- && cd nghttp2 \
- && git submodule update --init \
- && autoreconf -if \
- && ./configure \
-  --prefix=${BASE} \
-  CFLAGS="${CFLAGS} -I${BASE}/boringssl/include" \
-  CXXFLAGS="${CXXFLAGS} -I${BASE}/boringssl/include" \
-  LDFLAGS="${LDFLAGS}" \
-  OPENSSL_LIBS="-L${BASE}/boringssl/lib64 -lcrypto -lssl" \
-  --enable-http3 \
-  --disable-examples \
-#  --enable-app \
- && make -j $(nproc) \
- && make install \
- && cd .. \
- && rm -rf nghttp2
-
-RUN git clone --depth 1 -b curl-8_15_0 https://github.com/curl/curl.git \
- && cd curl \
- && autoreconf -fi \
- && ./configure \
-  --prefix=${BASE} \
-  --with-openssl="${BASE}/boringssl" \
-  --with-nghttp2=${BASE} \
-  --with-nghttp3=${BASE} \
-  --with-ngtcp2=${BASE} \
-  LDFLAGS="${LDFLAGS} -L${BASE}/boringssl/lib64 -Wl,-rpath,${BASE}/boringssl/lib" \
-  CFLAGS="${CFLAGS}" \
-  CXXFLAGS="${CXXFLAGS}" \
- && make -j $(nproc) \
- && make install \
- && cd .. \
- && rm -rf curl
