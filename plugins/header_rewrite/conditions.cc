@@ -1891,7 +1891,7 @@ void
 ConditionClientCert::append_value(std::string &s, const Resources &res)
 {
   if (!res.client_cert) {
-    TSError("[%s] Client certificate is empty, no rules applied", PLUGIN_NAME);
+    Dbg(pi_dbg_ctl, "Client certificate is empty, no rules applied");
     return;
   }
   if (_client_qual == CLIENT_QUAL_ISSUER_DN) {
@@ -1921,7 +1921,7 @@ ConditionClientCert::append_value(std::string &s, const Resources &res)
     get_aprn(san_uri, res.client_cert);
     const char *aprn     = san_uri.c_str();
     int         aprn_len = static_cast<int>(san_uri.length());
-    if (aprn == nullptr) {
+    if (aprn == nullptr || aprn_len == 0) {
       return;
     }
     // Return RAW APRN string
@@ -1947,7 +1947,7 @@ void
 ConditionClientCert::get_aprn(std::string &s, X509 *client_cert)
 {
   if (!client_cert) {
-    TSError("[%s] Client certificate is empty, no rules applied", PLUGIN_NAME);
+    Dbg(pi_dbg_ctl, "Client certificate is empty, no rules applied");
     return;
   }
   // Read from APRN string in the SAN URI
