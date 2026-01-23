@@ -29,6 +29,7 @@
 #include "tsutil/Metrics.h"
 #include "Resource.h"
 #include "iocore/eventsystem/Lock.h"
+#include "tsutil/Bravo.h"
 
 class ResourceStats
 {
@@ -64,4 +65,5 @@ private:
   CounterList                               _global_stats;
   std::unordered_map<uint64_t, CounterList> _property_stats; ///< { property id: array of resource stats }
   std::unordered_map<uint64_t, std::string> _name_map;       ///< { property id: name }
+  mutable ts::bravo::shared_mutex           _map_mutex;
 };

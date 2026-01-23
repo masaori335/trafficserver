@@ -111,49 +111,64 @@ ResourceStats::add(uint32_t tid, std::string_view name)
 void
 ResourceStats::increment(uint64_t tid, ResourceStatsType index, uint64_t value)
 {
-  if (mutex == nullptr) {
+  if (mutex == nullptr || value == 0) {
+    // Do NOT create new stats entry if value is 0
     return;
   }
 
-  // haven't seen this tag id yet, need to create its metrics
-  if (_property_stats.find(tid) == _property_stats.end()) {
-    // Race of creating new stats if _stats_id_map doesn't have it
-    SCOPED_MUTEX_LOCK(lock, mutex, this_ethread());
-
-    if (value == 0) {
-      // Do NOT create new stats entry if value is 0
+  // Read path: shared lock for concurrent reads
+  {
+    ts::bravo::shared_lock<ts::bravo::shared_mutex> read_lock(_map_mutex);
+    auto                                            it = _property_stats.find(tid);
+    if (it != _property_stats.end()) {
+      CounterList stats = it->second;
+      int         id    = static_cast<int>(index);
+      auto        stat  = stats.at(id);
+      if (stat == nullptr) {
+        Error("metric index: %d is nullptr for tag id %" PRIu64, id, tid);
+        return;
+      }
+      ts::Metrics::Counter::increment(stat, value);
       return;
     }
+  }
 
-    auto name_map_result = _name_map.find(tid);
-    if (name_map_result == _name_map.end()) {
-      // unknown property
+  // Write path: modifying shared _property_stats
+  {
+    std::unique_lock<ts::bravo::shared_mutex> write_lock(_map_mutex);
+    auto                                      it = _property_stats.find(tid);
+    if (it == _property_stats.end()) {
+      auto name_map_result = _name_map.find(tid);
+      if (name_map_result == _name_map.end()) {
+        // unknown property
+        return;
+      }
+
+      std::string_view name = name_map_result->second;
+
+      CounterList list;
+      for (int i = 0; i <= static_cast<int>(ResourceStatsType::OVERFLOWED); i++) {
+        _register_property_stat(list, name, static_cast<ResourceStatsType>(i));
+      }
+
+      if (_queue) {
+        _register_property_stat(list, name, ResourceStatsType::ENQUEUE);
+        _register_property_stat(list, name, ResourceStatsType::DEQUEUE);
+      }
+
+      auto result = _property_stats.insert({tid, list});
+      it          = result.first;
+    }
+
+    CounterList stats = it->second;
+    int         id    = static_cast<int>(index);
+    auto        stat  = stats.at(id);
+    if (stat == nullptr) {
+      Error("metric index: %d is nullptr for tag id %" PRIu64, id, tid);
       return;
     }
-
-    std::string_view name = name_map_result->second;
-
-    CounterList list;
-    for (int i = 0; i <= static_cast<int>(ResourceStatsType::OVERFLOWED); i++) {
-      _register_property_stat(list, name, static_cast<ResourceStatsType>(i));
-    }
-
-    if (_queue) {
-      _register_property_stat(list, name, ResourceStatsType::ENQUEUE);
-      _register_property_stat(list, name, ResourceStatsType::DEQUEUE);
-    }
-
-    _property_stats[tid] = list;
+    ts::Metrics::Counter::increment(stat, value);
   }
-
-  CounterList stats = _property_stats[tid];
-  int         id    = static_cast<int>(index);
-  auto        stat  = stats.at(id);
-  if (stat == nullptr) {
-    Error("metric index: %d is nullptr for tag id %" PRIu64, id, tid);
-    return;
-  }
-  ts::Metrics::Counter::increment(stat, value);
 }
 
 void
