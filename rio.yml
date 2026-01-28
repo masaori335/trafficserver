@@ -6,11 +6,11 @@ schemaVersion: "2.0"
 
 <<: &build_machine
   machine:
-    baseImage: docker.apple.com/edge/trafficserver_build:20240724-6-el9
+    baseImage: docker.apple.com/edge/trafficserver_build:20260128-3-el9
 
 <<: &test_machine
   machine:
-    baseImage: docker.apple.com/edge/trafficserver_autest:20260115-1-el9
+    baseImage: docker.apple.com/edge/trafficserver_autest:20260128-2-el9
 
 timeout: 90
 
