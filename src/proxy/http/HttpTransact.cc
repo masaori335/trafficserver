@@ -3270,6 +3270,11 @@ HttpTransact::HandleCacheOpenReadMiss(State *s)
     s->cache_info.action = CacheAction_t::NO_ACTION;
   } else if (s->api_server_response_no_store) { // plugin may have decided not to cache the response
     s->cache_info.action = CacheAction_t::NO_ACTION;
+  } else if (s->cache_info.write_lock_state == CacheWriteLock_t::READ_RETRY) {
+    // We've looped back around due to failing to read during READ_RETRY mode.
+    // Don't attempt another cache write - just proxy to origin without caching.
+    TxnDbg(dbg_ctl_http_trans, "READ_RETRY cache read failed, bypassing cache");
+    s->cache_info.action = CacheAction_t::NO_ACTION;
   } else {
     HttpTransact::set_cache_prepare_write_action_for_new_request(s);
   }
@@ -3342,6 +3347,15 @@ HttpTransact::set_cache_prepare_write_action_for_new_request(State *s)
     // don't have a state for that.
     ink_release_assert(s->redirect_info.redirect_in_process);
     s->cache_info.action = CacheAction_t::WRITE;
+  } else if (s->cache_info.write_lock_state == CacheWriteLock_t::READ_RETRY &&
+             (!s->redirect_info.redirect_in_process || s->txn_conf->redirect_use_orig_cache_key)) {
+    // Defensive: Should not reach here if HandleCacheOpenReadMiss check is working.
+    // If we somehow get here in READ_RETRY state, bypass cache unless we're in a redirect
+    // that uses a different cache key (redirect_use_orig_cache_key == 0).
+    // When redirect_use_orig_cache_key is enabled, the redirect uses the same cache key
+    // as the original request, so we'd hit the same write lock contention.
+    Error("set_cache_prepare_write_action_for_new_request called with READ_RETRY state");
+    s->cache_info.action = CacheAction_t::NO_ACTION;
   } else {
     s->cache_info.action           = CacheAction_t::PREPARE_TO_WRITE;
     s->cache_info.write_lock_state = HttpTransact::CacheWriteLock_t::INIT;
@@ -7498,11 +7512,11 @@ HttpTransact::what_is_document_freshness(State *s, HTTPHdr *client_request, HTTP
 HttpTransact::Authentication_t
 HttpTransact::AuthenticationNeeded(const OverridableHttpConfigParams *p, HTTPHdr *client_request, HTTPHdr *obj_response)
 {
-  ///////////////////////////////////////////////////////////////////////
-  // from RFC2068, sec 14.8, if a client request has the Authorization //
-  // header set, we can't serve it unless the response is public, or   //
-  // if it has a Cache-Control revalidate flag, and we do revalidate.  //
-  ///////////////////////////////////////////////////////////////////////
+  ///////////////////////////////////////////////////////////////////////////////
+  // Per RFC 7234 section 3.2, if a client request has the Authorization      //
+  // header set, we can't serve a cached response unless the response has one //
+  // of: must-revalidate, proxy-revalidate, public, or s-maxage directives.   //
+  ///////////////////////////////////////////////////////////////////////////////
 
   if ((p->cache_ignore_auth == 0) && client_request->presence(MIME_PRESENCE_AUTHORIZATION)) {
     if (obj_response->is_cache_control_set(HTTP_VALUE_MUST_REVALIDATE.c_str()) ||
@@ -7511,6 +7525,8 @@ HttpTransact::AuthenticationNeeded(const OverridableHttpConfigParams *p, HTTPHdr
     } else if (obj_response->is_cache_control_set(HTTP_VALUE_PROXY_REVALIDATE.c_str())) {
       return Authentication_t::MUST_REVALIDATE;
     } else if (obj_response->is_cache_control_set(HTTP_VALUE_PUBLIC.c_str())) {
+      return Authentication_t::SUCCESS;
+    } else if (obj_response->is_cache_control_set(HTTP_VALUE_S_MAXAGE.c_str())) {
       return Authentication_t::SUCCESS;
     } else {
       if (obj_response->field_find("@WWW-Auth"sv) && client_request->method_get_wksidx() == HTTP_WKSIDX_GET) {

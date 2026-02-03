@@ -2,5 +2,6 @@
 -- State Machine Id``
 POST /some/path/http2``
 ``
-x-ja3-sig: ``
+x-ja3-raw: first-signature``
+x-ja3-via: first-via``
 ``
