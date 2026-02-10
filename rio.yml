@@ -279,21 +279,6 @@ builds:
             - name: "variation"
               value: "asan"
 
-  - name: docker-build-image
-    branchName: 10.2.x
-    build:
-      template: buildozer:v4:publish
-    package:
-      dockerfile:
-        - dockerfilePath: apple/docker/Dockerfile.build
-          version: "latest"
-          extraTags: ["$(date +%Y%m%d)-${RIO_BUILD_NUMBER}"]
-          perApplication: false
-          publish:
-            - repo: docker.apple.com/edge/trafficserver-builder
-    trigger:
-      gitPush: false
-
   - branchName: 10.2.x
     build:
       template: buildozer:v4:publish
