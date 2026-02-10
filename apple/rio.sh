@@ -64,7 +64,6 @@ else
     echo "BUILD_NUMBER not set!"
     exit 1
   fi
-  BUILD_NUMBER=$((BUILD_NUMBER + 200))
 fi
 
 git checkout $BRANCH

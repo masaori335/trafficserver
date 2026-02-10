@@ -15,38 +15,14 @@ schemaVersion: "2.0"
 timeout: 90
 
 builds:
-  - branchName: master
-    group: sync
-    <<: *build_machine
-    build:
-      template: freestyle:v4:build
-      steps:
-        - git remote add asf https://github.com/apache/trafficserver.git || true
-        - git fetch asf
-        - 'git merge -m "Merge remote-tracking branch ''asf/master'' into master" -m "($PIPELINE_SPEC_ID $RIO_BUILD_NUMBER)" --no-ff asf/master'
-        - SSH_AUTH_SOCK=${SSH_AUTH_SOCK_TRAFFICSERVER} git push origin master
-    trigger:
-      timer: "@daily"
-      gitPush: false
-    finally:
-      tag:
-        enabled: false
-      pipelineChain:
-        - pipeline: release-master-publish-all
-    secrets:
-      names:
-        - TRAFFICSERVER
-    jenkins:
-      concurrentBuild: false
-
-  - branchName: master
+  - branchName: 10.2.x
     group: test
     version: unittest
     <<: *build_machine
     build:
       template: freestyle:v4:prb
       steps:
-        - ./apple/rio.sh --build --branch master --prb
+        - ./apple/rio.sh --build --branch 10.2.x --prb
     finally:
       notify:
         pullRequestComment:
@@ -55,14 +31,14 @@ builds:
     jenkins:
       concurrentBuild: true
 
-  - branchName: master
+  - branchName: 10.2.x
     group: test
     version: autest
     <<: *test_machine
     build:
       template: freestyle:v4:prb
       steps:
-        - ./apple/rio.sh --test --branch master
+        - ./apple/rio.sh --test --branch 10.2.x
     finally:
       notify:
         pullRequestComment:
@@ -78,7 +54,7 @@ builds:
     jenkins:
       concurrentBuild: true
 
-  - branchName: master
+  - branchName: 10.2.x
     group: test
     version: autest
     <<: *test_machine
@@ -89,7 +65,7 @@ builds:
           description: Tests to run
           defaultValue: "*"
       steps:
-        - ./apple/rio.sh --test --branch master -f "${BUILD_PARAM_test_filter}"
+        - ./apple/rio.sh --test --branch 10.2.x -f "${BUILD_PARAM_test_filter}"
     reports:
       junit:
         paths:
@@ -105,7 +81,7 @@ builds:
     jenkins:
       concurrentBuild: true
 
-  - branchName: master
+  - branchName: 10.2.x
     group: intpr
     <<: *build_machine
     build:
@@ -117,7 +93,7 @@ builds:
           defaultValue: default
           description: Build variant to use
       steps:
-        - ./apple/rio.sh --build --branch master --prid ${BUILD_PARAM_pr_id} --variation ${BUILD_PARAM_variation}
+        - ./apple/rio.sh --build --branch 10.2.x --prid ${BUILD_PARAM_pr_id} --variation ${BUILD_PARAM_variation}
     trigger:
       gitPush: false
     finally:
@@ -129,7 +105,7 @@ builds:
           postOnFailure: false
       pipelineChain:
         - project: ist-gns-edge-trafficserver-plugins
-          pipeline: release-master-publish-10.x-el9
+          pipeline: release-10.2.x-publish-10.x-el9
     package:
       freeform:
         - publish:
@@ -137,7 +113,7 @@ builds:
     jenkins:
       concurrentBuild: true
 
-  - branchName: master
+  - branchName: 10.2.x
     group: release
     version: regular
     <<: *build_machine
@@ -145,11 +121,11 @@ builds:
       template: freestyle:v4:publish
       buildParameters:
         - parameter: build_number
-          description: DO NOT RUN PIPELINE. Build version will be created from running 'release-master-publish-all' pipeline
+          description: DO NOT RUN PIPELINE. Build version will be created from running 'release-10.2.x-publish-all' pipeline
         - parameter: trigger_rats_h3_pipeline
           description: True to trigger the H3 release pipeline for RATS instead of normal ATS release
       steps:
-        - ./apple/rio.sh --build --branch master --tagbuild --release --number ${BUILD_PARAM_build_number}
+        - ./apple/rio.sh --build --branch 10.2.x --tagbuild --release --number ${BUILD_PARAM_build_number}
     trigger:
       gitPush: false
     finally:
@@ -157,7 +133,7 @@ builds:
         enabled: false
       pipelineChain:
         - project: ist-gns-edge-trafficserver-plugins
-          pipeline: release-master-publish-10.x-el9
+          pipeline: release-10.2.x-publish-10.x-el9
       notify:
         pullRequestComment:
           postOnSuccess: false
@@ -172,7 +148,7 @@ builds:
     jenkins:
       concurrentBuild: true
 
-  - branchName: master
+  - branchName: 10.2.x
     group: release
     version: variant
     <<: *build_machine
@@ -182,9 +158,9 @@ builds:
         - parameter: variation
           description: Build variant to use
         - parameter: build_number
-          description: DO NOT RUN PIPELINE. Build version will be created from running 'release-master-publish-all' pipeline
+          description: DO NOT RUN PIPELINE. Build version will be created from running 'release-10.2.x-publish-all' pipeline
       steps:
-        - ./apple/rio.sh --build --branch master --variation ${BUILD_PARAM_variation} --release --number ${BUILD_PARAM_build_number} --tagbuild
+        - ./apple/rio.sh --build --branch 10.2.x --variation ${BUILD_PARAM_variation} --release --number ${BUILD_PARAM_build_number} --tagbuild
     trigger:
       gitPush: false
     finally:
@@ -192,7 +168,7 @@ builds:
         enabled: false
       pipelineChain:
         - project: ist-gns-edge-trafficserver-plugins
-          pipeline: release-master-publish-10.x-el9
+          pipeline: release-10.2.x-publish-10.x-el9
       notify:
         pullRequestComment:
           postOnSuccess: false
@@ -244,7 +220,7 @@ builds:
   ########
   # Multibuild release pipeline
   ########
-  - branchName: master
+  - branchName: 10.2.x
     group: release
     version: all
     <<: *build_machine
@@ -262,20 +238,20 @@ builds:
       tag:
         enabled: false
       pipelineChain:
-        - pipeline: release-master-publish-regular
+        - pipeline: release-10.2.x-publish-regular
           buildArguments:
             - name: "build_number"
               value: ${RIO_BUILD_NUMBER}
             - name: "trigger_rats_h3_pipeline"
               value: ${BUILD_PARAM_trigger_rats_h3_pipeline}
-        - pipeline: release-master-publish-variant
+        - pipeline: release-10.2.x-publish-variant
           buildArguments:
             - name: "variation"
               value: "asan"
             - name: "build_number"
               value: ${RIO_BUILD_NUMBER}
 
-  - branchName: master
+  - branchName: 10.2.x
     group: intpr
     version: all
     <<: *build_machine
@@ -292,11 +268,11 @@ builds:
       tag:
         enabled: false
       pipelineChain:
-        - pipeline: intpr-master-publish
+        - pipeline: intpr-10.2.x-publish
           buildArguments:
             - name: "pr_id"
               value: ${BUILD_PARAM_pr_id}
-        - pipeline: intpr-master-publish
+        - pipeline: intpr-10.2.x-publish
           buildArguments:
             - name: "pr_id"
               value: ${BUILD_PARAM_pr_id}
@@ -304,7 +280,7 @@ builds:
               value: "asan"
 
   - name: docker-build-image
-    branchName: master
+    branchName: 10.2.x
     build:
       template: buildozer:v4:publish
     package:
@@ -318,7 +294,7 @@ builds:
     trigger:
       gitPush: false
 
-  - branchName: master
+  - branchName: 10.2.x
     build:
       template: buildozer:v4:publish
       buildParameters:
