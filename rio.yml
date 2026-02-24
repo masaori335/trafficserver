@@ -16,6 +16,30 @@ timeout: 90
 
 builds:
   - branchName: 10.2.x
+    group: sync
+    <<: *build_machine
+    build:
+      template: freestyle:v4:build
+      steps:
+        - git remote add asf https://github.com/apache/trafficserver.git || true
+        - git fetch asf
+        - 'git merge -m "Merge remote-tracking branch ''asf/10.2.x'' into 10.2.x" -m "($PIPELINE_SPEC_ID $RIO_BUILD_NUMBER)" --no-ff asf/10.2.x'
+        - SSH_AUTH_SOCK=${SSH_AUTH_SOCK_TRAFFICSERVER} git push origin 10.2.x
+    trigger:
+      timer: "@weekly"
+      gitPush: false
+    finally:
+      tag:
+        enabled: false
+      pipelineChain:
+        - pipeline: release-10.2.x-publish-all
+    secrets:
+      names:
+        - TRAFFICSERVER
+    jenkins:
+      concurrentBuild: false
+
+  - branchName: 10.2.x
     group: test
     version: unittest
     <<: *build_machine
