@@ -80,24 +80,66 @@ follows to produce the help output:
 
    hrw4u --help
 
-Doing a compile is simply:
+Basic Usage
+^^^^^^^^^^^
+
+Compile a single file to stdout:
 
 .. code-block:: none
 
    hrw4u some_file.hrw4u
 
-in Addition to ``hrw4u``, you also have the reverse tool, converting existing ``header_rewrite``
-configurations to ``hrw4u``. This tool is named ``u4wrh``. For people using IDEs, the package also
-provides an LSP for this language, named ``hrw4u-lsp``.
+Compile from stdin:
+
+.. code-block:: none
+
+   cat some_file.hrw4u | hrw4u
+
+Compile multiple files to stdout (separated by ``# ---``):
+
+.. code-block:: none
+
+   hrw4u file1.hrw4u file2.hrw4u file3.hrw4u
+
+Bulk Compilation
+^^^^^^^^^^^^^^^^
+
+For bulk compilation, use the ``input:output`` format to compile multiple files
+to their respective output files in a single command:
+
+.. code-block:: none
+
+   hrw4u file1.hrw4u:file1.conf file2.hrw4u:file2.conf file3.hrw4u:file3.conf
+
+This is particularly useful for build systems or when processing many configuration
+files at once. All files are processed in a single invocation, improving performance
+for large batches of files.
+
+Reverse Tool (u4wrh)
+^^^^^^^^^^^^^^^^^^^^
+
+In addition to ``hrw4u``, you also have the reverse tool, converting existing ``header_rewrite``
+configurations to ``hrw4u``. This tool is named ``u4wrh`` and supports the same usage patterns:
+
+.. code-block:: none
+
+   # Convert single file to stdout
+   u4wrh existing_config.conf
+
+   # Bulk conversion
+   u4wrh file1.conf:file1.hrw4u file2.conf:file2.hrw4u
+
+For people using IDEs, the package also provides an LSP for this language, named ``hrw4u-lsp``.
 
 Syntax Differences
 ==================
 
-The basic structure is a `section` name defining the part of the transaction to run in
-followed by conditionals and operators. It uses `if () {} else {}` conditional syntax
-with `&& , || and ==`, with conditions and operators generally following function() or
-object.style grammar. Operator lines are terminated with `;` (whitespace is still not
-significant). For instance:
+The basic structure consists of a `section` name defining the part of the transaction to run,
+followed by conditionals and operators. It uses `if ... {...} elif ... {...} else {...}` conditional syntax
+with `&& , || and ==`. Conditionals support parenthesized grouping for complex expressions (`if (...) {...}`)
+and can be nested up to a maximum depth of 10 levels. Conditions and operators generally follow
+function() or object.style grammar. Operator lines are terminated with `;` and whitespace is still
+insignificant. For instance:
 
 .. code-block:: none
 
@@ -107,10 +149,28 @@ significant). For instance:
    }
 
    REMAP {
-     if inbound.status == 403 || access("/etc/lock") {
+     if inbound.status == 403 {
        inbound.req.X-Fail = "1";
+     } elif inbound.status == 404 {
+       inbound.req.X-NotFound = "1";
      } else {
        no-op();
+     }
+   }
+
+   READ_RESPONSE {
+     if inbound.status > 399 {
+       if inbound.status < 500 {
+         # Client error - check specific cases
+         if inbound.status == 404 {
+           counter("errors.not_found");
+         } elif inbound.status == 403 {
+           counter("errors.forbidden");
+         }
+       } else {
+         # Server error
+         counter("errors.server");
+       }
      }
    }
 
@@ -158,7 +218,8 @@ Syntax               Free-form                     Structured `if (...) { ... }`
 Conditions           `cond %{...}`                 Implicit in `if (...)`
 Operators            Raw text (`set-header`)       Structured assignments or statements
 Grouping             `GROUP` / `GROUP:END`         Use `()` inside `if` expressions
-Else branches        `else` with indented ops      `else { ... }` with full block
+Else branches        `else` with indented ops      `elif ... { ... }` and `else { ... }`
+                                                   with full blocks
 Debugging            Manual with logs              Built-in debug tracing (`--debug`)
 Quotes               Quoted strings optional       Quoted strings required / encouraged
 Validation           Runtime                       Static during parsing and symbol resolution
@@ -388,6 +449,7 @@ Operator             HRW4U Syntax              Description
 ~                    foo ~ /pattern/           Regular expression match
 !~                   foo !~ /pattern/          Regular expression non-match
 in [...]             foo in ["a", "b"]         Membership in a list of values
+!in [...]            foo !in ["a", "b"]        Negated membership in a list of values
 ==================== ========================= ============================================
 
 Modifiers
@@ -567,6 +629,30 @@ Query string when the Origin server times out or the connection is refused::
    READ_RESPONSE {
        if outbound.status in [502, 504] {
            set-redirect(302, "http://different_origin.example.com/{inbound.url.path}?{inbound.url.query}");
+       }
+   }
+
+Flag Unrecognized ASNs
+----------------------
+
+This rule flags requests whose origin ASN is not in a known allowlist,
+using the negated membership operator ``!in``::
+
+   REMAP {
+       if geo.ASN !in ["64496", "64511"] {
+           inbound.req.X-Known-ASN = "false";
+       }
+   }
+
+Restrict to Internal Networks
+-----------------------------
+
+This rule rejects requests that do not originate from known internal
+IP ranges, using ``!in`` with an IP range::
+
+   REMAP {
+       if inbound.ip !in {192.168.0.0/16, 10.0.0.0/8} {
+           http.status = 403;
        }
    }
 

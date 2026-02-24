@@ -1639,7 +1639,17 @@ HttpSM::handle_api_return()
   case HttpTransact::StateMachineAction_t::API_READ_REQUEST_HDR:
   case HttpTransact::StateMachineAction_t::REQUEST_BUFFER_READ_COMPLETE:
   case HttpTransact::StateMachineAction_t::API_OS_DNS:
+    call_transact_and_set_next_state(nullptr);
+    return;
   case HttpTransact::StateMachineAction_t::API_READ_RESPONSE_HDR:
+    // Plugins may mutate response cache-control headers in this hook. Re-cook
+    // targeted cache-control after hooks so downstream cache decisions see the
+    // final header state with targeted precedence.
+    if (t_state.hdr_info.server_response.m_mime) {
+      t_state.hdr_info.server_response.m_mime->recompute_cooked_stuff(
+        nullptr, t_state.txn_conf->targeted_cache_control_headers.get_headers(),
+        t_state.txn_conf->targeted_cache_control_headers.get_count());
+    }
     call_transact_and_set_next_state(nullptr);
     return;
   case HttpTransact::StateMachineAction_t::API_TUNNEL_START:
@@ -2100,13 +2110,17 @@ HttpSM::state_read_server_response_header(int event, void *data)
   }
     // fallthrough
 
-  case ParseResult::DONE:
-
+  case ParseResult::DONE: {
     if (!t_state.hdr_info.server_response.check_hdr_implements()) {
       t_state.http_return_code = HTTPStatus::BAD_GATEWAY;
       call_transact_and_set_next_state(HttpTransact::BadRequest);
       break;
     }
+
+    // Recompute cooked cache control with targeted headers.
+    t_state.hdr_info.server_response.m_mime->recompute_cooked_stuff(nullptr,
+                                                                    t_state.txn_conf->targeted_cache_control_headers.get_headers(),
+                                                                    t_state.txn_conf->targeted_cache_control_headers.get_count());
 
     SMDbg(dbg_ctl_http_seq, "Done parsing server response header");
 
@@ -2138,6 +2152,7 @@ HttpSM::state_read_server_response_header(int event, void *data)
       server_entry->read_vio->disable(); // Disable the read until we finish the tunnel
     }
     break;
+  }
   case ParseResult::CONT:
     ink_assert(server_entry->eos == false);
     server_entry->read_vio->reenable();
@@ -2537,9 +2552,11 @@ HttpSM::state_cache_open_write(int event, void *data)
   case CACHE_EVENT_OPEN_READ:
     if (!t_state.cache_info.object_read) {
       t_state.cache_open_write_fail_action = t_state.txn_conf->cache_open_write_fail_action;
-      // Note that CACHE_LOOKUP_COMPLETE may be invoked more than once
-      // if CacheOpenWriteFailAction_t::READ_RETRY is configured
-      ink_assert(t_state.cache_open_write_fail_action == static_cast<MgmtByte>(CacheOpenWriteFailAction_t::READ_RETRY));
+      // READ_RETRY mode: write lock failed, no stale object available.
+      // CACHE_LOOKUP_COMPLETE will fire from HandleCacheOpenReadMiss with MISS result.
+      ink_assert(t_state.cache_open_write_fail_action == static_cast<MgmtByte>(CacheOpenWriteFailAction_t::READ_RETRY) ||
+                 t_state.cache_open_write_fail_action ==
+                   static_cast<MgmtByte>(CacheOpenWriteFailAction_t::READ_RETRY_STALE_ON_REVALIDATE));
       t_state.cache_lookup_result         = HttpTransact::CacheLookupResult_t::NONE;
       t_state.cache_info.write_lock_state = HttpTransact::CacheWriteLock_t::READ_RETRY;
       break;
@@ -2558,8 +2575,9 @@ HttpSM::state_cache_open_write(int event, void *data)
     t_state.source = HttpTransact::Source_t::CACHE;
     // clear up CacheLookupResult_t::MISS, let Freshness function decide
     // hit status
-    t_state.cache_lookup_result         = HttpTransact::CacheLookupResult_t::NONE;
-    t_state.cache_info.write_lock_state = HttpTransact::CacheWriteLock_t::READ_RETRY;
+    t_state.cache_open_write_fail_action = t_state.txn_conf->cache_open_write_fail_action;
+    t_state.cache_lookup_result          = HttpTransact::CacheLookupResult_t::NONE;
+    t_state.cache_info.write_lock_state  = HttpTransact::CacheWriteLock_t::READ_RETRY;
     break;
 
   case HTTP_TUNNEL_EVENT_DONE:
@@ -2663,7 +2681,21 @@ HttpSM::state_cache_open_read(int event, void *data)
 
     ink_assert(t_state.transact_return_point == nullptr);
     t_state.transact_return_point = HttpTransact::HandleCacheOpenRead;
-    setup_cache_lookup_complete_api();
+
+    // For READ_RETRY actions (5 and 6), skip the CACHE_LOOKUP_COMPLETE hook now.
+    // The hook will fire later with the final result: HIT if stale content is found
+    // during retry, or MISS if nothing is found (from HandleCacheOpenReadMiss).
+    // This ensures plugins see only the final cache lookup result, avoiding issues
+    // like stats double-counting and duplicate hook registrations.
+    if (t_state.txn_conf->cache_open_write_fail_action == static_cast<MgmtByte>(CacheOpenWriteFailAction_t::READ_RETRY) ||
+        t_state.txn_conf->cache_open_write_fail_action ==
+          static_cast<MgmtByte>(CacheOpenWriteFailAction_t::READ_RETRY_STALE_ON_REVALIDATE)) {
+      SMDbg(dbg_ctl_http, "READ_RETRY configured, deferring CACHE_LOOKUP_COMPLETE hook");
+      t_state.cache_lookup_complete_deferred = true;
+      call_transact_and_set_next_state(nullptr);
+    } else {
+      setup_cache_lookup_complete_api();
+    }
     break;
 
   default:

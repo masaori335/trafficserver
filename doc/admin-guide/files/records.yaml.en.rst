@@ -2518,6 +2518,31 @@ Cache Control
          ``Cache-Control: max-age``.
    ===== ======================================================================
 
+.. ts:cv:: CONFIG proxy.config.http.cache.targeted_cache_control_headers STRING ""
+   :reloadable:
+   :overridable:
+
+   Comma-separated list of targeted cache control header names to check in priority
+   order before falling back to the standard ``Cache-Control`` header. This implements
+   `RFC 9213 <https://httpwg.org/specs/rfc9213.html>`_ Targeted HTTP Cache Control.
+   When empty (the default), targeted cache control is disabled and only the standard
+   ``Cache-Control`` header is used.
+
+   Example values:
+
+   - ``CDN-Cache-Control`` - Use only CDN-Cache-Control if present
+   - ``ATS-Cache-Control,CDN-Cache-Control`` - Check ATS-Cache-Control first, then
+     CDN-Cache-Control, then fall back to Cache-Control
+
+   When a targeted header is found, its directives are used rather than those in the
+   standard ``Cache-Control`` header for caching decisions. The targeted headers are
+   passed through to downstream caches.
+
+   .. note::
+
+      This implementation uses the existing Cache-Control parser rather than the
+      strict RFC 8941 Structured Fields parser specified in RFC 9213.
+
 .. ts:cv:: CONFIG proxy.config.http.cache.max_stale_age INT 604800
    :reloadable:
    :overridable:
@@ -2892,7 +2917,7 @@ Dynamic Content & Content Negotiation
     The number of times to attempt a cache open write upon failure to get a write lock.
 
     This config is ignored when :ts:cv:`proxy.config.http.cache.open_write_fail_action` is
-    set to ``5`` or :ts:cv:`proxy.config.http.cache.max_open_write_retry_timeout` is set to gt ``0``.
+    set to ``5`` or ``6``, or when :ts:cv:`proxy.config.http.cache.max_open_write_retry_timeout` is set to gt ``0``.
 
 .. ts:cv:: CONFIG proxy.config.http.cache.max_open_write_retry_timeout INT 0
    :reloadable:
@@ -2901,7 +2926,7 @@ Dynamic Content & Content Negotiation
     A timeout for attempting a cache open write upon failure to get a write lock.
 
     This config is ignored when :ts:cv:`proxy.config.http.cache.open_write_fail_action` is
-    set to ``5``.
+    set to ``5`` or ``6``.
 
 .. ts:cv:: CONFIG proxy.config.http.cache.open_write_fail_action INT 0
    :reloadable:
@@ -2929,8 +2954,14 @@ Dynamic Content & Content Negotiation
          with :ts:cv:`proxy.config.cache.enable_read_while_writer` configuration
          allows to collapse concurrent requests without a need for any plugin.
          Make sure to configure the :ref:`admin-config-read-while-writer` feature
-         correctly. Note that this option may result in CACHE_LOOKUP_COMPLETE HOOK
-         being called back more than once.
+         correctly. With this option, CACHE_LOOKUP_COMPLETE HOOK is deferred for
+         read retries so that plugins see only the final cache lookup result.
+   ``6`` Retry Cache Read on a Cache Write Lock failure (same as ``5``), but if
+         read retries are exhausted and a stale cached object exists, serve the
+         stale content if allowed. This combines the request collapsing behavior
+         of ``5`` with the stale-serving fallback of ``2``. If stale is not
+         returnable (e.g., due to ``Cache-Control: must-revalidate``), go to
+         origin server.
    ===== ======================================================================
 
 Customizable User Response Pages
