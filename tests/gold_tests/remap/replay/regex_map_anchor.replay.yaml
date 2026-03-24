@@ -1,0 +1,94 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+meta:
+  version: '1.0'
+
+autest:
+  description: 'Verify regex_map performs anchored hostname matching'
+
+  dns:
+    name: 'dns'
+
+  server:
+    name: 'server'
+
+  client:
+    name: 'client'
+
+  ats:
+    name: 'ts'
+
+    process_config:
+      enable_cache: false
+
+    records_config:
+      proxy.config.diags.debug.enabled: 1
+      proxy.config.diags.debug.tags: 'http|url_rewrite_regex'
+      proxy.config.url_remap.remap_required: 1
+
+    remap_config:
+      # regex_map rule - should ONLY match "cdn.example.com" exactly, not substrings
+      - 'regex_map http://cdn\.example\.com/ http://127.0.0.1:{SERVER_HTTP_PORT}/'
+
+sessions:
+- transactions:
+
+  # Transaction 1: Subdomain attack - hostname contains "cdn.example.com" as substring
+  # With proper anchored matching, this should NOT match and return 404
+  - client-request:
+      method: GET
+      url: /path/test.html
+      version: '1.1'
+      headers:
+        fields:
+        - [Host, prefix.cdn.example.com.evil.com]
+        - [uuid, subdomain-attack]
+
+    # With anchored matching, this should return 404 (no remap match)
+    proxy-response:
+      status: 404
+
+    # Server should not receive this request if anchoring works correctly
+    server-response:
+      status: 200
+      reason: OK
+      headers:
+        fields:
+        - [Content-Length, 0]
+
+  # Transaction 2: Exact match - hostname is exactly "cdn.example.com"
+  # This should match and return 200
+  - client-request:
+      method: GET
+      url: /path/test.html
+      version: '1.1'
+      headers:
+        fields:
+        - [Host, cdn.example.com]
+        - [uuid, exact-match]
+
+    # This should match and return 200
+    proxy-response:
+      status: 200
+
+    server-response:
+      status: 200
+      reason: OK
+      headers:
+        fields:
+        - [Content-Length, 0]
+
