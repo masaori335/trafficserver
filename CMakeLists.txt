@@ -593,6 +593,28 @@ check_cxx_source_compiles(
   }"
   HAVE_CRYPTO_EX_DUP_TYPE1
 )
+if(SSLLIB_IS_BORINGSSL OR SSLLIB_IS_AWSLC)
+  check_cxx_source_compiles(
+    "#include <openssl/asn1.h>
+    namespace bssl {
+      DECLARE_ASN1_ITEM(GENERAL_NAME)
+    };
+    int main() {
+      if (&bssl::GENERAL_NAME_it == reinterpret_cast<void *>(0x01)) {
+        return 1;
+      }
+      return 0;
+    }"
+    HAVE_GENERAL_NAME_IN_BSSL_NAMESPACE
+  )
+else()
+  # This probe is only meaningful for BoringSSL-family libraries. Force it off
+  # for OpenSSL so a stale cache or macro shape change can't enable bssl:: code.
+  set(HAVE_GENERAL_NAME_IN_BSSL_NAMESPACE
+      FALSE
+      CACHE INTERNAL "GENERAL_NAME lives in the bssl namespace" FORCE
+  )
+endif()
 
 set(CMAKE_EXTRA_INCLUDE_FILES netinet/in.h netinet/tcp.h)
 check_type_size("struct tcp_info" STRUCT_TCP_INFO)
@@ -652,8 +674,8 @@ if(ENABLE_AUTEST)
   # the autest command. The original AUTEST_OPTIONS string is used in the
   # autest.sh script.
   separate_arguments(AUTEST_OPTIONS_LIST UNIX_COMMAND "${AUTEST_OPTIONS}")
-  set(PROXY_VERIFIER_VERSION "v2.12.0")
-  set(PROXY_VERIFIER_HASH "SHA1=8e9adc6e0b31251ca8e6fc2064ae54e5d752bb72")
+  set(PROXY_VERIFIER_VERSION "v3.0.0")
+  set(PROXY_VERIFIER_HASH "SHA1=e11b5867a56c5ffd496b18c901f1273e9c120a47")
   include(proxy-verifier)
 endif()
 

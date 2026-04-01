@@ -260,9 +260,11 @@ class ConditionHeader : public Condition
   using SelfType    = ConditionHeader;
 
 public:
-  explicit ConditionHeader(bool client = false) : _client(client)
+  enum HeaderType { HEADER, CLIENT, SERVER };
+
+  explicit ConditionHeader(HeaderType type = HEADER) : _type(type)
   {
-    Dbg(dbg_ctl, "Calling CTOR for ConditionHeader, client %d", client);
+    Dbg(dbg_ctl, "Calling CTOR for ConditionHeader, type %d", static_cast<int>(type));
   }
 
   // noncopyable
@@ -276,7 +278,7 @@ protected:
   bool eval(const Resources &res) override;
 
 private:
-  bool _client;
+  HeaderType _type;
 };
 
 // url
@@ -287,7 +289,7 @@ class ConditionUrl : public Condition
   using SelfType    = ConditionUrl;
 
 public:
-  enum UrlType { CLIENT, URL, FROM, TO };
+  enum UrlType { CLIENT, URL, FROM, TO, SERVER };
 
   explicit ConditionUrl(const UrlType type) : _type(type) { Dbg(dbg_ctl, "Calling CTOR for ConditionUrl"); }
 

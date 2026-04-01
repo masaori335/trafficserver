@@ -332,7 +332,7 @@ HttpSM::init(bool from_early_data)
 
   t_state.http_config_param = HttpConfig::acquire();
   // Acquire a lease on the global remap / rewrite table (stupid global name ...)
-  m_remap = rewrite_table->acquire();
+  m_remap = rewrite_table.load()->acquire();
 
   // Simply point to the global config for the time being, no need to copy this
   // entire struct if nothing is going to change it.
@@ -1891,9 +1891,23 @@ HttpSM::state_http_server_open(int event, void *data)
   case CONNECT_EVENT_RETRY:
     do_http_server_open();
     break;
-  case CONNECT_EVENT_TXN:
+  case CONNECT_EVENT_TXN: {
+    // Multiplexed connection path (H2/H3): ConnectingEntry owns the connection and
+    // dispatches this event with the PoolableSession once the handshake completes.
+    // The HttpSM has no access to the netvc during the handshake, so we copy the
+    // timestamps that were recorded in real-time by sslClientHandShakeEvent().
+    // See also VC_EVENT_WRITE_COMPLETE below for the direct (H1) path -- these
+    // two paths are mutually exclusive.
     SMDbg(dbg_ctl_http, "Connection handshake complete via CONNECT_EVENT_TXN");
-    if (this->create_server_txn(static_cast<PoolableSession *>(data))) {
+    PoolableSession *session = static_cast<PoolableSession *>(data);
+    ink_assert(session != nullptr);
+    if (auto *netvc = session->get_netvc()) {
+      if (auto tbs = netvc->get_service<TLSBasicSupport>()) {
+        milestones[TS_MILESTONE_SERVER_TLS_HANDSHAKE_START] = tbs->get_tls_handshake_begin_time();
+        milestones[TS_MILESTONE_SERVER_TLS_HANDSHAKE_END]   = tbs->get_tls_handshake_end_time();
+      }
+    }
+    if (this->create_server_txn(session)) {
       t_state.current.server->clear_connect_fail();
       handle_http_server_open();
     } else { // Failed to create transaction.  Maybe too many active transactions already
@@ -1901,11 +1915,19 @@ HttpSM::state_http_server_open(int event, void *data)
       do_http_server_open(false);
     }
     return 0;
+  }
   case VC_EVENT_READ_COMPLETE:
   case VC_EVENT_WRITE_READY:
   case VC_EVENT_WRITE_COMPLETE:
-    // Update the time out to the regular connection timeout.
+    // Direct connection path (H1): HttpSM owns the netvc directly.
+    // Same milestone copy as CONNECT_EVENT_TXN above -- these two paths are
+    // mutually exclusive. Timestamps were recorded in real-time by
+    // sslClientHandShakeEvent(); we copy them into milestones here.
     SMDbg(dbg_ctl_http_ss, "Connection handshake complete");
+    if (auto tbs = _netvc->get_service<TLSBasicSupport>()) {
+      milestones[TS_MILESTONE_SERVER_TLS_HANDSHAKE_START] = tbs->get_tls_handshake_begin_time();
+      milestones[TS_MILESTONE_SERVER_TLS_HANDSHAKE_END]   = tbs->get_tls_handshake_end_time();
+    }
     this->create_server_txn(this->create_server_session(*_netvc, _netvc_read_buffer, _netvc_reader));
     t_state.current.server->clear_connect_fail();
     handle_http_server_open();
@@ -3111,7 +3133,8 @@ HttpSM::tunnel_handler(int event, void * /* data ATS_UNUSED */)
     return 0;
   }
 
-  ink_assert(event == HTTP_TUNNEL_EVENT_DONE || event == VC_EVENT_INACTIVITY_TIMEOUT);
+  ink_assert(event == HTTP_TUNNEL_EVENT_DONE || event == VC_EVENT_INACTIVITY_TIMEOUT || event == VC_EVENT_ACTIVE_TIMEOUT ||
+             event == VC_EVENT_ERROR || event == VC_EVENT_EOS);
   // The tunnel calls this when it is done
   terminate_sm = true;
 
@@ -5305,11 +5328,11 @@ HttpSM::get_outbound_sni() const
     // By default the host header field value is used for the SNI.
     zret = t_state.hdr_info.server_request.host_get();
   } else if (_ua.get_txn() && policy == "server_name"_tv) {
-    const char *server_name = snis->get_sni_server_name();
-    if (server_name[0] == '\0') {
+    const char *const server_name = snis->get_sni_server_name();
+    if (nullptr == server_name || server_name[0] == '\0') {
       zret.assign(nullptr, swoc::TextView::npos);
     } else {
-      zret.assign(snis->get_sni_server_name(), swoc::TextView::npos);
+      zret.assign(server_name, swoc::TextView::npos);
     }
   } else if (policy.front() == '@') { // guaranteed non-empty from previous clause
     zret = policy.remove_prefix(1);
@@ -6605,8 +6628,16 @@ HttpSM::perform_cache_write_action()
     if (transform_info.entry == nullptr || t_state.api_info.cache_untransformed == true) {
       cache_sm.close_read();
       t_state.cache_info.write_status = HttpTransact::CacheWriteStatus_t::IN_PROGRESS;
-      setup_cache_write_transfer(&cache_sm, server_entry->vc, &t_state.cache_info.object_store, client_response_hdr_bytes,
-                                 "cache write");
+
+      // Decide how many header bytes the cache-write consumer should skip.
+      // When a transform is present, setup_server_transfer_to_transform()
+      // creates the tunnel buffer with hdr_size=0, so the buffer contains
+      // only body data - no response headers to skip.  When no transform is
+      // present, setup_server_transfer() writes the response header into the
+      // buffer, so skip_bytes must equal client_response_hdr_bytes.
+      int64_t cache_write_skip = (transform_info.entry == nullptr) ? client_response_hdr_bytes : 0;
+
+      setup_cache_write_transfer(&cache_sm, server_entry->vc, &t_state.cache_info.object_store, cache_write_skip, "cache write");
     } else {
       // We are not caching the untransformed.  We might want to
       //  use the cache writevc to cache the transformed copy
@@ -7729,11 +7760,14 @@ HttpSM::kill_this()
 void
 HttpSM::update_stats()
 {
-  ATS_PROBE1(milestone_sm_finish, sm_id);
+  const HTTPStatus status_code =
+    t_state.hdr_info.client_response.valid() ? t_state.hdr_info.client_response.status_get() : HTTPStatus::NONE;
+
+  ATS_PROBE2(milestone_sm_finish, sm_id, static_cast<int>(status_code));
   milestones[TS_MILESTONE_SM_FINISH] = ink_get_hrtime();
 
   if (is_action_tag_set("bad_length_state_dump")) {
-    if (t_state.hdr_info.client_response.valid() && t_state.hdr_info.client_response.status_get() == HTTPStatus::OK) {
+    if (status_code == HTTPStatus::OK) {
       int64_t p_resp_cl = t_state.hdr_info.client_response.get_content_length();
       int64_t resp_size = client_response_body_bytes;
       if (!((p_resp_cl == -1 || p_resp_cl == resp_size || resp_size == 0))) {
@@ -7786,12 +7820,21 @@ HttpSM::update_stats()
 
   // print slow requests if the threshold is set (> 0) and if we are over the time threshold
   if (t_state.txn_conf->slow_log_threshold != 0 && ink_hrtime_from_msec(t_state.txn_conf->slow_log_threshold) < total_time) {
+    // Use the unmapped (pre-remap) URL so the slow log shows the incoming client URL.
+    // unmapped_url may not be valid if the transaction ended before reaching the remap
+    // stage (e.g. client timeout during header read, malformed request). In that case
+    // fall back to client_request URL which hasn't been remapped yet either.
     char url_string[256] = "";
-    int  offset          = 0;
-    int  skip            = 0;
-
-    t_state.hdr_info.client_request.url_print(url_string, sizeof(url_string) - 1, &offset, &skip);
-    url_string[offset] = 0; // NULL terminate the string
+    int  url_length      = 0;
+    if (t_state.unmapped_url.valid()) {
+      t_state.unmapped_url.string_get_buf(url_string, sizeof(url_string) - 1, &url_length);
+    } else {
+      int offset = 0;
+      int skip   = 0;
+      t_state.hdr_info.client_request.url_print(url_string, sizeof(url_string) - 1, &offset, &skip);
+      url_length = offset;
+    }
+    url_string[url_length] = 0; // NULL terminate the string
 
     // unique id
     char unique_id_string[128] = "";
@@ -7812,11 +7855,7 @@ HttpSM::update_stats()
         fd = -1;
       }
     }
-    // get the status code, lame that we have to check to see if it is valid or we will assert in the method call
-    int status = 0;
-    if (t_state.hdr_info.client_response.valid()) {
-      status = static_cast<int>(t_state.hdr_info.client_response.status_get());
-    }
+    int  status = static_cast<int>(status_code);
     char client_ip[INET6_ADDRSTRLEN];
     ats_ip_ntop(&t_state.client_info.src_addr, client_ip, sizeof(client_ip));
     Error("[%" PRId64 "] Slow Request: "
@@ -7830,7 +7869,7 @@ HttpSM::update_stats()
           "fd: %d "
           "client state: %d "
           "server state: %d "
-          "tls_handshake: %.3f "
+          "ua_tls_handshake: %.3f "
           "ua_begin: %.3f "
           "ua_first_read: %.3f "
           "ua_read_header_done: %.3f "
@@ -7842,6 +7881,7 @@ HttpSM::update_stats()
           "dns_lookup_end: %.3f "
           "server_connect: %.3f "
           "server_connect_end: %.3f "
+          "server_tls_handshake: %.3f "
           "server_first_read: %.3f "
           "server_read_header_done: %.3f "
           "server_close: %.3f "
@@ -7865,6 +7905,7 @@ HttpSM::update_stats()
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_DNS_LOOKUP_END),
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_CONNECT),
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_CONNECT_END),
+          milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_TLS_HANDSHAKE_END),
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_FIRST_READ),
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_READ_HEADER_DONE),
           milestones.difference_sec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_CLOSE),
