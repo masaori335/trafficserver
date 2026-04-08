@@ -4079,6 +4079,17 @@ SSL Termination
    :file:`ssl_multicert.config` file successfully load.  If false (``0``), SSL certificate
    load failures will not prevent |TS| from starting.
 
+.. ts:cv:: CONFIG proxy.config.ssl.server.multicert.concurrency INT 1
+
+   Controls parallelism when loading :file:`ssl_multicert.config`.
+   A value of ``0`` automatically selects one thread per CPU core.
+   A value of ``1`` (the default) means single-threaded loading.
+   Values greater than ``1`` use that many threads.
+
+   On initial startup (before any traffic is flowing), the loader will use
+   ``max(hardware_concurrency, configured)`` threads since there is no
+   traffic to compete with for CPU.
+
 .. ts:cv:: CONFIG proxy.config.ssl.server.cert.path STRING /config
 
    The location of the SSL certificates and chains used for accepting
@@ -4243,6 +4254,11 @@ SSL Termination
   On the other hand, if ``proxy.config.ssl.session_cache.mode``  is disabled, using the default value is recommended.
   In those scenarios, increasing the number of tickets could be potentially beneficial for clients performing
   multiple requests over concurrent TLS connections as per RFC 8446 clients SHOULDN'T reuse TLS Tickets.
+
+  This setting is applied at the SSL context level. BoringSSL does not support setting the
+  ticket number on a per-SNI basis, so the :file:`sni.yaml` :code:`ssl_ticket_number`
+  configuration does not apply when ATS is linked against BoringSSL and this context-level
+  value remains in effect.
 
   For more information see https://www.openssl.org/docs/man1.1.1/man3/SSL_CTX_set_num_tickets.html
 

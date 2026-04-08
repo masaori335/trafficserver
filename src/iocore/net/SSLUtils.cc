@@ -52,6 +52,9 @@
 #endif
 #include "swoc/swoc_file.h"
 #include "swoc/Errata.h"
+
+#include <thread>
+#include <tuple>
 #include <openssl/asn1.h>
 #include <openssl/bio.h>
 #include <openssl/bn.h>
@@ -112,6 +115,12 @@ static DbgCtl dbg_ctl_ssl_session_cache{"ssl.session_cache"};
 static DbgCtl dbg_ctl_ssl_error{"ssl.error"};
 static DbgCtl dbg_ctl_ssl_verify{"ssl_verify"};
 static DbgCtl dbg_ctl_harmony{"resource-harmony"};
+
+#if TS_HAS_TLS_SESSION_TICKET
+static bool ssl_context_enable_ticket_callback(SSL_CTX *ctx);
+static bool ssl_apply_sni_session_ticket_properties(SSL *ssl);
+static bool ssl_set_session_ticket_number(SSL *ssl, size_t num_tickets);
+#endif
 
 /* Using pthread thread ID and mutex functions directly, instead of
  * ATS this_ethread / ProxyMutex, so that other linked libraries
@@ -420,13 +429,9 @@ ssl_cert_callback(SSL *ssl, [[maybe_unused]] void *arg)
       setClientCertCACerts(ssl, sslnetvc->get_ca_cert_file(), sslnetvc->get_ca_cert_dir());
     }
 
-    // Reset the ticket callback if needed
-    SSL_CTX *ctx = SSL_get_SSL_CTX(ssl);
-#ifdef HAVE_SSL_CTX_SET_TLSEXT_TICKET_KEY_EVP_CB
-    SSL_CTX_set_tlsext_ticket_key_evp_cb(ctx, ssl_callback_session_ticket);
-#else
-    SSL_CTX_set_tlsext_ticket_key_cb(ctx, ssl_callback_session_ticket);
-#endif
+    if (!ssl_apply_sni_session_ticket_properties(ssl)) {
+      retval = 0;
+    }
   }
 #endif
 
@@ -606,6 +611,77 @@ ssl_context_enable_dhe(const char *dhparams_file, SSL_CTX *ctx)
   return ctx;
 }
 
+#if TS_HAS_TLS_SESSION_TICKET
+static bool
+ssl_context_enable_ticket_callback(SSL_CTX *ctx)
+{
+#ifdef HAVE_SSL_CTX_SET_TLSEXT_TICKET_KEY_EVP_CB
+  if (SSL_CTX_set_tlsext_ticket_key_evp_cb(ctx, ssl_callback_session_ticket) == 0) {
+#else
+  if (SSL_CTX_set_tlsext_ticket_key_cb(ctx, ssl_callback_session_ticket) == 0) {
+#endif
+    Error("failed to set session ticket callback");
+    return false;
+  }
+  return true;
+}
+
+static bool
+ssl_set_session_ticket_number(SSL *ssl, size_t num_tickets)
+{
+#if defined(OPENSSL_IS_BORINGSSL)
+  // BoringSSL only exposes SSL_CTX_set_num_tickets(), so the per-connection
+  // sni.yaml override is not available here.
+  (void)ssl;
+  (void)num_tickets;
+  return true;
+#else
+  return SSL_set_num_tickets(ssl, num_tickets) == 1;
+#endif
+}
+
+static bool
+ssl_apply_sni_session_ticket_properties(SSL *ssl)
+{
+  auto snis = TLSSNISupport::getInstance(ssl);
+  if (snis == nullptr) {
+    return true;
+  }
+
+  auto const &hints = snis->hints_from_sni;
+  if (!hints.ssl_ticket_enabled.has_value() && !hints.ssl_ticket_number.has_value()) {
+    return true;
+  }
+
+  std::optional<size_t> num_tickets;
+
+  if (hints.ssl_ticket_enabled.has_value()) {
+    if (hints.ssl_ticket_enabled.value() != 0) {
+      SSL_clear_options(ssl, SSL_OP_NO_TICKET);
+      Dbg(dbg_ctl_ssl_load, "Enabled session tickets due to sni.yaml override");
+    } else {
+      SSL_set_options(ssl, SSL_OP_NO_TICKET);
+      num_tickets = 0;
+      Dbg(dbg_ctl_ssl_load, "Disabled session tickets due to sni.yaml override");
+    }
+  }
+
+  if ((!hints.ssl_ticket_enabled.has_value() || hints.ssl_ticket_enabled.value() != 0) && hints.ssl_ticket_number.has_value()) {
+    num_tickets = hints.ssl_ticket_number.value() > 0 ? static_cast<size_t>(hints.ssl_ticket_number.value()) : 0;
+  }
+
+  if (num_tickets.has_value()) {
+    if (!ssl_set_session_ticket_number(ssl, num_tickets.value())) {
+      Error("failed to set session ticket number from sni.yaml");
+      return false;
+    }
+    Dbg(dbg_ctl_ssl_load, "Set session ticket number from sni.yaml to %zu", num_tickets.value());
+  }
+
+  return true;
+}
+#endif
+
 static ssl_ticket_key_block *
 ssl_context_enable_tickets(SSL_CTX *ctx, const char *ticket_key_path)
 {
@@ -619,15 +695,10 @@ ssl_context_enable_tickets(SSL_CTX *ctx, const char *ticket_key_path)
     Metrics::Counter::increment(ssl_rsb.total_ticket_keys_renewed);
   }
 
-// Setting the callback can only fail if OpenSSL does not recognize the
-// SSL_CTRL_SET_TLSEXT_TICKET_KEY_CB constant. we set the callback first
-// so that we don't leave a ticket_key pointer attached if it fails.
-#ifdef HAVE_SSL_CTX_SET_TLSEXT_TICKET_KEY_EVP_CB
-  if (SSL_CTX_set_tlsext_ticket_key_evp_cb(ctx, ssl_callback_session_ticket) == 0) {
-#else
-  if (SSL_CTX_set_tlsext_ticket_key_cb(ctx, ssl_callback_session_ticket) == 0) {
-#endif
-    Error("failed to set session ticket callback");
+  // Setting the callback can only fail if OpenSSL does not recognize the
+  // SSL_CTRL_SET_TLSEXT_TICKET_KEY_CB constant. we set the callback first
+  // so that we don't leave a ticket_key pointer attached if it fails.
+  if (!ssl_context_enable_ticket_callback(ctx)) {
     ticket_block_free(keyblock);
     return nullptr;
   }
@@ -1294,6 +1365,12 @@ SSLMultiCertConfigLoader::init_server_ssl_ctx(CertLoadData const &data, const SS
       }
     }
 
+#if TS_HAS_TLS_SESSION_TICKET
+    if (!ssl_context_enable_ticket_callback(ctx)) {
+      goto fail;
+    }
+#endif
+
     if (!this->_setup_client_cert_verification(ctx)) {
       goto fail;
     }
@@ -1681,11 +1758,20 @@ SSLMultiCertConfigLoader::_store_ssl_ctx(SSLCertLookup *lookup, const shared_SSL
   SSLMultiCertConfigLoader::CertLoadData         data;
 
   if (!this->_prep_ssl_ctx(sslMultCertSettings, data, common_names, unique_names)) {
-    lookup->is_valid = false;
+    {
+      std::lock_guard<std::mutex> lock(_loader_mutex);
+      lookup->is_valid = false;
+    }
     return false;
   }
 
   std::vector<SSLLoadingContext> ctxs = this->init_server_ssl_ctx(data, sslMultCertSettings.get());
+
+  // Serialize all mutations to the shared SSLCertLookup.
+  // The expensive work above (_prep_ssl_ctx + init_server_ssl_ctx) runs
+  // without the lock, allowing parallel cert loading across threads.
+  std::lock_guard<std::mutex> lock(_loader_mutex);
+
   for (const auto &loadingctx : ctxs) {
     if (!sslMultCertSettings ||
         !this->_store_single_ssl_ctx(lookup, sslMultCertSettings, shared_SSL_CTX{loadingctx.ctx, SSL_CTX_free}, loadingctx.ctx_type,
@@ -1935,17 +2021,49 @@ ssl_extract_certificate(const matcher_line *line_info, SSLMultiCertConfigParams 
   return true;
 }
 
+void
+SSLMultiCertConfigLoader::_load_lines(SSLCertLookup *lookup, SSLConfigLines::const_iterator begin,
+                                      SSLConfigLines::const_iterator end, swoc::Errata &errata)
+{
+  const matcher_tags     sslCertTags = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, false};
+  const SSLConfigParams *params      = this->_params;
+
+  // Each thread needs its own ElevateAccess since POSIX capabilities
+  // are per-thread and don't propagate to spawned threads.
+  uint32_t      elevate_setting = RecGetRecordInt("proxy.config.ssl.cert.load_elevated").value_or(0);
+  ElevateAccess elevate_access(elevate_setting ? ElevateAccess::FILE_PRIVILEGE : 0);
+
+  for (auto it = begin; it != end; ++it) {
+    auto &[line, line_num] = *it;
+
+    shared_SSLMultiCertConfigParams sslMultiCertSettings = std::make_shared<SSLMultiCertConfigParams>();
+    matcher_line                    line_info;
+    const char                     *errPtr;
+
+    errPtr = parseConfigLine(line, &line_info, &sslCertTags);
+    Dbg(dbg_ctl_ssl_load, "currently parsing %s at line %d from config file: %s", line, line_num, params->configFilePath);
+    if (errPtr != nullptr) {
+      Warning("%s: discarding %s entry at line %d: %s", __func__, params->configFilePath, line_num, errPtr);
+    } else {
+      if (ssl_extract_certificate(&line_info, sslMultiCertSettings.get())) {
+        if (sslMultiCertSettings->cert || sslMultiCertSettings->opt != SSLCertContextOption::OPT_TUNNEL) {
+          if (!this->_store_ssl_ctx(lookup, sslMultiCertSettings)) {
+            std::lock_guard<std::mutex> lock(_loader_mutex);
+            errata.note(ERRATA_ERROR, "Failed to load certificate on line {}", line_num);
+          }
+        } else {
+          std::lock_guard<std::mutex> lock(_loader_mutex);
+          errata.note(ERRATA_WARN, "No ssl_cert_name specified and no tunnel action set on line {}", line_num);
+        }
+      }
+    }
+  }
+}
+
 swoc::Errata
-SSLMultiCertConfigLoader::load(SSLCertLookup *lookup)
+SSLMultiCertConfigLoader::load(SSLCertLookup *lookup, bool firstLoad)
 {
   const SSLConfigParams *params = this->_params;
-
-  char        *tok_state = nullptr;
-  char        *line      = nullptr;
-  unsigned     line_num  = 0;
-  matcher_line line_info;
-
-  const matcher_tags sslCertTags = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, false};
 
   Note("(%s) %s loading ...", this->_debug_tag(), ts::filename::SSL_MULTICERT);
 
@@ -1954,7 +2072,6 @@ SSLMultiCertConfigLoader::load(SSLCertLookup *lookup)
   if (ec) {
     switch (ec.value()) {
     case ENOENT:
-      // missing config file is an acceptable runtime state
       return swoc::Errata(ERRATA_WARN, "Cannot open SSL certificate configuration \"{}\" - {}", params->configFilePath, ec);
     default:
       return swoc::Errata(ERRATA_ERROR, "Failed to read SSL certificate configuration from \"{}\" - {}", params->configFilePath,
@@ -1968,8 +2085,13 @@ SSLMultiCertConfigLoader::load(SSLCertLookup *lookup)
   elevate_setting          = RecGetRecordInt("proxy.config.ssl.cert.load_elevated").value_or(0);
   ElevateAccess elevate_access(elevate_setting ? ElevateAccess::FILE_PRIVILEGE : 0);
 
+  // Collect all non-empty, non-comment lines for processing
+  char          *tok_state = nullptr;
+  char          *line      = nullptr;
+  unsigned       line_num  = 0;
+  SSLConfigLines config_lines;
+
   line = tokLine(content.data(), &tok_state);
-  swoc::Errata errata(ERRATA_NOTE);
   while (line != nullptr) {
     line_num++;
 
@@ -1979,28 +2101,49 @@ SSLMultiCertConfigLoader::load(SSLCertLookup *lookup)
     }
 
     if (*line != '\0' && *line != '#') {
-      shared_SSLMultiCertConfigParams sslMultiCertSettings = std::make_shared<SSLMultiCertConfigParams>();
-      const char                     *errPtr;
+      config_lines.emplace_back(line, line_num);
+    }
+    line = tokLine(nullptr, &tok_state);
+  }
 
-      errPtr = parseConfigLine(line, &line_info, &sslCertTags);
-      Dbg(dbg_ctl_ssl_load, "currently parsing %s at line %d from config file: %s", line, line_num, params->configFilePath);
-      if (errPtr != nullptr) {
-        Warning("%s: discarding %s entry at line %d: %s", __func__, params->configFilePath, line_num, errPtr);
-      } else {
-        if (ssl_extract_certificate(&line_info, sslMultiCertSettings.get())) {
-          // There must be a certificate specified unless the tunnel action is set
-          if (sslMultiCertSettings->cert || sslMultiCertSettings->opt != SSLCertContextOption::OPT_TUNNEL) {
-            if (!this->_store_ssl_ctx(lookup, sslMultiCertSettings)) {
-              errata.note(ERRATA_ERROR, "Failed to load certificate on line {}", line_num);
-            }
-          } else {
-            errata.note(ERRATA_WARN, "No ssl_cert_name specified and no tunnel action set on line {}", line_num);
-          }
-        }
-      }
+  swoc::Errata errata(ERRATA_NOTE);
+
+  if (params->configLoadConcurrency > 1 && config_lines.size() > 1) {
+    // On first load (no traffic yet), allow more threads for faster startup
+    int num_threads = params->configLoadConcurrency;
+    if (firstLoad) {
+      num_threads = std::max(static_cast<int>(std::thread::hardware_concurrency()), num_threads);
     }
 
-    line = tokLine(nullptr, &tok_state);
+    // Don't spawn more threads than lines
+    num_threads = std::min(num_threads, static_cast<int>(config_lines.size()));
+
+    std::size_t                    bucket_size = config_lines.size() / num_threads;
+    std::size_t                    remainder   = config_lines.size() % num_threads;
+    SSLConfigLines::const_iterator current     = config_lines.cbegin();
+    std::vector<std::thread>       threads;
+
+    Note("(%s) loading %zu certs with %d threads", this->_debug_tag(), config_lines.size(), num_threads);
+
+    for (int t = 0; t < num_threads; ++t) {
+      // Distribute remainder lines across the first threads
+      std::size_t                    this_bucket = bucket_size + (static_cast<std::size_t>(t) < remainder ? 1 : 0);
+      SSLConfigLines::const_iterator end         = current + this_bucket;
+
+      threads.emplace_back(&SSLMultiCertConfigLoader::_load_lines, this, lookup, current, end, std::ref(errata));
+      current = end;
+    }
+
+    for (auto &th : threads) {
+      th.join();
+    }
+
+    Note("(%s) loaded %zu certs in %d threads", this->_debug_tag(), config_lines.size(), num_threads);
+  } else {
+    // Single-threaded path (concurrency == 1 or only 1 line)
+    this->_load_lines(lookup, config_lines.cbegin(), config_lines.cend(), errata);
+
+    Note("(%s) loaded %zu certs (single-threaded)", this->_debug_tag(), config_lines.size());
   }
 
   // We *must* have a default context even if it can't possibly work. The default context is used to

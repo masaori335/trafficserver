@@ -423,7 +423,8 @@ HttpSM::attach_client_session(ProxyTransaction *txn)
   if (!netvc) {
     return;
   }
-  ATS_PROBE2(http_attach_client_session, sm_id, netvc->get_socket());
+  ATS_PROBE4(http_attach_client_session, sm_id, netvc->get_socket(), txn->get_transaction_id(),
+             dynamic_cast<UnixNetVConnection *>(netvc) ? dynamic_cast<UnixNetVConnection *>(netvc)->id : 0);
   _ua.set_txn(txn, milestones);
 
   // Collect log & stats information. We've already verified that the netvc is !nullptr above,
@@ -4537,37 +4538,13 @@ HttpSM::do_remap_request(bool run_inline)
     if (host_field) {
       auto host_name{host_field->value_get()};
       if (!host_name.empty()) {
-        int port = -1;
-        // Host header can contain port number, and if it does we need to set host and port separately to unmapped_url.
-        // If header value starts with '[', the value must contain an IPv6 address, and it may contain a port number as well.
-        if (host_name.starts_with("["sv)) { // IPv6
-          host_name.remove_prefix(1);       // Skip '['
-          // If header value ends with ']', the value must only contain an IPv6 address (no port number).
-          if (host_name.ends_with("]"sv)) { // Without port number
-            host_name.remove_suffix(1);     // Exclude ']'
-          } else {                          // With port number
-            for (int idx = host_name.length() - 1; idx > 0; idx--) {
-              if (host_name[idx] == ':') {
-                port      = ink_atoi(host_name.data() + idx + 1, host_name.length() - (idx + 1));
-                host_name = host_name.substr(0, idx);
-                break;
-              }
-            }
-          }
-        } else { // Anything else (Hostname or IPv4 address)
-          // If the value contains ':' where it does not have IPv6 address, there must be port number
-          if (const char *colon = static_cast<const char *>(memchr(host_name.data(), ':', host_name.length()));
-              colon == nullptr) { // Without port number
-            // Nothing to adjust. Entire value should be used as hostname.
-          } else { // With port number
-            port      = ink_atoi(colon + 1, host_name.length() - ((colon + 1) - host_name.data()));
-            host_name = host_name.substr(0, colon - host_name.data());
-          }
-        }
+        int  port     = 0;
+        bool has_port = false;
 
-        // Set values
-        t_state.unmapped_url.host_set(host_name);
-        if (port >= 0) {
+        if (http_parse_host_header(host_name, host_name, port, has_port)) {
+          t_state.unmapped_url.host_set(host_name);
+        }
+        if (has_port) {
           t_state.unmapped_url.port_set(port);
         }
       }
