@@ -540,28 +540,6 @@ update_cache_control_information_from_config(HttpTransact::State *s)
   }
 }
 
-bool
-HttpTransact::is_server_negative_cached(State *s)
-{
-  if (s->dns_info.active && s->dns_info.active->last_fail_time() != TS_TIME_ZERO &&
-      s->dns_info.active->last_fail_time() + s->txn_conf->down_server_timeout > ts_clock::from_time_t(s->client_request_time)) {
-    return true;
-  } else {
-    // Make sure some nasty clock skew has not happened
-    //  Use the server timeout to set an upperbound as to how far in the
-    //   future we should tolerate bogus last failure times.  This sets
-    //   the upper bound to the time that we would ever consider a server
-    //   down to 2*down_server_timeout
-    if (s->dns_info.active &&
-        ts_clock::from_time_t(s->client_request_time) + s->txn_conf->down_server_timeout < s->dns_info.active->last_fail_time()) {
-      s->dns_info.active->mark_up();
-      ink_assert(!"extreme clock skew");
-      return true;
-    }
-    return false;
-  }
-}
-
 inline static void
 update_current_info(HttpTransact::CurrentInfo *into, HttpTransact::ConnectionAttributes *from,
                     ResolveInfo::UpstreamResolveStyle who, bool clear_retry_attempts)
@@ -971,22 +949,6 @@ HttpTransact::TooEarly(State *s)
   TxnDbg(dbg_ctl_http_trans, "Early Data method is not safe");
   bootstrap_state_variables_from_request(s, &s->hdr_info.client_request);
   build_error_response(s, HTTPStatus::TOO_EARLY, "Too Early", "too#early");
-  TRANSACT_RETURN(StateMachineAction_t::SEND_ERROR_CACHE_NOOP, nullptr);
-}
-
-void
-HttpTransact::OriginDown(State *s)
-{
-  TxnDbg(dbg_ctl_http_trans, "origin server is marked down");
-  bootstrap_state_variables_from_request(s, &s->hdr_info.client_request);
-  build_error_response(s, HTTPStatus::BAD_GATEWAY, "Origin Server Marked Down", "connect#failed_connect");
-  Metrics::Counter::increment(http_rsb.down_server_no_requests);
-  char            *url_str = s->hdr_info.client_request.url_string_get_ref(nullptr);
-  std::string_view host_name{s->unmapped_url.host_get()};
-  swoc::bwprint(error_bw_buffer, "CONNECT: down server no request to {} for host='{}' url='{}'", s->current.server->dst_addr,
-                host_name, swoc::bwf::FirstOf(url_str, "<none>"));
-  Log::error("%s", error_bw_buffer.c_str());
-
   TRANSACT_RETURN(StateMachineAction_t::SEND_ERROR_CACHE_NOOP, nullptr);
 }
 
@@ -2910,7 +2872,7 @@ HttpTransact::HandleCacheOpenReadHit(State *s)
     //  scheme & 2) If we skip down parents, every page
     //  we serve is potentially stale
     //
-    if (s->current.request_to == ResolveInfo::ORIGIN_SERVER && is_server_negative_cached(s) && response_returnable == true &&
+    if (s->current.request_to == ResolveInfo::ORIGIN_SERVER && response_returnable == true &&
         is_stale_cache_response_returnable(s) == true) {
       server_up = false;
       update_current_info(&s->current, nullptr, ResolveInfo::UNDEFINED_LOOKUP, true);
@@ -3927,7 +3889,7 @@ HttpTransact::handle_response_from_server(State *s)
 {
   TxnDbg(dbg_ctl_http_trans, "(hrfs)");
   HTTP_RELEASE_ASSERT(s->current.server == &s->server_info);
-  unsigned max_connect_retries = 0;
+  unsigned max_connect_retries;
 
   // plugin call
   s->server_info.state = s->current.state;
@@ -3970,13 +3932,7 @@ HttpTransact::handle_response_from_server(State *s)
       }
     }
 
-    if (is_server_negative_cached(s)) {
-      max_connect_retries = s->txn_conf->connect_attempts_max_retries_down_server - 1;
-    } else {
-      // server not yet negative cached - use default number of retries
-      max_connect_retries = s->txn_conf->connect_attempts_max_retries;
-    }
-
+    max_connect_retries = s->txn_conf->connect_attempts_max_retries;
     TxnDbg(dbg_ctl_http_trans, "max_connect_retries: %d s->current.retry_attempts: %d", max_connect_retries,
            s->current.retry_attempts.get());
 

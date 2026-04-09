@@ -995,7 +995,6 @@ public:
   static void Forbidden(State *s);
   static void SelfLoop(State *s);
   static void TooEarly(State *s);
-  static void OriginDown(State *s);
   static void PostActiveTimeoutResponse(State *s);
   static void PostInactiveTimeoutResponse(State *s);
   static void DecideCacheLookup(State *s);
@@ -1075,7 +1074,6 @@ public:
   static void initialize_state_variables_from_request(State *s, HTTPHdr *obsolete_incoming_request);
 
   static void initialize_state_variables_from_response(State *s, HTTPHdr *incoming_response);
-  static bool is_server_negative_cached(State *s);
   static bool is_cache_response_returnable(State *s);
   static bool is_stale_cache_response_returnable(State *s);
   static bool need_to_revalidate(State *s);

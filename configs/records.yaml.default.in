@@ -91,7 +91,6 @@ records:
 #    https://docs.trafficserver.apache.org/en/latest/admin-guide/files/records.yaml.en.html#origin-server-connect-attempts
 ##############################################################################
     connect_attempts_max_retries: 3
-    connect_attempts_max_retries_down_server: 1
     connect_attempts_rr_retries: 3
     connect_attempts_timeout: 30
     down_server:

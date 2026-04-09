@@ -114,7 +114,6 @@ TSOverridableConfigKey Value                                              Config
 :enumerator:`TS_CONFIG_HTTP_CHUNKING_SIZE`                              :ts:cv:`proxy.config.http.chunking.size`
 :enumerator:`TS_CONFIG_HTTP_STRICT_CHUNK_PARSING`                       :ts:cv:`proxy.config.http.strict_chunk_parsing`
 :enumerator:`TS_CONFIG_HTTP_DROP_CHUNKED_TRAILERS`                      :ts:cv:`proxy.config.http.drop_chunked_trailers`
-:enumerator:`TS_CONFIG_HTTP_CONNECT_ATTEMPTS_MAX_RETRIES_DOWN_SERVER`   :ts:cv:`proxy.config.http.connect_attempts_max_retries_down_server`
 :enumerator:`TS_CONFIG_HTTP_CONNECT_ATTEMPTS_MAX_RETRIES`               :ts:cv:`proxy.config.http.connect_attempts_max_retries`
 :enumerator:`TS_CONFIG_HTTP_CONNECT_ATTEMPTS_RR_RETRIES`                :ts:cv:`proxy.config.http.connect_attempts_rr_retries`
 :enumerator:`TS_CONFIG_HTTP_CONNECT_ATTEMPTS_TIMEOUT`                   :ts:cv:`proxy.config.http.connect_attempts_timeout`

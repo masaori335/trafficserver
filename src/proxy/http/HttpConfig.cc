@@ -1046,8 +1046,6 @@ HttpConfig::startup()
   HttpEstablishStaticConfigFloat(c.oride.background_fill_threshold, "proxy.config.http.background_fill_completed_threshold");
 
   HttpEstablishStaticConfigLongLong(c.oride.connect_attempts_max_retries, "proxy.config.http.connect_attempts_max_retries");
-  HttpEstablishStaticConfigLongLong(c.oride.connect_attempts_max_retries_down_server,
-                                    "proxy.config.http.connect_attempts_max_retries_down_server");
   HttpEstablishStaticConfigLongLong(c.oride.connect_attempts_retry_backoff_base,
                                     "proxy.config.http.connect_attempts_retry_backoff_base");
 
@@ -1343,8 +1341,7 @@ HttpConfig::reconfigure()
   params->oride.background_fill_active_timeout      = m_master.oride.background_fill_active_timeout;
   params->oride.background_fill_threshold           = m_master.oride.background_fill_threshold;
 
-  params->oride.connect_attempts_max_retries             = m_master.oride.connect_attempts_max_retries;
-  params->oride.connect_attempts_max_retries_down_server = m_master.oride.connect_attempts_max_retries_down_server;
+  params->oride.connect_attempts_max_retries = m_master.oride.connect_attempts_max_retries;
   if (m_master.oride.connect_attempts_rr_retries > params->oride.connect_attempts_max_retries) {
     Warning("connect_attempts_rr_retries (%" PRIu64 ") is greater than "
             "connect_attempts_max_retries (%" PRIu64 "), this means requests "

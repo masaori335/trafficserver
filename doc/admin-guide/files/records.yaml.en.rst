@@ -1811,12 +1811,15 @@ Origin Server Connect Attempts
 
    The maximum number of connection retries |TS| can make when the origin server is not responding.
    Each retry attempt lasts for `proxy.config.http.connect_attempts_timeout`_ seconds.  Once the maximum number of retries is
-   reached, the origin is marked down (as controlled by `proxy.config.http.connect.down.policy`_.  After this, the setting
-   `proxy.config.http.connect_attempts_max_retries_down_server`_ is used to limit the number of retry attempts to the known down origin.
+   reached, the origin is marked down as controlled by `proxy.config.http.connect.down.policy`.
 
 .. ts:cv:: CONFIG proxy.config.http.connect_attempts_max_retries_down_server INT 1
    :reloadable:
    :overridable:
+
+   .. warning::
+
+      Removed by 11.0.0
 
    Maximum number of connection attempts |TS| can make while an origin is marked down per request.  Typically this value is smaller than
    `proxy.config.http.connect_attempts_max_retries`_ so an error is returned to the client faster and also to reduce the load on the down origin.

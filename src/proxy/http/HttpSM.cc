@@ -5495,12 +5495,6 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
       return;
     }
   }
-  if (HttpTransact::is_server_negative_cached(&t_state) == true &&
-      t_state.txn_conf->connect_attempts_max_retries_down_server <= 0) {
-    SMDbg(dbg_ctl_http_seq, "Not connecting to the server because it is marked down.");
-    call_transact_and_set_next_state(HttpTransact::OriginDown);
-    return;
-  }
 
   // Check for self loop.
   if (!_ua.get_txn()->is_outbound_transparent() && HttpTransact::will_this_request_self_loop(&t_state)) {
