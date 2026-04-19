@@ -1,0 +1,58 @@
+#######################
+#
+#  Licensed to the Apache Software Foundation (ASF) under one or more contributor license
+#  agreements.  See the NOTICE file distributed with this work for additional information regarding
+#  copyright ownership.  The ASF licenses this file to you under the Apache License, Version 2.0
+#  (the "License"); you may not use this file except in compliance with the License.  You may obtain
+#  a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software distributed under the License
+#  is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+#  or implied. See the License for the specific language governing permissions and limitations under
+#  the License.
+#
+#######################
+
+add_atsplugin(
+  jax_fingerprint
+  plugin.cc
+  context.cc
+  userarg.cc
+  header.cc
+  log.cc
+  ja3/method.cc
+  ja3/utils.cc
+  ja4/method.cc
+  ja4/ja4.cc
+  ja4/datasource.cc
+  ja4/tls_client_hello_summary.cc
+  ja4h/method.cc
+  ja4h/ja4h.cc
+  ja4h/datasource.cc
+  common/utils.cc
+)
+target_link_libraries(jax_fingerprint PRIVATE OpenSSL::Crypto OpenSSL::SSL)
+target_include_directories(jax_fingerprint BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+verify_global_plugin(jax_fingerprint)
+verify_remap_plugin(jax_fingerprint)
+
+if(BUILD_TESTING)
+  add_executable(
+    test_jax
+    ja3/test.cc
+    ja3/utils.cc
+    ja4/test.cc
+    ja4/ja4.cc
+    ja4/datasource.cc
+    ja4h/test.cc
+    ja4h/ja4h.cc
+    ja4h/datasource.cc
+    common/utils.cc
+  )
+  target_link_libraries(test_jax PRIVATE Catch2::Catch2WithMain OpenSSL::Crypto OpenSSL::SSL)
+  target_include_directories(test_jax BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+  add_catch2_test(NAME test_jax COMMAND test_jax)
+endif()
