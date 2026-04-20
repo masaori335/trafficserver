@@ -234,15 +234,12 @@ directory of the |TS| source tree. Experimental plugins can be compiled by passi
 :doc:`ICAP <icap.en>`
    Pass response data to external server for further processing using the ICAP protocol.
 
-<<<<<<< HEAD
-=======
 :doc:`JA4 Fingerprint <ja4_fingerprint.en>`
    Calculates JA4 Fingerprints for incoming TLS traffic.
 
 :doc:`JAx Fingerprint <jax_fingerprint.en>`
    Calculates JAx Fingerprints.
 
->>>>>>> 910f3e53e9 (Add jax_fingerprint plugin (#12995))
 :doc:`MaxMind ACL <maxmind_acl.en>`
    ACL based on the maxmind geo databases (GeoIP2 mmdb and libmaxminddb)
 
