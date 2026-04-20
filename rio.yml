@@ -33,6 +33,7 @@ builds:
         enabled: false
       pipelineChain:
         - pipeline: release-10.2.x-publish-all
+          upstreamGitRevision: false
     secrets:
       names:
         - TRAFFICSERVER
@@ -263,12 +264,14 @@ builds:
         enabled: false
       pipelineChain:
         - pipeline: release-10.2.x-publish-regular
+          upstreamGitRevision: false
           buildArguments:
             - name: "build_number"
               value: ${RIO_BUILD_NUMBER}
             - name: "trigger_rats_h3_pipeline"
               value: ${BUILD_PARAM_trigger_rats_h3_pipeline}
         - pipeline: release-10.2.x-publish-variant
+          upstreamGitRevision: false
           buildArguments:
             - name: "variation"
               value: "asan"
