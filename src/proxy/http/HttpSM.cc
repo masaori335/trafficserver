@@ -45,6 +45,7 @@
 #include "proxy/http/PreWarmConfig.h"
 #include "proxy/logging/Log.h"
 #include "proxy/logging/LogAccess.h"
+#include "proxy/http/CompletedTransactionLogData.h"
 #include "proxy/PluginVC.h"
 #include "proxy/ReverseProxy.h"
 #include "proxy/http/remap/RemapProcessor.h"
@@ -4675,16 +4676,39 @@ HttpSM::do_hostdb_reverse_lookup()
 bool
 HttpSM::track_connect_fail() const
 {
-  bool retval = false;
-  if (t_state.current.server->had_connect_fail()) {
-    // What does our policy say?
-    if (t_state.txn_conf->connect_down_policy == 2) { // Any connection error through TLS handshake
-      retval = true;
-    } else if (t_state.txn_conf->connect_down_policy == 1) { // Any connection error through TCP
-      retval = t_state.current.server->connect_result != -ENET_SSL_CONNECT_FAILED;
+  int const policy = t_state.txn_conf->connect_down_policy;
+
+  // Policy 1: any TCP-level connect error (excluding TLS handshake failures).
+  if (policy == 1 && t_state.current.server->had_connect_fail()) {
+    return t_state.current.server->connect_result != -ENET_SSL_CONNECT_FAILED;
+  }
+
+  // Policy 2+: any connect error including TLS handshake failures.
+  if (policy >= 2 && t_state.current.server->had_connect_fail()) {
+    return true;
+  }
+
+  // Policy 3+: inactive timeout (connect_result was cleared at CONNECTION_ALIVE).
+  if (policy >= 3 && t_state.current.server->state == HttpTransact::INACTIVE_TIMEOUT) {
+    return true;
+  }
+
+  // Policy 4+: origin closed a fresh connection before sending any response bytes.
+  // Excludes two cases:
+  // - Reused keep-alive connection: there is a known race between ATS reusing and the origin closing it.
+  // - Multiplexed origins (HTTP/2): stream-level failure does not indicate a connection failure.
+  if (policy >= 4) {
+    bool multiplexed = false;
+    auto ssn         = server_txn->get_proxy_ssn();
+    if (ssn != nullptr) {
+      multiplexed = static_cast<PoolableSession *>(ssn)->is_multiplexing();
+    }
+    if (!multiplexed && server_txn->is_first_transaction() && server_response_hdr_bytes == 0) {
+      return true;
     }
   }
-  return retval;
+
+  return false;
 }
 
 void
@@ -7692,7 +7716,8 @@ HttpSM::kill_this()
     //////////////
     SMDbg(dbg_ctl_http_seq, "Logging transaction");
     if (Log::transaction_logging_enabled() && t_state.api_info.logging_enabled) {
-      LogAccess accessor(this);
+      CompletedTransactionLogData log_data(this);
+      LogAccess                   accessor(log_data);
 
       int ret = Log::access(&accessor);
 
@@ -8420,7 +8445,8 @@ HttpSM::do_redirect()
     if (redirect_url != nullptr ||
         t_state.hdr_info.client_response.field_find(static_cast<std::string_view>(MIME_FIELD_LOCATION))) {
       if (Log::transaction_logging_enabled() && t_state.api_info.logging_enabled) {
-        LogAccess accessor(this);
+        CompletedTransactionLogData log_data(this);
+        LogAccess                   accessor(log_data);
         if (redirect_url == nullptr) {
           if (t_state.squid_codes.log_code == SquidLogCode::TCP_HIT) {
             t_state.squid_codes.log_code = SquidLogCode::TCP_HIT_REDIRECT;

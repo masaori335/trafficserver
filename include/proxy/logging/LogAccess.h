@@ -25,12 +25,15 @@
 #pragma once
 
 #include "tscore/ink_align.h"
+#include "proxy/Milestones.h"
+#include "proxy/hdrs/HTTP.h"
 #include "proxy/logging/LogField.h"
 
-class HTTPHdr;
-class HttpSM;
+class TransactionLogData;
 class IpClass;
 union IpEndpoint;
+
+#include <string>
 
 /*-------------------------------------------------------------------------
   LogAccess
@@ -114,7 +117,16 @@ class LogAccess
 {
 public:
   LogAccess() = delete;
-  explicit LogAccess(HttpSM *sm);
+
+  /** Construct from a TransactionLogData instance.
+   *
+   * The caller retains ownership of @a data, which must outlive the
+   * synchronous Log::access() call that marshals this entry.
+   *
+   * @param[in] data Populated TransactionLogData (CompletedTransactionLogData
+   *                 or PreTransactionLogData).
+   */
+  explicit LogAccess(TransactionLogData &data);
 
   ~LogAccess() {}
   void init();
@@ -297,14 +309,16 @@ public:
   //
   // milestones access
   //
-  int  marshal_milestone(TSMilestonesType ms, char *buf);
-  int  marshal_milestone_fmt_sec(TSMilestonesType ms, char *buf);
-  int  marshal_milestone_fmt_squid(TSMilestonesType ms, char *buf);
-  int  marshal_milestone_fmt_netscape(TSMilestonesType ms, char *buf);
-  int  marshal_milestone_fmt_date(TSMilestonesType ms, char *buf);
-  int  marshal_milestone_fmt_time(TSMilestonesType ms, char *buf);
-  int  marshal_milestone_fmt_ms(TSMilestonesType ms, char *buf);
-  int  marshal_milestone_diff(TSMilestonesType ms1, TSMilestonesType ms2, char *buf);
+  int marshal_milestone(TSMilestonesType ms, char *buf);
+  int marshal_milestone_fmt_sec(TSMilestonesType ms, char *buf);
+  int marshal_milestone_fmt_squid(TSMilestonesType ms, char *buf);
+  int marshal_milestone_fmt_netscape(TSMilestonesType ms, char *buf);
+  int marshal_milestone_fmt_date(TSMilestonesType ms, char *buf);
+  int marshal_milestone_fmt_time(TSMilestonesType ms, char *buf);
+  int marshal_milestone_fmt_ms(TSMilestonesType ms, char *buf);
+  int marshal_milestone_diff(TSMilestonesType ms1, TSMilestonesType ms2, char *buf);
+
+  bool has_http_header_field(LogField::Container container, const char *field) const;
   void set_http_header_field(LogField::Container container, char *field, char *buf, int len);
   //
   // unmarshalling routines
@@ -370,7 +384,7 @@ public:
   LogAccess &operator=(LogAccess &rhs) = delete; // or assignment
 
 private:
-  HttpSM *m_http_sm = nullptr;
+  TransactionLogData *m_data = nullptr;
 
   Arena m_arena;
 
@@ -399,8 +413,9 @@ private:
   char       *m_cache_lookup_url_canon_str        = nullptr;
   int         m_cache_lookup_url_canon_len        = 0;
 
-  void validate_unmapped_url();
-  void validate_unmapped_url_path();
+  HTTPHdr *header_for_container(LogField::Container container) const;
+  void     validate_unmapped_url();
+  void     validate_unmapped_url_path();
 
   void validate_lookup_url();
 };

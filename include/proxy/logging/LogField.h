@@ -23,9 +23,12 @@
 
 #pragma once
 
+#include <memory>
+#include <optional>
 #include <string_view>
 #include <string>
 #include <variant>
+#include <vector>
 
 #include "tscore/ink_inet.h"
 #include "tscore/ink_platform.h"
@@ -126,6 +129,12 @@ public:
     N_AGGREGATES,
   };
 
+  struct HeaderField {
+    std::string name;
+    Container   container = NO_CONTAINER;
+    LogSlice    slice;
+  };
+
   LogField(const char *name, const char *symbol, Type type, MarshalFunc marshal, VarUnmarshalFuncSliceOnly unmarshal,
            SetFunc _setFunc = nullptr);
 
@@ -133,6 +142,8 @@ public:
            const Ptr<LogFieldAliasMap> &map, SetFunc _setFunc = nullptr);
 
   LogField(const char *field, Container container);
+  LogField(const char *symbol, std::vector<HeaderField> header_fields, std::unique_ptr<LogField> fallback_field = nullptr,
+           std::optional<std::string> fallback_default = std::nullopt);
   LogField(const LogField &rhs);
   ~LogField();
 
@@ -188,6 +199,7 @@ public:
   static Container valid_container_name(char *name);
   static Aggregate valid_aggregate_name(char *name);
   static bool      fieldlist_contains_aggregates(const char *fieldlist);
+  static bool      isHeaderContainer(Container container);
   static bool      isContainerUpdateFieldSupported(Container container);
 
 private:
@@ -207,6 +219,17 @@ private:
   SetFunc               m_set_func;
   TSMilestonesType      milestone_from_m_name();
   int                   milestones_from_m_name(TSMilestonesType *m1, TSMilestonesType *m2);
+
+  std::vector<HeaderField>   m_fallback_header_fields;
+  std::unique_ptr<LogField>  m_fallback_field;
+  std::optional<std::string> m_fallback_default;
+  bool                       is_field_fallback() const;
+  int                        select_fallback_selector(LogAccess *lad) const;
+  unsigned                   marshal_fallback_header_field(LogAccess *lad, const HeaderField &field, char *buf) const;
+  unsigned                   marshal_fallback_default(char *buf) const;
+
+  static constexpr int FALLBACK_DEFAULT_SELECTOR = -1;
+  static constexpr int FALLBACK_FIELD_SELECTOR   = -2;
 
 public:
   LINK(LogField, link);
