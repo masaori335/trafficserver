@@ -176,6 +176,7 @@ public:
   std::string_view get_pp_authority() const override;
   std::string_view get_pp_tls_cipher() const override;
   std::string_view get_pp_tls_version() const override;
+  std::string_view get_pp_tls_group() const override;
 
   // ===== Server response Transfer-Encoding =====
   std::string_view get_server_response_transfer_encoding() const override;

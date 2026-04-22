@@ -823,6 +823,17 @@ CompletedTransactionLogData::get_pp_tls_version() const
   return {};
 }
 
+std::string_view
+CompletedTransactionLogData::get_pp_tls_group() const
+{
+  if (m_http_sm->t_state.pp_info.version != ProxyProtocolVersion::UNDEFINED) {
+    if (auto version = m_http_sm->t_state.pp_info.get_tlv_ssl_group(); version) {
+      return *version;
+    }
+  }
+  return {};
+}
+
 // ===== Server response Transfer-Encoding =====
 
 std::string_view

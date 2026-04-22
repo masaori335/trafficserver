@@ -1693,11 +1693,12 @@ LogAccess::marshal_proxy_protocol_tls_group(char *buf)
 {
   int len = INK_MIN_ALIGN;
 
-  if (m_http_sm) {
-    if (auto group = m_http_sm->t_state.pp_info.get_tlv_ssl_group(); group) {
-      len = padded_length(group->size() + 1);
+  if (m_data) {
+    auto group = m_data->get_pp_tls_group();
+    if (!group.empty()) {
+      len = padded_length(group.size() + 1);
       if (buf) {
-        marshal_mem(buf, group->data(), group->size(), len);
+        marshal_mem(buf, group.data(), group.size(), len);
       }
     } else {
       if (buf) {
