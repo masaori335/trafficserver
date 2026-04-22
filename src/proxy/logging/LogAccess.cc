@@ -1489,7 +1489,11 @@ LogAccess::marshal_remote_host_ip(char *buf)
 int
 LogAccess::marshal_host_interface_ip(char *buf)
 {
-  return marshal_ip(buf, m_data->get_client_dst_addr());
+  if (m_data->get_pp_version() != 0) {
+    return marshal_ip(buf, m_data->get_pp_dst_addr());
+  } else {
+    return marshal_ip(buf, m_data->get_client_dst_addr());
+  }
 }
 
 int
@@ -1941,12 +1945,21 @@ LogAccess::marshal_client_req_url(char *buf)
 int
 LogAccess::marshal_client_req_url_canon(char *buf)
 {
-  int len = padded_length(m_client_req_url_canon_len + 1);
+  if (m_data->get_pp_version() != 0) {
+    int len = padded_length(m_client_req_url_canon_len + 2); // +2 for eos AND the s for https
+    if (buf) {
+      marshal_mem(buf, "https", 5, len);
+      marshal_mem(buf + 5, m_client_req_url_canon_str + 4, m_client_req_url_canon_len - 4, len - 5);
+    }
+    return len;
+  } else {
+    int len = padded_length(m_client_req_url_canon_len + 1);
 
-  if (buf) {
-    marshal_mem(buf, m_client_req_url_canon_str, m_client_req_url_canon_len, len);
+    if (buf) {
+      marshal_mem(buf, m_client_req_url_canon_str, m_client_req_url_canon_len, len);
+    }
+    return len;
   }
-  return len;
 }
 
 /*-------------------------------------------------------------------------
@@ -1958,15 +1971,29 @@ LogAccess::marshal_client_req_unmapped_url_canon(char *buf)
   int len = INK_MIN_ALIGN;
 
   validate_unmapped_url();
-  if (m_client_req_unmapped_url_canon_str == INVALID_STR) {
-    // If the unmapped URL isn't populated, we'll fall back to the original
-    // client URL. This helps for example server intercepts to continue to
-    // log the requests, even when there is no remap rule for it.
-    len = marshal_client_req_url_canon(buf);
+  if (m_data->get_pp_version() != 0) {
+    if (m_client_req_unmapped_url_canon_str == INVALID_STR) {
+      len = marshal_client_req_url_canon(buf);
+    } else {
+      // Request from EH is always HTTP, but the original request from the client is always HTTPS.
+      // We have to insert a 's' in order to make the data pipeline output "scheme=https".
+      len = padded_length(m_client_req_unmapped_url_canon_len + 2); // +2 for eos AND the s for https
+      if (buf) {
+        marshal_mem(buf, "https", 5, len);
+        marshal_mem(buf + 5, m_client_req_unmapped_url_canon_str + 4, m_client_req_unmapped_url_canon_len - 4, len - 5);
+      }
+    }
   } else {
-    len = padded_length(m_client_req_unmapped_url_canon_len + 1); // +1 for eos
-    if (buf) {
-      marshal_mem(buf, m_client_req_unmapped_url_canon_str, m_client_req_unmapped_url_canon_len, len);
+    if (m_client_req_unmapped_url_canon_str == INVALID_STR) {
+      // If the unmapped URL isn't populated, we'll fall back to the original
+      // client URL. This helps for example server intercepts to continue to
+      // log the requests, even when there is no remap rule for it.
+      len = marshal_client_req_url_canon(buf);
+    } else {
+      len = padded_length(m_client_req_unmapped_url_canon_len + 1); // +1 for eos
+      if (buf) {
+        marshal_mem(buf, m_client_req_unmapped_url_canon_str, m_client_req_unmapped_url_canon_len, len);
+      }
     }
   }
 
@@ -2077,13 +2104,19 @@ LogAccess::marshal_client_req_http_version(char *buf)
 int
 LogAccess::marshal_client_req_protocol_version(char *buf)
 {
-  const char      *protocol_str = m_data->get_client_protocol();
-  std::string_view protocol_sv  = m_data->get_client_protocol_str();
-  if (protocol_str == nullptr || protocol_str[0] == '\0') {
-    if (!protocol_sv.empty()) {
-      protocol_str = protocol_sv.data();
-    } else {
-      protocol_str = DEFAULT_STR;
+  const char *protocol_str;
+
+  if (m_data->get_pp_version() == 2) {
+    protocol_str = "http/3";
+  } else {
+    protocol_str              = m_data->get_client_protocol();
+    std::string_view protocol_sv = m_data->get_client_protocol_str();
+    if (protocol_str == nullptr || protocol_str[0] == '\0') {
+      if (!protocol_sv.empty()) {
+        protocol_str = protocol_sv.data();
+      } else {
+        protocol_str = DEFAULT_STR;
+      }
     }
   }
 
@@ -2336,9 +2369,27 @@ LogAccess::marshal_client_tx_error_code(char *buf)
 int
 LogAccess::marshal_client_security_protocol(char *buf)
 {
-  const char *sec_proto = m_data->get_client_sec_protocol();
-  const char *proto     = sec_proto ? sec_proto : DEFAULT_STR;
-  int         round_len = LogAccess::padded_strlen(proto);
+  const char *proto;
+  int         round_len;
+
+  if (m_data->get_pp_version() == 2) {
+    std::string_view sv = m_data->get_pp_tls_version();
+    if (!sv.empty()) {
+      if (buf) {
+        memcpy(buf, sv.data(), sv.length());
+        buf[sv.length()] = '\0';
+      }
+      round_len = padded_length(sv.length());
+      return round_len;
+    } else {
+      proto     = "-";
+      round_len = LogAccess::padded_strlen(proto);
+    }
+  } else {
+    const char *sec_proto = m_data->get_client_sec_protocol();
+    proto                 = sec_proto ? sec_proto : DEFAULT_STR;
+    round_len             = LogAccess::padded_strlen(proto);
+  }
 
   if (buf) {
     marshal_str(buf, proto, round_len);
@@ -2350,9 +2401,27 @@ LogAccess::marshal_client_security_protocol(char *buf)
 int
 LogAccess::marshal_client_security_cipher_suite(char *buf)
 {
-  const char *cipher_suite = m_data->get_client_cipher_suite();
-  const char *cipher       = cipher_suite ? cipher_suite : DEFAULT_STR;
-  int         round_len    = LogAccess::padded_strlen(cipher);
+  const char *cipher;
+  int         round_len;
+
+  if (m_data->get_pp_version() == 2) {
+    std::string_view sv = m_data->get_pp_tls_cipher();
+    if (!sv.empty()) {
+      if (buf) {
+        memcpy(buf, sv.data(), sv.length());
+        buf[sv.length()] = '\0';
+      }
+      round_len = padded_length(sv.length());
+      return round_len;
+    } else {
+      cipher    = "-";
+      round_len = LogAccess::padded_strlen(cipher);
+    }
+  } else {
+    const char *cipher_suite = m_data->get_client_cipher_suite();
+    cipher                   = cipher_suite ? cipher_suite : DEFAULT_STR;
+    round_len                = LogAccess::padded_strlen(cipher);
+  }
 
   if (buf) {
     marshal_str(buf, cipher, round_len);
