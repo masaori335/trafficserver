@@ -53,7 +53,7 @@ DbgCtl dbg_ctl_ssl{"ssl"};
 bool
 NetVConnection::has_proxy_protocol(IOBufferReader *reader)
 {
-  char           buf[PPv1_CONNECTION_HEADER_LEN_MAX + 1];
+  char           buf[512];
   swoc::TextView tv;
   tv.assign(buf, reader->memcpy(buf, sizeof(buf), 0));
 
