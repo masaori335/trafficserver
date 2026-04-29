@@ -5675,6 +5675,17 @@ HttpTransact::check_request_validity(State *s, HTTPHdr *incoming_hdr)
       return RequestError_t::UNACCEPTABLE_TE_REQUIRED;
     }
 
+    // Reject HEAD with Content-Length or Transfer-Encoding.
+    // RFC 9110 § 9.3.2: "A client SHOULD NOT send content in a HEAD request."
+    // Allowing the body through creates a request smuggling vector: ATS
+    // tunnels the body to the origin, but the origin may not read it,
+    // poisoning the server connection for the next transaction.
+    if (s->txn_conf->reject_head_with_content && method == HTTP_WKSIDX_HEAD &&
+        ((incoming_hdr->presence(MIME_PRESENCE_CONTENT_LENGTH) && incoming_hdr->get_content_length() != 0) ||
+         s->client_info.transfer_encoding == TransferEncoding_t::CHUNKED)) {
+      return RequestError_t::HEAD_CONTENT;
+    }
+
     // Require Content-Length/Transfer-Encoding for POST/PUSH/PUT
     if ((scheme == URL_WKSIDX_HTTP || scheme == URL_WKSIDX_HTTPS) &&
         (method == HTTP_WKSIDX_POST || method == HTTP_WKSIDX_PUSH || method == HTTP_WKSIDX_PUT) &&
@@ -6751,6 +6762,12 @@ HttpTransact::is_request_valid(State *s, HTTPHdr *incoming_request)
     TxnDbg(dbg_ctl_http_trans, "post request with negative content length value");
     SET_VIA_STRING(VIA_DETAIL_TUNNEL, VIA_DETAIL_TUNNEL_NO_FORWARD);
     build_error_response(s, HTTPStatus::BAD_REQUEST, "Invalid Content Length", "request#invalid_content_length");
+    return false;
+  }
+  case RequestError_t::HEAD_CONTENT: {
+    TxnDbg(dbg_ctl_http_trans, "HEAD request with body");
+    SET_VIA_STRING(VIA_DETAIL_TUNNEL, VIA_DETAIL_TUNNEL_NO_FORWARD);
+    build_error_response(s, HTTPStatus::BAD_REQUEST, "Content Not Allowed", "request#head_content");
     return false;
   }
   default:
