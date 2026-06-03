@@ -6,6 +6,28 @@
 %global _enable_debug_package 0
 %global debug_package %{nil}
 %global __os_install_post /usr/lib/rpm/brp-compress %{nil}
+%else
+# Make the two debug-symbol packages from this spec installable independently.
+#
+# This spec produces two binary packages, bazinga-trafficserver and
+# bazinga-trafficserver-plugins-builtin, and rpm auto-builds a matching
+# "-debuginfo" package for each. They are built together, but nothing forces a
+# host to keep them on the same version (plugins-builtin requires trafficserver
+# with no version).  In fact, we sometimes update plugins without updating 
+# trafficserver on purpose.  When that happens we want to install each debuginfo 
+# at the version that matches its installed binary.
+#
+# By default rpm on EL9 runs a debug-info compressor (DWZ) that merges both
+# packages' debug data into one shared file, and then makes
+# plugins-builtin-debuginfo *require the exact same version* of
+# trafficserver-debuginfo. That same-version requirement is what stops us from
+# installing the two debuginfo packages at different versions. Turning the DWZ
+# pass off (the line below) drops the shared file and that requirement, so the
+# debuginfo packages no longer depend on each other's version.
+#
+# Don't also set "_debugsource_packages 0" to try to help -- it re-creates the
+# same same-version requirement through a different code path.
+%global _find_debuginfo_dwz_opts %{nil}
 %endif
 
 %define cxx_version 17
