@@ -75,14 +75,14 @@ struct SSLConfigParams : public ConfigInfo {
   int   configLoadConcurrency;
   int   clientCertLevel;
   int   verify_depth;
-  int   ssl_origin_session_cache;
-  int   ssl_origin_session_cache_size;
-  int   ssl_session_cache; // SSL_SESSION_CACHE_MODE
-  int   ssl_session_cache_size;
-  int   ssl_session_cache_num_buckets;
-  int   ssl_session_cache_skip_on_contention;
-  int   ssl_session_cache_timeout;
-  int   ssl_session_cache_auto_clear;
+  int   ssl_origin_session_cache{0};
+  int   ssl_origin_session_cache_size{0};
+  int   ssl_session_cache{0}; // SSL_SESSION_CACHE_MODE
+  int   ssl_session_cache_size{0};
+  int   ssl_session_cache_num_buckets{0};
+  int   ssl_session_cache_skip_on_contention{0};
+  int   ssl_session_cache_timeout{0};
+  int   ssl_session_cache_auto_clear{0};
 
   char                   *clientCertPath;
   char                   *clientCertPathOnly;
@@ -93,13 +93,15 @@ struct SSLConfigParams : public ConfigInfo {
   int                     clientCertExitOnLoadError;
   YamlSNIConfig::Policy   verifyServerPolicy;
   YamlSNIConfig::Property verifyServerProperties;
-  bool                    tls_server_connection;
   int                     client_verify_depth;
   long                    ssl_ctx_options;
   long                    ssl_client_ctx_options;
 
   unsigned char alpn_protocols_array[MAX_ALPN_STRING];
   int           alpn_protocols_array_size = 0;
+
+  char *server_cert_compression_algorithms;
+  char *client_cert_compression_algorithms;
 
   char *server_tls13_cipher_suites;
   char *client_tls13_cipher_suites;

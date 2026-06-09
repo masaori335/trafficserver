@@ -199,6 +199,8 @@ SSLConfigParams::reset()
     clientKeyPath = clientCACertFilename = clientCACertPath = cipherSuite = client_cipherSuite = dhparamsFile = serverKeyPathOnly =
       clientKeyPathOnly = clientCertPathOnly = nullptr;
   ssl_ocsp_response_path_only                = nullptr;
+  server_cert_compression_algorithms         = nullptr;
+  client_cert_compression_algorithms         = nullptr;
   server_tls13_cipher_suites                 = nullptr;
   client_tls13_cipher_suites                 = nullptr;
   server_groups_list                         = nullptr;
@@ -242,11 +244,13 @@ SSLConfigParams::cleanup()
 
   ssl_ocsp_response_path_only = static_cast<char *>(ats_free_null(ssl_ocsp_response_path_only));
 
-  server_tls13_cipher_suites = static_cast<char *>(ats_free_null(server_tls13_cipher_suites));
-  client_tls13_cipher_suites = static_cast<char *>(ats_free_null(client_tls13_cipher_suites));
-  server_groups_list         = static_cast<char *>(ats_free_null(server_groups_list));
-  client_groups_list         = static_cast<char *>(ats_free_null(client_groups_list));
-  keylog_file                = static_cast<char *>(ats_free_null(keylog_file));
+  server_cert_compression_algorithms = static_cast<char *>(ats_free_null(server_cert_compression_algorithms));
+  client_cert_compression_algorithms = static_cast<char *>(ats_free_null(client_cert_compression_algorithms));
+  server_tls13_cipher_suites         = static_cast<char *>(ats_free_null(server_tls13_cipher_suites));
+  client_tls13_cipher_suites         = static_cast<char *>(ats_free_null(client_tls13_cipher_suites));
+  server_groups_list                 = static_cast<char *>(ats_free_null(server_groups_list));
+  client_groups_list                 = static_cast<char *>(ats_free_null(client_groups_list));
+  keylog_file                        = static_cast<char *>(ats_free_null(keylog_file));
 
   cleanupCTXTable();
   reset();
@@ -567,7 +571,7 @@ SSLConfigParams::initialize()
     session_cache = new SSLSessionCache();
   }
 
-  if (ssl_origin_session_cache == 1 && ssl_origin_session_cache_size > 0) {
+  if (ssl_origin_session_cache == 1 && ssl_origin_session_cache_size > 0 && origin_sess_cache == nullptr) {
     origin_sess_cache = new SSLOriginSessionCache();
   }
 
@@ -586,6 +590,7 @@ SSLConfigParams::initialize()
     set_paths_helper(ssl_ocsp_response_path, nullptr, &ssl_ocsp_response_path_only, nullptr);
   }
   if (auto rec_str{RecGetRecordStringAlloc("proxy.config.http.request_via_str")}; rec_str) {
+    ats_free(ssl_ocsp_user_agent);
     ssl_ocsp_user_agent = ats_stringdup(rec_str);
   }
 
@@ -598,6 +603,13 @@ SSLConfigParams::initialize()
 
   if (auto rec_str{RecGetRecordStringAlloc("proxy.config.ssl.server.groups_list")}; rec_str) {
     server_groups_list = ats_stringdup(rec_str);
+  }
+
+  if (auto rec_str{RecGetRecordStringAlloc("proxy.config.ssl.server.cert_compression.algorithms")}; rec_str) {
+    server_cert_compression_algorithms = ats_stringdup(rec_str);
+  }
+  if (auto rec_str{RecGetRecordStringAlloc("proxy.config.ssl.client.cert_compression.algorithms")}; rec_str) {
+    client_cert_compression_algorithms = ats_stringdup(rec_str);
   }
 
   // ++++++++++++++++++++++++ Client part ++++++++++++++++++++
@@ -963,6 +975,11 @@ SSLTicketParams::cleanup()
 void
 cleanup_bio(BIO *&biop)
 {
+  // BIO_new_mem_buf sets BIO_FLAGS_MEM_RDONLY which prevents BIO_free from
+  // cleaning up internal BUF_MEM structures. Clear this flag so BIO_free
+  // properly releases them. BIO_NOCLOSE ensures the external data buffer
+  // (owned by the caller's std::string) is not freed.
+  BIO_clear_flags(biop, BIO_FLAGS_MEM_RDONLY);
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-value"
   BIO_set_close(biop, BIO_NOCLOSE);

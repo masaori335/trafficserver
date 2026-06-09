@@ -127,8 +127,8 @@ static const ConfigEnumPair<TSServerSessionSharingMatchType> SessionSharingMatch
 bool
 HttpConfig::load_server_session_sharing_match(std::string_view key, MgmtByte &mask)
 {
-  MgmtByte value;
-  mask = 0;
+  MgmtByte value = 0;
+  mask           = 0;
   // Parse through and build up mask
   size_t start  = 0;
   size_t offset = 0;
@@ -964,6 +964,7 @@ HttpConfig::startup()
 
   HttpEstablishStaticConfigLongLong(c.http_request_line_max_size, "proxy.config.http.request_line_max_size");
   HttpEstablishStaticConfigLongLong(c.http_hdr_field_max_size, "proxy.config.http.header_field_max_size");
+  HttpEstablishStaticConfigLongLong(c.pp_hdr_max_size, "proxy.config.proxy_protocol.max_header_size");
 
   HttpEstablishStaticConfigByte(c.disable_ssl_parenting, "proxy.config.http.parent_proxy.disable_connect_tunneling");
   HttpEstablishStaticConfigByte(c.oride.forward_connect_method, "proxy.config.http.forward_connect_method");
@@ -1277,6 +1278,7 @@ HttpConfig::reconfigure()
 
   params->http_request_line_max_size = m_master.http_request_line_max_size;
   params->http_hdr_field_max_size    = m_master.http_hdr_field_max_size;
+  params->pp_hdr_max_size            = m_master.pp_hdr_max_size;
 
   if (params->oride.connection_tracker_config.server_max > 0 &&
       params->oride.connection_tracker_config.server_max < params->oride.connection_tracker_config.server_min) {

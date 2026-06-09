@@ -777,6 +777,7 @@ struct OverridableHttpConfigParams {
   char *ssl_client_cert_filename        = nullptr;
   char *ssl_client_private_key_filename = nullptr;
   char *ssl_client_ca_cert_filename     = nullptr;
+  char *ssl_client_ca_cert_path         = nullptr;
   char *ssl_client_alpn_protocols       = nullptr;
 
   // Host Resolution order
@@ -892,6 +893,7 @@ public:
 
   MgmtInt http_request_line_max_size = 65535;
   MgmtInt http_hdr_field_max_size    = 131070;
+  MgmtInt pp_hdr_max_size            = 109;
 
   MgmtByte http_host_sni_policy         = 0;
   MgmtByte scheme_proto_mismatch_policy = 2;
@@ -1034,6 +1036,7 @@ inline HttpConfigParams::~HttpConfigParams()
   ats_free(oride.ssl_client_cert_filename);
   ats_free(oride.ssl_client_private_key_filename);
   ats_free(oride.ssl_client_ca_cert_filename);
+  ats_free(oride.ssl_client_ca_cert_path);
   ats_free(connect_ports_string);
   ats_free(reverse_proxy_no_host_redirect);
   ats_free(redirect_actions_string);

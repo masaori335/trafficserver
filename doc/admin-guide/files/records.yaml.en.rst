@@ -3327,14 +3327,19 @@ HostDB
    Set the file path for an external host file.
 
    If this is set (non-empty) then the file is presumed to be a hosts file in
-   the standard .
-   It is read and the entries there added to the HostDB. The file is
-   periodically checked for a more recent modification date in which case it is
-   reloaded. The interval is set with :ts:cv:`proxy.config.hostdb.host_file.interval`.
+   the standard format. It is read and the entries there are added to HostDB.
 
-   While not technically reloadable, the value is read every time the file is
-   to be checked so that if changed the new value will be used on the next
-   check and the file will be treated as modified.
+   This setting is not immediately reloadable. |TS| checks
+   :ts:cv:`proxy.config.hostdb.host_file.path` during the periodic host file
+   check controlled by :ts:cv:`proxy.config.hostdb.host_file.interval`
+   (default: ``86400`` seconds). If the path value has changed, |TS| uses the
+   new path on that next check and treats the file as modified.
+
+   .. tip::
+
+      For faster pickup during testing, temporarily reduce
+      :ts:cv:`proxy.config.hostdb.host_file.interval`, then restore it after
+      verification.
 
 .. ts:cv:: CONFIG proxy.config.hostdb.host_file.interval INT 86400
    :units: seconds
@@ -4366,6 +4371,40 @@ SSL Termination
    ``1`` Enables the use of Kernel TLS..
    ===== ======================================================================
 
+.. ts:cv:: CONFIG proxy.config.ssl.server.cert_compression.algorithms STRING
+   :reloadable:
+
+   A comma-separated list of compression algorithms that |TS| is willing to
+   use for TLS Certificate Compression
+   (`RFC 8879 <https://datatracker.ietf.org/doc/html/rfc8879>`_) when |TS|
+   acts as a TLS server (i.e. accepting connections from clients).  When a
+   connecting client advertises support for one of these algorithms, |TS| will
+   send its certificate in compressed form, reducing handshake size.
+
+   Supported values: ``zlib``, ``brotli``, ``zstd``.  The order determines the
+   server's preference.  An empty value (the default) disables certificate
+   compression.
+
+   ``brotli`` and ``zstd`` are only available when |TS| is compiled with the
+   corresponding libraries.
+
+   Example::
+
+      proxy.config.ssl.server.cert_compression.algorithms: zlib,brotli
+
+.. ts:cv:: CONFIG proxy.config.ssl.client.cert_compression.algorithms STRING
+   :reloadable:
+
+   A comma-separated list of compression algorithms that |TS| advertises for
+   TLS Certificate Compression
+   (`RFC 8879 <https://datatracker.ietf.org/doc/html/rfc8879>`_) when |TS|
+   acts as a TLS client (i.e. connecting to origin servers).  When the origin
+   supports one of these algorithms, |TS| will accept and decompress the
+   certificate.
+
+   Supported values: ``zlib``, ``brotli``, ``zstd``. An empty value (the
+   default) disables certificate compression.
+
 Client-Related Configuration
 ----------------------------
 
@@ -4448,6 +4487,7 @@ Client-Related Configuration
 
 .. ts:cv:: CONFIG proxy.config.ssl.client.CA.cert.path STRING NULL
    :reloadable:
+   :overridable:
 
    Specifies the location of the certificate authority file against
    which the origin server will be verified.
@@ -5323,6 +5363,19 @@ UDP Configuration
 
    Enables (``1``) or disables (``0``) UDP GRO. When enabled, |TS| will try to use it
    when reading the UDP socket.
+
+
+PROXY protocol Configuration
+=============================
+
+.. ts:cv:: CONFIG proxy.config.proxy_protocol.max_header_size INT 109
+   :reloadable:
+
+   Sets the maximum size of PROXY protocol header to receive.
+   The default size is enough for PROXY protocol version 1. The size needs to be increased
+   if the version 2 is used with many TLV fields. Although you can set a number up to 65535,
+   setting a large number can affect performance.
+
 
 Plug-in Configuration
 =====================

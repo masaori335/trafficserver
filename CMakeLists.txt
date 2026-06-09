@@ -541,13 +541,15 @@ check_symbol_exists(SSL_error_description "openssl/ssl.h" HAVE_SSL_ERROR_DESCRIP
 check_symbol_exists(SSL_CTX_set_ciphersuites "openssl/ssl.h" TS_USE_TLS_SET_CIPHERSUITES)
 check_symbol_exists(SSL_CTX_set_keylog_callback "openssl/ssl.h" TS_HAS_TLS_KEYLOGGING)
 check_symbol_exists(SSL_CTX_set_tlsext_ticket_key_cb "openssl/ssl.h" HAVE_SSL_CTX_SET_TLSEXT_TICKET_KEY_CB)
+check_symbol_exists(SSL_CTX_add_cert_compression_alg "openssl/ssl.h" HAVE_SSL_CTX_ADD_CERT_COMPRESSION_ALG)
+check_symbol_exists(SSL_CTX_set1_cert_comp_preference "openssl/ssl.h" HAVE_SSL_CTX_SET1_CERT_COMP_PREFERENCE)
 check_symbol_exists(SSL_get_all_async_fds openssl/ssl.h TS_USE_TLS_ASYNC)
 check_symbol_exists(OSSL_PARAM_construct_end "openssl/params.h" HAVE_OSSL_PARAM_CONSTRUCT_END)
 check_symbol_exists(TLS1_3_VERSION "openssl/ssl.h" TS_USE_TLS13)
 check_symbol_exists(MD5_Init "openssl/md5.h" HAVE_MD5_INIT)
-check_symbol_exists(ENGINE_load_dynamic "include/openssl/engine.h" HAVE_ENGINE_LOAD_DYNAMIC)
-check_symbol_exists(ENGINE_get_default_RSA "include/openssl/engine.h" HAVE_ENGINE_GET_DEFAULT_RSA)
-check_symbol_exists(ENGINE_load_private_key "include/openssl/engine.h" HAVE_ENGINE_LOAD_PRIVATE_KEY)
+check_symbol_exists(ENGINE_load_dynamic "openssl/engine.h" HAVE_ENGINE_LOAD_DYNAMIC)
+check_symbol_exists(ENGINE_get_default_RSA "openssl/engine.h" HAVE_ENGINE_GET_DEFAULT_RSA)
+check_symbol_exists(ENGINE_load_private_key "openssl/engine.h" HAVE_ENGINE_LOAD_PRIVATE_KEY)
 check_symbol_exists(sysctlbyname "sys/sysctl.h" HAVE_SYSCTLBYNAME)
 
 if(SSLLIB_IS_OPENSSL3)
@@ -917,7 +919,8 @@ endif()
 add_custom_target(
   rat
   COMMENT "Running Apache RAT"
-  COMMAND java -jar ${CMAKE_SOURCE_DIR}/ci/apache-rat-0.13-SNAPSHOT.jar -E ${CMAKE_SOURCE_DIR}/ci/rat-regex.txt -d
+  COMMAND java -jar ${CMAKE_SOURCE_DIR}/ci/apache-rat-0.17.jar --input-exclude-file
+          ${CMAKE_SOURCE_DIR}/ci/rat-exclude.txt --input-include-file ${CMAKE_SOURCE_DIR}/ci/rat-include.txt --
           ${CMAKE_SOURCE_DIR}
 )
 

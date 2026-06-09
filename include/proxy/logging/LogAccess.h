@@ -123,8 +123,8 @@ public:
    * The caller retains ownership of @a data, which must outlive the
    * synchronous Log::access() call that marshals this entry.
    *
-   * @param[in] data Populated TransactionLogData for a completed or
-   *                 pre-transaction entry.
+   * @param[in] data Populated TransactionLogData for an HttpSM-backed or
+   *                 non-HttpSM entry.
    */
   explicit LogAccess(TransactionLogData &data);
 
@@ -255,6 +255,7 @@ public:
   //
   int marshal_cache_write_code(char *);           // INT
   int marshal_cache_write_transform_code(char *); // INT
+  int marshal_cache_key_hash(char *);             // STR
 
   // other fields
   //
@@ -317,6 +318,7 @@ public:
   int marshal_milestone_fmt_time(TSMilestonesType ms, char *buf);
   int marshal_milestone_fmt_ms(TSMilestonesType ms, char *buf);
   int marshal_milestone_diff(TSMilestonesType ms1, TSMilestonesType ms2, char *buf);
+  int marshal_milestones_csv(char *buf);
 
   bool has_http_header_field(LogField::Container container, const char *field) const;
   void set_http_header_field(LogField::Container container, char *field, char *buf, int len);
@@ -331,6 +333,7 @@ public:
   static int     unmarshal_itox(int64_t val, char *dest, int field_width = 0, char leading_char = ' ');
   static int     unmarshal_int_to_str(char **buf, char *dest, int len);
   static int     unmarshal_int_to_str_hex(char **buf, char *dest, int len);
+  static int     unmarshal_milestone_diff(char **buf, char *dest, int len);
   static int     unmarshal_str(char **buf, char *dest, int len, LogSlice *slice, LogEscapeType escape_type);
   static int     unmarshal_ttmsf(char **buf, char *dest, int len);
   static int     unmarshal_int_to_date_str(char **buf, char *dest, int len);

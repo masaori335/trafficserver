@@ -1257,6 +1257,10 @@ static constexpr RecordElement RecordsConfig[] =
   ,
   {RECT_CONFIG, "proxy.config.ssl.ktls.enabled", RECD_INT, "0", RECU_RESTART_TS, RR_NULL, RECC_INT, "[0-1]", RECA_NULL}
   ,
+  {RECT_CONFIG, "proxy.config.ssl.server.cert_compression.algorithms", RECD_STRING, nullptr, RECU_DYNAMIC, RR_NULL, RECC_NULL, nullptr, RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.ssl.client.cert_compression.algorithms", RECD_STRING, nullptr, RECU_DYNAMIC, RR_NULL, RECC_NULL, nullptr, RECA_NULL}
+  ,
   //##############################################################################
   //#
   //# OCSP (Online Certificate Status Protocol) Stapling Configuration
@@ -1577,7 +1581,14 @@ static constexpr RecordElement RecordsConfig[] =
   //# Thread watchdog
   //#
   //###########
-  {RECT_CONFIG, "proxy.config.exec_thread.watchdog.timeout_ms", RECD_INT, "0", RECU_RESTART_TS, RR_NULL, RECC_INT, "[0-10000]", RECA_NULL}
+  {RECT_CONFIG, "proxy.config.exec_thread.watchdog.timeout_ms", RECD_INT, "0", RECU_RESTART_TS, RR_NULL, RECC_INT, "[0-10000]", RECA_NULL},
+
+  //###########
+  //#
+  //# PROXY protocol
+  //#
+  //###########
+  {RECT_CONFIG, "proxy.config.proxy_protocol.max_header_size", RECD_INT, "109", RECU_DYNAMIC, RR_NULL, RECC_INT, "[109-65535]", RECA_NULL},
 };
 // clang-format on
 

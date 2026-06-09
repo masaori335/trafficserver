@@ -35,6 +35,7 @@
 #include "swoc/BufferWriter.h"
 #include "tscore/Encoding.h"
 #include "tscore/ink_inet.h"
+#include "tscore/ink_base64.h"
 
 char INVALID_STR[] = "!INVALID_STR!";
 
@@ -655,6 +656,43 @@ LogAccess::unmarshal_int_to_str(char **buf, char *dest, int len)
   int64_t val     = unmarshal_int(buf);
   int     val_len = unmarshal_itoa(val, val_buf + 127);
 
+  if (val_len < len) {
+    memcpy(dest, val_buf + 128 - val_len, val_len);
+    return val_len;
+  }
+  DBG_UNMARSHAL_DEST_OVERRUN
+  return -1;
+}
+
+/*-------------------------------------------------------------------------
+  LogAccess::unmarshal_milestone_diff
+
+  Unmarshal a milestone difference value.  Returns "-" when the
+  marshalled value is -1 (the "missing" sentinel from difference_msec,
+  meaning one or both milestones were unset).  Other negative values
+  (reversed milestone order) are preserved as numeric output for
+  debugging.
+  -------------------------------------------------------------------------*/
+
+int
+LogAccess::unmarshal_milestone_diff(char **buf, char *dest, int len)
+{
+  ink_assert(buf != nullptr);
+  ink_assert(*buf != nullptr);
+  ink_assert(dest != nullptr);
+
+  int64_t val = unmarshal_int(buf);
+  if (val == -1) {
+    if (len >= 1) {
+      dest[0] = '-';
+      return 1;
+    }
+    DBG_UNMARSHAL_DEST_OVERRUN
+    return -1;
+  }
+
+  char val_buf[128];
+  int  val_len = unmarshal_itoa(val, val_buf + 127);
   if (val_len < len) {
     memcpy(dest, val_buf + 128 - val_len, val_len);
     return val_len;
@@ -1695,20 +1733,17 @@ LogAccess::marshal_proxy_protocol_tls_version(char *buf)
 int
 LogAccess::marshal_proxy_protocol_tls_group(char *buf)
 {
-  int len = INK_MIN_ALIGN;
+  int              len   = INK_MIN_ALIGN;
+  std::string_view group = m_data->get_pp_tls_group();
 
-  if (m_data) {
-    auto group = m_data->get_pp_tls_group();
-    if (!group.empty()) {
-      len = padded_length(group.size() + 1);
-      if (buf) {
-        marshal_mem(buf, group.data(), group.size(), len);
-      }
-    } else {
-      if (buf) {
-        // This prints the default value ("-")
-        marshal_mem(buf, nullptr, 0, len);
-      }
+  if (!group.empty()) {
+    len = padded_length(static_cast<int>(group.size()) + 1);
+    if (buf) {
+      marshal_mem(buf, group.data(), static_cast<int>(group.size()), len);
+    }
+  } else {
+    if (buf) {
+      marshal_mem(buf, nullptr, 0, len);
     }
   }
   return len;
@@ -2109,7 +2144,7 @@ LogAccess::marshal_client_req_protocol_version(char *buf)
   if (m_data->get_pp_version() == 2) {
     protocol_str = "http/3";
   } else {
-    protocol_str              = m_data->get_client_protocol();
+    protocol_str                 = m_data->get_client_protocol();
     std::string_view protocol_sv = m_data->get_client_protocol_str();
     if (protocol_str == nullptr || protocol_str[0] == '\0') {
       if (!protocol_sv.empty()) {
@@ -3071,6 +3106,35 @@ LogAccess::marshal_cache_write_transform_code(char *buf)
   -------------------------------------------------------------------------*/
 
 int
+LogAccess::marshal_cache_key_hash(char *buf)
+{
+  const ts::CryptoHash *hash = m_data->get_cache_lookup_hash();
+
+  if (!hash || hash->is_zero()) {
+    if (buf) {
+      marshal_str(buf, "-", padded_length(2));
+    }
+    return padded_length(2);
+  }
+
+  constexpr size_t b64_bufsize = ats_base64_encode_dstlen(CRYPTO_HASH_SIZE);
+  char             b64_str[b64_bufsize];
+  size_t           b64_len = 0;
+
+  ats_base64_encode(reinterpret_cast<const char *>(hash->u8), CRYPTO_HASH_SIZE, b64_str, b64_bufsize, &b64_len);
+
+  int len = padded_length(b64_len + 1);
+
+  if (buf) {
+    marshal_str(buf, b64_str, len);
+  }
+  return len;
+}
+
+/*-------------------------------------------------------------------------
+  -------------------------------------------------------------------------*/
+
+int
 LogAccess::marshal_transfer_time_ms(char *buf)
 {
   if (buf) {
@@ -3451,6 +3515,49 @@ LogAccess::marshal_milestone_diff(TSMilestonesType ms1, TSMilestonesType ms2, ch
     marshal_int(buf, val);
   }
   return INK_MIN_ALIGN;
+}
+
+int
+LogAccess::marshal_milestones_csv(char *buf)
+{
+  Dbg(dbg_ctl_log_unmarshal_data, "marshal_milestones_csv");
+
+  swoc::LocalBufferWriter<256> bw;
+
+  TransactionMilestones const *milestones = m_data->get_milestones();
+  if (milestones == nullptr) {
+    return 0;
+  }
+
+  bw.print("{}", milestones->difference_msec(TS_MILESTONE_TLS_HANDSHAKE_START, TS_MILESTONE_TLS_HANDSHAKE_END));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_BEGIN));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_FIRST_READ));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_READ_HEADER_DONE));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_READ_BEGIN));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_READ_END));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_WRITE_BEGIN));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_CACHE_OPEN_WRITE_END));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_DNS_LOOKUP_BEGIN));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_DNS_LOOKUP_END));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_CONNECT));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_CONNECT_END));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_FIRST_READ));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_READ_HEADER_DONE));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SERVER_CLOSE));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_BEGIN_WRITE));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_UA_CLOSE));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_SM_FINISH));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_PLUGIN_ACTIVE));
+  bw.print(",{}", milestones->difference_msec(TS_MILESTONE_SM_START, TS_MILESTONE_PLUGIN_TOTAL));
+  bw.print("\0");
+
+  auto const view = bw.view();
+  int const  len  = LogAccess::padded_strlen(view.data());
+
+  if (nullptr != buf) {
+    marshal_str(buf, view.data(), len);
+  }
+  return len;
 }
 
 void

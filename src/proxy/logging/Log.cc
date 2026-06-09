@@ -505,6 +505,10 @@ Log::init_fields()
   global_field_list.add(field, false);
   field_symbol_hash.emplace("cluc", field);
 
+  field = new LogField("cache_key_hash", "ckh", LogField::STRING, &LogAccess::marshal_cache_key_hash, &LogAccess::unmarshal_str);
+  global_field_list.add(field, false);
+  field_symbol_hash.emplace("ckh", field);
+
   field = new LogField("client_sni_server_name", "cssn", LogField::STRING, &LogAccess::marshal_client_sni_server_name,
                        &LogAccess::unmarshal_str);
   global_field_list.add(field, false);
@@ -858,6 +862,10 @@ Log::init_fields()
                        &LogAccess::unmarshal_http_version);
   global_field_list.add(field, false);
   field_symbol_hash.emplace("sshv", field);
+
+  field = new LogField("milestones_csv", "mstsms", LogField::STRING, &LogAccess::marshal_milestones_csv, &LogAccess::unmarshal_str);
+  global_field_list.add(field, false);
+  field_symbol_hash.emplace("mstsms", field);
 
   field = new LogField("server_resp_time", "stms", LogField::sINT, &LogAccess::marshal_server_resp_time_ms,
                        &LogAccess::unmarshal_int_to_str);

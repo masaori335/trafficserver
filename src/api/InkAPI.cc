@@ -4478,6 +4478,35 @@ TSHttpTxnCacheLookupUrlSet(TSHttpTxn txnp, TSMBuffer bufp, TSMLoc obj)
   return TS_SUCCESS;
 }
 
+TSReturnCode
+TSHttpTxnCacheKeyDigestGet(TSHttpTxn txnp, char *buffer, int *length)
+{
+  sdk_assert(sdk_sanity_check_txn(txnp) == TS_SUCCESS);
+  sdk_assert(length != nullptr);
+
+  HttpSM           *sm              = reinterpret_cast<HttpSM *>(txnp);
+  const CryptoHash &hash            = sm->get_cache_sm().get_cache_key().hash;
+  constexpr int     size            = CRYPTO_HASH_SIZE;
+  int               provided_length = *length;
+
+  *length = size;
+
+  if (hash.is_zero()) {
+    return TS_ERROR;
+  }
+
+  if (buffer == nullptr) {
+    return TS_SUCCESS;
+  }
+
+  if (provided_length < size) {
+    return TS_ERROR;
+  }
+
+  memcpy(buffer, hash.u8, size);
+  return TS_SUCCESS;
+}
+
 /**
  * timeout is in msec
  * overrides as proxy.config.http.transaction_active_timeout_out
@@ -7068,11 +7097,13 @@ TSAIORead(int fd, off_t offset, char *buf, size_t buffSize, TSCont contp)
   pAIO->aiocb.aio_buf = buf;
   pAIO->action        = pCont;
   pAIO->thread        = pCont->mutex->thread_holding;
+  pAIO->from_ts_api   = true;
 
   if (ink_aio_read(pAIO, 1) == 1) {
     return TS_SUCCESS;
   }
 
+  delete pAIO;
   return TS_ERROR;
 }
 
@@ -7107,11 +7138,13 @@ TSAIOWrite(int fd, off_t offset, char *buf, const size_t bufSize, TSCont contp)
   pAIO->aiocb.aio_nbytes = bufSize;
   pAIO->action           = pCont;
   pAIO->thread           = pCont->mutex->thread_holding;
+  pAIO->from_ts_api      = true;
 
   if (ink_aio_write(pAIO, 1) == 1) {
     return TS_SUCCESS;
   }
 
+  delete pAIO;
   return TS_ERROR;
 }
 
@@ -7542,6 +7575,11 @@ TSHttpTxnConfigStringSet(TSHttpTxn txnp, TSOverridableConfigKey conf, const char
       s->t_state.my_txn_conf().ssl_client_ca_cert_filename = const_cast<char *>(value);
     }
     break;
+  case TS_CONFIG_SSL_CLIENT_CA_CERT_PATH:
+    if (value && length > 0) {
+      s->t_state.my_txn_conf().ssl_client_ca_cert_path = const_cast<char *>(value);
+    }
+    break;
   case TS_CONFIG_SSL_CLIENT_ALPN_PROTOCOLS:
     if (value && length > 0) {
       s->t_state.my_txn_conf().ssl_client_alpn_protocols = const_cast<char *>(value);
@@ -7619,6 +7657,10 @@ TSHttpTxnConfigStringGet(TSHttpTxn txnp, TSOverridableConfigKey conf, const char
     break;
   case TS_CONFIG_HTTP_SERVER_SESSION_SHARING_MATCH:
     *value  = sm->t_state.txn_conf->server_session_sharing_match_str;
+    *length = *value ? strlen(*value) : 0;
+    break;
+  case TS_CONFIG_SSL_CLIENT_CA_CERT_PATH:
+    *value  = sm->t_state.txn_conf->ssl_client_ca_cert_path;
     *length = *value ? strlen(*value) : 0;
     break;
   default: {

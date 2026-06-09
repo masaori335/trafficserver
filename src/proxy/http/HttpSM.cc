@@ -1694,6 +1694,7 @@ HttpSM::handle_api_return()
     break;
   }
   case HttpTransact::StateMachineAction_t::SERVER_READ: {
+    milestones.mark(TS_MILESTONE_UA_BEGIN_WRITE);
     if (unlikely(t_state.did_upgrade_succeed)) {
       // We've successfully handled the upgrade, let's now setup
       // a blind tunnel.
@@ -1730,6 +1731,7 @@ HttpSM::handle_api_return()
     break;
   }
   case HttpTransact::StateMachineAction_t::SERVE_FROM_CACHE: {
+    milestones.mark(TS_MILESTONE_UA_BEGIN_WRITE);
     HttpTunnelProducer *p = setup_cache_read_transfer();
     tunnel.tunnel_run(p);
     break;
@@ -4776,10 +4778,10 @@ HttpSM::do_hostdb_update_if_necessary()
   if (track_connect_fail()) {
     this->mark_host_failure(&t_state.dns_info, ts_clock::from_time_t(t_state.client_request_time));
   } else {
-    if (t_state.dns_info.mark_active_server_alive()) {
+    if (t_state.dns_info.mark_active_server_up()) {
       char addrbuf[INET6_ADDRPORTSTRLEN];
       ats_ip_nptop(&t_state.current.server->dst_addr.sa, addrbuf, sizeof(addrbuf));
-      ATS_PROBE2(mark_active_server_alive, sm_id, addrbuf);
+      ATS_PROBE2(mark_active_server_up, sm_id, addrbuf);
       if (t_state.dns_info.record->is_srv()) {
         SMDbg(dbg_ctl_http, "[%" PRId64 "] hostdb update marking SRV: %s(%s) as up", sm_id, t_state.dns_info.record->name(),
               addrbuf);
@@ -5878,6 +5880,7 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
   opt.set_ssl_client_cert_name(t_state.txn_conf->ssl_client_cert_filename);
   opt.ssl_client_private_key_name = t_state.txn_conf->ssl_client_private_key_filename;
   opt.ssl_client_ca_cert_name     = t_state.txn_conf->ssl_client_ca_cert_filename;
+  opt.ssl_client_ca_cert_path     = t_state.txn_conf->ssl_client_ca_cert_path;
   if (is_private()) {
     // If the connection to origin is private, don't try to negotiate the higher overhead H2
     opt.alpn_protocols_array_size = -1;
@@ -6001,8 +6004,7 @@ HttpSM::do_api_callout_internal()
   }
 
   hook_state.init(cur_hook_id, http_global_hooks, _ua.get_txn() ? _ua.get_txn()->feature_hooks() : nullptr, &api_hooks);
-  cur_hook  = nullptr;
-  cur_hooks = 0;
+  cur_hook = nullptr;
   return state_api_callout(0, nullptr);
 }
 
@@ -6060,7 +6062,8 @@ HttpSM::mark_host_failure(ResolveInfo *info, ts_time time_down)
     if (time_down != TS_TIME_ZERO) {
       ats_ip_nptop(&t_state.current.server->dst_addr.sa, addrbuf, sizeof(addrbuf));
       // Increment the fail_count
-      if (auto [down, fail_count] = info->active->increment_fail_count(time_down, t_state.txn_conf->connect_attempts_rr_retries);
+      if (auto [down, fail_count] = info->active->increment_fail_count(time_down, t_state.txn_conf->connect_attempts_rr_retries,
+                                                                       t_state.txn_conf->down_server_timeout);
           down) {
         char            *url_str = t_state.hdr_info.client_request.url_string_get_ref(nullptr);
         std::string_view host_name{t_state.unmapped_url.host_get()};
