@@ -11,6 +11,7 @@ if [ -z ${BUILD_VERSION} ]
 then
     echo "BUILD_VERSION not set!"
 fi
+BUILD_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 INTERNAL_GITHUB_PR=$2
 
@@ -19,12 +20,19 @@ TS_BUILD_REPO=${TS_BUILD_REPO:-.}  # https://code.edge.apple.com/trafficserver-b
 SRC_REPO=${SRC_REPO:-.}  # https://gitlab.sd.apple.com/trafficserver/trafficserver
 
 GIT_VERSION=notgit
+GIT_VERSION_SHORT=notgit
 if [ -d ${SRC_REPO}/.git ]; then
     GIT_VERSION=$(git --git-dir=${SRC_REPO}/.git rev-parse HEAD)
+    GIT_VERSION_SHORT=$(git --git-dir=${SRC_REPO}/.git rev-parse --short HEAD)
 fi
 
 # TS_VERSION (eg -6.1.2-6.2)
 VERSION=$(parse_version)
+if [ "$BUILD_BRANCH" == "sec-10.2.x" ]; then
+  VERSION=$(parse_version)~sec$(date +%Y%m%d).${GIT_VERSION_SHORT}
+else
+  VERSION=$(parse_version)
+fi
 VERSION_MAJOR=$(echo $VERSION | cut -d . -f 1)
 
 buildroot=build  # directory where the build is done, artifacts stored.
