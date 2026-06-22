@@ -166,6 +166,98 @@ make test      # Run test suite
 make package   # Create distributable wheel
 ```
 
+## Releasing apple-hrw4u to Apple Internal PyPI
+
+The package publishes automatically as part of every regular ATS release on
+release branches. The publish call lives in master's `apple/rio.sh` so
+future release branches inherit it at branch-cut time. Pipelines opt in
+explicitly by passing `--hrw4u` to `apple/rio.sh`; only
+`release-{branch}-publish-regular` does. Variant (asan/debug), breakfix,
+PRB, and intpr pipelines do not pass `--hrw4u`, so they skip the publish.
+Breakfix auto-publish is tracked separately in
+[rdar://179386187](rdar://179386187) because the wheel version needs to
+include the BREAK_FIX segment.
+
+### Auto-publish path (the canonical flow)
+
+When `release-{branch}-publish-regular` runs, the build step is:
+
+```
+./apple/rio.sh --build --branch <branch> --release --hrw4u --number ${BUILD_PARAM_build_number}
+```
+
+`apple/rio.sh`:
+
+1. Reads `BUILD_NUMBER` from the Rio build parameter and `VERSION` from
+   `CMakeLists.txt`. Builds the ATS RPM. Stages the RPM with
+   `ci stage-lib --label rpm`. Pushes the
+   `bazinga/<VERSION>/<BUILD_NUMBER>.<COMMITS>.el9` tag if invoked with
+   `--tagbuild` (release branches do; master does not).
+2. After tagging, if `--hrw4u` was passed, invokes
+   `apple/publish-hrw4u.sh --version <VERSION> --build-number <BUILD_NUMBER>`.
+   Pipelines that should not publish (variant/breakfix/PRB/intpr) simply
+   omit the flag.
+
+`apple/publish-hrw4u.sh`:
+
+3. Composes `PKG_VERSION="${VERSION}.${BUILD_NUMBER}rc0"` (e.g.
+   `10.2.0.22rc0`), writes it to `pyproject.toml` via
+   `scripts/sync_version.py`, runs `make package`, and stages the built
+   wheel with `ci stage-lib --label wheel`.
+4. The `rc0` suffix makes the wheel a PEP 440 release candidate. `pip` and
+   `pipx` exclude pre-releases from default resolution, so consumers must
+   opt in via `pip install --pre apple-hrw4u` or pin the exact version.
+
+After the build step completes, Rio's `package.freeform.publish` (defined
+in `rio.yml`) takes over. Labeled artifacts are routed to their target
+Artifactory repositories:
+
+* `--label rpm` -> `yum:cdn-edge` (the existing bazinga RPM publish path,
+  required: build fails if no RPM is staged)
+* `--label wheel` -> `apple-pypi-release-local` (the new PyPI publish
+  path, marked `optional: true` so master release runs without a wheel
+  do not fail)
+
+No Rio secret is required for either upload. Rio authenticates to
+Artifactory using the project's APS group / `sandboxPerms.allowRio`
+default credentials. The `apple-hrw4u` namespace already has
+`sandboxPerms.allowRio` set, so first-pipeline-publish succeeds without
+any namespace configuration changes. Rio also signs each published
+artifact (verified via the `pie.ci.signedJWT` property attached to
+existing Rio-published wheels in `apple-pypi-release-local`).
+
+### Promoting an RC to a final release
+
+The auto-publish path always produces an `rc0` wheel. To promote a specific
+build to an official (non-prerelease) version, drop the `rc0` suffix and
+publish manually, typically via the `hrw4u-backport-release` skill.
+
+PEP 440 ordering for a given `<VERSION>.<BUILD_NUMBER>` pair, low to high:
+
+1. `10.2.0.22rc0` -- the auto-published RC for build 22
+2. `10.2.0.22rc1` -- a later RC of the same build (manual republish)
+3. `10.2.0.22` -- the official / final release of build 22
+4. `10.2.0.22.post0` -- a post-release patch on top of the final
+
+`pip install apple-hrw4u` (no version specifier) picks the highest non-pre
+version available. Once `10.2.0.22` exists alongside `10.2.0.22rc0`, the RC
+is no longer the default; consumers needing the RC must use `--pre` or pin
+the exact `==10.2.0.22rc0`.
+
+### Yanking a bad publish
+
+PyPI is immutable; there is no "delete." Use the `yank-hrw4u` skill to mark a
+bad version as yanked on Apple's internal Artifactory. Yanked versions still
+install for explicit pins but are excluded from `pip install apple-hrw4u`
+without a version specifier.
+
+### Verifying the publish script before merging
+
+`bash -n apple/publish-hrw4u.sh` catches shell syntax errors. For
+functional changes that require running it, push to a branch and let
+the pipeline exercise it end to end; there is no production-safe
+local invocation.
+
 ## Project Structure
 
 ```

@@ -6,7 +6,7 @@ schemaVersion: "2.0"
 
 <<: &build_machine
   machine:
-    baseImage: docker.apple.com/edge/trafficserver_build:20260128-3-el9
+    baseImage: docker.apple.com/edge/trafficserver_build:20260618-7-el9
 
 <<: &test_machine
   machine:
@@ -107,6 +107,20 @@ builds:
       concurrentBuild: true
 
   - branchName: 10.2.x
+    group: hrw4u
+    version: test
+    <<: *build_machine
+    build:
+      template: freestyle:v4:publish
+      steps:
+        - (cd tools/hrw4u && make setup-deps && make test && make package)
+    trigger:
+      gitPush: false
+    finally:
+      tag:
+        enabled: false
+
+  - branchName: 10.2.x
     group: intpr
     <<: *build_machine
     build:
@@ -134,7 +148,8 @@ builds:
     package:
       freeform:
         - publish:
-            - repo: yum:cdn-edge
+            - packageFilters: [rpm]
+              repo: yum:cdn-edge
     jenkins:
       concurrentBuild: true
 
@@ -150,7 +165,7 @@ builds:
         - parameter: trigger_rats_h3_pipeline
           description: True to trigger the H3 release pipeline for RATS instead of normal ATS release
       steps:
-        - ./apple/rio.sh --build --branch 10.2.x --tagbuild --release --number ${BUILD_PARAM_build_number}
+        - ./apple/rio.sh --build --branch 10.2.x --tagbuild --release --hrw4u --number ${BUILD_PARAM_build_number}
     trigger:
       gitPush: false
     finally:
@@ -169,7 +184,12 @@ builds:
     package:
       freeform:
         - publish:
-            - repo: yum:cdn-edge
+            - packageFilters: [rpm]
+              repo: yum:cdn-edge
+        - optional: true
+          publish:
+            - packageFilters: [wheel]
+              repo: apple-pypi-release-local
     jenkins:
       concurrentBuild: true
 
@@ -204,7 +224,8 @@ builds:
     package:
       freeform:
         - publish:
-            - repo: yum:cdn-edge
+            - packageFilters: [rpm]
+              repo: yum:cdn-edge
     jenkins:
       concurrentBuild: true
 
@@ -238,7 +259,8 @@ builds:
     package:
       freeform:
         - publish:
-            - repo: yum:cdn-edge
+            - packageFilters: [rpm]
+              repo: yum:cdn-edge
     jenkins:
       concurrentBuild: true
 

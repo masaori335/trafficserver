@@ -13,7 +13,8 @@ zparseopts -E -D -- b=BUILD -build=BUILD \
                     v:=inVARIATION -variation:=inVARIATION \
                     f:=TEST_FILTER -filter-test:=TEST_FILTER \
                     x:=BREAK_FIX -breakfix:=BREAK_FIX \
-                    z:=BUILD_NUMBER -number:=BUILD_NUMBER
+                    z:=BUILD_NUMBER -number:=BUILD_NUMBER \
+                    H=HRW4U -hrw4u=HRW4U
 
 if (( $# )); then
     end_opts=$@[(i)(--|-)]
@@ -41,6 +42,7 @@ PRB=${#PRB}
 TAGBUILD=${#TAGBUILD}
 TEST=${#TEST}
 RELEASE=${#RELEASE}
+HRW4U=${#HRW4U}
 BRANCH=${BRANCH[-1]}
 PR_ID=${PR_ID[-1]:=${GIT_PR_ID}}
 TEST_FILTER=${TEST_FILTER[-1]}
@@ -122,15 +124,29 @@ fi
 if [[ $PRB -ne 1 && $TEST -ne 1 ]]; then
   # Stage build
   mv build/rpmbuild/RPMS/* build/rpmbuild/
-  ci stage-lib build/rpmbuild/x86_64,ci/el/$OSRELEASE/x86_64
-  ci stage-lib build/rpmbuild/SRPMS,ci/el/$OSRELEASE/SRPMS
+  ci stage-lib --label rpm build/rpmbuild/x86_64,ci/el/$OSRELEASE/x86_64
+  ci stage-lib --label rpm build/rpmbuild/SRPMS,ci/el/$OSRELEASE/SRPMS
 fi
 
 if [ $TAGBUILD -eq 1 ]; then
   export GIT_TAG=$GIT_TAG.el$OSRELEASE
   git tag $GIT_TAG
   SSH_AUTH_SOCK=${SSH_AUTH_SOCK_TRAFFICSERVER} git push origin $GIT_TAG
-  cd ..
+  # rio.yml opts each pipeline into the HRW4U publish via --hrw4u. Only
+  # release-publish-regular passes it; variant (asan/debug) and breakfix
+  # do not. Breakfix support is tracked separately in rdar://179386187
+  # because it needs a different PKG_VERSION format that includes BREAK_FIX.
+  if [ $HRW4U -eq 1 ]; then
+    # RPM is the load-bearing artifact; wheel publish is best-effort.
+    # Don't let a flaky wheel build (uv/antlr/network) sink RPM delivery to
+    # yum:cdn-edge by aborting the build step before Rio's publish phase.
+    # Failures still surface as a WARN line in the build log.
+    rc=0
+    ./apple/publish-hrw4u.sh --version "$VERSION" --build-number "$BUILD_NUMBER" || rc=$?
+    if [ $rc -ne 0 ]; then
+      echo >&2 "WARN: apple/publish-hrw4u.sh failed (exit $rc); continuing so RPM publish can proceed. rdar://179386187"
+    fi
+  fi
 fi
 
 if [ $TEST -eq 1 ]; then

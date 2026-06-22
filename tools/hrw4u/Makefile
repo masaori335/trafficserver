@@ -207,7 +207,7 @@ clean:
 	rm -rf build dist __pycache__ *.spec *.egg-info .venv htmlcov .coverage
 	find tests -name '__pycache__' -type d -exec rm -r {} +
 
-setup-deps:
+setup-deps: gen
 	uv sync --all-extras
 
 activate:

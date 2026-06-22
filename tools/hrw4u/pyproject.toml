@@ -19,9 +19,9 @@ requires = ["setuptools>=65.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hrw4u"
-version = "1.5.0"
-description = "HRW4U CLI tool for Apache Traffic Server header rewrite rules"
+name = "apple-hrw4u"
+version = "0.0.0+placeholder.do.not.publish"
+description = "HRW4U is a transpiler CLI tool that transpiles Prism into Header Rewrite"
 authors = [
     {name = "Leif Hedstrom", email = "leif@apache.org"}
 ]
