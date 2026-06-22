@@ -464,6 +464,35 @@ LogAccess::marshal_ip(char *dest, sockaddr const *ip)
   return INK_ALIGN_DEFAULT(len);
 }
 
+int
+LogAccess::marshal_custom_field(char *buf, LogField::Type type, const LogField::CustomMarshalFunc &plugin_marshal_func)
+{
+  void *sm = m_data->http_sm_for_plugins();
+  if (sm == nullptr) {
+    switch (type) {
+    case LogField::sINT:
+    case LogField::dINT:
+      if (buf) {
+        marshal_int(buf, 0);
+      }
+      return INK_MIN_ALIGN;
+    case LogField::STRING: {
+      int len = LogAccess::padded_strlen(nullptr);
+      if (buf) {
+        marshal_str(buf, nullptr, len);
+      }
+      return len;
+    }
+    case LogField::IP:
+      return marshal_ip(buf, nullptr);
+    case LogField::N_TYPES:
+      break;
+    }
+  }
+  int len = plugin_marshal_func(sm, buf);
+  return LogAccess::padded_length(len);
+}
+
 HTTPHdr *
 LogAccess::header_for_container(LogField::Container container) const
 {
@@ -1068,6 +1097,7 @@ LogAccess::unmarshal_http_version(char **buf, char *dest, int len)
     DBG_UNMARSHAL_DEST_OVERRUN
     return -1;
   }
+  p += res2;
 
   int val_len = p - val_buf;
   if (val_len < len) {
@@ -1076,42 +1106,6 @@ LogAccess::unmarshal_http_version(char **buf, char *dest, int len)
   }
   DBG_UNMARSHAL_DEST_OVERRUN
   return -1;
-}
-
-/*-------------------------------------------------------------------------
-  LogAccess::unmarshal_http_text
-
-  The http text is a reproduced HTTP/1.x request line. It's HTTP method (cqhm) + URL (pqu) + HTTP version.
-  This doesn't support HTTP/2 and HTTP/3 since those don't have a request line.
-  -------------------------------------------------------------------------*/
-
-int
-LogAccess::unmarshal_http_text(char **buf, char *dest, int len, LogSlice *slice, LogEscapeType escape_type)
-{
-  ink_assert(buf != nullptr);
-  ink_assert(*buf != nullptr);
-  ink_assert(dest != nullptr);
-
-  char *p = dest;
-
-  //    int res1 = unmarshal_http_method (buf, p, len);
-  int res1 = unmarshal_str(buf, p, len, nullptr, escape_type);
-  if (res1 < 0) {
-    return -1;
-  }
-  p        += res1;
-  *p++      = ' ';
-  int res2  = unmarshal_str(buf, p, len - res1 - 1, slice, escape_type);
-  if (res2 < 0) {
-    return -1;
-  }
-  p        += res2;
-  *p++      = ' ';
-  int res3  = unmarshal_http_version(buf, p, len - res1 - res2 - 2);
-  if (res3 < 0) {
-    return -1;
-  }
-  return res1 + res2 + res3 + 2;
 }
 
 /*-------------------------------------------------------------------------
@@ -2259,6 +2253,37 @@ LogAccess::marshal_client_req_squid_len(char *buf)
 }
 
 /*-------------------------------------------------------------------------
+  Client request squid length plus TLS handshake bytes received for TLS connections.
+  For TLS 1.3 early data (0-RTT), we subtract the early data length from the
+  handshake bytes to avoid double-counting since the early data bytes are
+  already included in client_request_body_bytes.
+  -------------------------------------------------------------------------*/
+int
+LogAccess::marshal_client_req_squid_len_tls(char *buf)
+{
+  if (buf) {
+    int64_t val = 0;
+
+    if (m_client_request) {
+      val = m_client_request->length_get() + m_data->get_client_request_body_bytes();
+    }
+
+    if (!m_data->get_client_tcp_reused()) {
+      uint64_t handshake_rx   = m_data->get_client_tls_handshake_bytes_rx();
+      size_t   early_data_len = m_data->get_client_tls_early_data_len();
+
+      if (early_data_len > 0) {
+        handshake_rx -= std::min(handshake_rx, static_cast<uint64_t>(early_data_len));
+      }
+
+      val += handshake_rx;
+    }
+    marshal_int(buf, val);
+  }
+  return INK_MIN_ALIGN;
+}
+
+/*-------------------------------------------------------------------------
   -------------------------------------------------------------------------*/
 
 int
@@ -2513,6 +2538,43 @@ LogAccess::marshal_client_security_alpn(char *buf)
 }
 
 /*-------------------------------------------------------------------------
+  TLS Handshake Bytes - Bytes received from client during TLS handshake
+  -------------------------------------------------------------------------*/
+int
+LogAccess::marshal_client_tls_handshake_bytes_rx(char *buf)
+{
+  if (buf) {
+    marshal_int(buf, static_cast<int64_t>(m_data->get_client_tls_handshake_bytes_rx()));
+  }
+  return INK_MIN_ALIGN;
+}
+
+/*-------------------------------------------------------------------------
+  TLS Handshake Bytes - Bytes sent to client during TLS handshake
+  -------------------------------------------------------------------------*/
+int
+LogAccess::marshal_client_tls_handshake_bytes_tx(char *buf)
+{
+  if (buf) {
+    marshal_int(buf, static_cast<int64_t>(m_data->get_client_tls_handshake_bytes_tx()));
+  }
+  return INK_MIN_ALIGN;
+}
+
+/*-------------------------------------------------------------------------
+  TLS Handshake Bytes - Total bytes (rx + tx) during TLS handshake
+  -------------------------------------------------------------------------*/
+int
+LogAccess::marshal_client_tls_handshake_bytes(char *buf)
+{
+  if (buf) {
+    uint64_t total = m_data->get_client_tls_handshake_bytes_rx() + m_data->get_client_tls_handshake_bytes_tx();
+    marshal_int(buf, static_cast<int64_t>(total));
+  }
+  return INK_MIN_ALIGN;
+}
+
+/*-------------------------------------------------------------------------
   -------------------------------------------------------------------------*/
 
 int
@@ -2547,6 +2609,23 @@ LogAccess::marshal_proxy_resp_squid_len(char *buf)
 {
   if (buf) {
     int64_t val = m_data->get_client_response_hdr_bytes() + m_data->get_client_response_body_bytes();
+    marshal_int(buf, val);
+  }
+  return INK_MIN_ALIGN;
+}
+
+/*-------------------------------------------------------------------------
+  Squid length plus TLS handshake bytes sent for TLS connections.
+  -------------------------------------------------------------------------*/
+int
+LogAccess::marshal_proxy_resp_squid_len_tls(char *buf)
+{
+  if (buf) {
+    int64_t val = m_data->get_client_response_hdr_bytes() + m_data->get_client_response_body_bytes();
+
+    if (!m_data->get_client_tcp_reused()) {
+      val += m_data->get_client_tls_handshake_bytes_tx();
+    }
     marshal_int(buf, val);
   }
   return INK_MIN_ALIGN;

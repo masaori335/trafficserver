@@ -22,14 +22,17 @@ from hrw4u.errors import SymbolResolutionError
 import hrw4u.types as types
 from hrw4u.states import SectionType
 from hrw4u.common import SystemDefaults
+from hrw4u.debugging import Dbg
 from hrw4u.symbols_base import SymbolResolverBase
 from hrw4u.suggestions import SuggestionEngine
+from hrw4u.sandbox import SandboxConfig
 
 
 class SymbolResolver(SymbolResolverBase):
 
-    def __init__(self, debug: bool = SystemDefaults.DEFAULT_DEBUG) -> None:
-        super().__init__(debug)
+    def __init__(
+            self, debug: bool = SystemDefaults.DEFAULT_DEBUG, sandbox: SandboxConfig | None = None, dbg: Dbg | None = None) -> None:
+        super().__init__(debug, sandbox=sandbox, dbg=dbg)
         self._symbols: dict[str, types.Symbol] = {}
         self._var_counter = {vt: 0 for vt in types.VarType}
         self._suggestion_engine = SuggestionEngine()
@@ -43,7 +46,8 @@ class SymbolResolver(SymbolResolverBase):
             return params.target, params.validate
         raise SymbolResolutionError(name, "Unknown operator or invalid standalone use")
 
-    def declare_variable(self, name: str, type_name: str, explicit_slot: int | None = None) -> str:
+    def declare_variable(
+            self, name: str, type_name: str, explicit_slot: int | None = None, scope: types.VarScope = types.VarScope.TXN) -> str:
         try:
             var_type = types.VarType.from_str(type_name)
         except ValueError as e:
@@ -51,29 +55,31 @@ class SymbolResolver(SymbolResolverBase):
             error.add_note(f"Available types: {', '.join([vt.name for vt in types.VarType])}")
             raise error
 
-        # Determine slot number
+        # Determine slot number (separate slot pools per scope)
         if explicit_slot is not None:
             if explicit_slot < 0 or explicit_slot >= var_type.limit:
                 raise SymbolResolutionError(
                     name, f"Slot @{explicit_slot} out of range for type '{type_name}' (valid: 0-{var_type.limit-1})")
             for var_name, sym in self._symbols.items():
-                if sym.var_type == var_type and sym.slot == explicit_slot:
+                if sym.var_type == var_type and sym.scope == scope and sym.slot == explicit_slot:
                     raise SymbolResolutionError(name, f"Slot @{explicit_slot} already used by variable '{var_name}'")
 
             slot = explicit_slot
         else:
-            used_slots = {sym.slot for sym in self._symbols.values() if sym.var_type == var_type}
+            used_slots = {sym.slot for sym in self._symbols.values() if sym.var_type == var_type and sym.scope == scope}
             slot = next((i for i in range(var_type.limit) if i not in used_slots), None)
 
             if slot is None:
                 raise SymbolResolutionError(name, f"No available slots for type '{type_name}' (max {var_type.limit})")
 
-        symbol = types.Symbol(var_type, slot)
+        symbol = types.Symbol(var_type, slot, scope)
         self._symbols[name] = symbol
         return symbol.as_cond()
 
     def resolve_assignment(self, name: str, value: str, section: SectionType | None = None) -> str:
         with self.debug_context("resolve_assignment", name, value, section):
+            self._collect_warning(self._sandbox.check_operator(name))
+
             for op_key, params in self._operator_map.items():
                 if op_key.endswith("."):
                     if name.startswith(op_key):
@@ -118,6 +124,8 @@ class SymbolResolver(SymbolResolverBase):
     def resolve_add_assignment(self, name: str, value: str, section: SectionType | None = None) -> str:
         """Resolve += assignment, if it is supported for the given operator."""
         with self.debug_context("resolve_add_assignment", name, value, section):
+            self._collect_warning(self._sandbox.check_operator(name))
+
             for op_key, params in self._operator_map.items():
                 if op_key.endswith(".") and name.startswith(op_key) and params and params.add:
                     self.validate_section_access(name, section, params.sections)
@@ -136,7 +144,10 @@ class SymbolResolver(SymbolResolverBase):
     def resolve_condition(self, name: str, section: SectionType | None = None) -> tuple[str, bool]:
         with self.debug_context("resolve_condition", name, section):
             if symbol := self.symbol_for(name):
+                self._collect_warning(self._sandbox.check_language("variables"))
                 return symbol.as_cond(), False
+
+            self._collect_warning(self._sandbox.check_condition(name))
 
             if params := self._lookup_condition_cached(name):
                 tag = params.target if params else None
@@ -192,6 +203,8 @@ class SymbolResolver(SymbolResolverBase):
 
     def resolve_statement_func(self, func_name: str, args: list[str], section: SectionType | None = None) -> str:
         with self.debug_context("resolve_statement_func", func_name, args, section):
+            self._collect_warning(self._sandbox.check_function(func_name))
+
             if params := self._lookup_statement_function_cached(func_name):
                 allowed_sections = params.sections if params else None
                 self.validate_section_access(func_name, section, allowed_sections)

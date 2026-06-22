@@ -23,11 +23,13 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string_view>
 #include <string>
 #include <variant>
+#include <tuple>
 #include <vector>
 
 #include "tscore/ink_inet.h"
@@ -87,15 +89,17 @@ public:
   using UnmarshalFuncWithSlice = int (*)(char **, char *, int, LogSlice *, LogEscapeType);
   using UnmarshalFuncWithMap   = int (*)(char **, char *, int, const Ptr<LogFieldAliasMap> &);
   using SetFunc                = void (LogAccess::*)(char *, int);
+  using CustomMarshalFunc      = std::function<int(void *, char *)>;
+  using CustomUnmarshalFunc    = std::tuple<int, int> (*)(char **, char *, int);
 
   using VarUnmarshalFuncSliceOnly = std::variant<UnmarshalFunc, UnmarshalFuncWithSlice>;
   using VarUnmarshalFunc          = std::variant<decltype(nullptr), UnmarshalFunc, UnmarshalFuncWithSlice, UnmarshalFuncWithMap>;
 
   enum Type {
-    sINT = 0,
-    dINT,
-    STRING,
-    IP, ///< IP Address.
+    sINT = 0, ///< Single INT
+    dINT,     ///< Double INT
+    STRING,   ///< String
+    IP,       ///< IP Address
     N_TYPES
   };
 
@@ -140,6 +144,8 @@ public:
 
   LogField(const char *name, const char *symbol, Type type, MarshalFunc marshal, UnmarshalFuncWithMap unmarshal,
            const Ptr<LogFieldAliasMap> &map, SetFunc _setFunc = nullptr);
+
+  LogField(const char *name, const char *symbol, Type type, CustomMarshalFunc custom_marshal, CustomUnmarshalFunc custom_unmarshal);
 
   LogField(const char *field, Container container);
   LogField(const char *symbol, std::vector<HeaderField> header_fields, std::unique_ptr<LogField> fallback_field = nullptr,
@@ -203,23 +209,24 @@ public:
   static bool      isContainerUpdateFieldSupported(Container container);
 
 private:
-  char                 *m_name;
-  char                 *m_symbol;
-  Type                  m_type;
-  Container             m_container;
-  MarshalFunc           m_marshal_func;   // place data into buffer
-  VarUnmarshalFunc      m_unmarshal_func; // create a string of the data
-  Aggregate             m_agg_op;
-  int64_t               m_agg_cnt;
-  int64_t               m_agg_val;
-  TSMilestonesType      m_milestone1; ///< Used for MS and MSDMS as the first (or only) milestone.
-  TSMilestonesType      m_milestone2; ///< Second milestone for MSDMS
-  bool                  m_time_field;
-  Ptr<LogFieldAliasMap> m_alias_map; // map sINT <--> string
-  SetFunc               m_set_func;
-  TSMilestonesType      milestone_from_m_name();
-  int                   milestones_from_m_name(TSMilestonesType *m1, TSMilestonesType *m2);
-
+  char                      *m_name;
+  char                      *m_symbol;
+  Type                       m_type;
+  Container                  m_container;
+  MarshalFunc                m_marshal_func;   // place data into buffer
+  VarUnmarshalFunc           m_unmarshal_func; // create a string of the data
+  Aggregate                  m_agg_op;
+  int64_t                    m_agg_cnt;
+  int64_t                    m_agg_val;
+  TSMilestonesType           m_milestone1; ///< Used for MS and MSDMS as the first (or only) milestone.
+  TSMilestonesType           m_milestone2; ///< Second milestone for MSDMS
+  bool                       m_time_field;
+  Ptr<LogFieldAliasMap>      m_alias_map; // map sINT <--> string
+  SetFunc                    m_set_func;
+  TSMilestonesType           milestone_from_m_name();
+  int                        milestones_from_m_name(TSMilestonesType *m1, TSMilestonesType *m2);
+  CustomMarshalFunc          m_custom_marshal_func;
+  CustomUnmarshalFunc        m_custom_unmarshal_func = nullptr;
   std::vector<HeaderField>   m_fallback_header_fields;
   std::unique_ptr<LogField>  m_fallback_field;
   std::optional<std::string> m_fallback_default;
@@ -257,6 +264,7 @@ public:
 
   void      clear();
   void      add(LogField *field, bool copy = true);
+  void      remove(LogField *field);
   LogField *find_by_name(const char *name) const;
   LogField *find_by_symbol(const char *symbol) const;
   unsigned  marshal_len(LogAccess *lad);

@@ -21,6 +21,7 @@ grammar hrw4u;
 // Lexer Rules
 // -----------------------------
 VARS          : 'VARS';
+SESSION_VARS  : 'SESSION_VARS';
 IF            : 'if';
 ELIF          : 'elif';
 ELSE          : 'else';
@@ -29,9 +30,14 @@ TRUE          : [tT][rR][uU][eE];
 FALSE         : [fF][aA][lL][sS][eE];
 WITH          : 'with';
 BREAK         : 'break';
+USE           : 'use';
+PROCEDURE     : 'procedure';
 
 REGEX         : '/' ( '\\/' | ~[/\r\n] )* '/' ;
-STRING        : '"' ( '\\' . | ~["\\\r\n] )* '"' ;
+STRING        : '"' ( ESCAPED_BLOCK | '\\' . | ~["\\\r\n] )* '"' ;
+
+// {{ ... }} is an escape hatch — contents are passed through verbatim, inner quotes allowed
+fragment ESCAPED_BLOCK : '{{' ( ~'}' | '}' ~'}' )* '}}';
 
 IPV4_LITERAL
               : (OCTET '.' OCTET '.' OCTET '.' OCTET ('/' IPV4_CIDR)?)
@@ -53,14 +59,19 @@ fragment IPV4_CIDR     : [1-9]
                        | '3'[0-2]
                        ;
 
-fragment IPV6_CIDR     : '3'[3-9]
-                       | [4-9][0-9]
+fragment IPV6_CIDR     : [1-9]
+                       | [1-9][0-9]
                        | '1'[0-1][0-9]
                        | '12'[0-8]
                        ;
 
+// Qualified identifier: Namespace::Name (one or more :: segments).
+QUALIFIED_IDENT : [a-zA-Z_][a-zA-Z0-9_-]* ('::' [a-zA-Z_][a-zA-Z0-9_-]*)+
+                ;
+
 IDENT         : [a-zA-Z_][a-zA-Z0-9_@.-]* ;
 NUMBER        : [0-9]+ ;
+DOLLAR        : '$';
 LPAREN        : '(';
 RPAREN        : ')';
 LBRACE        : '{';
@@ -89,21 +100,48 @@ WS            : [ \t\r\n]+ -> skip ;
 // Parser Rules
 // -----------------------------
 program
-    : programItem+ EOF
+    : programItem* EOF
     ;
 
 programItem
-    : section
+    : useDirective
+    | procedureDecl
+    | section
     | commentLine
+    ;
+
+useDirective
+    : USE QUALIFIED_IDENT
+    ;
+
+procedureDecl
+    : PROCEDURE QUALIFIED_IDENT LPAREN paramList? RPAREN block
+    ;
+
+paramList
+    : param (COMMA param)*
+    ;
+
+param
+    : DOLLAR IDENT (EQUAL value)?
+    ;
+
+paramRef
+    : DOLLAR IDENT
     ;
 
 section
     : varSection
+    | sessionVarSection
     | name=IDENT LBRACE sectionBody+ RBRACE
     ;
 
 varSection
     : VARS LBRACE variables RBRACE
+    ;
+
+sessionVarSection
+    : SESSION_VARS LBRACE variables RBRACE
     ;
 
 sectionBody
@@ -211,7 +249,7 @@ comparable
     ;
 
 functionCall
-    : funcName=IDENT LPAREN argumentList? RPAREN
+    : funcName=(IDENT | QUALIFIED_IDENT) LPAREN argumentList? RPAREN
     ;
 
 argumentList
@@ -251,6 +289,7 @@ value
     | ident=IDENT
     | ip
     | iprange
+    | paramRef
     ;
 
 commentLine

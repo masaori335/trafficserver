@@ -21,6 +21,7 @@ from functools import cached_property
 import re
 
 from hrw4u.errors import SymbolResolutionError
+from hrw4u.debugging import Dbg
 from hrw4u.validation import Validator
 import hrw4u.types as types
 import hrw4u.tables as tables
@@ -31,9 +32,9 @@ from hrw4u.symbols_base import SymbolResolverBase
 class InverseSymbolResolver(SymbolResolverBase):
     """Reverse mapping utilities for hrw4u output generation."""
 
-    def __init__(self) -> None:
-        super().__init__(debug=False)  # Default to no debug for inverse resolver
-        self._state_vars: dict[tuple[types.VarType, int], str] = {}
+    def __init__(self, dbg: Dbg | None = None) -> None:
+        super().__init__(debug=False, dbg=dbg)
+        self._state_vars: dict[tuple[types.VarType, int, types.VarScope], str] = {}
 
     @cached_property
     def _rev_conditions_exact(self) -> dict[str, str]:
@@ -98,11 +99,12 @@ class InverseSymbolResolver(SymbolResolverBase):
             return f"{context_info}{payload}", False
         return None
 
-    def _get_or_create_var_name(self, var_type: types.VarType, index: int) -> str:
-        key = (var_type, index)
+    def _get_or_create_var_name(self, var_type: types.VarType, index: int, scope: types.VarScope = types.VarScope.TXN) -> str:
+        key = (var_type, index, scope)
         if key not in self._state_vars:
             type_name = var_type.name.lower()
-            self._state_vars[key] = f"{type_name}_{index}"
+            prefix = "ssn_" if scope == types.VarScope.SESSION else ""
+            self._state_vars[key] = f"{prefix}{type_name}_{index}"
         return self._state_vars[key]
 
     def _resolve_from_context_map(self, context_map: dict, section: SectionType | None, default: str) -> str:
@@ -151,15 +153,16 @@ class InverseSymbolResolver(SymbolResolverBase):
 
         return None
 
-    def _handle_state_tag(self, tag: str, payload: str | None) -> tuple[str, bool]:
-        state_type = tag[6:]
+    def _handle_state_tag(self, tag: str, payload: str | None, scope: types.VarScope = types.VarScope.TXN) -> tuple[str, bool]:
+        prefix_len = len(scope.cond_prefix) + 1  # "STATE-" or "SESSION-"
+        state_type = tag[prefix_len:]
         if payload is None:
             raise SymbolResolutionError(f"%{{{tag}}}", f"Missing index for {tag}")
         try:
             index = int(payload)
             for var_type in types.VarType:
                 if var_type.cond_tag == state_type:
-                    return self._get_or_create_var_name(var_type, index), False
+                    return self._get_or_create_var_name(var_type, index, scope), False
             raise SymbolResolutionError(f"%{{{tag}}}", f"Unknown state type: {state_type}")
         except ValueError:
             raise SymbolResolutionError(f"%{{{tag}}}", f"Invalid index for {tag}: {payload}")
@@ -228,13 +231,14 @@ class InverseSymbolResolver(SymbolResolverBase):
 
         return repl
 
-    def _handle_set_rm_operation(self, cmd: str, toks: list[str], prefix: str, qualifier: str, context: str) -> str:
+    def _handle_set_rm_operation(
+            self, cmd: str, toks: list[str], prefix: str, qualifier: str, section: SectionType | None = None) -> str:
         if cmd.startswith("rm-"):
             return f'{prefix}{qualifier} = ""'
         if len(toks) < 3:
             raise SymbolResolutionError(" ".join(toks), f"Missing value for {cmd}")
         value = " ".join(toks[2:])
-        value = self._rewrite_inline_percents(value, None)
+        value = self._rewrite_inline_percents(value, section)
         return f"{prefix}{qualifier} = {value}"
 
     def _handle_operator_command(
@@ -257,7 +261,7 @@ class InverseSymbolResolver(SymbolResolverBase):
             prefix = self.get_prefix_for_context(context_type, section)
 
             processed_qualifier = qualifier_processor(qualifier)
-            return self._handle_set_rm_operation(cmd, toks, prefix, processed_qualifier, op_context)
+            return self._handle_set_rm_operation(cmd, toks, prefix, processed_qualifier, section)
 
         if lhs_key.endswith("."):
             if len(toks) < 2:
@@ -362,12 +366,22 @@ class InverseSymbolResolver(SymbolResolverBase):
             return '{' + content + '}'
         return iprange_text
 
-    def get_var_declarations(self) -> list[str]:
-        """Get variable declarations in hrw4u format."""
-        declarations = []
-        for (var_type, _), var_name in sorted(self._state_vars.items(), key=lambda x: (x[0][0].name, x[0][1])):
-            declarations.append(f"{var_name}: {var_type.name.lower()};")
-        return declarations
+    def get_var_declarations(self) -> tuple[list[str], list[str]]:
+        """Get variable declarations in hrw4u format, separated by scope.
+
+        Returns a tuple of (txn_declarations, session_declarations).
+        """
+        txn_decls = []
+        ssn_decls = []
+
+        for (var_type, _, scope), var_name in sorted(self._state_vars.items(), key=lambda x: (x[0][2].name, x[0][0].name, x[0][1])):
+            decl = f"{var_name}: {var_type.name.lower()};"
+            if scope == types.VarScope.SESSION:
+                ssn_decls.append(decl)
+            else:
+                txn_decls.append(decl)
+
+        return txn_decls, ssn_decls
 
     def negate_expression(self, term: str) -> str:
         """Negate a logical expression appropriately."""
@@ -418,7 +432,10 @@ class InverseSymbolResolver(SymbolResolverBase):
             return percent, False
 
         if tag.startswith("STATE-"):
-            return self._handle_state_tag(tag, payload)
+            return self._handle_state_tag(tag, payload, types.VarScope.TXN)
+
+        if tag.startswith("SESSION-"):
+            return self._handle_state_tag(tag, payload, types.VarScope.SESSION)
 
         if tag == "IP" and payload:
             result = self._handle_ip_tag(payload)
@@ -469,21 +486,23 @@ class InverseSymbolResolver(SymbolResolverBase):
         line = " ".join(toks)
 
         for var_type in types.VarType:
-            if cmd == var_type.op_tag:
-                if len(toks) < 3:
-                    raise SymbolResolutionError(line, f"Missing arguments for {cmd}")
-                try:
-                    index = int(toks[1])
-                    value = " ".join(toks[2:])
-                except ValueError:
-                    raise SymbolResolutionError(line, f"Invalid index for {cmd}: {toks[1]}")
+            for scope in types.VarScope:
+                op_tag = f"{scope.op_prefix}-{var_type.op_suffix}"
+                if cmd == op_tag:
+                    if len(toks) < 3:
+                        raise SymbolResolutionError(line, f"Missing arguments for {cmd}")
+                    try:
+                        index = int(toks[1])
+                        value = " ".join(toks[2:])
+                    except ValueError:
+                        raise SymbolResolutionError(line, f"Invalid index for {cmd}: {toks[1]}")
 
-                var_name = self._get_or_create_var_name(var_type, index)
-                if value.startswith('%{') and value.endswith('}'):
-                    rewritten_value, _ = self.percent_to_ident_or_func(value, section)
-                else:
-                    rewritten_value = self._rewrite_inline_percents(value, section)
-                return f"{var_name} = {rewritten_value}"
+                    var_name = self._get_or_create_var_name(var_type, index, scope)
+                    if value.startswith('%{') and value.endswith('}'):
+                        rewritten_value, _ = self.percent_to_ident_or_func(value, section)
+                    else:
+                        rewritten_value = self._rewrite_inline_percents(value, section)
+                    return f"{var_name} = {rewritten_value}"
 
         for lhs_key, params in tables.OPERATOR_MAP.items():
             commands = params.target if params else None
