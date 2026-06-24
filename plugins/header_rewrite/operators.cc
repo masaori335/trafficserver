@@ -514,6 +514,40 @@ OperatorSetRedirect::initialize_hooks()
   add_allowed_hook(TS_REMAP_PSEUDO_HOOK);
 }
 
+// HTML-escape a string for safe inclusion in the redirect response body.
+// The Location can carry attacker-influenced data (the original request path
+// via %{PATH}, the original query via QSA), so it must not be emitted into the
+// HTML body unescaped.
+static std::string
+html_escape(std::string_view in)
+{
+  std::string out;
+  out.reserve(in.size());
+  for (char c : in) {
+    switch (c) {
+    case '&':
+      out += "&amp;";
+      break;
+    case '<':
+      out += "&lt;";
+      break;
+    case '>':
+      out += "&gt;";
+      break;
+    case '"':
+      out += "&quot;";
+      break;
+    case '\'':
+      out += "&#39;";
+      break;
+    default:
+      out += c;
+      break;
+    }
+  }
+  return out;
+}
+
 void
 EditRedirectResponse(TSHttpTxn txnp, const std::string &location, TSHttpStatus status, TSMBuffer bufp, TSMLoc hdr_loc)
 {
@@ -526,18 +560,22 @@ EditRedirectResponse(TSHttpTxn txnp, const std::string &location, TSHttpStatus s
       TSMimeHdrFieldAppend(bufp, hdr_loc, field_loc);
     }
     const char *reason = TSHttpHdrReasonLookup(status);
-    size_t      len    = strlen(reason);
-    TSHttpHdrReasonSet(bufp, hdr_loc, reason, len);
+    if (reason != nullptr) {
+      TSHttpHdrReasonSet(bufp, hdr_loc, reason, strlen(reason));
+    }
     TSHandleMLocRelease(bufp, hdr_loc, field_loc);
   }
 
-  // Set the body.
-  static std::string msg = "<HTML>\n<HEAD>\n<TITLE>Document Has Moved</TITLE>\n</HEAD>\n"
-                           "<BODY BGCOLOR=\"white\" FGCOLOR=\"black\">\n"
-                           "<H1>Document Has Moved</H1>\n<HR>\n<FONT FACE=\"Helvetica,Arial\"><B>\n"
-                           "Description: The document you requested has moved to a new location."
-                           " The new location is \"" +
-                           location + "\".\n</B></FONT>\n<HR>\n</BODY>\n";
+  // Set the body. This MUST be rebuilt per request (not static): the Location
+  // is request-specific, so a static would freeze the first request's Location
+  // and echo it in every subsequent redirect body (cross-request leak). The
+  // Location is HTML-escaped so it cannot inject markup into the body.
+  std::string msg = "<HTML>\n<HEAD>\n<TITLE>Document Has Moved</TITLE>\n</HEAD>\n"
+                    "<BODY BGCOLOR=\"white\" FGCOLOR=\"black\">\n"
+                    "<H1>Document Has Moved</H1>\n<HR>\n<FONT FACE=\"Helvetica,Arial\"><B>\n"
+                    "Description: The document you requested has moved to a new location."
+                    " The new location is \"" +
+                    html_escape(location) + "\".\n</B></FONT>\n<HR>\n</BODY>\n";
   TSHttpTxnErrorBodySet(txnp, TSstrdup(msg.c_str()), msg.length(), TSstrdup("text/html"));
 }
 
