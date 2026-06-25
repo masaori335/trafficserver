@@ -73,6 +73,8 @@ def test_prefetch_cmcd(ats_factory: ATSFactory, services: ServiceFactory) -> Non
         add_origin_response("/root.txt", "root.txt", 'nor="rooted"')
         add_origin_response("/rooted", "rooted")
         add_origin_response("/tests/crr.txt", "crr.txt", 'foo=12,nor="crr.txt",bar=42,nrr="0-"')
+        add_origin_response("/tests/empty.txt", "empty.txt", 'foo=12,nor="",bar=42')
+        add_origin_response("/tests/bare.txt", "bare.txt", "nor=")
         return origin
 
     def configure_dns() -> DNSServer:
@@ -207,10 +209,20 @@ def test_prefetch_cmcd(ats_factory: ATSFactory, services: ServiceFactory) -> Non
     request("/root.txt", 'nor="rooted"')
     wait_for_next_hop_cache_fill("/rooted")
     request("/crr.txt", 'foo=12,nor="crr.txt",bar=42,nrr="0-"')
+    request("/tests/empty.txt", 'foo=12,nor="",bar=42')
+    request("/tests/bare.txt", "nor=")
 
     front_log = _front.log_directory / "transaction.log"
     next_log = _next_hop.log_directory / "transaction.log"
-    front = wait_for_file_lines(front_log, "crr.txt", 1, timeout=15)
-    next_hop = wait_for_file_lines(next_log, "crr.txt", 1, timeout=15)
+    wait_for_file_lines(front_log, r"^/tests/bare\.txt 200 TCP_MISS FIN ", 1, timeout=15)
+    wait_for_file_lines(next_log, r"^/tests/bare\.txt 200 TCP_MISS FIN ", 1, timeout=15)
+    wait_for_file_lines(_front.traffic_out, "empty cmcd nor field value, skipping", 2, timeout=15)
+    _front.stop()
+    _next_hop.stop()
+    front = front_log.read_text(errors="replace")
+    next_hop = next_log.read_text(errors="replace")
     assert_matches_gold(front, services.resolve_path("prefetch_cmcd0.gold"))
     assert_matches_gold(next_hop, services.resolve_path("prefetch_cmcd1.gold"))
+    for ats in (_front, _next_hop):
+        diagnostics = ats.diags_log.read_text(errors="replace")
+        assert not re.search(r"ERROR:|FATAL:|Unrecognized configuration value", diagnostics), diagnostics

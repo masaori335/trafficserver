@@ -10,3 +10,5 @@
 /rooted 200 TCP_MISS - 16 root.txt
 /rooted 200 TCP_MISS FIN 28 -
 /crr.txt 404 TCP_MISS - 5 -
+/tests/empty.txt 200 TCP_MISS FIN 31 -
+/tests/bare.txt 200 TCP_MISS FIN 30 -
