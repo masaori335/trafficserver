@@ -287,6 +287,9 @@ SSLNetVConnection::_ssl_read_from_net(int64_t &ret)
     Dbg(dbg_ctl_ssl, "bytes_read=%" PRId64, bytes_read);
 
     s->vio.ndone += bytes_read;
+    // Decrypted application bytes, to match write_bytes (also plaintext for TLS).
+    Metrics::Counter::increment(net_rsb.read_bytes, bytes_read);
+    Metrics::Counter::increment(net_rsb.read_bytes_count);
     this->netActivity();
 
     ret = bytes_read;
@@ -351,8 +354,6 @@ SSLNetVConnection::read_raw_data()
       r = total_read - rattempted + r;
     }
   }
-  Metrics::Counter::increment(net_rsb.read_bytes, r);
-  Metrics::Counter::increment(net_rsb.read_bytes_count);
 
   if (!this->haveCheckedProxyProtocol) {
     // The PROXY Protocol, by spec, is designed to require only the first TCP packet of bytes
@@ -989,6 +990,12 @@ SSLNetVConnection::clear()
   client_sess.reset();
 
   if (ssl != nullptr) {
+    // clear() runs from free() once per VC recycle, so this is the single chokepoint where a TLS
+    // connection's SSL object is torn down -- count it as one connection close here. Blind-tunnel
+    // conversions free their SSL earlier (before any data) and continue as a tunnel rather than a
+    // close, so by here ssl is already null for them and they are not counted (they are tracked by
+    // the tunnel metrics instead).
+    Metrics::Counter::increment(ssl_rsb.connections_closed);
     SSL_free(ssl);
     ssl = nullptr;
   }
@@ -1736,6 +1743,10 @@ SSLNetVConnection::populate(Connection &con, Continuation *c, void *arg)
 {
   int retval = super::populate(con, c, arg);
   if (retval != EVENT_DONE) {
+    // arg is the migrated SSL this VC would adopt below; release it since we won't.
+    if (arg != nullptr) {
+      SSL_free(static_cast<SSL *>(arg));
+    }
     return retval;
   }
   // Add in the SSL data

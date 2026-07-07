@@ -1818,15 +1818,28 @@ Origin Server Connect Attempts
    The maximum number of connection retries |TS| can make when the origin server is not responding.
    Each retry attempt lasts for `proxy.config.http.connect_attempts_timeout`_ seconds.  Once the maximum number of retries is
    reached, the origin is marked down (as controlled by `proxy.config.http.connect.down.policy`_.  After this, the setting
-   `proxy.config.http.connect_attempts_max_retries_down_server`_ is used to limit the number of retry attempts to the known down origin.
+   `proxy.config.http.connect_attempts_max_retries_suspect_server`_ is used to limit the number of retry attempts when the origin is
+   in the SUSPECT state (recovering after `proxy.config.http.down_server.cache_time`_ has elapsed).
+
+.. ts:cv:: CONFIG proxy.config.http.connect_attempts_max_retries_suspect_server INT 1
+   :reloadable:
+   :overridable:
+
+   Maximum number of connection retries |TS| can make while an origin is in the SUSPECT state (the first request after
+   `proxy.config.http.down_server.cache_time`_ has elapsed on a previously-down origin). The total attempt budget for a SUSPECT
+   origin is therefore ``connect_attempts_max_retries_suspect_server + 1`` (the initial probe plus each retry). If any attempt
+   succeeds, the origin transitions back to UP; if all attempts fail, the origin returns to DOWN for another
+   `proxy.config.http.down_server.cache_time`_ seconds. Typically smaller than `proxy.config.http.connect_attempts_max_retries`_
+   so the recovering origin is not flooded.
 
 .. ts:cv:: CONFIG proxy.config.http.connect_attempts_max_retries_down_server INT 1
    :reloadable:
    :overridable:
+   :deprecated:
 
-   Maximum number of connection attempts |TS| can make while an origin is marked down per request.  Typically this value is smaller than
-   `proxy.config.http.connect_attempts_max_retries`_ so an error is returned to the client faster and also to reduce the load on the down origin.
-   The timeout interval `proxy.config.http.connect_attempts_timeout`_ in seconds is used with this setting.
+   This setting is deprecated in favor of :ts:cv:`proxy.config.http.connect_attempts_max_retries_suspect_server`. If the
+   deprecated setting is set explicitly and the replacement is not, the deprecated value is mirrored forward and a warning is
+   logged. If both are set explicitly, the new setting wins and the deprecated value is ignored.
 
 .. ts:cv:: CONFIG proxy.config.http.connect_attempts_retry_backoff_base INT 0
    :reloadable:
@@ -2901,10 +2914,65 @@ RAM Cache
 
 .. ts:cv:: CONFIG proxy.config.cache.ram_cache.algorithm INT 1
 
-   Two distinct RAM caches are supported, the default (1) being the simpler
-   **LRU** (*Least Recently Used*) cache. As an alternative, the **CLFUS**
-   (*Clocked Least Frequently Used by Size*) is also available, by changing this
-   configuration to 0.
+   Three RAM cache eviction algorithms are supported, selected by this value:
+
+   ``1``
+       **LRU** (*Least Recently Used*), the default -- the simplest policy,
+       favoring recency. Pairs with
+       :ts:cv:`proxy.config.cache.ram_cache.use_seen_filter` for scan
+       resistance.
+
+   ``0``
+       **CLFUS** (*Clocked Least Frequently Used by Size*), which balances
+       recency, frequency, and object size. It is the only algorithm that
+       supports in-RAM compression
+       (:ts:cv:`proxy.config.cache.ram_cache.compress`).
+
+   ``2``
+       **S3-FIFO** (*Simple Scalable Static FIFO*): a small admission queue and
+       a main queue (both FIFO), plus a ghost queue of recently evicted keys,
+       which together filter one-hit-wonders. Scan-resistant and inexpensive
+       (no per-hit reordering); strong hit rates on CDN and key-value
+       workloads. Its eviction metadata (including the ghost) is accounted
+       within :ts:cv:`proxy.config.cache.ram_cache.size`. Experimental; it does
+       not use the seen filter or support in-RAM compression. Its queue split,
+       ghost bounds, and promotion threshold can be tuned with the
+       ``proxy.config.cache.ram_cache.s3fifo.*`` settings below; the defaults
+       follow the original paper and suit most workloads.
+
+.. ts:cv:: CONFIG proxy.config.cache.ram_cache.s3fifo.main_percent INT 90
+
+   Only applies when :ts:cv:`proxy.config.cache.ram_cache.algorithm` is ``2``
+   (S3-FIFO). The target size of the main queue as a percentage of the resident
+   budget; the remainder is the small admission queue. The default ``90`` gives
+   the ~10% small / ~90% main split from the paper. Valid range is ``1`` to
+   ``99`` (an out-of-range value is rejected with a warning and the default is
+   used); a larger value grows the main queue at the expense of the admission
+   queue.
+
+.. ts:cv:: CONFIG proxy.config.cache.ram_cache.s3fifo.ghost_size_percent INT 90
+
+   Only applies when :ts:cv:`proxy.config.cache.ram_cache.algorithm` is ``2``
+   (S3-FIFO). The ghost queue remembers the keys of recently evicted objects for
+   up to this percentage of :ts:cv:`proxy.config.cache.ram_cache.size` worth of
+   object bytes. Valid range is ``0`` to ``100``; ``0`` disables this bound.
+
+.. ts:cv:: CONFIG proxy.config.cache.ram_cache.s3fifo.ghost_mem_percent INT 25
+
+   Only applies when :ts:cv:`proxy.config.cache.ram_cache.algorithm` is ``2``
+   (S3-FIFO). Caps the memory the ghost queue's per-key metadata may consume at
+   this percentage of :ts:cv:`proxy.config.cache.ram_cache.size`. This metadata
+   is counted against the configured RAM cache size, so total memory stays
+   within the budget regardless of object cardinality. Valid range is ``0`` to
+   ``100``; ``0`` disables the ghost queue.
+
+.. ts:cv:: CONFIG proxy.config.cache.ram_cache.s3fifo.promote_threshold INT 2
+
+   Only applies when :ts:cv:`proxy.config.cache.ram_cache.algorithm` is ``2``
+   (S3-FIFO). The number of times an object in the small admission queue must be
+   reused before it is promoted to the main queue instead of being demoted to
+   the ghost. The default ``2`` admits objects seen at least twice. Valid range
+   is ``1`` to ``3``; a higher value makes admission to the main queue stricter.
 
 .. ts:cv:: CONFIG proxy.config.cache.ram_cache.use_seen_filter INT 1
 

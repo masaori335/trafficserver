@@ -679,6 +679,8 @@ TSPluginInit(int argc, const char *argv[])
     return;
   }
 
+  init_hrw_work_stats();
+
   std::string geoDBpath;
   while (true) {
     int opt = getopt_long(argc, const_cast<char *const *>(argv), "m:t:i:", longopt, nullptr);
@@ -753,6 +755,8 @@ TSRemapInit(TSRemapInterface *api_info, char *errbuf, int errbuf_size)
 {
   CHECK_REMAP_API_COMPATIBILITY(api_info, errbuf, errbuf_size);
   Dbg(pi_dbg_ctl, "Remap plugin is successfully initialized");
+
+  init_hrw_work_stats();
 
   return TS_SUCCESS;
 }
