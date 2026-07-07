@@ -86,7 +86,7 @@ class RulesConfig
 {
 public:
   RulesConfig(int timezone, int inboundIpSource, void *geo_handle = nullptr, bool global = false)
-    : _timezone(timezone), _inboundIpSource(inboundIpSource), _geo_handle(geo_handle), _global(global)
+    : _timezone(timezone), _inboundIpSource(inboundIpSource), _global(global), _geo_handle(geo_handle)
   {
     Dbg(dbg_ctl, "RulesConfig CTOR");
 
