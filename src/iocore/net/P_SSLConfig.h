@@ -34,6 +34,7 @@
 #include "SSLSessionCache.h"
 #include "iocore/eventsystem/ConfigProcessor.h"
 #include "iocore/net/YamlSNIConfig.h"
+#include "mgmt/config/ConfigContext.h"
 
 #include <openssl/rand.h>
 #include <atomic>
@@ -170,7 +171,7 @@ struct SSLConfigParams : public ConfigInfo {
 
   void cleanupCTXTable();
 
-  void initialize();
+  void initialize(ConfigContext ctx = {});
   void cleanup();
   void reset();
   void SSLConfigInit(swoc::IPRangeSet *global);
@@ -191,7 +192,7 @@ private:
 
 struct SSLConfig {
   static void             startup();
-  static void             reconfigure();
+  static void             reconfigure(ConfigContext ctx = {});
   static SSLConfigParams *acquire();
   static SSLConfigParams *load_acquire();
   static void             release(SSLConfigParams *params);
@@ -213,7 +214,7 @@ private:
 
 struct SSLCertificateConfig {
   static bool           startup();
-  static bool           reconfigure();
+  static bool           reconfigure(ConfigContext ctx = {});
   static SSLCertLookup *acquire();
   static void           release(SSLCertLookup *params);
 
@@ -227,7 +228,7 @@ struct SSLTicketParams : public ConfigInfo {
   ssl_ticket_key_block *default_global_keyblock = nullptr;
   time_t                load_time               = 0;
   char                 *ticket_key_filename     = nullptr;
-  bool                  LoadTicket(bool &nochange);
+  bool                  LoadTicket(bool &nochange, ConfigContext ctx = {});
   bool                  LoadTicketData(char *ticket_data, int ticket_data_len);
   void                  cleanup();
 
@@ -236,7 +237,7 @@ struct SSLTicketParams : public ConfigInfo {
 
 struct SSLTicketKeyConfig {
   static void startup();
-  static bool reconfigure();
+  static bool reconfigure(ConfigContext ctx = {});
   static bool reconfigure_data(char *ticket_data, int ticket_data_len);
 
   static SSLTicketParams *

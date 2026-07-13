@@ -23,10 +23,12 @@
 
 #pragma once
 #include "iocore/cache/CacheDefs.h"
+#include "mgmt/config/ConfigContext.h"
 #include "records/RecCore.h"
 #include "tscore/MatcherUtils.h"
 #include "tscore/HostLookup.h"
 #include "tsutil/Bravo.h"
+#include "tscore/Filenames.h"
 
 #include <memory>
 
@@ -222,11 +224,11 @@ class CacheHostTable
 public:
   // Parameter name must not be deallocated before this
   //  object is
-  CacheHostTable(Cache *c, CacheType typ);
+  CacheHostTable(Cache *c, CacheType typ, ConfigContext ctx = {});
   ~CacheHostTable();
 
-  int BuildTable(const char *config_file_path);
-  int BuildTableFromString(const char *config_file_path, char *str);
+  int BuildTable(const char *config_file_path, ConfigContext ctx = {});
+  int BuildTableFromString(const char *config_file_path, char *str, ConfigContext ctx = {});
 
   void Match(std::string_view rdata, CacheHostResult *result) const;
   void Print() const;
@@ -268,15 +270,7 @@ public:
     return cache;
   }
 
-  void
-  register_config_callback(ReplaceablePtr<CacheHostTable> *p)
-  {
-    RecRegisterConfigUpdateCb("proxy.config.cache.hosting_filename", CacheHostTable::config_callback, (void *)p);
-  }
-
 private:
-  static int config_callback(const char *, RecDataT, RecData, void *);
-
   CacheType                         type         = CacheType::HTTP;
   Cache                            *cache        = nullptr;
   int                               m_numEntries = 0;
@@ -284,35 +278,6 @@ private:
   std::unique_ptr<CacheHostMatcher> hostMatch    = nullptr;
   const matcher_tags                config_tags  = {"hostname", "domain", nullptr, nullptr, nullptr, nullptr, false};
   const char                       *matcher_name = "unknown"; // Used for Debug/Warning/Error messages
-};
-
-struct CacheHostTableConfig;
-using CacheHostTabHandler = int (CacheHostTableConfig::*)(int, void *);
-struct CacheHostTableConfig : public Continuation {
-  CacheHostTableConfig(ReplaceablePtr<CacheHostTable> *appt) : Continuation(nullptr), ppt(appt)
-  {
-    SET_HANDLER(&CacheHostTableConfig::mainEvent);
-  }
-
-  ~CacheHostTableConfig() {}
-
-  int
-  mainEvent(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
-  {
-    CacheType type  = CacheType::HTTP;
-    Cache    *cache = nullptr;
-    {
-      ReplaceablePtr<CacheHostTable>::ScopedReader hosttable(ppt);
-      type  = hosttable->getType();
-      cache = hosttable->getCache();
-    }
-    ppt->reset(new CacheHostTable(cache, type));
-    delete this;
-    return EVENT_DONE;
-  }
-
-private:
-  ReplaceablePtr<CacheHostTable> *ppt;
 };
 
 /* list of volumes in the volume.config file */

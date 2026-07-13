@@ -24,7 +24,8 @@
 #include "proxy/ParentConsistentHash.h"
 #include "proxy/ParentRoundRobin.h"
 #include "proxy/ControlMatcher.h"
-#include "iocore/eventsystem/ConfigProcessor.h"
+#include "mgmt/config/ConfigContextDiags.h"
+#include "mgmt/config/ConfigRegistry.h"
 #include "proxy/HostStatus.h"
 #include "proxy/hdrs/HTTP.h"
 #include "proxy/http/HttpTransact.h"
@@ -43,9 +44,8 @@ using namespace std::literals;
 using P_table = ControlMatcher<ParentRecord, ParentResult>;
 
 // Global Vars for Parent Selection
-static const char                         modulePrefix[]     = "[ParentSelection]";
-static ConfigUpdateHandler<ParentConfig> *parentConfigUpdate = nullptr;
-static int                                self_detect        = 2;
+static const char modulePrefix[] = "[ParentSelection]";
+static int        self_detect    = 2;
 
 // Config var names
 static const char *file_var      = "proxy.config.http.parent_proxy.file";
@@ -289,33 +289,28 @@ int ParentConfig::m_id = 0;
 void
 ParentConfig::startup()
 {
-  parentConfigUpdate = new ConfigUpdateHandler<ParentConfig>();
+  config::ConfigRegistry::Get_Instance().register_config(
+    "parent_proxy",                                            // registry key
+    ts::filename::PARENT,                                      // default filename
+    file_var,                                                  // record holding the filename
+    [](ConfigContext ctx) { ParentConfig::reconfigure(ctx); }, // reload handler
+    config::ConfigSource::FileOnly,                            // file-based only
+    {file_var, default_var, retry_var, threshold_var});        // trigger records
 
   // Load the initial configuration
   reconfigure();
-
-  // Setup the callbacks for reconfiuration
-  //   parent table
-  parentConfigUpdate->attach(file_var);
-  //   default parent
-  parentConfigUpdate->attach(default_var);
-  //   Retry time
-  parentConfigUpdate->attach(retry_var);
-  //   Fail Threshold
-  parentConfigUpdate->attach(threshold_var);
 }
 
 void
-ParentConfig::reconfigure()
+ParentConfig::reconfigure(ConfigContext ctx)
 {
-  Note("%s loading ...", ts::filename::PARENT);
-
-  ParentConfigParams *params = nullptr;
+  CfgLoadLog(ctx, DL_Note, "%s loading ...", ts::filename::PARENT);
 
   // Allocate parent table
-  P_table *pTable = new P_table(file_var, modulePrefix, &http_dest_tags);
-
-  params = new ParentConfigParams(pTable);
+  P_table *pTable =
+    new P_table(file_var, modulePrefix, &http_dest_tags,
+                ALLOW_HOST_TABLE | ALLOW_IP_TABLE | ALLOW_REGEX_TABLE | ALLOW_HOST_REGEX_TABLE | ALLOW_URL_TABLE, ctx);
+  ParentConfigParams *params = new ParentConfigParams(pTable);
   ink_assert(params != nullptr);
 
   m_id = configProcessor.set(m_id, params);
@@ -324,7 +319,7 @@ ParentConfig::reconfigure()
     ParentConfig::print();
   }
 
-  Note("%s finished loading", ts::filename::PARENT);
+  CfgLoadComplete(ctx, "%s finished loading", ts::filename::PARENT);
 }
 
 void

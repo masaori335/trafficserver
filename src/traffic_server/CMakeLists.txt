@@ -27,7 +27,6 @@ target_link_libraries(
           ts::http2
           ts::logging
           ts::hdrs
-          ts::configmanager
           ts::diagsconfig
           ts::inkutils
           ts::inkdns
@@ -43,6 +42,7 @@ target_link_libraries(
           ts::jsonrpc_server
           ts::rpcpublichandlers
           ts::resource
+          ts::configmanager
 )
 if(NOT APPLE)
   # Skipping apple because macOS doesn't seem to provide an equivalent option
