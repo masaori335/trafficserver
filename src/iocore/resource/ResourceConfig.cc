@@ -25,6 +25,7 @@
 #include "iocore/resource/ResourceConstraints.h"
 #include "iocore/resource/ResourceManager.h"
 #include "records/RecCore.h"
+#include "mgmt/config/ConfigRegistry.h"
 
 ////
 // ResourceConfigParams
@@ -53,24 +54,22 @@ ResourceConfigParams::ResourceConfigParams()
 void
 ResourceConfig::startup()
 {
-  _config_update_handler = std::make_unique<ConfigUpdateHandler<ResourceConfig>>();
-
   // RECU_DYNAMIC
-  _config_update_handler->attach("proxy.config.resource.top_n");
-
-  _config_update_handler->attach("proxy.config.resource.sni.limit");
-  _config_update_handler->attach("proxy.config.resource.sni.mode");
-  _config_update_handler->attach("proxy.config.resource.sni.penalty_duration");
-  _config_update_handler->attach("proxy.config.resource.sni.red_zone");
+  config::ConfigRegistry::Get_Instance().register_record_config(
+    "resource", [](ConfigContext ctx) { ResourceConfig::reconfigure(ctx); },
+    {"proxy.config.resource.top_n", "proxy.config.resource.sni.limit", "proxy.config.resource.sni.mode",
+     "proxy.config.resource.sni.penalty_duration", "proxy.config.resource.sni.red_zone"});
 
   reconfigure();
 }
 
 void
-ResourceConfig::reconfigure()
+ResourceConfig::reconfigure(ConfigContext ctx)
 {
   ResourceConfigParams *params = new ResourceConfigParams();
   _config_id                   = configProcessor.set(_config_id, params);
+
+  ctx.complete("Resource config published");
 }
 
 ResourceConfigParams *

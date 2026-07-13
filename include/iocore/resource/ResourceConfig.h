@@ -25,6 +25,7 @@
 
 #include "Resource.h"
 #include "iocore/eventsystem/ConfigProcessor.h"
+#include "mgmt/config/ConfigContext.h"
 
 #include "tscore/Ptr.h"
 
@@ -61,14 +62,13 @@ public:
 
   static void startup();
 
-  // ConfigUpdateContinuation interface
-  static void reconfigure();
+  // ConfigRegistry reload handler
+  static void reconfigure(ConfigContext ctx = {});
 
   // ConfigProcessor::scoped_config interface
   static ResourceConfigParams *acquire();
   static void                  release(ResourceConfigParams *params);
 
 private:
-  inline static int                                             _config_id;
-  inline static std::unique_ptr<ConfigUpdateHandler<self_type>> _config_update_handler;
+  inline static int _config_id;
 };
