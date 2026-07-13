@@ -183,11 +183,10 @@ builds:
         - TRAFFICSERVER
     package:
       freeform:
-        - publish:
-            - packageFilters: [rpm]
-              repo: yum:cdn-edge
         - optional: true
           publish:
+            - packageFilters: [rpm]
+              repo: yum:cdn-edge
             - packageFilters: [wheel]
               repo: apple-pypi-release-local
     jenkins:
