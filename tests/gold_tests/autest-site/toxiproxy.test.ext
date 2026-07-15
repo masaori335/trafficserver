@@ -1,0 +1,295 @@
+'''
+Toxiproxy test extension.
+
+Launch a toxiproxy-server daemon and drive it with toxiproxy-cli so that tests
+can inject transport-level network conditions (latency, bandwidth, connection
+resets, partitions) on any loopback TCP leg of an AuTest topology -- for
+example the ATS -> origin or ATS -> parent leg. This complements Proxy Verifier,
+which models HTTP-level behavior (status, headers, response delay) but not
+TCP-level faults such as resets, bandwidth caps, or blackhole partitions.
+'''
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+import os
+import yaml
+
+from ports import get_port
+
+
+def MakeToxiproxyProcess(obj, name, api_port=None):
+    """
+    Create a toxiproxy-server daemon Process.
+
+    The daemon exposes a REST API used by toxiproxy-cli (see
+    AddToxiproxyProxies) to create proxies and add toxics. It is a background
+    process: start it with StartBefore() from the first test run that needs it;
+    AuTest terminates it at teardown.
+
+    Args:
+        obj: (Test or TestRun) An object with a Processes attribute.
+
+        name: (str) The name to apply to this toxiproxy-server instance.
+            Individual instances must have unique names.
+
+        api_port: (int) The port toxiproxy's REST API listens on. If not
+            provided, a free port is reserved via the standard allocator.
+
+    Returns:
+        The toxiproxy-server Process, with .Variables.api_port set.
+    """
+    p = obj.Processes.Process(name)
+    if api_port is None:
+        get_port(p, "api_port")
+        api_port = p.Variables.api_port
+    else:
+        p.Variables["api_port"] = api_port
+
+    p.Command = f"toxiproxy-server -host 127.0.0.1 -port {api_port}"
+    p.Ready = When.PortOpenv4(api_port)
+    p.ReturnCode = 0
+
+    AddMethodToInstance(p, ReserveListenPort)
+    return p
+
+
+def ReserveListenPort(self, name):
+    """
+    Reserve a free TCP port for a Toxiproxy proxy's listen address.
+
+    The port must be reserved before it is referenced (e.g. in an ATS remap
+    line), so call this right after MakeToxiproxyProcess and pass the result to
+    both the ATS config and the toxiproxy-cli 'create --listen' argument.
+
+    Args:
+        name: (str) Variable name to store the port under on this process.
+
+    Returns:
+        The reserved port number (also available as self.Variables[name]).
+    """
+    get_port(self, name)
+    return self.Variables[name]
+
+
+def _substitute(obj, mapping):
+    """Recursively replace {placeholder} tokens in every string within obj."""
+    if isinstance(obj, str):
+        for token, value in mapping.items():
+            obj = obj.replace(token, str(value))
+        return obj
+    if isinstance(obj, dict):
+        return {key: _substitute(value, mapping) for key, value in obj.items()}
+    if isinstance(obj, list):
+        return [_substitute(value, mapping) for value in obj]
+    return obj
+
+
+def ResolvePorts(self, config):
+    """
+    Resolve {TOXIPROXY_<NAME>_PORT} placeholders in a config structure.
+
+    For each proxy created via ConfigureToxiproxy, {TOXIPROXY_<NAME>_PORT} (NAME
+    uppercased) is replaced by that proxy's reserved listen port. Other
+    placeholders (e.g. {SERVER_HTTP_PORT}) are left untouched for their owning
+    helper to resolve. Returns a substituted copy; the input is unchanged.
+
+    Args:
+        config: (dict/list/str) A config structure, e.g. an `autest.ats` node.
+
+    Returns:
+        The config with the Toxiproxy port placeholders substituted.
+    """
+    mapping = {f"{{TOXIPROXY_{d['name'].upper()}_PORT}}": d['listen'].split(':')[1] for d in self.Variables.toxiproxy_proxies}
+    return _substitute(config, mapping)
+
+
+def ConfigureToxiproxy(obj, server, toxiproxy_config):
+    """
+    Build a Toxiproxy daemon and its proxies from an `autest.toxiproxy` node.
+
+    For each proxy in the node, a free listen port is reserved (exposed as
+    daemon.Variables['<name>_listen_port']) and the `upstream` value has its
+    {SERVER_HTTP_PORT}/{SERVER_HTTPS_PORT} placeholders resolved from `server`.
+    The resolved proxy definitions are stored on the daemon so
+    AddToxiproxyProxies() can create them once the daemon is running.
+
+    Each proxy's listen port is also referenceable from a replay file's
+    `autest.ats` node as {TOXIPROXY_<NAME>_PORT} (NAME uppercased); the returned
+    daemon's ResolvePorts() method substitutes those placeholders so ATS's remap
+    can target the Toxiproxy listen endpoint.
+
+    Args:
+        obj: (Test or TestRun) An object with a Processes attribute.
+        server: (Process) The upstream the proxies forward to (e.g. a Proxy
+            Verifier server); used to resolve {SERVER_HTTP_PORT}/{SERVER_HTTPS_PORT}.
+        toxiproxy_config: (dict) The `autest.toxiproxy` node: an optional 'name'
+            and a list of 'proxies', each with 'name', 'upstream', an optional
+            'enabled' (default True; False creates the proxy then toggles it off
+            to partition the leg), and an optional 'toxics' list.
+
+    Returns:
+        The toxiproxy-server daemon Process, with the reserved listen ports and
+        resolved proxy definitions stored on its Variables.
+    """
+    daemon = MakeToxiproxyProcess(obj, toxiproxy_config.get('name', 'toxiproxy'))
+
+    proxy_defs = []
+    for proxy in toxiproxy_config.get('proxies', []):
+        proxy_name = proxy['name']
+        listen_port = daemon.ReserveListenPort(f"{proxy_name}_listen_port")
+        upstream = proxy['upstream']
+        upstream = upstream.replace('{SERVER_HTTP_PORT}', str(server.Variables.http_port))
+        upstream = upstream.replace('{SERVER_HTTPS_PORT}', str(server.Variables.https_port))
+        proxy_defs.append(
+            {
+                'name': proxy_name,
+                'listen': f"127.0.0.1:{listen_port}",
+                'upstream': upstream,
+                'enabled': proxy.get('enabled', True),
+                'toxics': proxy.get('toxics', []),
+            })
+
+    daemon.Variables['toxiproxy_proxies'] = proxy_defs
+    AddMethodToInstance(daemon, ResolvePorts)
+    return daemon
+
+
+def AddToxiproxyProxies(run, toxiproxy):
+    """
+    Create every proxy declared via ConfigureToxiproxy on the running daemon.
+
+    Emits a `toxiproxy-cli create` per proxy, then a `toxic add` for each
+    declared toxic and a `toggle` for any proxy declared `enabled: false`, all
+    chained with && as the test run's Default process. The daemon must already
+    be running, so StartBefore(toxiproxy) on this run.
+
+    Args:
+        run: (TestRun) The test run whose Default process is configured.
+        toxiproxy: (Process) The daemon returned by ConfigureToxiproxy.
+
+    Returns:
+        The configured Process (the run's Default process).
+    """
+    prefix = f"toxiproxy-cli -h http://127.0.0.1:{toxiproxy.Variables.api_port}"
+    commands = []
+    for d in toxiproxy.Variables.toxiproxy_proxies:
+        commands.append(f"{prefix} create --listen {d['listen']} --upstream {d['upstream']} {d['name']}")
+        for toxic in d.get('toxics', []):
+            attributes = "".join(f" -a {key}={value}" for key, value in toxic.get('attributes', {}).items())
+            commands.append(f"{prefix} toxic add -t {toxic['type']}{attributes} {d['name']}")
+        if not d.get('enabled', True):
+            # Disable the proxy so it stops listening; ATS then gets a refused
+            # connection on this leg (a hard partition).
+            commands.append(f"{prefix} toggle {d['name']}")
+    p = run.Processes.Default
+    p.Command = " && ".join(commands)
+    p.ReturnCode = 0
+    return p
+
+
+def ToxiproxyReplayTest(obj, replay_file):
+    """
+    Create a declarative Toxiproxy impairment test from a replay file.
+
+    Reads the replay's `autest` node -- `toxiproxy` (daemon + proxies, each with
+    an optional `enabled`/`toxics` impairment), `ats` (records + remap), and an
+    optional `dns` (so the origin can be a hostname resolved via HostDB, which is
+    required to exercise ATS's origin down-marking) -- and stands up the topology:
+
+        verifier-client --> ATS --remap--> toxiproxy(proxy) --> verifier-server
+
+    The verifier-client drives the requests declared in the replay's `sessions`
+    node through ATS; each transaction's `proxy-response` is the assertion. For
+    example, a partitioned origin leg (a proxy declared `enabled: false`) makes
+    ATS return 502, which the client verifies.
+
+    The client/server behavior lives in the replay's `sessions` node (read
+    directly by Proxy Verifier); only setup that `sessions` cannot express lives
+    under `autest`.
+
+    Args:
+        obj: (Test) The Test object to add the test runs to.
+        replay_file: (path) Replay file with an `autest` node and `sessions`.
+
+    Returns:
+        The TestRun that runs the client traffic.
+    """
+    obj.SkipUnless(
+        Condition.HasProgram("toxiproxy-server", "toxiproxy-server must be installed (e.g. brew install toxiproxy)."),
+        Condition.HasProgram("toxiproxy-cli", "toxiproxy-cli must be installed (e.g. brew install toxiproxy)."))
+
+    replay_path = replay_file if os.path.isabs(replay_file) else os.path.join(obj.TestDirectory, replay_file)
+    with open(replay_path, 'r') as f:
+        replay_config = yaml.safe_load(f)
+
+    if 'autest' not in replay_config:
+        raise ValueError(f"Replay file {replay_file} does not contain 'autest' section")
+    autest_config = replay_config['autest']
+    for required in ('toxiproxy', 'ats'):
+        if required not in autest_config:
+            raise ValueError(f"Replay file {replay_file} does not contain 'autest.{required}' section")
+
+    # Derive a per-replay tag so several ToxiproxyReplayTest scenarios can share
+    # one AuTest file without their processes colliding on identical names.
+    tag = os.path.basename(replay_file).split('.')[0]
+
+    # Test-level processes so they persist across the setup and traffic runs.
+    server = obj.MakeVerifierServerProcess(f"server-{tag}", replay_file)
+
+    toxiproxy_config = dict(autest_config['toxiproxy'])
+    toxiproxy_config['name'] = f"{toxiproxy_config.get('name', 'toxiproxy')}-{tag}"
+    toxiproxy = ConfigureToxiproxy(obj, server=server, toxiproxy_config=toxiproxy_config)
+
+    # Optional DNS server so the origin can be a hostname resolved via HostDB,
+    # which ATS needs in order to track and mark that origin down.
+    dns = None
+    if 'dns' in autest_config:
+        dns_config = autest_config['dns']
+        dns_name = f"{dns_config['name']}-{tag}"
+        if 'process_config' in dns_config:
+            dns = obj.MakeDNServer(dns_name, **dns_config['process_config'])
+        else:
+            dns = obj.MakeDNServer(dns_name, default='127.0.0.1')
+        if 'records' in dns_config:
+            dns.addRecords(dns_config['records'])
+
+    ats_config = dict(toxiproxy.ResolvePorts(autest_config['ats']))
+    ats_config['name'] = f"{ats_config.get('name', 'ts')}-{tag}"
+    ts = obj.ConfigureATS(server=server, ats_config=ats_config, dns=dns)
+
+    # Run 1: bring up the topology and create the (impaired) proxies.
+    setup = obj.AddTestRun(f"[{tag}] Create Toxiproxy proxies and apply impairment")
+    AddToxiproxyProxies(setup, toxiproxy)
+    if dns:
+        setup.Processes.Default.StartBefore(dns)
+    setup.Processes.Default.StartBefore(toxiproxy)
+    setup.Processes.Default.StartBefore(server)
+    setup.Processes.Default.StartBefore(ts)
+
+    # Run 2: the client requests declared in `sessions`; their expected
+    # proxy-responses are the assertions. Raise the verifier client's socket
+    # poll timeout (default 5s) well above ATS's worst-case response time: with
+    # connection retries, ATS can take several seconds to give up on an impaired
+    # origin, and the default would make the client abandon that first request
+    # mid-flight instead of reading the eventual 5xx.
+    traffic = obj.AddTestRun(f"[{tag}] Client traffic through the impaired origin leg")
+    traffic.AddVerifierClientProcess(
+        f"client-{tag}", replay_file, http_ports=[ts.Variables.port], other_args="--poll-timeout 30000")
+    return traffic
+
+
+##########################################################################
+ExtendTest(ToxiproxyReplayTest, name="ToxiproxyReplayTest")

@@ -364,3 +364,8 @@ def ATSReplayTest(obj, replay_file: str):
 
 
 ExtendTest(ATSReplayTest, name="ATSReplayTest")
+# Expose the ATS-from-replay helper so tests with custom topologies (e.g. an
+# impairment proxy on the origin leg) can build ATS from a replay file's
+# `autest.ats` node without the full client/server/client-run wiring that
+# ATSReplayTest performs.
+ExtendTest(configure_ats, name="ConfigureATS")
