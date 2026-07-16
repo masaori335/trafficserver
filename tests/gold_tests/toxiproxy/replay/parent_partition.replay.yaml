@@ -1,0 +1,92 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+#
+# Toxiproxy parent-leg hard-partition scenario. The child ATS forwards to a
+# single parent through a Toxiproxy proxy declared `enabled: false`: the proxy
+# is created then toggled off, so it does not listen and the child's connection
+# to the parent leg is refused. With go_direct=false and no other parent, the
+# child has nowhere to send the request, so it returns 502. The refused
+# connection is a CONNECTION_ERROR, so it counts toward the parent markdown
+# threshold (fail_threshold=1): the first request marks the parent down and the
+# second is refused parent selection outright -- both surface as 502.
+#
+# Contrast parent_markdown.replay.yaml, where the leg times out (504) instead of
+# being refused, and parent_failover.replay.yaml, where a healthy second parent
+# lets the child recover.
+#
+
+meta:
+  version: "1.0"
+
+# Applied by Test.ToxiproxyParentReplayTest.
+autest:
+  # The 'parent' proxy would forward to the parent ATS, but `enabled: false`
+  # leaves it toggled off (not listening), so the child->parent connection is
+  # refused.
+  toxiproxy:
+    name: toxiproxy
+    proxies:
+      - name: parent
+        upstream: "127.0.0.1:{PARENT_HTTP_PORT}"
+        enabled: false
+
+  # Parent ATS: remaps the origin to the Proxy Verifier server. Never reached in
+  # this scenario (the leg to it is refused), but configured so the topology is
+  # complete.
+  ats_parent:
+    name: parent
+    records_config:
+      proxy.config.http.cache.http: 0
+    remap_config:
+      - from: http://origin.ex
+        to: http://127.0.0.1:{SERVER_HTTP_PORT}
+
+  # Child ATS: forwards everything to the single (partitioned) parent via
+  # parent.config. go_direct=false so an unavailable parent yields 502 rather
+  # than a direct-to-origin fallback. fail_threshold=1 marks the parent down on
+  # the first refused connection. no_dns_just_forward_to_parent=1 skips origin
+  # resolution (no DNS server needed; the parent is an IP literal).
+  ats_child:
+    name: child
+    records_config:
+      proxy.config.http.cache.http: 0
+      proxy.config.http.no_dns_just_forward_to_parent: 1
+      proxy.config.http.parent_proxy.self_detect: 0
+      proxy.config.http.parent_proxy.fail_threshold: 1
+      proxy.config.http.parent_proxy.retry_time: 300
+      proxy.config.http.parent_proxy.total_connect_attempts: 2
+      proxy.config.http.parent_proxy.per_parent_connect_attempts: 1
+      proxy.config.http.connect_attempts_timeout: 2
+    remap_config:
+      - "map http://origin.ex http://origin.ex"
+    parent_config:
+      - 'dest_domain=. parent="127.0.0.1:{TOXIPROXY_PARENT_PORT}" round_robin=false go_direct=false parent_is_proxy=true'
+
+sessions:
+- transactions:
+  # Request 1: the parent leg is refused; with no other parent and
+  # go_direct=false the child returns 502 and marks the parent down.
+  - all: { headers: { fields: [[ uuid, partition1 ]]}}
+    client-request: { method: GET, version: "1.1", scheme: http, url: /1, headers: { fields: [[ Host, origin.ex ]]}}
+    server-response: { status: 200, reason: OK, headers: { fields: [[ Content-Length, 16 ]]}}
+    proxy-response: { status: 502 }
+  # Request 2: the parent is now down; parent selection refuses it and the child
+  # returns 502.
+  - all: { headers: { fields: [[ uuid, partition2 ]]}}
+    client-request: { method: GET, version: "1.1", scheme: http, url: /2, headers: { fields: [[ Host, origin.ex ]]}}
+    server-response: { status: 200, reason: OK, headers: { fields: [[ Content-Length, 16 ]]}}
+    proxy-response: { status: 502 }

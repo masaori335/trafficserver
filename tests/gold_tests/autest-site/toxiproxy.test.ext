@@ -291,5 +291,116 @@ def ToxiproxyReplayTest(obj, replay_file):
     return traffic
 
 
+def ToxiproxyParentReplayTest(obj, replay_file):
+    """
+    Create a declarative Toxiproxy impairment test with a parent-proxy topology.
+
+    Reads the replay's `autest` node -- `toxiproxy` (daemon + proxies whose
+    upstream references the parent ATS via {PARENT_HTTP_PORT}), `ats_parent`
+    (records + remap to the verifier server), `ats_child` (records + remap +
+    parent.config that reaches the impaired leg via {TOXIPROXY_<NAME>_PORT} and,
+    for a failover peer, the parent directly via {PARENT_HTTP_PORT}), and an
+    optional `dns` -- and stands up:
+
+        verifier-client --> ATS(child) --parent.config--> toxiproxy(proxy)
+                                                             --> ATS(parent)
+                                                             --> verifier-server
+
+    The Toxiproxy proxy impairs the child->parent leg: a `timeout`/`latency`
+    toxic, or `enabled: false` to refuse the connection (a hard partition). The
+    verifier-client drives the requests declared in `sessions` through the child
+    ATS; each transaction's `proxy-response` is the assertion. For example a
+    partitioned single parent (proxy `enabled: false`) with go_direct=false makes
+    the child return 502, which the client verifies.
+
+    This complements ToxiproxyReplayTest, which impairs the ATS->origin leg with
+    a single ATS; here the impairment sits on the child->parent leg between two
+    ATS instances, exercising ATS's parent-selection markdown and failover.
+
+    Args:
+        obj: (Test) The Test object to add the test runs to.
+        replay_file: (path) Replay file with an `autest` node and `sessions`.
+
+    Returns:
+        The TestRun that runs the client traffic.
+    """
+    obj.SkipUnless(
+        Condition.HasProgram("toxiproxy-server", "toxiproxy-server must be installed (e.g. brew install toxiproxy)."),
+        Condition.HasProgram("toxiproxy-cli", "toxiproxy-cli must be installed (e.g. brew install toxiproxy)."))
+
+    replay_path = replay_file if os.path.isabs(replay_file) else os.path.join(obj.TestDirectory, replay_file)
+    with open(replay_path, 'r') as f:
+        replay_config = yaml.safe_load(f)
+
+    if 'autest' not in replay_config:
+        raise ValueError(f"Replay file {replay_file} does not contain 'autest' section")
+    autest_config = replay_config['autest']
+    for required in ('toxiproxy', 'ats_parent', 'ats_child'):
+        if required not in autest_config:
+            raise ValueError(f"Replay file {replay_file} does not contain 'autest.{required}' section")
+
+    # Derive a per-replay tag so several scenarios can share one AuTest file
+    # without their processes colliding on identical names.
+    tag = os.path.basename(replay_file).split('.')[0]
+
+    # Test-level processes so they persist across the setup and traffic runs.
+    server = obj.MakeVerifierServerProcess(f"server-{tag}", replay_file)
+
+    # Optional DNS server (resolve-all -> 127.0.0.1) so origin/parent hostnames
+    # resolve to the loopback verifier server and parents.
+    dns = None
+    if 'dns' in autest_config:
+        dns_config = autest_config['dns']
+        dns_name = f"{dns_config['name']}-{tag}"
+        if 'process_config' in dns_config:
+            dns = obj.MakeDNServer(dns_name, **dns_config['process_config'])
+        else:
+            dns = obj.MakeDNServer(dns_name, default='127.0.0.1')
+        if 'records' in dns_config:
+            dns.addRecords(dns_config['records'])
+
+    # Parent ATS: remaps origin -> verifier server. Configure it first so its
+    # listen port can be referenced as {PARENT_HTTP_PORT} by both the toxiproxy
+    # upstream and the child's parent.config (the healthy failover peer).
+    parent_config = dict(autest_config['ats_parent'])
+    parent_config['name'] = f"{parent_config.get('name', 'parent')}-{tag}"
+    parent_ts = obj.ConfigureATS(server=server, ats_config=parent_config, dns=dns)
+    parent_ports = {'{PARENT_HTTP_PORT}': parent_ts.Variables.port}
+
+    # Toxiproxy proxy on the child->parent leg; its upstream is the parent ATS.
+    toxiproxy_config = _substitute(autest_config['toxiproxy'], parent_ports)
+    toxiproxy_config['name'] = f"{toxiproxy_config.get('name', 'toxiproxy')}-{tag}"
+    toxiproxy = ConfigureToxiproxy(obj, server=server, toxiproxy_config=toxiproxy_config)
+
+    # Child ATS: forwards to the parent via parent.config, reaching the impaired
+    # leg by {TOXIPROXY_<NAME>_PORT} and the healthy peer by {PARENT_HTTP_PORT}.
+    child_config = _substitute(autest_config['ats_child'], parent_ports)
+    child_config = toxiproxy.ResolvePorts(child_config)
+    child_config['name'] = f"{child_config.get('name', 'child')}-{tag}"
+    child_ts = obj.ConfigureATS(server=server, ats_config=child_config, dns=dns)
+
+    # Run 1: bring up the topology and create the (impaired) proxies.
+    setup = obj.AddTestRun(f"[{tag}] Create Toxiproxy proxies and apply impairment")
+    AddToxiproxyProxies(setup, toxiproxy)
+    if dns:
+        setup.Processes.Default.StartBefore(dns)
+    setup.Processes.Default.StartBefore(toxiproxy)
+    setup.Processes.Default.StartBefore(server)
+    setup.Processes.Default.StartBefore(parent_ts)
+    setup.Processes.Default.StartBefore(child_ts)
+
+    # Run 2: the client requests declared in `sessions`; their expected
+    # proxy-responses are the assertions. Raise the verifier client's socket poll
+    # timeout (default 5s) well above ATS's worst-case response time: with
+    # connection retries across parents, ATS can take several seconds to give up
+    # on an impaired parent, and the default would make the client abandon that
+    # first request mid-flight instead of reading the eventual 5xx.
+    traffic = obj.AddTestRun(f"[{tag}] Client traffic through the impaired parent leg")
+    traffic.AddVerifierClientProcess(
+        f"client-{tag}", replay_file, http_ports=[child_ts.Variables.port], other_args="--poll-timeout 30000")
+    return traffic
+
+
 ##########################################################################
 ExtendTest(ToxiproxyReplayTest, name="ToxiproxyReplayTest")
+ExtendTest(ToxiproxyParentReplayTest, name="ToxiproxyParentReplayTest")

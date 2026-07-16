@@ -1,0 +1,112 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+#
+# Toxiproxy parent-leg timeout down-marking scenario. The child ATS forwards to
+# a single parent through a Toxiproxy proxy carrying a `timeout` toxic
+# (timeout=0: accept the connection but never deliver data). The TCP connect to
+# the parent therefore succeeds, but no response arrives, so the child hits its
+# no-activity timeout and returns 504.
+#
+# A no-activity timeout is an INACTIVE_TIMEOUT, which by default does NOT count
+# toward parent markdown. enable_parent_timeout_markdowns=1 makes it count. With
+# fail_threshold=2, two timed-out requests are needed to mark the parent down --
+# and the fail count only reaches the threshold at the END of the second
+# request, so BOTH the first and second requests still return their own timeout
+# (504) while the parent is being attempted. Only once the parent is marked down
+# does a later request skip it at parent-selection time: with go_direct=false and
+# no other parent that request returns 502. So the sequence is 504, 504, 502 --
+# the third request's 502 (parent no longer attempted) is the observable proof
+# the parent was marked down.
+#
+# Contrast parent_partition.replay.yaml, where the leg is refused (connect
+# failure -> 502 immediately, no timeout wait).
+#
+
+meta:
+  version: "1.0"
+
+# Applied by Test.ToxiproxyParentReplayTest.
+autest:
+  # The 'parent' proxy forwards to the parent ATS; a `timeout` toxic (timeout=0:
+  # hold, never deliver) accepts the connection but blocks the response, so the
+  # child times out waiting.
+  toxiproxy:
+    name: toxiproxy
+    proxies:
+      - name: parent
+        upstream: "127.0.0.1:{PARENT_HTTP_PORT}"
+        toxics:
+          - type: timeout
+            attributes:
+              timeout: 0
+
+  # Parent ATS: remaps the origin to the Proxy Verifier server. Never reached in
+  # this scenario (the toxic blocks the leg), but configured so the topology is
+  # complete.
+  ats_parent:
+    name: parent
+    records_config:
+      proxy.config.http.cache.http: 0
+    remap_config:
+      - from: http://origin.ex
+        to: http://127.0.0.1:{SERVER_HTTP_PORT}
+
+  # Child ATS: forwards everything to the single (timing-out) parent via
+  # parent.config. enable_parent_timeout_markdowns=1 makes the no-activity
+  # timeout count toward markdown; fail_threshold=2 means two timed-out requests
+  # are needed to mark the parent down. transaction_no_activity_timeout_out=2
+  # bounds the wait; go_direct=false so an unavailable parent yields a 5xx.
+  # no_dns_just_forward_to_parent=1 skips origin resolution (no DNS server
+  # needed; the parent is an IP literal).
+  ats_child:
+    name: child
+    records_config:
+      proxy.config.http.cache.http: 0
+      proxy.config.http.no_dns_just_forward_to_parent: 1
+      proxy.config.http.parent_proxy.self_detect: 0
+      proxy.config.http.parent_proxy.enable_parent_timeout_markdowns: 1
+      proxy.config.http.parent_proxy.fail_threshold: 2
+      proxy.config.http.parent_proxy.retry_time: 300
+      proxy.config.http.parent_proxy.total_connect_attempts: 1
+      proxy.config.http.parent_proxy.per_parent_connect_attempts: 1
+      proxy.config.http.connect_attempts_timeout: 2
+      proxy.config.http.transaction_no_activity_timeout_out: 2
+    remap_config:
+      - "map http://origin.ex http://origin.ex"
+    parent_config:
+      - 'dest_domain=. parent="127.0.0.1:{TOXIPROXY_PARENT_PORT}" round_robin=false go_direct=false parent_is_proxy=true'
+
+sessions:
+- transactions:
+  # Request 1: the parent accepts the connection but never responds; the child
+  # times out (504). The fail count reaches 1 (< threshold), parent stays up.
+  - all: { headers: { fields: [[ uuid, markdown1 ]]}}
+    client-request: { method: GET, version: "1.1", scheme: http, url: /1, headers: { fields: [[ Host, origin.ex ]]}}
+    server-response: { status: 200, reason: OK, headers: { fields: [[ Content-Length, 16 ]]}}
+    proxy-response: { status: 504 }
+  # Request 2: another timeout (504). This request pushes the fail count to the
+  # threshold, so the parent is marked down as this request finishes.
+  - all: { headers: { fields: [[ uuid, markdown2 ]]}}
+    client-request: { method: GET, version: "1.1", scheme: http, url: /2, headers: { fields: [[ Host, origin.ex ]]}}
+    server-response: { status: 200, reason: OK, headers: { fields: [[ Content-Length, 16 ]]}}
+    proxy-response: { status: 504 }
+  # Request 3: the parent is now down; parent selection skips it (go_direct=false,
+  # no other parent) and the child returns 502 without attempting the leg.
+  - all: { headers: { fields: [[ uuid, markdown3 ]]}}
+    client-request: { method: GET, version: "1.1", scheme: http, url: /3, headers: { fields: [[ Host, origin.ex ]]}}
+    server-response: { status: 200, reason: OK, headers: { fields: [[ Content-Length, 16 ]]}}
+    proxy-response: { status: 502 }

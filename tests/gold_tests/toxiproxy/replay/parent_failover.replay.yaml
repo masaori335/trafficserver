@@ -1,0 +1,96 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+#
+# Toxiproxy parent-leg failover scenario. The child ATS has two parents in
+# parent.config with round_robin=false, so the first-listed parent is the
+# primary and the second is the failover peer:
+#
+#   primary   -> 127.0.0.1:{TOXIPROXY_PARENT_PORT}  (Toxiproxy proxy, enabled: false)
+#   secondary -> 127.0.0.1:{PARENT_HTTP_PORT}       (the parent ATS, healthy/direct)
+#
+# The primary leg is a partitioned Toxiproxy proxy (toggled off, connection
+# refused). per_parent_connect_attempts=1 makes the child give up on the primary
+# after one refused connect and, within the same request, fail over to the
+# healthy secondary, which reaches the origin and returns 200. fail_threshold=1
+# marks the primary down, so the second request skips it and goes straight to
+# the secondary -- both requests succeed with 200.
+#
+# This is the parent-proxy behavior the origin-leg tests cannot express: a
+# recoverable impairment where parent selection routes around the bad peer.
+#
+
+meta:
+  version: "1.0"
+
+# Applied by Test.ToxiproxyParentReplayTest.
+autest:
+  # The primary parent leg: `enabled: false` leaves the proxy toggled off (not
+  # listening), so the child's connection to it is refused and it fails over.
+  toxiproxy:
+    name: toxiproxy
+    proxies:
+      - name: parent
+        upstream: "127.0.0.1:{PARENT_HTTP_PORT}"
+        enabled: false
+
+  # Parent ATS: remaps the origin to the Proxy Verifier server. Reached as the
+  # healthy failover peer (the child's secondary parent points at it directly).
+  ats_parent:
+    name: parent
+    records_config:
+      proxy.config.http.cache.http: 0
+    remap_config:
+      - from: http://origin.ex
+        to: http://127.0.0.1:{SERVER_HTTP_PORT}
+
+  # Child ATS: primary parent is the partitioned Toxiproxy leg, secondary is the
+  # parent ATS directly. round_robin=false keeps the listed order (primary then
+  # failover). per_parent_connect_attempts=1 fails the primary fast;
+  # total_connect_attempts=4 leaves budget to try the secondary in the same
+  # request. go_direct=false so the child must use a parent.
+  # no_dns_just_forward_to_parent=1 skips origin resolution (no DNS server
+  # needed; both parents are IP literals).
+  ats_child:
+    name: child
+    records_config:
+      proxy.config.http.cache.http: 0
+      proxy.config.http.no_dns_just_forward_to_parent: 1
+      proxy.config.http.parent_proxy.self_detect: 0
+      proxy.config.http.parent_proxy.fail_threshold: 1
+      proxy.config.http.parent_proxy.retry_time: 300
+      proxy.config.http.parent_proxy.total_connect_attempts: 4
+      proxy.config.http.parent_proxy.per_parent_connect_attempts: 1
+      proxy.config.http.connect_attempts_timeout: 2
+    remap_config:
+      - "map http://origin.ex http://origin.ex"
+    parent_config:
+      - 'dest_domain=. parent="127.0.0.1:{TOXIPROXY_PARENT_PORT},127.0.0.1:{PARENT_HTTP_PORT}" round_robin=false go_direct=false parent_is_proxy=true'
+
+sessions:
+- transactions:
+  # Request 1: the primary leg is refused; the child fails over to the healthy
+  # secondary parent within the same request and returns 200.
+  - all: { headers: { fields: [[ uuid, failover1 ]]}}
+    client-request: { method: GET, version: "1.1", scheme: http, url: /1, headers: { fields: [[ Host, origin.ex ]]}}
+    server-response: { status: 200, reason: OK, headers: { fields: [[ Content-Length, 16 ]]}}
+    proxy-response: { status: 200 }
+  # Request 2: the primary is now marked down; the child goes straight to the
+  # healthy secondary and returns 200.
+  - all: { headers: { fields: [[ uuid, failover2 ]]}}
+    client-request: { method: GET, version: "1.1", scheme: http, url: /2, headers: { fields: [[ Host, origin.ex ]]}}
+    server-response: { status: 200, reason: OK, headers: { fields: [[ Content-Length, 16 ]]}}
+    proxy-response: { status: 200 }
