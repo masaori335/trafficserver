@@ -285,15 +285,9 @@ HttpSM::~HttpSM()
 
   // coverity[exn_spec_violation] - release() only does ref counting and delete on POD types
   HttpConfig::release(t_state.http_config_param);
+  m_remap.reset();
 
-  // m_remap->release() can allocate (new_Deleter), so catch potential bad_alloc
-  try {
-    m_remap->release();
-  } catch (...) {
-    Error("Exception in ~HttpSM during m_remap->release");
-  }
-
-  // coverity[exn_spec_violation] - cancel_pending_action() only sets boolean flags
+  // coverity[exn_spec_violation] - cancel_pending_action() cancels pending cache work and clears tracked pointers
   cache_sm.cancel_pending_action();
 
   mutex.clear();
@@ -334,8 +328,9 @@ HttpSM::init(bool from_early_data)
   t_state.state_machine = this;
 
   t_state.http_config_param = HttpConfig::acquire();
-  // Acquire a lease on the global remap / rewrite table (stupid global name ...)
-  m_remap = rewrite_table.load()->acquire();
+  // Snapshot the global remap / rewrite table.  shared_ptr keeps it alive across the txn
+  // even if reload swaps the global pointer concurrently.
+  m_remap = rewrite_table.load(std::memory_order_acquire);
 
   // Simply point to the global config for the time being, no need to copy this
   // entire struct if nothing is going to change it.
@@ -1752,6 +1747,9 @@ HttpSM::handle_api_return()
   case HttpTransact::StateMachineAction_t::INTERNAL_CACHE_DELETE:
   case HttpTransact::StateMachineAction_t::INTERNAL_CACHE_UPDATE_HEADERS:
   case HttpTransact::StateMachineAction_t::SEND_ERROR_CACHE_NOOP: {
+    // Consume any unforwarded request body, or close the connection when it cannot be
+    // fully consumed, so leftover bytes are not framed as the next request.
+    do_drain_request_body(t_state.hdr_info.client_response);
     setup_internal_transfer(&HttpSM::tunnel_handler);
     break;
   }
@@ -2917,12 +2915,18 @@ HttpSM::tunnel_handler_post(int event, void *data)
       // post failed
       switch (t_state.client_info.state) {
       case HttpTransact::ACTIVE_TIMEOUT:
+        tunnel.deallocate_buffers();
+        tunnel.reset();
         call_transact_and_set_next_state(HttpTransact::PostActiveTimeoutResponse);
         return 0;
       case HttpTransact::INACTIVE_TIMEOUT:
+        tunnel.deallocate_buffers();
+        tunnel.reset();
         call_transact_and_set_next_state(HttpTransact::PostInactiveTimeoutResponse);
         return 0;
       case HttpTransact::PARSE_ERROR:
+        tunnel.deallocate_buffers();
+        tunnel.reset();
         call_transact_and_set_next_state(HttpTransact::BadRequest);
         return 0;
       default:
@@ -3008,11 +3012,23 @@ HttpSM::setup_tunnel_handler_trailer(HttpTunnelProducer *p)
 
   SMDbg(dbg_ctl_http, "Wait for the trailing header");
 
+  ProxyTransaction *ua_txn = _ua.get_txn();
+  if (!ua_txn) {
+    tunnel.local_finish_all(p);
+    return;
+  }
+
+  if (!ua_txn->can_send_h2_trailer()) {
+    SMDbg(dbg_ctl_http, "User agent transaction cannot send HTTP/2 trailers; dropping the origin trailer");
+    tunnel.local_finish_all(p);
+    return;
+  }
+  // Mark this before the body tunnel completes so HTTP/2 does not send END_STREAM
+  // on the final DATA frame.
+  ua_txn->set_expect_send_trailer();
+
   // Swap out the default hander to set up the new tunnel for the trailer exchange.
   HTTP_SM_SET_DEFAULT_HANDLER(&HttpSM::tunnel_handler_trailer);
-  if (_ua.get_txn()) {
-    _ua.get_txn()->set_expect_send_trailer();
-  }
   tunnel.local_finish_all(p);
 }
 
@@ -3035,27 +3051,45 @@ HttpSM::tunnel_handler_trailer(int event, void *data)
   // Set up a new tunnel to transport the trailing header to the UA
   HTTP_SM_SET_DEFAULT_HANDLER(&HttpSM::tunnel_handler);
 
+  ProxyTransaction *ua_txn        = _ua.get_txn();
+  HttpVCTableEntry *ua_entry      = _ua.get_entry();
+  IOBufferReader   *server_reader = server_txn ? server_txn->get_remote_reader() : nullptr;
+  if (!ua_txn || !ua_entry || !ua_entry->vc || !server_reader || !server_entry || !server_entry->vc) {
+    if (server_reader) {
+      server_reader->consume(server_reader->read_avail());
+    }
+    SMDbg(dbg_ctl_http, "Cannot set up trailer tunnel; dropping the origin trailer");
+    return tunnel_handler(event, data);
+  }
+
+  if (!ua_txn->expect_send_trailer()) {
+    if (!ua_txn->can_send_h2_trailer()) {
+      server_reader->consume(server_reader->read_avail());
+      SMDbg(dbg_ctl_http, "User agent transaction cannot send HTTP/2 trailers; dropping the origin trailer");
+      return tunnel_handler(event, data);
+    }
+    ua_txn->set_expect_send_trailer();
+  }
+
   MIOBuffer      *trailer_buffer = new_MIOBuffer(HTTP_HEADER_BUFFER_SIZE_INDEX);
   IOBufferReader *buf_start      = trailer_buffer->alloc_reader();
 
   size_t nbytes      = INT64_MAX;
-  int    start_bytes = trailer_buffer->write(server_txn->get_remote_reader(), server_txn->get_remote_reader()->read_avail());
-  server_txn->get_remote_reader()->consume(start_bytes);
+  int    start_bytes = trailer_buffer->write(server_reader, server_reader->read_avail());
+  server_reader->consume(start_bytes);
   // The server has already sent all it has
   if (server_txn->is_read_closed()) {
     nbytes = start_bytes;
   }
-  // Signal the _ua.get_txn() to get ready for a trailer
-  _ua.get_txn()->set_expect_send_trailer();
   tunnel.deallocate_buffers();
   tunnel.reset();
   HttpTunnelProducer *p = tunnel.add_producer(server_entry->vc, nbytes, buf_start, &HttpSM::tunnel_handler_trailer_server,
                                               HttpTunnelType_t::HTTP_SERVER, "http server trailer");
-  tunnel.add_consumer(_ua.get_entry()->vc, server_entry->vc, &HttpSM::tunnel_handler_trailer_ua, HttpTunnelType_t::HTTP_CLIENT,
+  tunnel.add_consumer(ua_entry->vc, server_entry->vc, &HttpSM::tunnel_handler_trailer_ua, HttpTunnelType_t::HTTP_CLIENT,
                       "user agent trailer");
 
-  _ua.get_entry()->in_tunnel = true;
-  server_entry->in_tunnel    = true;
+  ua_entry->in_tunnel     = true;
+  server_entry->in_tunnel = true;
 
   tunnel.tunnel_run(p);
 
@@ -3728,7 +3762,9 @@ HttpSM::tunnel_handler_ua(int event, HttpTunnelConsumer *c)
     break;
   }
 
-  if (event == VC_EVENT_WRITE_COMPLETE && server_txn && server_txn->expect_receive_trailer()) {
+  ProxyTransaction *ua_txn = _ua.get_txn();
+  if (event == VC_EVENT_WRITE_COMPLETE && server_txn && server_txn->expect_receive_trailer() && ua_txn &&
+      ua_txn->expect_send_trailer()) {
     // Don't shutdown if we are still expecting a trailer
   } else if (close_connection) {
     // If the client could be pipelining or is doing a POST, we need to
@@ -4519,7 +4555,7 @@ HttpSM::state_remap_request(int event, void * /* data ATS_UNUSED */)
   case EVENT_REMAP_COMPLETE: {
     pending_action = nullptr;
     SMDbg(dbg_ctl_url_rewrite, "completed processor-based remapping request");
-    t_state.url_remap_success = remapProcessor.finish_remap(&t_state, m_remap);
+    t_state.url_remap_success = remapProcessor.finish_remap(&t_state, m_remap.get());
     call_transact_and_set_next_state(nullptr);
     break;
   }
@@ -4597,7 +4633,7 @@ HttpSM::do_remap_request(bool run_inline)
 {
   SMDbg(dbg_ctl_http_seq, "Remapping request");
   SMDbg(dbg_ctl_url_rewrite, "Starting a possible remapping for request");
-  bool ret = remapProcessor.setup_for_remap(&t_state, m_remap);
+  bool ret = remapProcessor.setup_for_remap(&t_state, m_remap.get());
 
   check_sni_host();
 
@@ -4649,6 +4685,11 @@ HttpSM::do_hostdb_lookup()
 
   // If directed to not look up fqdns then mark as resolved
   if (t_state.txn_conf->no_dns_forward_to_parent && t_state.parent_result.result == ParentResultType::UNDEFINED) {
+    // resolved_p documents that dns_info.addr holds a valid resolved address.
+    // We are not actually resolving anything here, so set addr to INADDR_ANY
+    // so the ats_is_ip_any check in HttpTransact::OSDNSLookup produces a
+    // clean Bad Request response rather than reusing leftover State data.
+    ats_ip4_set(&t_state.dns_info.addr, INADDR_ANY, 0);
     t_state.dns_info.resolved_p = true;
     call_transact_and_set_next_state(nullptr);
     return;
@@ -5256,7 +5297,7 @@ HttpSM::do_cache_lookup_and_read()
 }
 
 void
-HttpSM::do_cache_delete_all_alts(Continuation *cont)
+HttpSM::do_cache_delete_all_alts()
 {
   // Do not delete a non-existent object.
   ink_assert(t_state.cache_info.object_read);
@@ -5266,9 +5307,7 @@ HttpSM::do_cache_delete_all_alts(Continuation *cont)
   HttpCacheKey key;
   Cache::generate_key(&key, t_state.cache_info.lookup_url, t_state.txn_conf->cache_ignore_query,
                       t_state.txn_conf->cache_generation_number);
-  pending_action = cacheProcessor.remove(cont, &key);
-
-  return;
+  cacheProcessor.remove(nullptr, &key);
 }
 
 inline void
@@ -5430,7 +5469,7 @@ HttpSM::get_outbound_sni() const
     if (auto *netvc = _ua.get_txn()->get_netvc(); netvc) {
       snis = netvc->get_service<TLSSNISupport>();
       if (snis && snis->hints_from_sni.outbound_sni_policy.has_value()) {
-        policy.assign(snis->hints_from_sni.outbound_sni_policy->data(), swoc::TextView::npos);
+        policy.assign(snis->hints_from_sni.outbound_sni_policy->data(), snis->hints_from_sni.outbound_sni_policy->size());
       }
     }
   }
@@ -5438,7 +5477,7 @@ HttpSM::get_outbound_sni() const
   if (policy.empty() || policy == "host"_tv) {
     // By default the host header field value is used for the SNI.
     zret = t_state.hdr_info.server_request.host_get();
-  } else if (_ua.get_txn() && policy == "server_name"_tv) {
+  } else if (_ua.get_txn() && snis && policy == "server_name"_tv) {
     const char *const server_name = snis->get_sni_server_name();
     if (nullptr == server_name || server_name[0] == '\0') {
       zret.assign(nullptr, swoc::TextView::npos);
@@ -5450,6 +5489,21 @@ HttpSM::get_outbound_sni() const
   } else {
     // If other is specified, like "remap" and "verify_with_name_source", the remapped origin name is used for the SNI value
     zret.assign(t_state.server_info.name, swoc::TextView::npos);
+  }
+  return zret;
+}
+
+std::string_view
+HttpSM::get_outbound_sni_for_cert_verification() const
+{
+  auto zret = this->get_outbound_sni();
+  if (zret.empty()) {
+    zret = t_state.hdr_info.server_request.host_get();
+  }
+  if (zret.empty()) {
+    if (t_state.current.server != nullptr && t_state.current.server->name != nullptr) {
+      zret = t_state.current.server->name;
+    }
   }
   return zret;
 }
@@ -5622,8 +5676,13 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
     }
   }
 
-  // Check for self loop.
-  if (!_ua.get_txn()->is_outbound_transparent() && HttpTransact::will_this_request_self_loop(&t_state)) {
+  // Check for self loop. In outbound-transparent mode the client's original
+  // destination is the legitimate upstream, so the client_info.dst_addr match
+  // inside the loop check is skipped. The self-IP check (when
+  // max_proxy_cycles == 0) and the Via-header multi-hop check are still
+  // enforced so a client targeting ATS's own listening address or looping
+  // through its own Via UUID is still caught.
+  if (HttpTransact::will_this_request_self_loop(&t_state, _ua.get_txn()->is_outbound_transparent())) {
     call_transact_and_set_next_state(HttpTransact::SelfLoop);
     return;
   }
@@ -6476,6 +6535,15 @@ HttpSM::do_drain_request_body(HTTPHdr &response)
   int64_t content_length = t_state.hdr_info.client_request.get_content_length();
   int64_t avail          = _ua.get_txn()->get_remote_reader()->read_avail();
 
+  // Consuming the client request buffer is only safe when no request-body tunnel is active: a live
+  // producer could still be reading from it, so consuming here would race and desync the connection.
+  // Callers today reach this after the request-body tunnel is done, so the guard is normally a no-op;
+  // keep it so a future path with a live tunnel drops keep-alive instead of double-consuming the reader.
+  if (tunnel.is_tunnel_active()) {
+    SMDbg(dbg_ctl_http, "request-body tunnel still active, setting the response to non-keepalive");
+    goto close_connection;
+  }
+
   if (t_state.client_info.transfer_encoding == HttpTransact::TransferEncoding_t::CHUNKED) {
     SMDbg(dbg_ctl_http, "Chunked body, setting the response to non-keepalive");
     goto close_connection;
@@ -6850,7 +6918,7 @@ HttpSM::attach_server_session()
   server_entry->vc_type          = HttpVC_t::SERVER_VC;
   server_entry->vc_write_handler = &HttpSM::state_send_server_request_header;
 
-  UnixNetVConnection *server_vc = static_cast<UnixNetVConnection *>(server_txn->get_netvc());
+  NetVConnection *server_vc = server_txn->get_netvc();
 
   // set flag for server session is SSL
   if (server_vc->get_service<TLSBasicSupport>()) {
@@ -8185,7 +8253,7 @@ HttpSM::set_next_state()
   case HttpTransact::StateMachineAction_t::REMAP_REQUEST: {
     do_remap_request(true); /* run inline */
     SMDbg(dbg_ctl_url_rewrite, "completed inline remapping request");
-    t_state.url_remap_success = remapProcessor.finish_remap(&t_state, m_remap);
+    t_state.url_remap_success = remapProcessor.finish_remap(&t_state, m_remap.get());
     if (t_state.next_action == HttpTransact::StateMachineAction_t::SEND_ERROR_CACHE_NOOP &&
         t_state.transact_return_point == nullptr) {
       // It appears that we can now set the next_action to error and transact_return_point to nullptr when
@@ -8234,7 +8302,12 @@ HttpSM::set_next_state()
       break;
     } else if (t_state.dns_info.looking_up == ResolveInfo::ORIGIN_SERVER && t_state.txn_conf->no_dns_forward_to_parent &&
                t_state.parent_result.result != ParentResultType::UNDEFINED) {
-      t_state.dns_info.resolved_p = true; // seems dangerous - where's the IP address?
+      // We claim resolved here so the SM does not stall on origin DNS, but no
+      // address has been obtained. Set addr to INADDR_ANY so the
+      // ats_is_ip_any guard in HttpTransact::OSDNSLookup produces a clean
+      // Bad Request rather than reusing leftover State data.
+      ats_ip4_set(&t_state.dns_info.addr, INADDR_ANY, 0);
+      t_state.dns_info.resolved_p = true;
       call_transact_and_set_next_state(nullptr);
       break;
     } else if (t_state.dns_info.resolved_p) {
@@ -8420,8 +8493,6 @@ HttpSM::set_next_state()
       release_server_session();
     }
 
-    do_drain_request_body(t_state.hdr_info.client_response);
-
     // If we're in state SEND_API_RESPONSE_HDR, it means functions
     // registered to hook SEND_RESPONSE_HDR have already been called. So we do not
     // need to call do_api_callout. Otherwise TS loops infinitely in this state !
@@ -8438,7 +8509,7 @@ HttpSM::set_next_state()
     // Nuke all the alternates since this is mostly likely
     //   the result of a delete method
     cache_sm.end_both();
-    do_cache_delete_all_alts(nullptr);
+    do_cache_delete_all_alts();
 
     release_server_session();
     t_state.api_next_action = HttpTransact::StateMachineAction_t::API_SEND_RESPONSE_HDR;

@@ -519,19 +519,20 @@ ts_lua_remap_plugin_init(void *ih, TSHttpTxn rh, TSRemapRequestInfo *rri)
   instance_conf = (ts_lua_instance_conf *)ih;
 
   main_ctx = static_cast<decltype(main_ctx)>(pthread_getspecific(lua_state_key));
-  if (main_ctx == nullptr) {
+  if (main_ctx == nullptr || static_cast<int>(main_ctx - ts_lua_main_ctx_array) >= instance_conf->states) {
     req_id   = __sync_fetch_and_add(&ts_lua_http_next_id, 1);
     main_ctx = &ts_lua_main_ctx_array[req_id % instance_conf->states];
     pthread_setspecific(lua_state_key, main_ctx);
   }
 
-  TSMutexLock(main_ctx->mutexp);
+  TSMutexLockGuard lock(main_ctx->mutexp);
 
   http_ctx = ts_lua_create_http_ctx(main_ctx, instance_conf);
 
-  http_ctx->txnp     = rh;
-  http_ctx->has_hook = 0;
-  http_ctx->rri      = rri;
+  http_ctx->txnp       = rh;
+  http_ctx->has_hook   = 0;
+  http_ctx->from_remap = (rri != nullptr) ? 1 : 0;
+  http_ctx->rri        = rri;
   if (rri != nullptr) {
     http_ctx->client_request_bufp = rri->requestBufp;
     http_ctx->client_request_hdrp = rri->requestHdrp;
@@ -551,7 +552,6 @@ ts_lua_remap_plugin_init(void *ih, TSHttpTxn rh, TSRemapRequestInfo *rri)
   if (lua_type(L, -1) != LUA_TFUNCTION) {
     lua_pop(L, 1);
     ts_lua_destroy_http_ctx(http_ctx);
-    TSMutexUnlock(main_ctx->mutexp);
     return TSREMAP_NO_REMAP;
   }
 
@@ -566,6 +566,11 @@ ts_lua_remap_plugin_init(void *ih, TSHttpTxn rh, TSRemapRequestInfo *rri)
 
   lua_pop(L, 1);
 
+  // rri lives on the caller's stack; clear it so post-remap hooks
+  // see ts.remap.* return nil per the documented do_remap-only
+  // context.  Destructors gate handle release on from_remap, not rri.
+  http_ctx->rri = nullptr;
+
   if (http_ctx->has_hook) {
     Dbg(dbg_ctl, "[%s] has txn hook -> adding txn close hook handler to release resources", __FUNCTION__);
     TSHttpTxnHookAdd(rh, TS_HTTP_TXN_CLOSE_HOOK, contp);
@@ -573,8 +578,6 @@ ts_lua_remap_plugin_init(void *ih, TSHttpTxn rh, TSRemapRequestInfo *rri)
     Dbg(dbg_ctl, "[%s] no txn hook -> release resources now", __FUNCTION__);
     ts_lua_destroy_http_ctx(http_ctx);
   }
-
-  TSMutexUnlock(main_ctx->mutexp);
 
   return TSRemapStatus(ret);
 }
@@ -618,7 +621,7 @@ vconnHookHandler(TSCont contp, TSEvent event, void *edata)
   ts_lua_instance_conf *conf = (ts_lua_instance_conf *)TSContDataGet(contp);
 
   main_ctx = static_cast<decltype(main_ctx)>(pthread_getspecific(lua_g_state_key));
-  if (main_ctx == NULL) {
+  if (main_ctx == NULL || static_cast<int>(main_ctx - ts_lua_g_main_ctx_array) >= conf->states) {
     req_id = __sync_fetch_and_add(&ts_lua_g_http_next_id, 1);
     Dbg(dbg_ctl, "[%s] req_id for vconn handler: %" PRId64, __FUNCTION__, req_id);
     main_ctx = &ts_lua_g_main_ctx_array[req_id % conf->states];
@@ -693,7 +696,7 @@ globalHookHandler(TSCont contp, TSEvent event ATS_UNUSED, void *edata)
   ts_lua_instance_conf *conf = (ts_lua_instance_conf *)TSContDataGet(contp);
 
   main_ctx = static_cast<decltype(main_ctx)>(pthread_getspecific(lua_g_state_key));
-  if (main_ctx == nullptr) {
+  if (main_ctx == nullptr || static_cast<int>(main_ctx - ts_lua_g_main_ctx_array) >= conf->states) {
     req_id = __sync_fetch_and_add(&ts_lua_g_http_next_id, 1);
     Dbg(dbg_ctl, "[%s] req_id: %" PRId64, __FUNCTION__, req_id);
     main_ctx = &ts_lua_g_main_ctx_array[req_id % conf->states];

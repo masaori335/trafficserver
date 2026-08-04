@@ -77,7 +77,7 @@ extern "C" int plock(int);
 #include "Crash.h"
 #include "tscore/signals.h"
 #include "../iocore/net/P_Net.h"
-#if TS_HAS_QUICHE
+#if TS_USE_QUIC == 1
 #include "../iocore/net/P_QUICNetProcessor.h"
 #endif
 #include "../iocore/net/P_UDPNet.h"
@@ -92,6 +92,7 @@ extern "C" int plock(int);
 #include "records/RecordsConfig.h"
 #include "iocore/eventsystem/RecProcess.h"
 #include "proxy/Transform.h"
+#include "proxy/ReverseProxy.h"
 #include "iocore/eventsystem/ConfigProcessor.h"
 #include "mgmt/config/ConfigContextDiags.h"
 #include "mgmt/config/ConfigRegistry.h"
@@ -295,6 +296,8 @@ struct AutoStopCont : public Continuation {
 
     // Push buffered log entries into the preproc queue before shutdown.
     Log::flush_all_objects();
+
+    shutdown_url_rewrite();
 
     TSSystemState::shut_down_event_system();
 
@@ -2399,7 +2402,9 @@ main(int /* argc ATS_UNUSED */, const char **argv)
     SSLConfigParams::load_ssl_file_cb = load_ssl_file_callback;
     sslNetProcessor.start(-1, stacksize);
 #if TS_USE_QUIC == 1
-    quic_NetProcessor.start(-1, stacksize);
+    if (HttpProxyPort::hasQUIC()) {
+      quic_NetProcessor.start(-1, stacksize);
+    }
 #endif
     FileManager::instance().registerConfigPluginCallbacks([&]() { global_config_cbs->invoke(); });
     cacheProcessor.afterInitCallbackSet(&CB_After_Cache_Init);

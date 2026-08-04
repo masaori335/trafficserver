@@ -52,6 +52,7 @@ add_library(
   SSLSessionCache.cc
   SSLSessionTicket.cc
   SSLUtils.cc
+  SSLKeyUtils.cc
   OCSPStapling.cc
   TLSBasicSupport.cc
   TLSEventSupport.cc
@@ -80,18 +81,17 @@ if(TS_USE_QUIC)
   add_subdirectory(quic)
 
   target_sources(
-    inknet
-    PRIVATE QUICClosedConCollector.cc
-            QUICMultiCertConfigLoader.cc
-            QUICNet.cc
-            QUICNetProcessor.cc
-            QUICNetVConnection.cc
-            QUICNextProtocolAccept.cc
-            QUICPacketHandler.cc
-            QUICSupport.cc
+    inknet PRIVATE QUICClosedConCollector.cc QUICMultiCertConfigLoader.cc QUICNextProtocolAccept.cc QUICSupport.cc
   )
 
-  target_link_libraries(inknet PUBLIC quiche::quiche ts::quic)
+  if(TS_HAS_OPENSSL_QUIC)
+    target_sources(inknet PRIVATE OpenSSLQUICNetProcessor.cc OpenSSLQUICNetVConnection.cc OpenSSLQUICPacketHandler.cc)
+  elseif(TS_HAS_QUICHE)
+    target_sources(inknet PRIVATE QUICNet.cc QUICNetProcessor.cc QUICNetVConnection.cc QUICPacketHandler.cc)
+    target_link_libraries(inknet PUBLIC quiche::quiche)
+  endif()
+
+  target_link_libraries(inknet PUBLIC ts::quic)
 endif()
 
 if(BUILD_REGRESSION_TESTING OR BUILD_TESTING)
@@ -136,9 +136,23 @@ endif()
 if(BUILD_TESTING)
   # libinknet_stub.cc is need because GNU ld is sensitive to the order of static libraries on the command line, and we have a cyclic dependency between inknet and proxy
   add_executable(
-    test_net libinknet_stub.cc NetVCTest.cc unit_tests/test_ProxyProtocol.cc unit_tests/test_SSLSNIConfig.cc
-             unit_tests/test_YamlSNIConfig.cc unit_tests/unit_test_main.cc
+    test_net
+    libinknet_stub.cc
+    NetVCTest.cc
+    unit_tests/test_ProxyProtocol.cc
+    unit_tests/test_SSLCertLookup.cc
+    unit_tests/test_SSLNetVConnectionAsyncEp.cc
+    unit_tests/test_SSLSNIConfig.cc
+    unit_tests/test_YamlSNIConfig.cc
+    unit_tests/test_OCSPStapling.cc
+    unit_tests/unit_test_main.cc
   )
+  if(SSLLIB_IS_AT_LEAST_OPENSSL3)
+    target_sources(test_net PRIVATE unit_tests/test_SSLDHParams.cc)
+  endif()
+  if(TS_USE_QUIC)
+    target_sources(test_net PRIVATE unit_tests/test_QUICTokenKeyConfig.cc)
+  endif()
   # Use link groups to solve circular dependency
   set(LINK_GROUP_LIBS
       ts::logging
@@ -156,6 +170,9 @@ if(BUILD_TESTING)
   )
   if(TS_USE_QUIC)
     list(APPEND LINK_GROUP_LIBS quic http3)
+    if(TS_HAS_QUICHE)
+      list(APPEND LINK_GROUP_LIBS quiche::quiche)
+    endif()
   endif()
   if(CMAKE_LINK_GROUP_USING_RESCAN_SUPPORTED OR CMAKE_CXX_LINK_GROUP_USING_RESCAN_SUPPORTED)
     string(JOIN "," LINK_GROUP_LIBS_CSV ${LINK_GROUP_LIBS})

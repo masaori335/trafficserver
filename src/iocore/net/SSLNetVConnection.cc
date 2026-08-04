@@ -389,15 +389,22 @@ SSLNetVConnection::read_raw_data()
       if (this->has_proxy_protocol(buffer, &r)) {
         Dbg(dbg_ctl_proxyprotocol, "ssl has proxy protocol header");
         if (dbg_ctl_proxyprotocol.on()) {
-          IpEndpoint src;
-          src.sa = *(this->get_proxy_protocol_src_addr());
-          IpEndpoint dst;
-          dst.sa = *(this->get_proxy_protocol_dst_addr());
-          ip_port_text_buffer src_ipb, dst_ipb;
-          ats_ip_nptop(&src, src_ipb, sizeof(src_ipb));
-          ats_ip_nptop(&dst, dst_ipb, sizeof(dst_ipb));
-          DbgPrint(dbg_ctl_proxyprotocol, "ssl proxy protocol v%d header parsed: src=[%s] dst=[%s]",
-                   static_cast<int>(this->get_proxy_protocol_version()), src_ipb, dst_ipb);
+          sockaddr const *src_addr = this->get_proxy_protocol_src_addr();
+          sockaddr const *dst_addr = this->get_proxy_protocol_dst_addr();
+          if (src_addr != nullptr && dst_addr != nullptr) {
+            IpEndpoint src;
+            src.sa = *src_addr;
+            IpEndpoint dst;
+            dst.sa = *dst_addr;
+            ip_port_text_buffer src_ipb, dst_ipb;
+            ats_ip_nptop(&src, src_ipb, sizeof(src_ipb));
+            ats_ip_nptop(&dst, dst_ipb, sizeof(dst_ipb));
+            DbgPrint(dbg_ctl_proxyprotocol, "ssl proxy protocol v%d header parsed: src=[%s] dst=[%s]",
+                     static_cast<int>(this->get_proxy_protocol_version()), src_ipb, dst_ipb);
+          } else {
+            DbgPrint(dbg_ctl_proxyprotocol, "ssl proxy protocol v%d header parsed without address information",
+                     static_cast<int>(this->get_proxy_protocol_version()));
+          }
         }
       } else {
         Dbg(dbg_ctl_proxyprotocol, "proxy protocol was enabled, but Proxy Protocol header was not present");
@@ -884,6 +891,14 @@ SSLNetVConnection::SSLNetVConnection()
 void
 SSLNetVConnection::do_io_close(int lerrno)
 {
+  // Stop any async-handshake eventfd before the VC is closed.
+  // If WANT_ASYNC was registered the eventfd is wired into the poller with
+  // `this` as the EventIO target. Without this stop() the SSLNetVConnection
+  // can be freed while the eventfd still has a live epoll registration; when
+  // the OpenSSL async job completes the poller wakes on freed memory.
+  if (async_ep.fd >= 0) {
+    async_ep.stop();
+  }
   if (this->ssl != nullptr) {
     if (get_context() == NET_VCONNECTION_OUT) {
       callHooks(TS_EVENT_VCONN_OUTBOUND_CLOSE);
@@ -934,7 +949,7 @@ SSLNetVConnection::do_io_close(int lerrno)
 void
 SSLNetVConnection::do_io_shutdown(ShutdownHowTo_t howto)
 {
-  if (get_tunnel_type() == SNIRoutingType::BLIND) {
+  if (ssl == nullptr || get_tunnel_type() == SNIRoutingType::BLIND) {
     // we don't have TLS layer control of blind tunnel
     UnixNetVConnection::do_io_shutdown(howto);
     return;
@@ -992,6 +1007,15 @@ SSLNetVConnection::clear()
   // Since we created the shared pointer with a custom deleter,
   // resetting here will decrement the ref-counter.
   client_sess.reset();
+
+  // Stop the async-handshake eventfd before SSL_free. The
+  // eventfd is owned by the SSL object, so SSL_free closes it; deregistering
+  // first keeps the EPOLL_CTL_DEL operating on a valid, owned fd. clear() runs
+  // on every free path through free_thread(), so it is the backstop in case
+  // do_io_close() did not already stop the eventfd.
+  if (async_ep.fd >= 0) {
+    async_ep.stop();
+  }
 
   if (ssl != nullptr) {
     // clear() runs from free() once per VC recycle, so this is the single chokepoint where a TLS
@@ -1117,7 +1141,8 @@ SSLNetVConnection::_sslStartHandShake(int event, int &err)
         }
         ats_ip_nptop(&dst, ipb1, sizeof(ipb1));
         ats_ip_nptop(&src, ipb2, sizeof(ipb2));
-        DbgPrint(dbg_ctl_ssl, "IP context is %p for [%s] -> [%s], default context %p", cc, ipb2, ipb1, lookup->defaultContext());
+        auto default_ctx = lookup->defaultContext();
+        DbgPrint(dbg_ctl_ssl, "IP context is %p for [%s] -> [%s], default context %p", cc, ipb2, ipb1, default_ctx.get());
       }
 
       // Escape if this is marked to be a tunnel.
@@ -1139,7 +1164,7 @@ SSLNetVConnection::_sslStartHandShake(int event, int &err)
       // Attach the default SSL_CTX to this SSL session. The default context is never going to be able
       // to negotiate a SSL session, but it's enough to trampoline us into the SNI callback where we
       // can select the right server certificate.
-      this->_make_ssl_connection(lookup->defaultContext());
+      this->_make_ssl_connection(lookup->defaultContext().get());
     }
 
     if (this->ssl == nullptr) {
@@ -1306,9 +1331,6 @@ SSLNetVConnection::sslServerHandShakeEvent(int &err)
     // we get out of this callback, and then will shuffle
     // over the buffered handshake packets to the O.S.
     return EVENT_DONE;
-  } else if (SslVConnOp::SSL_HOOK_OP_TERMINATE == hookOpRequested) {
-    sslHandshakeStatus = SSLHandshakeStatus::SSL_HANDSHAKE_DONE;
-    return EVENT_DONE;
   }
 
   Dbg(dbg_ctl_ssl, "Go on with the handshake state=%s",
@@ -1407,7 +1429,7 @@ SSLNetVConnection::sslServerHandShakeEvent(int &err)
   switch (ssl_error) {
   case SSL_ERROR_NONE:
     if (dbg_ctl_ssl.on()) {
-#ifdef OPENSSL_IS_OPENSSL3
+#ifdef OPENSSL_IS_AT_LEAST_OPENSSL3
       X509 *cert = SSL_get1_peer_certificate(ssl);
 #else
       X509 *cert = SSL_get_peer_certificate(ssl);
@@ -1589,7 +1611,7 @@ SSLNetVConnection::sslClientHandShakeEvent(int &err)
   switch (ssl_error) {
   case SSL_ERROR_NONE:
     if (dbg_ctl_ssl.on()) {
-#ifdef OPENSSL_IS_OPENSSL3
+#ifdef OPENSSL_IS_AT_LEAST_OPENSSL3
       X509 *cert = SSL_get1_peer_certificate(ssl);
 #else
       X509 *cert = SSL_get_peer_certificate(ssl);
@@ -2003,8 +2025,12 @@ SSLNetVConnection::_lookupContextByIP()
   }
 
   SSLCertContext *cc = nullptr;
-  if (this->get_is_proxy_protocol() && this->get_proxy_protocol_version() != ProxyProtocolVersion::UNDEFINED) {
-    ip.sa = *(this->get_proxy_protocol_dst_addr());
+  sockaddr const *proxy_protocol_dst_addr =
+    this->get_is_proxy_protocol() && this->get_proxy_protocol_version() != ProxyProtocolVersion::UNDEFINED ?
+      this->get_proxy_protocol_dst_addr() :
+      nullptr;
+  if (proxy_protocol_dst_addr != nullptr) {
+    ip.sa = *proxy_protocol_dst_addr;
     ip_port_text_buffer ipb1;
     ats_ip_nptop(&ip, ipb1, sizeof(ipb1));
     cc = lookup->find(ip);
@@ -2018,8 +2044,8 @@ SSLNetVConnection::_lookupContextByIP()
         return nullptr;
       }
       ats_ip_nptop(&src, ipb2, sizeof(ipb2));
-      DbgPrint(dbg_ctl_proxyprotocol, "IP context is %p for [%s] -> [%s], default context %p", cc, ipb2, ipb1,
-               lookup->defaultContext());
+      auto default_ctx = lookup->defaultContext();
+      DbgPrint(dbg_ctl_proxyprotocol, "IP context is %p for [%s] -> [%s], default context %p", cc, ipb2, ipb1, default_ctx.get());
     }
   } else if (0 == safe_getsockname(this->get_socket(), &ip.sa, &namelen)) {
     cc = lookup->find(ip);

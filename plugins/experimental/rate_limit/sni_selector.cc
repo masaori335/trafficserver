@@ -20,6 +20,8 @@
 
 #include "sni_selector.h"
 
+extern int gVCIdx;
+
 std::atomic<SniSelector *> SniSelector::_instance = nullptr;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -218,7 +220,7 @@ sni_queue_cont(TSCont cont, TSEvent /* event ATS_UNUSED */, void * /* edata ATS_
 
     if (owner) { // Don't operate on the aliases
       // Try to enable some queued VCs (if any) if there are slots available
-      while (limiter->size() > 0 && limiter->reserve() != ReserveStatus::RESERVED) { // Can't be UNLIMITED here
+      while (limiter->size() > 0 && limiter->reserve() == ReserveStatus::RESERVED) {
         auto [vc, contp, start_time]    = limiter->pop();
         std::chrono::milliseconds delay = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time);
 
@@ -239,6 +241,8 @@ sni_queue_cont(TSCont cont, TSEvent /* event ATS_UNUSED */, void * /* edata ATS_
 
           (void)contp;
           Dbg(dbg_ctl, "Queued VC is too old (%ldms), erroring out", static_cast<long>(age.count()));
+          TSUserArgSet(vc, gVCIdx, nullptr);
+          limiter->selector()->release();
           TSVConnReenableEx(vc, TS_EVENT_ERROR);
           limiter->incrementMetric(RATE_LIMITER_METRIC_EXPIRED);
         }

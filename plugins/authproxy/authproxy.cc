@@ -666,7 +666,6 @@ StateAuthorized(AuthRequestContext *auth, void *)
 
     TSReleaseAssert(TSHttpTxnClientReqGet(auth->txn, &request_bufp, &request_hdr) == TS_SUCCESS);
     field_loc = TSMimeHdrFieldGet(auth->rheader.buffer, auth->rheader.header, 0);
-    TSReleaseAssert(field_loc != TS_NULL_MLOC);
 
     while (field_loc) {
       int key_len = 0;
@@ -686,6 +685,8 @@ StateAuthorized(AuthRequestContext *auth, void *)
       TSHandleMLocRelease(auth->rheader.buffer, auth->rheader.header, field_loc);
       field_loc = next_field_loc;
     }
+
+    TSHandleMLocRelease(request_bufp, TS_NULL_MLOC, request_hdr);
   }
 
   // Proceed with the modified request

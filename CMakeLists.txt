@@ -282,6 +282,8 @@ pkg_check_modules(PCRE2 REQUIRED IMPORTED_TARGET libpcre2-8)
 include(CheckOpenSSLIsBoringSSL)
 include(CheckOpenSSLIsQuictls)
 include(CheckOpenSSLIsAwsLc)
+include(CheckOpenSSLHasQuicTlsCbs)
+include(CheckOpenSSLHasNativeQuic)
 find_package(OpenSSL REQUIRED)
 check_openssl_is_boringssl(SSLLIB_IS_BORINGSSL BORINGSSL_VERSION "${OPENSSL_INCLUDE_DIR}")
 check_openssl_is_awslc(SSLLIB_IS_AWSLC AWSLC_VERSION "${OPENSSL_INCLUDE_DIR}")
@@ -306,10 +308,61 @@ else()
 endif()
 check_openssl_is_quictls(SSLLIB_IS_QUICTLS "${OPENSSL_INCLUDE_DIR}")
 
-if(OPENSSL_VERSION VERSION_GREATER_EQUAL "3.0.0")
-  set(SSLLIB_IS_OPENSSL3 TRUE)
-  add_compile_definitions(OPENSSL_API_COMPAT=10002 OPENSSL_IS_OPENSSL3)
+if(NOT SSLLIB_IS_BORINGSSL
+   AND NOT SSLLIB_IS_AWSLC
+   AND OPENSSL_VERSION VERSION_GREATER_EQUAL "3.0.0"
+)
+  set(SSLLIB_IS_AT_LEAST_OPENSSL3 TRUE)
+  add_compile_definitions(OPENSSL_API_COMPAT=10002 OPENSSL_IS_AT_LEAST_OPENSSL3)
 endif()
+
+check_openssl_has_quic_tls_cbs(SSLLIB_HAS_QUIC_TLS_CBS "${OPENSSL_INCLUDE_DIR}")
+if(SSLLIB_HAS_QUIC_TLS_CBS
+   AND NOT SSLLIB_IS_BORINGSSL
+   AND NOT SSLLIB_IS_AWSLC
+   AND NOT SSLLIB_IS_QUICTLS
+)
+  set(TS_OPENSSL_QUIC_TLS_CBS_COMPAT TRUE)
+  add_compile_definitions(TS_OPENSSL_QUIC_TLS_CBS_COMPAT)
+endif()
+
+check_openssl_has_native_quic(SSLLIB_HAS_NATIVE_QUIC "${OPENSSL_INCLUDE_DIR}")
+
+if(DEFINED ENABLE_OPENSSL_QUIC
+   AND NOT ENABLE_OPENSSL_QUIC STREQUAL "AUTO"
+   AND ENABLE_OPENSSL_QUIC
+)
+  if(ENABLE_QUICHE)
+    message(FATAL_ERROR "ENABLE_OPENSSL_QUIC and ENABLE_QUICHE are mutually exclusive QUIC backends")
+  endif()
+  if(NOT SSLLIB_HAS_NATIVE_QUIC)
+    message(FATAL_ERROR "OpenSSL native QUIC support requires OpenSSL 3.5 or newer with OSSL_QUIC_server_method")
+  endif()
+  if(SSLLIB_IS_BORINGSSL
+     OR SSLLIB_IS_AWSLC
+     OR SSLLIB_IS_QUICTLS
+  )
+    message(FATAL_ERROR "OpenSSL native QUIC support requires upstream OpenSSL 3.5 or newer")
+  endif()
+endif()
+
+set(OPENSSL_QUIC_AVAILABLE ${SSLLIB_HAS_NATIVE_QUIC})
+if(SSLLIB_IS_BORINGSSL
+   OR SSLLIB_IS_AWSLC
+   OR SSLLIB_IS_QUICTLS
+   OR ENABLE_QUICHE
+)
+  set(OPENSSL_QUIC_AVAILABLE FALSE)
+endif()
+auto_option(
+  OPENSSL_QUIC
+  FEATURE_VAR
+  TS_HAS_OPENSSL_QUIC
+  DESCRIPTION
+  "Use OpenSSL native QUIC"
+  VAR_DEPENDS
+  OPENSSL_QUIC_AVAILABLE
+)
 
 if(ENABLE_PROFILER)
   find_package(profiler REQUIRED)
@@ -326,13 +379,26 @@ elseif(TS_HAS_MIMALLOC)
   link_libraries(mimalloc)
 endif()
 
+if(TS_HAS_OPENSSL_QUIC)
+  set(TS_USE_QUIC TRUE)
+  message(STATUS "Using OpenSSL native QUIC")
+endif()
+
 if(ENABLE_QUICHE)
+  if(TS_OPENSSL_QUIC_TLS_CBS_COMPAT)
+    set(quiche_USE_STATIC TRUE)
+  endif()
   find_package(quiche REQUIRED)
 
   set(TS_HAS_QUICHE ${quiche_FOUND})
   set(TS_USE_QUIC ${TS_HAS_QUICHE})
-  if(NOT SSLLIB_IS_BORINGSSL AND NOT SSLLIB_IS_QUICTLS)
-    message(FATAL_ERROR "Use of BoringSSL or OPENSSL/QUICTLS is required if quiche is used.")
+  if(NOT SSLLIB_IS_BORINGSSL
+     AND NOT SSLLIB_IS_QUICTLS
+     AND NOT TS_OPENSSL_QUIC_TLS_CBS_COMPAT
+  )
+    message(
+      FATAL_ERROR "Use of BoringSSL, OPENSSL/QUICTLS, or OpenSSL QUIC TLS callbacks is required if quiche is used."
+    )
   endif()
 
   if(SSLLIB_IS_QUICTLS)
@@ -341,6 +407,8 @@ if(ENABLE_QUICHE)
     message(
       "WARNING - Using quictls requires using a special version of quiche. Make sure quictls is supported in quiche."
     )
+  elseif(TS_OPENSSL_QUIC_TLS_CBS_COMPAT)
+    message(STATUS "Using OpenSSL QUIC TLS callbacks compatibility for quiche")
   endif()
 endif()
 
@@ -578,12 +646,9 @@ check_symbol_exists(SSL_get_all_async_fds openssl/ssl.h TS_USE_TLS_ASYNC)
 check_symbol_exists(OSSL_PARAM_construct_end "openssl/params.h" HAVE_OSSL_PARAM_CONSTRUCT_END)
 check_symbol_exists(TLS1_3_VERSION "openssl/ssl.h" TS_USE_TLS13)
 check_symbol_exists(MD5_Init "openssl/md5.h" HAVE_MD5_INIT)
-check_symbol_exists(ENGINE_load_dynamic "openssl/engine.h" HAVE_ENGINE_LOAD_DYNAMIC)
-check_symbol_exists(ENGINE_get_default_RSA "openssl/engine.h" HAVE_ENGINE_GET_DEFAULT_RSA)
-check_symbol_exists(ENGINE_load_private_key "openssl/engine.h" HAVE_ENGINE_LOAD_PRIVATE_KEY)
 check_symbol_exists(sysctlbyname "sys/sysctl.h" HAVE_SYSCTLBYNAME)
 
-if(SSLLIB_IS_OPENSSL3)
+if(SSLLIB_IS_AT_LEAST_OPENSSL3)
   check_symbol_exists(SSL_CTX_set_tlsext_ticket_key_evp_cb "openssl/ssl.h" TS_HAS_TLS_SESSION_TICKET)
 else()
   check_symbol_exists(SSL_CTX_set_tlsext_ticket_key_cb "openssl/ssl.h" TS_HAS_TLS_SESSION_TICKET)

@@ -27,6 +27,8 @@
 #include "proxy/http3/Http3Frame.h"
 #include "proxy/http3/Http3Config.h"
 
+#include <algorithm>
+
 ClassAllocator<Http3Frame, false>         http3FrameAllocator("http3FrameAllocator");
 ClassAllocator<Http3DataFrame, false>     http3DataFrameAllocator("http3DataFrameAllocator");
 ClassAllocator<Http3HeadersFrame, false>  http3HeadersFrameAllocator("http3HeadersFrameAllocator");
@@ -39,6 +41,13 @@ constexpr int FRAME_TYPE_MAX_BYTES = 8;
 constexpr int HEADER_OVERHEAD      = 10; // This should work as long as a payload length is less than 64 bits
 
 DbgCtl dbg_ctl_http3_frame_factory{"http3_frame_factory"};
+
+bool
+is_reserved_frame_type(uint64_t type)
+{
+  return type >= static_cast<uint64_t>(Http3FrameType::RESERVED) &&
+         (type - static_cast<uint64_t>(Http3FrameType::RESERVED)) % 0x1f == 0;
+}
 
 } // end anonymous namespace
 
@@ -62,6 +71,8 @@ Http3Frame::type(const uint8_t *buf, size_t buf_len)
   ink_assert(ret != 1);
   if (type <= static_cast<uint64_t>(Http3FrameType::X_MAX_DEFINED)) {
     return static_cast<Http3FrameType>(type);
+  } else if (is_reserved_frame_type(type)) {
+    return Http3FrameType::RESERVED;
   } else {
     return Http3FrameType::UNKNOWN;
   }
@@ -141,8 +152,12 @@ Http3Frame::length() const
 Http3FrameType
 Http3Frame::type() const
 {
-  if (static_cast<uint64_t>(this->_type) <= static_cast<uint64_t>(Http3FrameType::X_MAX_DEFINED)) {
+  const auto type = static_cast<uint64_t>(this->_type);
+
+  if (type <= static_cast<uint64_t>(Http3FrameType::X_MAX_DEFINED)) {
     return this->_type;
+  } else if (is_reserved_frame_type(type)) {
+    return Http3FrameType::RESERVED;
   } else {
     return Http3FrameType::UNKNOWN;
   }
@@ -249,6 +264,12 @@ uint64_t
 Http3DataFrame::payload_length() const
 {
   return this->_length;
+}
+
+bool
+Http3DataFrame::_parse()
+{
+  return this->_reader->read_avail() >= static_cast<int64_t>(this->_length);
 }
 
 IOBufferReader *
@@ -505,9 +526,10 @@ Http3FrameFactory::create(IOBufferReader &reader)
   ts::Http3Config::scoped_config params;
   Http3Frame                    *frame = nullptr;
 
-  uint8_t type_buf[FRAME_TYPE_MAX_BYTES]{};
-  reader.memcpy(type_buf, sizeof(type_buf));
-  Http3FrameType type = Http3Frame::type(type_buf, sizeof(type_buf));
+  uint8_t           type_buf[FRAME_TYPE_MAX_BYTES]{};
+  std::size_t const type_avail{std::min<std::size_t>(reader.read_avail(), sizeof(type_buf))};
+  reader.memcpy(type_buf, type_avail);
+  Http3FrameType type = Http3Frame::type(type_buf, type_avail);
 
   switch (type) {
   case Http3FrameType::HEADERS:
@@ -534,9 +556,10 @@ Http3FrameFactory::create(IOBufferReader &reader)
 std::shared_ptr<Http3Frame>
 Http3FrameFactory::fast_create(IOBufferReader &reader)
 {
-  uint8_t type_buf[FRAME_TYPE_MAX_BYTES]{};
-  reader.memcpy(type_buf, sizeof(type_buf));
-  Http3FrameType type = Http3Frame::type(type_buf, sizeof(type_buf));
+  uint8_t           type_buf[FRAME_TYPE_MAX_BYTES]{};
+  std::size_t const type_avail{std::min<std::size_t>(reader.read_avail(), sizeof(type_buf))};
+  reader.memcpy(type_buf, type_avail);
+  Http3FrameType type = Http3Frame::type(type_buf, type_avail);
   if (type == Http3FrameType::UNKNOWN) {
     if (!this->_unknown_frame) {
       this->_unknown_frame = Http3FrameFactory::create(reader);

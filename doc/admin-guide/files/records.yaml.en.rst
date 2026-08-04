@@ -792,6 +792,9 @@ HTTP Engine
    tr-pass                      Pass through enabled.
    mptcp                        Multipath TCP.
    allow-plain                  Allow failback to non-TLS for TLS ports
+   uds-perm     Value           Unix domain socket file permission mode.
+   uds-user     Value           Unix domain socket file owner name.
+   uds-group    Value           Unix domain socket file group name.
    ============ =============== ========================================
 
 *port*
@@ -894,6 +897,41 @@ allow-plain
    For TLS ports, will fall back to non-TLS processing if the TLS handshake fails. Incompatible with
    quic ports.
 
+uds-perm
+   Set the file permission mode applied to a Unix domain socket listener after
+   ``bind()``. The value is parsed as octal (e.g. ``0660`` or ``660``) and must
+   be in the range ``0`` to ``0777``. The default is ``0666`` -- read/write for
+   any local user, matching the connect access of a TCP listener under the
+   default :file:`ip_allow.yaml`. Tighten it (e.g. ``0660``) together with
+   ``uds-user`` / ``uds-group`` to restrict which local users may connect.
+
+   Only valid for Unix domain socket ports.
+
+uds-user
+   Set the owning user of a Unix domain socket listener file. The value is a
+   user name resolved via :manpage:`getpwnam(3)`. If ``uds-user`` and / or
+   ``uds-group`` is specified, |TS| performs :manpage:`chown(2)` on the socket
+   path; otherwise the ownership inherited from the running process is kept.
+
+   Only valid for Unix domain socket ports.
+
+uds-group
+   Set the owning group of a Unix domain socket listener file. The value is a
+   group name resolved via :manpage:`getgrnam(3)`. See ``uds-user``.
+
+   Only valid for Unix domain socket ports.
+
+.. important::
+
+   IP-based access controls -- :file:`ip_allow.yaml` and remap ``@src_ip`` /
+   ``@src_ip_category`` rules -- are **not** evaluated for connections that
+   arrive over a Unix domain socket, because the peer has no IP address.
+   Connections accepted on a UDS listener are subject only to the filesystem
+   permissions and ownership of the socket file. Use ``uds-perm``,
+   ``uds-user`` and ``uds-group`` (or external filesystem ACLs on the
+   containing directory) to restrict which local users may connect, unless an
+   IP source is supplied through :ts:cv:`proxy.config.acl.subjects`.
+
 .. topic:: Example
 
    Listen on port 80 on any address for IPv4 and IPv6.::
@@ -906,6 +944,14 @@ allow-plain
    Proxy Protocol
 
       /var/run/trafficserver/proxy.sock:pp
+
+.. topic:: Example
+
+   Listen on unix domain socket at /var/run/trafficserver/proxy.sock owned by
+   user ``trafficserver`` and group ``ats-clients`` with mode ``0660`` so that
+   only members of ``ats-clients`` can connect::
+
+      /var/run/trafficserver/proxy.sock:uds-perm=0660:uds-user=trafficserver:uds-group=ats-clients
 
 .. topic:: Example
 
@@ -949,6 +995,10 @@ allow-plain
 .. note::
 
    These are the ports on the *origin server*, not |TS| :ts:cv:`proxy ports <proxy.config.http.server_ports>`.
+   This setting is not a destination host or address policy. Use outbound rules in
+   :file:`ip_allow.yaml` to control which destination IP addresses may be used for ``CONNECT``
+   tunnels. The default :file:`ip_allow.yaml` denies ``CONNECT`` tunnels to unspecified,
+   loopback, private, link-local, and IPv4-mapped IPv6 destination ranges.
 
 
 .. ts:cv:: CONFIG proxy.config.http.forward_connect_method INT 0
@@ -982,7 +1032,7 @@ allow-plain
 
 .. note::
 
-   The ``Via`` transaction codes can be decoded with the `Via Decoder Ring <https://trafficserver.apache.org/tools/via>`_.
+   The ``Via`` transaction codes can be decoded with the `Via Decoder Ring <https://trafficserver.apache.org/via.html>`_.
 
 .. ts:cv:: CONFIG proxy.config.http.request_via_str STRING ApacheTrafficServer/${PACKAGE_VERSION}
    :reloadable:
@@ -1008,7 +1058,7 @@ allow-plain
 
 .. note::
 
-   The ``Via`` transaction code can be decoded with the `Via Decoder Ring <https://trafficserver.apache.org/tools/via>`_.
+   The ``Via`` transaction code can be decoded with the `Via Decoder Ring <https://trafficserver.apache.org/via.html>`_.
 
 .. ts:cv:: CONFIG proxy.config.http.response_via_str STRING ApacheTrafficServer/${PACKAGE_VERSION}
    :reloadable:
@@ -1108,6 +1158,10 @@ allow-plain
    <https://www.rfc-editor.org/rfc/rfc9112.html#name-chunked-trailer-section>`_
    for details about chunked trailers. By default, this option is enabled
    and therefore |TS| will drop chunked trailers.
+
+   This option controls HTTP/1.1 chunked trailer handling. HTTP/2 origin
+   response trailers are not converted to HTTP/1.1 chunked trailers, and |TS|
+   drops them when the client connection is HTTP/1.x.
 
 .. ts:cv:: CONFIG proxy.config.http.strict_chunk_parsing INT 1
    :reloadable:
@@ -1423,6 +1477,13 @@ allow-plain
    Controls the maximum size, in bytes, of an HTTP header field in requests. Headers
    in a request with the sum of their name and value that exceed this size will cause the
    entire request to be treated as invalid and rejected by the proxy.
+
+   A header field name and value are each stored with a 16-bit length, so each is
+   limited to 65535 bytes (the maximum a 16-bit length can hold) regardless of this
+   setting. A value greater than 65535 in records.yaml fails validation and the
+   default is used; a value set at runtime via :program:`traffic_ctl` is clamped to
+   65535. Either way an individual field name or value that exceeds the limit is
+   rejected rather than truncated.
 
 .. ts:cv:: CONFIG proxy.config.http.request_header_max_size INT 32768
    :overridable:
@@ -3322,7 +3383,8 @@ HostDB
 
 .. ts:cv:: CONFIG proxy.config.hostdb.round_robin_max_count INT 16
 
-   The maximum count of DNS answers per round robin hostdb record. The default variable is 16.
+   The maximum count of DNS answers per round robin hostdb record. The
+   default value is ``16``. Valid range is ``1`` to ``1024``.
 
 .. ts:cv:: CONFIG proxy.config.hostdb.ttl_mode INT 0
    :reloadable:
@@ -4257,8 +4319,9 @@ SSL Termination
   This configuration specifies the maximum number of bytes to write
   into a SSL record when replying over a SSL session. In some
   circumstances this setting can improve response latency by reducing
-  buffering at the SSL layer. This setting can have a value between 0
-  and 16383 (max TLS record size).
+  buffering at the SSL layer. This setting accepts ``-1`` for dynamic
+  sizing, ``0`` for the default behavior, or a fixed maximum between
+  ``1`` and ``16383`` bytes.
 
   The default of ``0`` means to always write all available data into
   a single SSL record.
@@ -4871,14 +4934,43 @@ HTTP/2 Configuration
    This is used when :ts:cv:`proxy.config.http2.max_active_streams_out` is set
    larger than ``0``.
 
-.. ts:cv:: CONFIG proxy.config.http2.max_active_streams_in INT 0
+.. ts:cv:: CONFIG proxy.config.http2.max_active_streams_in INT 200000
    :reloadable:
 
-   Limits the maximum number of connection wide active streams.
-   When connection wide active streams are larger than this value,
+   Limits the maximum number of process-wide active inbound streams.
+   When the process-wide active stream count reaches this value,
    SETTINGS_MAX_CONCURRENT_STREAMS will be reduced to
    :ts:cv:`proxy.config.http2.min_concurrent_streams_in`.
-   To disable, set to zero (``0``).
+   To disable, set to zero (``0``). The default bounds worst-case
+   buffered response memory while staying well above any realistic
+   legitimate stream count; size it to your available memory budget.
+
+   See :ts:cv:`proxy.config.http2.max_active_streams_policy_in` to switch
+   from this advisory behavior to hard refusal of new streams once the
+   limit is reached.
+
+.. ts:cv:: CONFIG proxy.config.http2.max_active_streams_policy_in INT 0
+   :reloadable:
+
+   Selects how :ts:cv:`proxy.config.http2.max_active_streams_in` is
+   enforced for inbound HTTP/2 streams.
+
+   ===== ===================================================================
+   Value Description
+   ===== ===================================================================
+   ``0`` When the limit is reached, the advertised
+         ``SETTINGS_MAX_CONCURRENT_STREAMS`` is reduced to
+         :ts:cv:`proxy.config.http2.min_concurrent_streams_in` for new
+         connections. Already-admitted streams are not refused.
+   ``1`` New inbound streams are refused with ``REFUSED_STREAM`` once the
+         global active-stream count reaches the limit. The advertised
+         ``SETTINGS_MAX_CONCURRENT_STREAMS`` is left unchanged and
+         :ts:cv:`proxy.config.http2.min_concurrent_streams_in` is not
+         applied.
+   ===== ===================================================================
+
+   Has no effect when :ts:cv:`proxy.config.http2.max_active_streams_in`
+   is ``0``.
 
 .. ts:cv:: CONFIG proxy.config.http2.max_active_streams_out INT 0
    :reloadable:
@@ -5046,7 +5138,7 @@ HTTP/2 Configuration
 
    This is the threshold of sampling stream number to start checking the stream error rate.
 
-.. ts:cv:: CONFIG proxy.config.http2.max_settings_per_frame INT 7
+.. ts:cv:: CONFIG proxy.config.http2.max_settings_per_frame INT 16
    :reloadable:
 
    Specifies how many settings in an HTTP/2 SETTINGS frame |TS| accepts.
@@ -5054,7 +5146,7 @@ HTTP/2 Configuration
    code of ENHANCE_YOUR_CALM.
    Any negative value configures no limit to the number of settings received.
 
-.. ts:cv:: CONFIG proxy.config.http2.max_settings_per_minute INT 14
+.. ts:cv:: CONFIG proxy.config.http2.max_settings_per_minute INT 32
    :reloadable:
 
    Specifies how many settings in HTTP/2 SETTINGS frames |TS| accept for a minute.
@@ -5145,12 +5237,11 @@ HTTP/2 Configuration
    frames. Write operation will be triggered at least once every this configured
    number of millisecond regardless of pending data size.
 
-.. ts:cv:: CONFIG proxy.config.http2.default_buffer_water_mark INT -1
+.. ts:cv:: CONFIG proxy.config.http2.default_buffer_water_mark INT 32768
    :reloadable:
    :units: bytes
 
    Specifies the high water mark for all HTTP/2 frames on an outgoing connection.
-   Default is -1 to preserve existing water marking behavior.
 
    You can override this global setting on a per domain basis in the :file:`sni.yaml` file using the :ref:`http2_buffer_water_mark <override-h2-properties>` attribute.
 
@@ -5189,8 +5280,8 @@ removed in the future without prior notice.
 .. ts:cv:: CONFIG proxy.config.quic.instance_id INT 0
    :reloadable:
 
-   A static key used for calculating Stateless Reset Token. All instances in a
-   cluster need to share the same value.
+   An instance identifier mixed into Stateless Reset Tokens. All instances in a
+   cluster that share token keys need to use the same value.
 
 .. ts:cv:: CONFIG proxy.config.quic.connection_table.size INT 65521
 
@@ -5204,6 +5295,20 @@ removed in the future without prior notice.
 .. ts:cv:: CONFIG proxy.config.quic.server.stateless_retry_enabled INT 0
 
    Enables Stateless Retry.
+
+.. ts:cv:: CONFIG proxy.config.quic.server.token_key.filename STRING NULL
+   :reloadable:
+
+   The file containing the secret keys used to generate QUIC address-validation
+   and stateless-reset tokens. Relative paths are resolved from the |TS|
+   configuration directory. The file must contain one or more raw 32-byte keys.
+   The first key generates new tokens, while all keys validate address-validation
+   tokens to support key rotation. For example, generate a key with
+   ``head -c32 /dev/urandom > quic_token.key``.
+
+   When this is not set, |TS| generates a random per-process key at startup. Set
+   the same key file on each server that must validate tokens generated by other
+   servers. Reload configuration after changing the key file.
 
 .. ts:cv:: CONFIG proxy.config.quic.client.vn_exercise_enabled INT 0
    :reloadable:

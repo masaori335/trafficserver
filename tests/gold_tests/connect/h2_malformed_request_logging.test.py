@@ -104,6 +104,7 @@ class MalformedH2RequestLoggingTest:
                 'proxy.config.http.connect_ports': self._server.Variables.http_port,
             })
         self._ts.Disk.remap_config.AddLine(f'map / http://127.0.0.1:{self._server.Variables.http_port}/')
+        self._ts.addPrivateConnectAllowYaml(methods='[ CONNECT, GET ]')
         self._ts.Disk.logging_yaml.AddLines(
             """
 logging:
@@ -115,7 +116,7 @@ logging:
       format: malformed_h2_request
       mode: ascii
 """.split('\n'))
-        self._ts.Disk.diags_log.Content = Testers.ContainsExpression(
+        self._ts.Disk.traffic_out.Content += Testers.ContainsExpression(
             'recv headers malformed request',
             'ATS should reject malformed requests at the HTTP/2 layer.',
         )
