@@ -48,9 +48,22 @@ chmod a+rwx .
 # Some tests write generated data into the test directory
 chmod -R a+rwx /workspace/tests/gold_tests
 su --command "pipenv install" bazinga
+
+# Piping autest into au2junit-report makes the shell see only the reporter's
+# exit code, so a failing autest run (including tests that error out in the
+# Exception state, which au2junit-report drops entirely) went unnoticed.
+# Capture autest's real status via PIPESTATUS and propagate it below.
+set +e
 su --command "./autest.sh --sandbox $AUTEST_SANDBOX $AUTEST_FLAGS" bazinga | /usr/bin/au2junit-report --output-filename autest.xml
+autest_rc=${PIPESTATUS[0]}
+set -e
 
 if [ "$RIO_BUILD_NUMBER" != "" ]; then
     cp -r $AUTEST_SANDBOX /workspace
 fi
+
+if [ "$autest_rc" -ne 0 ]; then
+    echo >&2 "autest exited with status ${autest_rc}"
+fi
+exit $autest_rc
 
