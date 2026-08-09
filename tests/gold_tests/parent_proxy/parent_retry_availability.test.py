@@ -1,3 +1,6 @@
+"""
+Verify the retry path restores a parent only when the retry actually succeeds.
+"""
 #  Licensed to the Apache Software Foundation (ASF) under one
 #  or more contributor license agreements.  See the NOTICE file
 #  distributed with this work for additional information
@@ -14,28 +17,10 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# A very simple cleartext server for one HTTP transaction.  Does no validation of the Request message.
-# Sends a fixed response message
+Test.Summary = '''
+Both outcomes of a parent retry: a parent that is still up but not serving stays
+marked down, and a parent that has recovered is restored to the pool.
+'''
 
-
-response ()
-{
-  # Wait for end of Request message.
-  #
-  while (( 1 == 1 ))
-  do
-    if [[ -f $outfile ]] ; then
-      if tr '\r\n' '=!' < $outfile | grep '=!=!' > /dev/null
-      then
-        break;
-      fi
-    fi
-    sleep 1
-  done
-
-  printf "HTTP/1.1 200\r\nContent-length: 15\r\n\r\n"
-  printf "123456789012345"
-
-}
-outfile=$2
-response | nc -l $1 > "$outfile"
+Test.ATSReplayTest(replay_file='replays/parent_retry_failure_stays_down.replay.yaml')
+Test.ATSReplayTest(replay_file='replays/parent_retry_success_restores.replay.yaml')
