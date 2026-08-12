@@ -907,10 +907,19 @@ HttpSM::state_watch_for_client_abort(int event, void *data)
   case VC_EVENT_EOS: {
     // We got an early EOS.
     if (!terminate_sm) { // Not done already
+      // ProxySession::do_io_shutdown dereferences its NetVConnection
+      // unconditionally, so only shut down while the peer is still attached.
       NetVConnection *netvc = _ua.get_txn()->get_netvc();
+
       if (_ua.get_txn()->allow_half_open() || tunnel.has_consumer_besides_client()) {
         if (netvc) {
-          netvc->do_io_shutdown(IO_SHUTDOWN_READ);
+          // Shut the read side down through the transaction rather than through
+          // the NetVConnection. For multiplexed protocols the NetVConnection is
+          // shared by every stream on the connection, so shutting its read side
+          // down here would stop the session from reading frames for all of the
+          // other streams. HTTP/2 and HTTP/3 therefore implement
+          // do_io_shutdown() as a no-op.
+          _ua.get_txn()->do_io_shutdown(IO_SHUTDOWN_READ);
         }
       } else if (t_state.txn_conf->cache_http &&
                  (server_entry != nullptr && server_entry->vc_read_handler == &HttpSM::state_read_server_response_header)) {
@@ -2535,6 +2544,12 @@ HttpSM::state_cache_open_write(int event, void *data)
 {
   STATE_ENTER(state_cache_open_write, event);
 
+  // The cache action has already delivered this callback, so drop it before any
+  // thread adjustment below can assign over it. Assigning to pending_action
+  // cancels whatever it holds, and canceling the cache SM's reusable captive
+  // action here would break every cache operation this transaction makes later.
+  pending_action.clear_if_action_is(reinterpret_cast<Action *>(data));
+
   // Make sure we are on the "right" thread
   if (_ua.get_txn()) {
     pending_action = _ua.get_txn()->adjust_thread(this, event, data);
@@ -2545,8 +2560,6 @@ HttpSM::state_cache_open_write(int event, void *data)
     NetVConnection *vc = _ua.get_txn()->get_netvc();
     ink_release_assert(vc && vc->thread == this_ethread());
   }
-
-  pending_action.clear_if_action_is(reinterpret_cast<Action *>(data));
 
   ATS_PROBE1(milestone_cache_open_write_end, sm_id);
   milestones[TS_MILESTONE_CACHE_OPEN_WRITE_END] = ink_get_hrtime();

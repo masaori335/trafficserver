@@ -3365,6 +3365,19 @@ HttpTransact::handle_cache_write_lock(State *s)
     // HIT_STALE (revalidation case), the hook already fired and deferred is false.
     CacheHTTPInfo *obj = s->cache_info.object_read;
     if (obj != nullptr) {
+      if (!is_read_retry_write_fail_action(s->cache_open_write_fail_action)) {
+        // Fail actions 2 and 3 do not retry the cache read: they serve the
+        // object this transaction already looked up. Deciding otherwise here
+        // would issue a second cache lookup while the transaction still holds
+        // the cache read connection from the first one, and the read that
+        // completes on that second lookup replaces the connection out from
+        // under it.
+        TxnDbg(dbg_ctl_http_trans, "write lock lost with a cached object and no read retry configured");
+        s->hdr_info.server_request.destroy();
+        HandleCacheOpenReadHitFreshness(s);
+        return;
+      }
+
       // Restore request/response times from cached object for freshness calculations and Age header.
       // Similar to HandleCacheOpenReadHitFreshness, handle clock skew by capping times.
       s->request_sent_time      = obj->request_sent_time_get();
@@ -7488,6 +7501,25 @@ HttpTransact::delete_all_document_alternates_and_return(State *s, bool cache_hit
       s->hdr_info.trust_response_cl = true;
       build_response(s, &s->hdr_info.client_response, s->client_info.http_version,
                      (cache_hit == true) ? HTTPStatus::OK : HTTPStatus::NOT_FOUND);
+
+      // Report what was removed, so a caller holding one piece of a larger resource
+      // can learn its extent without a second lookup. Not Content-Range itself: on
+      // a 200 that is meaningless per RFC 9110, and cache_range_requests reads the
+      // pair as a stored 206 being served as 200 and rewrites the status.
+      if (cache_hit == true && s->method == HTTP_WKSIDX_PURGE && s->cache_info.object_read != nullptr) {
+        // read by the slice plugin as PURGED_CONTENT_RANGE in plugins/slice/HttpHeader.h
+        static constexpr std::string_view PURGED_CONTENT_RANGE{"X-Purged-Content-Range"};
+        HTTPHdr *const                    cached_response = s->cache_info.object_read->response_get();
+
+        if (cached_response != nullptr) {
+          auto value{cached_response->value_get(static_cast<std::string_view>(MIME_FIELD_CONTENT_RANGE))};
+          if (!value.empty()) {
+            s->hdr_info.client_response.value_set(PURGED_CONTENT_RANGE, value);
+            TxnDbg(dbg_ctl_http_trans, "PURGE reporting X-Purged-Content-Range: %.*s", static_cast<int>(value.length()),
+                   value.data());
+          }
+        }
+      }
 
       return true;
     } else {
