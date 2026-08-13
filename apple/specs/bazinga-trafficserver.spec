@@ -32,9 +32,9 @@
 %{!?_archive: %define _archive %{srcdir}.tar.gz}
 %{!?_commit: %define _commit UNKNOWN}
 %{!?_gittag: %define _gittag UNKNOWN}
-%{!?_libquiche_version %define _libquiche_version 0.20.0-4}
-%{!?_liburing_version %define _liburing_version 2.4}
-
+%{!?_libquiche_version: %define _libquiche_version 0.20.0-4}
+%{!?_liburing_version: %define _liburing_version 2.4}
+%{!?_llvm_version: %define _llvm_version 22.1}
 
 %if %{?_with_variant:1}%{!?_with_variant:0}
 %define release %{?_variant}%{?pr_release_prefix}%{_release}
@@ -56,7 +56,8 @@ BuildRoot:	%{_tmppath}/%{name}-%{version}-root
 
 # NOTE: If adding/removing bazinga BuildRequires, increment/decrement the grep/count in install section
 BuildRequires: autoconf, automake, libtool
-BuildRequires: bazinga-llvm
+BuildRequires: bazinga-llvm >= %{_llvm_version}
+BuildRequires: bazinga-llvm-libs >= %{_llvm_version}
 BuildRequires:	bazinga-jemalloc-devel >= 4.3.1, bazinga-brotli-devel
 BuildRequires:	expat-devel, pcre-devel, zlib-devel, xz-devel, hwloc-devel
 BuildRequires:	libcurl-devel, ncurses-devel, libcap-devel
@@ -81,6 +82,7 @@ BuildConflicts: perl-devel
 
 Requires:	initscripts, zlib, pcre, expat, xz
 Requires:	libcurl, ncurses-libs, libcap, hwloc, libmaxminddb
+Requires:	bazinga-llvm-libs >= %{_llvm_version}
 Requires:	bazinga-jemalloc >= 4.3.1
 Requires:	bazinga-brotli >= 1.0.6
 %{?_with_io_uring:Requires: bazinga-liburing = %{_liburing_version}}

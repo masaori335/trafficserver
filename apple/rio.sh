@@ -107,12 +107,17 @@ LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifact
 # copy user presets
 cp apple/CMakeUserPresets.json .
 
+# Take the libc++ floor from the toolchain installed in this build image, so it can't
+# drift from what actually compiled the RPM.
+LLVM_VERSION=$(rpm -q --queryformat '%{VERSION}' bazinga-llvm-libs)
+
 if [ $BUILD -eq 1 ]; then
   export LIBURING_VERSION
   export QUICHE_VERSION
   export BORINGSSL_VERSION
   export OSRELEASE
   export VARIATION
+  export LLVM_VERSION
   if [[ ! -z $PR_ID && $PR_ID -gt 0 ]]; then
      ./apple/build.sh $BUILD_VERSION $PR_ID
   else

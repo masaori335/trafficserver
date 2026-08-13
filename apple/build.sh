@@ -83,6 +83,7 @@ rpmbuild $RPMBUILD_MODE $buildroot/$specfilename \
          --define "_libquiche_version ${QUICHE_VERSION:-0.20.0-5.el7}" \
          --define "_boringssl_version ${BORINGSSL_VERSION:-29}" \
          --define "_liburing_version ${LIBURING_VERSION:-2.4}" \
+         --define "_llvm_version ${LLVM_VERSION:-22.1}" \
          --define "_preset bazinga${VARIATION}" \
          --define "_variant ${VARIATION:-default}" \
          ${RPMBUILD_FLAGS}
