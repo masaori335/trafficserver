@@ -80,7 +80,7 @@ Provides: %{base_package_name}-debuginfo
 # something in perl-devel(or it's dependencies) generates extra unpackaged files
 BuildConflicts: perl-devel
 
-Requires:	initscripts, zlib, pcre, expat, xz
+Requires:	zlib, pcre, expat, xz
 Requires:	libcurl, ncurses-libs, libcap, hwloc, libmaxminddb
 Requires:	bazinga-llvm-libs >= %{_llvm_version}
 Requires:	bazinga-jemalloc >= 4.3.1
@@ -89,8 +89,6 @@ Requires:	bazinga-brotli >= 1.0.6
 %{?_with_boringssl:Requires: bazinga-boringssl = %{_boringssl_version}}
 %{!?_with_boringssl:Requires: bazinga-openssl-libs >= 1.1.1a}
 %{?_with_quiche:Requires: bazinga-quiche = %{_libquiche_version}}
-Requires(preun): initscripts
-Requires(postun): initscripts
 
 %description
 Apache Traffic Server is an OpenSource HTTP / HTTPS / HTTP/2 reverse,
@@ -107,9 +105,6 @@ NOTE: Pull-Request applied: %{_pr_id}
 Summary: Apache Traffic Server devel package
 Group: Development/Libraries
 Requires: %{package_name}
-Requires: initscripts
-Requires(preun): initscripts
-Requires(postun): initscripts
 %description devel
 Include files and various tools for ATS developers.
 
@@ -240,7 +235,7 @@ rm -rf $RPM_BUILD_ROOT
 
 %preun
 if [ $1 -eq 0 ] ; then
-  /sbin/service %{name} stop > /dev/null 2>&1
+  /usr/bin/systemctl stop trafficserver.service > /dev/null 2>&1
   /usr/bin/systemctl --no-reload disable trafficserver.service
 fi
 
@@ -250,5 +245,5 @@ fi
 /bin/rm -f /run/trafficserver/records.snap
 
 if [ $1 -eq 1 ] ; then
-	/sbin/service trafficserver condrestart &>/dev/null || :
+	/usr/bin/systemctl try-restart trafficserver.service &>/dev/null || :
 fi
