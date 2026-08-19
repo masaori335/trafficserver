@@ -13,8 +13,8 @@
 # bazinga-trafficserver-plugins-builtin, and rpm auto-builds a matching
 # "-debuginfo" package for each. They are built together, but nothing forces a
 # host to keep them on the same version (plugins-builtin requires trafficserver
-# with no version).  In fact, we sometimes update plugins without updating 
-# trafficserver on purpose.  When that happens we want to install each debuginfo 
+# with no version).  In fact, we sometimes update plugins without updating
+# trafficserver on purpose.  When that happens we want to install each debuginfo
 # at the version that matches its installed binary.
 #
 # By default rpm on EL9 runs a debug-info compressor (DWZ) that merges both
@@ -105,6 +105,11 @@ BuildConflicts: perl-devel
 Requires:	zlib, pcre, expat, xz
 Requires:	libcurl, ncurses-libs, libcap, hwloc, libmaxminddb
 Requires:	bazinga-llvm-libs >= %{_llvm_version}
+# Drop the auto-generated libjemalloc.so.2 soname requirement: traffic_server links
+# bazinga's jemalloc from /opt/bazinga/lib64, which is not on the loader path, so the
+# soname says nothing a system provider could satisfy. The Requires below names the
+# package we actually need. Lets bazinga-jemalloc stop advertising that soname.
+%global __requires_exclude ^libjemalloc
 Requires:	bazinga-jemalloc >= 4.3.1
 Requires:	bazinga-brotli >= 1.0.6
 %{?_with_io_uring:Requires: bazinga-liburing = %{_liburing_version}}
