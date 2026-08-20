@@ -60,13 +60,6 @@ using CacheURL      = URL;
 using CacheHTTPInfo = HTTPInfo;
 
 struct CacheProcessor : public Processor {
-  CacheProcessor()
-    : min_stripe_version(CACHE_DB_MAJOR_VERSION, CACHE_DB_MINOR_VERSION),
-      max_stripe_version(CACHE_DB_MAJOR_VERSION, CACHE_DB_MINOR_VERSION)
-
-  {
-  }
-
   int         start(int n_cache_threads = 0, size_t stacksize = DEFAULT_STACKSIZE) override;
   virtual int start_internal(int flags = 0);
   void        stop();
@@ -145,11 +138,7 @@ struct CacheProcessor : public Processor {
   static bool           clear;
   static bool           fix;
   static bool           check;
-  static int            start_internal_flags;
   static int            auto_clear_flag;
-
-  ts::VersionNumber min_stripe_version;
-  ts::VersionNumber max_stripe_version;
 
   CALLBACK_FUNC cb_after_init  = nullptr;
   int           wait_for_cache = 0;

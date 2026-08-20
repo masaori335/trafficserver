@@ -87,14 +87,13 @@ extern std::vector<std::unique_ptr<CacheDisk>> gdisks;
 extern int                                     gndisks;
 static std::atomic<int>                        initialize_disk;
 extern Store                                   theCacheStore;
-CacheInitState                                 CacheProcessor::initialized          = CacheInitState::INITIALIZING;
-uint32_t                                       CacheProcessor::cache_ready          = 0;
-int                                            CacheProcessor::start_done           = 0;
-bool                                           CacheProcessor::clear                = false;
-bool                                           CacheProcessor::fix                  = false;
-bool                                           CacheProcessor::check                = false;
-int                                            CacheProcessor::start_internal_flags = 0;
-int                                            CacheProcessor::auto_clear_flag      = 0;
+CacheInitState                                 CacheProcessor::initialized     = CacheInitState::INITIALIZING;
+uint32_t                                       CacheProcessor::cache_ready     = 0;
+int                                            CacheProcessor::start_done      = 0;
+bool                                           CacheProcessor::clear           = false;
+bool                                           CacheProcessor::fix             = false;
+bool                                           CacheProcessor::check           = false;
+int                                            CacheProcessor::auto_clear_flag = 0;
 CacheProcessor                                 cacheProcessor;
 extern std::unordered_set<std::string>         known_bad_disks;
 
@@ -178,11 +177,10 @@ cache_bytes_used(int index)
 int
 CacheProcessor::start_internal(int flags)
 {
-  start_internal_flags = flags;
-  clear                = !!(flags & PROCESSOR_RECONFIGURE) || auto_clear_flag;
-  fix                  = !!(flags & PROCESSOR_FIX);
-  check                = (flags & PROCESSOR_CHECK) != 0;
-  start_done           = 0;
+  clear      = !!(flags & PROCESSOR_RECONFIGURE) || auto_clear_flag;
+  fix        = !!(flags & PROCESSOR_FIX);
+  check      = (flags & PROCESSOR_CHECK) != 0;
+  start_done = 0;
 
   /* Read the config file and create the data structures corresponding to the file. */
   gndisks = theCacheStore.n_spans;
@@ -1482,21 +1480,6 @@ CacheProcessor::cacheInitialized()
     caches_ready                 = caches_ready | (1 << CACHE_FRAG_TYPE_NONE);
     caches[CACHE_FRAG_TYPE_HTTP] = theCache;
     caches[CACHE_FRAG_TYPE_NONE] = theCache;
-  }
-
-  // Update stripe version data.
-  if (gnstripes) { // start with whatever the first stripe is.
-    cacheProcessor.min_stripe_version = cacheProcessor.max_stripe_version = gstripes[0]->directory.header->version;
-  }
-  // scan the rest of the stripes.
-  for (int i = 1; i < gnstripes; i++) {
-    StripeSM *v = gstripes[i];
-    if (v->directory.header->version < cacheProcessor.min_stripe_version) {
-      cacheProcessor.min_stripe_version = v->directory.header->version;
-    }
-    if (cacheProcessor.max_stripe_version < v->directory.header->version) {
-      cacheProcessor.max_stripe_version = v->directory.header->version;
-    }
   }
 
   // All stripes have claimed their segments; reclaim any orphan (e.g. a dropped disk).
