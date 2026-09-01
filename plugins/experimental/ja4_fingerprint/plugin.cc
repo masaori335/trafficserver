@@ -274,6 +274,12 @@ get_version(TSClientHello ch)
   unsigned char const *buf{};
   std::size_t          buflen{};
   if (TS_SUCCESS == TSClientHelloExtensionGet(ch, EXT_SUPPORTED_VERSIONS, &buf, &buflen)) {
+    // The first byte is the length of the version list; guard against a
+    // malformed or truncated extension before reading it.
+    if (buflen < 1) {
+      return ch.get_version();
+    }
+
     std::uint16_t max_version{0};
     size_t        n_versions = buf[0];
     for (size_t i = 1; i + 1 < buflen && i < (n_versions * 2) + 1; i += 2) {
