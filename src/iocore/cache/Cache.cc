@@ -367,10 +367,11 @@ Cache::open_read(Continuation *cont, const CacheKey *key, CacheFragType type, st
   ink_assert(caches[type] == this);
 
   StripeSM     *stripe = key_to_stripe(key, hostname);
-  Dir           result, *last_collision = nullptr;
-  ProxyMutex   *mutex = cont->mutex.get();
-  OpenDirEntry *od    = nullptr;
-  CacheVC      *c     = nullptr;
+  Dir           result;
+  Dir const    *last_collision = nullptr;
+  ProxyMutex   *mutex          = cont->mutex.get();
+  OpenDirEntry *od             = nullptr;
+  CacheVC      *c              = nullptr;
   {
     CACHE_TRY_LOCK(lock, stripe->mutex, mutex->thread_holding);
     if (!lock.is_locked() || (od = stripe->open_read(key)) || stripe->directory.probe(key, stripe, &result, &last_collision)) {
@@ -569,10 +570,11 @@ Cache::open_read(Continuation *cont, const CacheKey *key, CacheHTTPHdr *request,
   ink_assert(caches[type] == this);
 
   StripeSM     *stripe = key_to_stripe(key, hostname, volume_host_rec);
-  Dir           result, *last_collision = nullptr;
-  ProxyMutex   *mutex = cont->mutex.get();
-  OpenDirEntry *od    = nullptr;
-  CacheVC      *c     = nullptr;
+  Dir           result;
+  Dir const    *last_collision = nullptr;
+  ProxyMutex   *mutex          = cont->mutex.get();
+  OpenDirEntry *od             = nullptr;
+  CacheVC      *c              = nullptr;
 
   {
     CACHE_TRY_LOCK(lock, stripe->mutex, mutex->thread_holding);

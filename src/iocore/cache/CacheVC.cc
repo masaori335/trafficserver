@@ -1013,10 +1013,10 @@ CacheVC::scanOpenWrite(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
     // check that the directory entry was not overwritten
     // if so return failure
     Dbg(dbg_ctl_cache_scan, "got writer lock");
-    Dir *l = nullptr;
-    Dir  d;
-    Doc *doc = reinterpret_cast<Doc *>(buf->data() + offset);
-    offset   = reinterpret_cast<char *>(doc) - buf->data() + stripe->round_to_approx_size(doc->len);
+    Dir const *l = nullptr;
+    Dir        d;
+    Doc       *doc = reinterpret_cast<Doc *>(buf->data() + offset);
+    offset         = reinterpret_cast<char *>(doc) - buf->data() + stripe->round_to_approx_size(doc->len);
     // if the doc contains some data, then we need to create
     // a new directory entry for this fragment. Remember the
     // offset and the key in earliest_key

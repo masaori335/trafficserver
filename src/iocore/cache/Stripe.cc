@@ -182,7 +182,7 @@ Stripe::_init_directory(std::size_t directory_size, int header_size, int footer_
 // Rationale for every check, and why the passes are fused per segment, is in doc/developer-guide/cache-architecture/
 // shm-fast-restart.en.rst ("Validating a trusted segment"). On failure the caller falls back to the disk read.
 bool
-Stripe::_shm_directory_is_valid()
+Stripe::_shm_directory_is_valid() const
 {
   if (this->directory.header->sector_size == 0 || this->directory.header->sector_size > STORE_BLOCK_SIZE) {
     return false;
@@ -216,9 +216,9 @@ Stripe::_shm_directory_is_valid()
     }
 
     // dir_prev only holds a link on empty entries; on an in-use one it is tag/phase/head/pinned.
-    Dir *seg = this->directory.get_segment(s);
+    Dir const *seg = this->directory.get_segment(s);
     for (int64_t i = 0; i < segment_entries; i++) {
-      Dir *e = dir_in_seg(seg, i);
+      Dir const *e = dir_in_seg(seg, i);
       if (dir_next(e) >= segment_entries) {
         return false;
       }
@@ -253,7 +253,7 @@ Stripe::_shm_directory_is_valid()
 // from the free list but not yet filled, so no walk visits it, and the next insert to find that empty row writes
 // through its stale prev/next into a live chain or over a live entry's tag.
 bool
-Stripe::_shm_segment_membership_is_valid(int s, Dir *seg, int64_t segment_entries, std::vector<bool> &visited)
+Stripe::_shm_segment_membership_is_valid(int s, Dir const *seg, int64_t segment_entries, std::vector<bool> &visited) const
 {
   // Below 5, a link is a raw segment index; at or above it dir_from_offset() compacts roots out of the link space and
   // the raw dir_in_seg() indexing here (and in the bounds loop above) would address the wrong entries.
@@ -268,7 +268,7 @@ Stripe::_shm_segment_membership_is_valid(int s, Dir *seg, int64_t segment_entrie
     if (node >= segment_entries || visited[node]) {
       return false;
     }
-    Dir *e = dir_in_seg(seg, node);
+    Dir const *e = dir_in_seg(seg, node);
 
     // Every producer (Directory::free_entry, delete_entry, freelist_pop, unlink_from_freelist) clears the entry and
     // leaves prev pointing back at the node nearer the head, so a mismatch means the list was left half-updated.
@@ -295,7 +295,7 @@ Stripe::_shm_segment_membership_is_valid(int s, Dir *seg, int64_t segment_entrie
       if (node >= segment_entries || node % DIR_DEPTH == 0 || visited[node]) {
         return false;
       }
-      Dir *e = dir_in_seg(seg, node);
+      Dir const *e = dir_in_seg(seg, node);
       if (dir_is_empty(e)) {
         return false;
       }
@@ -374,27 +374,27 @@ Stripe::dir_check()
   printf("  Entries:   %" PRIu64 "\n", total_entries);
 
   for (int s = 0; s < directory.segments; s++) {
-    Dir *seg                = this->directory.get_segment(s);
-    int  seg_chain_max      = 0;
-    int  seg_empty          = 0;
-    int  seg_in_use         = 0;
-    int  seg_stale          = 0;
-    int  seg_bytes_in_use   = 0;
-    int  seg_dups           = 0;
-    int  seg_buckets_in_use = 0;
+    Dir const *seg                = this->directory.get_segment(s);
+    int        seg_chain_max      = 0;
+    int        seg_empty          = 0;
+    int        seg_in_use         = 0;
+    int        seg_stale          = 0;
+    int        seg_bytes_in_use   = 0;
+    int        seg_dups           = 0;
+    int        seg_buckets_in_use = 0;
 
     ink_zero(chain_tag);
     memset(chain_mark, -1, sizeof(chain_mark));
 
     for (int b = 0; b < directory.buckets; b++) {
-      Dir *root = dir_bucket(b, seg);
-      int  h    = 0; // chain length starting in this bucket
+      Dir const *root = dir_bucket(b, seg);
+      int        h    = 0; // chain length starting in this bucket
 
       // Walk the chain starting in this bucket
       int chain_idx = 0;
       int mark      = 0;
       ++seg_buckets_in_use;
-      for (Dir *e = root; e; e = next_dir(e, seg)) {
+      for (Dir const *e = root; e; e = next_dir(e, seg)) {
         if (!dir_offset(e)) {
           ++seg_empty;
           --seg_buckets_in_use;

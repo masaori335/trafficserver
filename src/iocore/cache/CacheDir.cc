@@ -176,14 +176,14 @@ OpenDir::open_read(const CryptoHash *key) const
 // return value 1 means no loop
 // zero indicates loop
 int
-dir_bucket_loop_check(Dir *start_dir, Dir *seg)
+dir_bucket_loop_check(Dir const *start_dir, Dir const *seg)
 {
   if (start_dir == nullptr) {
     return 1;
   }
 
-  Dir *p1 = start_dir;
-  Dir *p2 = start_dir;
+  Dir const *p1 = start_dir;
+  Dir const *p2 = start_dir;
 
   while (p2) {
     // p1 moves by one entry per iteration
@@ -207,10 +207,10 @@ dir_bucket_loop_check(Dir *start_dir, Dir *seg)
 int
 Directory::segment_entries_used(int s) const
 {
-  Dir *seg  = this->get_segment(s);
-  int  used = 0;
+  Dir const *seg  = this->get_segment(s);
+  int        used = 0;
   for (int b = 0; b < this->buckets; b++) {
-    Dir *bucket = dir_bucket(b, seg);
+    Dir const *bucket = dir_bucket(b, seg);
     for (int l = 0; l < DIR_DEPTH; l++) {
       if (dir_offset(dir_bucket_row(bucket, l))) {
         used++;
@@ -278,11 +278,11 @@ Directory::freelist_length(int s)
 }
 
 int
-Directory::bucket_length(Dir *b, int s) const
+Directory::bucket_length(Dir const *b, int s) const
 {
-  Dir *e   = b;
-  int  i   = 0;
-  Dir *seg = this->get_segment(s);
+  Dir const *e   = b;
+  int        i   = 0;
+  Dir const *seg = this->get_segment(s);
   while (e) {
     i++;
     if (i > this->max_bucket_depth()) {
@@ -296,10 +296,10 @@ Directory::bucket_length(Dir *b, int s) const
 int
 Directory::check_segment(int s) const
 {
-  Dir *seg = this->get_segment(s);
+  Dir const *seg = this->get_segment(s);
 
   for (int i = 0; i < this->buckets; i++) {
-    Dir *b = dir_bucket(i, seg);
+    Dir const *b = dir_bucket(i, seg);
     if (!(this->bucket_length(b, s) >= 0)) {
       return 0;
     }
@@ -379,7 +379,7 @@ void
 Directory::clear_range(off_t start, off_t end, StripeSM *stripe)
 {
   for (off_t i = 0; i < this->entries(); i++) {
-    Dir *e = dir_index(stripe, i);
+    Dir *e = this->get_entry(i);
     if (dir_offset(e) >= static_cast<int64_t>(start) && dir_offset(e) < static_cast<int64_t>(end)) {
       ts::Metrics::Gauge::decrement(cache_rsb.direntries_used);
       ts::Metrics::Gauge::decrement(stripe->cache_vol->vol_rsb.direntries_used);
@@ -449,14 +449,14 @@ Directory::free_entry(Dir *e, int s)
 }
 
 int
-Directory::probe(const CacheKey *key, StripeSM *stripe, Dir *result, Dir **last_collision) const
+Directory::probe(const CacheKey *key, StripeSM const *stripe, Dir *result, Dir const **last_collision) const
 {
   ink_assert(stripe->mutex->thread_holding == this_ethread());
-  int  s         = key->slice32(0) % this->segments;
-  int  b         = key->slice32(1) % this->buckets;
-  Dir *seg       = this->get_segment(s);
-  Dir *e         = nullptr;
-  Dir *collision = *last_collision;
+  int        s         = key->slice32(0) % this->segments;
+  int        b         = key->slice32(1) % this->buckets;
+  Dir const *seg       = this->get_segment(s);
+  Dir const *e         = nullptr;
+  Dir const *collision = *last_collision;
   CHECK_DIR(d);
 Lagain:
   e = dir_bucket(b, seg);

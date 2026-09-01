@@ -29,12 +29,23 @@
 
 #include "tscore/Random.h"
 
+#include <type_traits>
+#include <utility>
+
 // Required by main.h
 int  cache_vols           = 1;
 bool reuse_existing_cache = false;
 
 namespace
 {
+static_assert(std::is_same_v<decltype(dir_in_seg(std::declval<Dir const *>(), 0)), Dir const *>);
+static_assert(std::is_same_v<decltype(dir_from_offset(0, std::declval<Dir const *>())), Dir const *>);
+static_assert(std::is_same_v<decltype(next_dir(std::declval<Dir const *>(), std::declval<Dir const *>())), Dir const *>);
+static_assert(std::is_same_v<decltype(dir_bucket(0, std::declval<Dir const *>())), Dir const *>);
+static_assert(std::is_same_v<decltype(dir_bucket_row(std::declval<Dir const *>(), 0)), Dir const *>);
+static_assert(std::is_same_v<decltype(std::declval<Directory const &>().get_segment(0)), Dir const *>);
+static_assert(std::is_same_v<decltype(std::declval<Directory const &>().get_entry(0)), Dir const *>);
+
 DbgCtl dbg_ctl_cache_dir_test{"cache_dir_test"};
 
 unsigned int regress_rand_seed = 0;
@@ -147,7 +158,7 @@ public:
     regress_rand_init(13);
     ttime = ink_get_hrtime();
     for (i = 0; i < newfree; i++) {
-      Dir *last_collision = nullptr;
+      Dir const *last_collision = nullptr;
       regress_rand_CacheKey(&key);
       CHECK(stripe->directory.probe(&key, stripe, &dir, &last_collision));
     }
@@ -211,8 +222,8 @@ public:
       // segment and bucket but matches no entry and therefore walks the whole cycle.
       CacheKey miss_key = key;
       miss_key.u32[2]   = ~key.u32[2];
-      Dir  probed;
-      Dir *probe_collision = nullptr;
+      Dir        probed;
+      Dir const *probe_collision = nullptr;
       dir_clear(&probed);
       CHECK(stripe->directory.probe(&miss_key, stripe, &probed, &probe_collision) == 0);
 
@@ -335,8 +346,8 @@ public:
       Dir *bucket = dir_bucket(b1, stripe->directory.get_segment(s1));
       REQUIRE(dir_offset(bucket) == 1);
 
-      Dir  probed;
-      Dir *stale_collision = nullptr;
+      Dir        probed;
+      Dir const *stale_collision = nullptr;
       dir_clear(&probed);
       CHECK(stripe->directory.probe(&key, stripe, &probed, &stale_collision) == 0);
       CHECK(dir_offset(bucket) == 1);
@@ -371,8 +382,8 @@ public:
       Dir *bucket = dir_bucket(b1, stripe->directory.get_segment(s1));
       REQUIRE(dir_offset(bucket) == 1);
 
-      Dir  probed;
-      Dir *collision = nullptr;
+      Dir        probed;
+      Dir const *collision = nullptr;
       dir_clear(&probed);
       CHECK(stripe->directory.probe(&key, stripe, &probed, &collision) == 1);
       CHECK(dir_offset(&probed) == 2);

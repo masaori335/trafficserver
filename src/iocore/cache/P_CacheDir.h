@@ -34,6 +34,7 @@
 
 #include <cstdint>
 #include <ctime>
+#include <utility>
 
 class Stripe;
 class StripeSM;
@@ -79,7 +80,6 @@ class CacheEvacuateDocVC;
 #define CHECK_DIR(_d) ((void)0)
 #endif
 
-#define dir_index(_e, _i) ((Dir *)((char *)(_e)->directory.dir + (SIZEOF_DIR * (_i))))
 #define dir_assign(_e, _x)   \
   do {                       \
     (_e)->w[0] = (_x)->w[0]; \
@@ -304,7 +304,13 @@ public:
 
   /* Returns the first dir in segment @a s.
    */
-  Dir *get_segment(int s) const;
+  Dir const *get_segment(int s) const;
+  Dir       *get_segment(int s);
+
+  /* Returns entry @a i, counting across all segments.
+   */
+  Dir const *get_entry(int64_t i) const;
+  Dir       *get_entry(int64_t i);
 
   /* Longest chain a bucket can legitimately hold.
    *
@@ -314,7 +320,7 @@ public:
    */
   int max_bucket_depth() const;
 
-  int  probe(const CacheKey *, StripeSM *, Dir *, Dir **) const;
+  int  probe(const CacheKey *, StripeSM const *, Dir *, Dir const **) const;
   int  insert(const CacheKey *key, StripeSM *stripe, Dir *to_part);
   int  overwrite(const CacheKey *key, StripeSM *stripe, Dir *to_part, Dir *overwrite, bool must_overwrite = true);
   int  remove(const CacheKey *key, StripeSM *stripe, Dir *del);
@@ -325,7 +331,7 @@ public:
   void     cleanup(StripeSM *stripe);
   void     clear_range(off_t start, off_t end, StripeSM *stripe);
   uint64_t entries_used();
-  int      bucket_length(Dir *b, int s) const;
+  int      bucket_length(Dir const *b, int s) const;
   int      freelist_length(int s);
   void     clean_segment(int s, StripeSM *stripe);
   /// @a stripe owns the used-entry gauges to debit; null when the caller is itself counting for them.
@@ -351,7 +357,21 @@ void sync_cache_dir_on_shutdown();
 
 // Inline Functions
 
-#define dir_in_seg(_s, _i) ((Dir *)(((char *)(_s)) + (SIZEOF_DIR * (_i))))
+// Each of the segment-walking helpers below comes as a const/non-const pair so that a reader holding a Dir const *
+// cannot silently launder it into a writable one. The non-const overload delegates and casts back, which is safe
+// because its argument was writable to begin with.
+
+inline Dir const *
+dir_in_seg(Dir const *s, int64_t i)
+{
+  return reinterpret_cast<Dir const *>(reinterpret_cast<char const *>(s) + (SIZEOF_DIR * i));
+}
+
+inline Dir *
+dir_in_seg(Dir *s, int64_t i)
+{
+  return const_cast<Dir *>(dir_in_seg(static_cast<Dir const *>(s), i));
+}
 
 inline bool
 dir_compare_tag(const Dir *e, const CacheKey *key)
@@ -359,8 +379,8 @@ dir_compare_tag(const Dir *e, const CacheKey *key)
   return (dir_tag(e) == DIR_MASK_TAG(key->slice32(2)));
 }
 
-inline Dir *
-dir_from_offset(int64_t i, Dir *seg)
+inline Dir const *
+dir_from_offset(int64_t i, Dir const *seg)
 {
 #if DIR_DEPTH < 5
   if (!i) {
@@ -374,10 +394,22 @@ dir_from_offset(int64_t i, Dir *seg)
 }
 
 inline Dir *
-next_dir(Dir *d, Dir *seg)
+dir_from_offset(int64_t i, Dir *seg)
+{
+  return const_cast<Dir *>(dir_from_offset(i, static_cast<Dir const *>(seg)));
+}
+
+inline Dir const *
+next_dir(Dir const *d, Dir const *seg)
 {
   int i = dir_next(d);
   return dir_from_offset(i, seg);
+}
+
+inline Dir *
+next_dir(Dir *d, Dir *seg)
+{
+  return const_cast<Dir *>(next_dir(static_cast<Dir const *>(d), static_cast<Dir const *>(seg)));
 }
 
 inline int64_t
@@ -392,16 +424,28 @@ dir_to_offset(const Dir *d, const Dir *seg)
 #endif
 }
 
-inline Dir *
-dir_bucket(int64_t b, Dir *seg)
+inline Dir const *
+dir_bucket(int64_t b, Dir const *seg)
 {
   return dir_in_seg(seg, b * DIR_DEPTH);
 }
 
 inline Dir *
-dir_bucket_row(Dir *b, int64_t i)
+dir_bucket(int64_t b, Dir *seg)
+{
+  return const_cast<Dir *>(dir_bucket(b, static_cast<Dir const *>(seg)));
+}
+
+inline Dir const *
+dir_bucket_row(Dir const *b, int64_t i)
 {
   return dir_in_seg(b, i);
+}
+
+inline Dir *
+dir_bucket_row(Dir *b, int64_t i)
+{
+  return const_cast<Dir *>(dir_bucket_row(static_cast<Dir const *>(b), i));
 }
 
 inline int
@@ -410,10 +454,28 @@ Directory::entries() const
   return this->buckets * DIR_DEPTH * this->segments;
 }
 
-inline Dir *
+inline Dir const *
 Directory::get_segment(int s) const
 {
-  return reinterpret_cast<Dir *>((reinterpret_cast<char *>(this->dir)) + (s * this->buckets) * DIR_DEPTH * SIZEOF_DIR);
+  return reinterpret_cast<Dir const *>((reinterpret_cast<char const *>(this->dir)) + (s * this->buckets) * DIR_DEPTH * SIZEOF_DIR);
+}
+
+inline Dir *
+Directory::get_segment(int s)
+{
+  return const_cast<Dir *>(std::as_const(*this).get_segment(s));
+}
+
+inline Dir const *
+Directory::get_entry(int64_t i) const
+{
+  return dir_in_seg(static_cast<Dir const *>(this->dir), i);
+}
+
+inline Dir *
+Directory::get_entry(int64_t i)
+{
+  return const_cast<Dir *>(std::as_const(*this).get_entry(i));
 }
 
 inline int
