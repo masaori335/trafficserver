@@ -145,6 +145,28 @@ static char const *const testConfig =
 }
 )";
 
+static char const *const nonArrayKeysConfig =
+  R"(
+{
+    "Valid Issuer": {
+        "renewal_kid": "valid",
+        "keys": [
+         {
+          "alg": "HS256",
+          "k": "testkey1",
+          "kid": "valid",
+          "kty": "oct"
+         }
+        ]
+    },
+    "Invalid Issuer": {
+        "keys": {
+            "unexpected": "object"
+        }
+    }
+}
+)";
+
 bool
 jwt_parsing_helper(const char *jwt_string)
 {
@@ -929,6 +951,12 @@ TEST_CASE("7", "[TestsConfig]")
     REQUIRE(strcmp(config_get_id(cfg), "tester") == 0);
     config_delete(cfg);
   }
+
+  SECTION("Config rejects non-array keys field")
+  {
+    struct config *cfg = read_config_from_string(nonArrayKeysConfig);
+    REQUIRE(cfg == nullptr);
+  }
   fprintf(stderr, "\n");
 }
 
@@ -947,6 +975,26 @@ jws_validation_helper(const char *url, const char *package, struct config *cfg)
     return false;
   }
   struct jwt *jwt = validate_jws(jws, cfg, uri_strip.data(), strip_ct);
+  cjose_jws_release(jws);
+  if (!jwt) {
+    return false;
+  }
+  jwt_delete(jwt);
+  return true;
+}
+
+bool
+jws_cookie_validation_helper(char const *const token, char const *const package, struct config *const cfg, char const *const uri)
+{
+  std::string cookie_str = std::string(package) + "=" + token;
+  const char *cookie     = cookie_str.c_str();
+  size_t      cookie_ct  = cookie_str.size();
+
+  cjose_jws_t *jws = get_jws_from_cookie(&cookie, &cookie_ct, package);
+  if (!jws) {
+    return false;
+  }
+  struct jwt *jwt = validate_jws(jws, cfg, uri, strlen(uri));
   cjose_jws_release(jws);
   if (!jwt) {
     return false;
@@ -1010,6 +1058,112 @@ TEST_CASE("8", "[TestsWithConfig]")
       "eyJjZG5pZXRzIjozMCwiY2RuaXN0dCI6MSwiaXNzIjoiTWFzdGVyIElzc3VlciIsImF1ZCI6WyJiYWQiLDEsImZvb2JhciIsInRlc3RlciJdLCJjZG5pdWMiOiJy"
       "ZWdleDpodHRwOi8vd3d3LmZvb2Jhci5jb20vKiJ9._vlXsA3r7RPje2ZdMnpaGTwIsdNMjuQWPEHRkGKTVL8",
       "URISigningPackage", cfg));
+    fprintf(stderr, "\n");
+  }
+
+  SECTION("Reject JWS with alg:none algorithm")
+  {
+    /* Header: {"alg":"none"}, valid Master Issuer payload, empty signature.
+     * Must be rejected regardless of payload content. */
+    REQUIRE(!jws_validation_helper("http://www.foobar.com/"
+                                   "URISigningPackage=eyJhbGciOiJub25lIn0."
+                                   "eyJjZG5pZXRzIjozMCwiY2RuaXN0dCI6MSwiZXhwIjo3Mjg0MTg4NDk5LCJpc3MiOiJNYXN0ZXIgSXNzdWVyIiwiYXVkIjo"
+                                   "idGVzdGVyIiwiY2RuaXVjIjoicmVnZXg6aHR0cDovL3d3dy5mb29iYXIuY29tLyoifQ.",
+                                   "URISigningPackage", cfg));
+    fprintf(stderr, "\n");
+  }
+
+  SECTION("Reject JWS with missing alg header")
+  {
+    /* Header: {"kid":"0"} (no alg), valid payload, fake signature. */
+    REQUIRE(!jws_validation_helper("http://www.foobar.com/"
+                                   "URISigningPackage=eyJraWQiOiIwIn0."
+                                   "eyJjZG5pZXRzIjozMCwiY2RuaXN0dCI6MSwiZXhwIjo3Mjg0MTg4NDk5LCJpc3MiOiJNYXN0ZXIgSXNzdWVyIiwiYXVkIjo"
+                                   "idGVzdGVyIiwiY2RuaXVjIjoicmVnZXg6aHR0cDovL3d3dy5mb29iYXIuY29tLyoifQ."
+                                   "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                                   "URISigningPackage", cfg));
+    fprintf(stderr, "\n");
+  }
+
+  SECTION("Reject JWS with RS256 alg against oct (HMAC) key")
+  {
+    /* Header: {"alg":"RS256","kid":"0"}.  kid 0 is an oct key; the algorithm
+     * family (RS) must not match key type (oct), so this must be rejected
+     * before cjose_jws_verify is even called. */
+    REQUIRE(!jws_validation_helper("http://www.foobar.com/"
+                                   "URISigningPackage=eyJhbGciOiJSUzI1NiIsImtpZCI6IjAifQ."
+                                   "eyJjZG5pZXRzIjozMCwiY2RuaXN0dCI6MSwiZXhwIjo3Mjg0MTg4NDk5LCJpc3MiOiJNYXN0ZXIgSXNzdWVyIiwiYXVkIjo"
+                                   "idGVzdGVyIiwiY2RuaXVjIjoicmVnZXg6aHR0cDovL3d3dy5mb29iYXIuY29tLyoifQ."
+                                   "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                                   "URISigningPackage", cfg));
+    fprintf(stderr, "\n");
+  }
+
+  SECTION("Reject exact alg mismatch even when HMAC verifies")
+  {
+    /* Token is valid HS512 under kid 5's secret, but config pins that key to
+     * HS256.  Signature verification alone is not sufficient. */
+    REQUIRE(!jws_validation_helper("http://www.foobar.com/"
+                                   "URISigningPackage=eyJhbGciOiJIUzUxMiIsImtpZCI6IjUifQ."
+                                   "eyJjZG5pZXRzIjozMCwiY2RuaXN0dCI6MSwiZXhwIjo3Mjg0MTg4NDk5LCJpc3MiOiJNYXN0ZXIgSXNzdWVyIiwiYXVkIjo"
+                                   "idGVzdGVyIiwiY2RuaXVjIjoicmVnZXg6aHR0cDovL3d3dy5mb29iYXIuY29tLyoifQ."
+                                   "M5QlPlvQ983XgTLWJ6yU1OPPVs7cjq4vkrrCZjdDDSSZozLy8TJz_yPmuxe9QS4LQXavxptWEKm-onHPpYOfjQ",
+                                   "URISigningPackage", cfg));
+    fprintf(stderr, "\n");
+  }
+
+  SECTION("Reject verified key issuer that disagrees with payload iss")
+  {
+    /* Signature verifies with Second Issuer kid 'one', but payload claims
+     * Master Issuer. Verified key binding must match trusted payload issuer. */
+    REQUIRE(!jws_validation_helper("http://www.foobar.com/"
+                                   "URISigningPackage=eyJhbGciOiJIUzI1NiIsImtpZCI6Im9uZSJ9."
+                                   "eyJjZG5pZXRzIjozMCwiY2RuaXN0dCI6MSwiZXhwIjo3Mjg0MTg4NDk5LCJpc3MiOiJNYXN0ZXIgSXNzdWVyIiwiYXVkIjo"
+                                   "idGVzdGVyIiwiY2RuaXVjIjoicmVnZXg6aHR0cDovL3d3dy5mb29iYXIuY29tLyoifQ."
+                                   "FRiflSXpqx8DspEQHcNWe4iNDLsJXSV1oux_dhBcqm4",
+                                   "URISigningPackage", cfg));
+    fprintf(stderr, "\n");
+  }
+
+  SECTION("Reject alg:none via cookie transport")
+  {
+    REQUIRE(!jws_cookie_validation_helper("eyJhbGciOiJub25lIn0."
+                                          "eyJjZG5pZXRzIjozMCwiY2RuaXN0dCI6MSwiZXhwIjo3Mjg0MTg4NDk5LCJpc3MiOiJNYXN0ZXIgSXNzdWVyIiwi"
+                                          "YXVkIjoidGVzdGVyIiwiY2RuaXVjIjoicmVnZXg6aHR0cDovL3d3dy5mb29iYXIuY29tLyoifQ.",
+                                          "URISigningPackage", cfg, "http://www.foobar.com/someasset.ts"));
+    fprintf(stderr, "\n");
+  }
+
+  SECTION("Reject missing alg via cookie transport")
+  {
+    REQUIRE(!jws_cookie_validation_helper("eyJraWQiOiIwIn0."
+                                          "eyJjZG5pZXRzIjozMCwiY2RuaXN0dCI6MSwiZXhwIjo3Mjg0MTg4NDk5LCJpc3MiOiJNYXN0ZXIgSXNzdWVyIiwi"
+                                          "YXVkIjoidGVzdGVyIiwiY2RuaXVjIjoicmVnZXg6aHR0cDovL3d3dy5mb29iYXIuY29tLyoifQ."
+                                          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                                          "URISigningPackage", cfg, "http://www.foobar.com/someasset.ts"));
+    fprintf(stderr, "\n");
+  }
+
+  SECTION("Reject RS256 alg against oct key via cookie transport")
+  {
+    REQUIRE(!jws_cookie_validation_helper("eyJhbGciOiJSUzI1NiIsImtpZCI6IjAifQ."
+                                          "eyJjZG5pZXRzIjozMCwiY2RuaXN0dCI6MSwiZXhwIjo3Mjg0MTg4NDk5LCJpc3MiOiJNYXN0ZXIgSXNzdWVyIiwi"
+                                          "YXVkIjoidGVzdGVyIiwiY2RuaXVjIjoicmVnZXg6aHR0cDovL3d3dy5mb29iYXIuY29tLyoifQ."
+                                          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                                          "URISigningPackage", cfg, "http://www.foobar.com/someasset.ts"));
+    fprintf(stderr, "\n");
+  }
+
+  SECTION("Reject RS256 alg with no kid against oct-only config (loop exhaustion)")
+  {
+    /* No kid in header: candidate selection falls back to all configured keys.
+     * Every key is pinned to HS256, so an RS256 token leaves no candidates. */
+    REQUIRE(!jws_validation_helper("http://www.foobar.com/"
+                                   "URISigningPackage=eyJhbGciOiJSUzI1NiJ9."
+                                   "eyJjZG5pZXRzIjozMCwiY2RuaXN0dCI6MSwiZXhwIjo3Mjg0MTg4NDk5LCJpc3MiOiJNYXN0ZXIgSXNzdWVyIiwiYXVkIjo"
+                                   "idGVzdGVyIiwiY2RuaXVjIjoicmVnZXg6aHR0cDovL3d3dy5mb29iYXIuY29tLyoifQ."
+                                   "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                                   "URISigningPackage", cfg));
     fprintf(stderr, "\n");
   }
 

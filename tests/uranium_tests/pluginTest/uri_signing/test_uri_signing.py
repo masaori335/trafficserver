@@ -35,9 +35,35 @@ SECOND_KEY_TOKEN = (
     "eyJpc3MiOiJpc3N1ZXIiLCJleHAiOjE5MjMwNTYwODR9."
     "ozH4sNwgcOlTZT0l4RQlVCH_osxz9yI1HCBesEv-jYg")
 MISSING_ISS_TOKEN = (
-    "ewogICJ0eXAiOiAiSldUIiwKICAiYWxnIjogIkhTMjU2Igp9."
-    "ewogICJleHAiOiAxOTIzMDU2MDg0Cn0."
-    "zw_wFQ-wvrWmfPLGj3hAUWn-GOHkiJZi2but4KV0paY")
+    "eyJhbGciOiJIUzI1NiIsImtpZCI6IjAifQ."
+    "eyJleHAiOjcyODQxODg0OTl9."
+    "wQOWi2nZEWVdFobE6hldi79rUgbPeyuJ4ZUDaD7_JEE")
+# A token with alg "none" must be rejected before any key lookup.
+ALG_NONE_TOKEN = "eyJhbGciOiJub25lIn0.eyJpc3MiOiJpc3N1ZXIiLCJleHAiOjcyODQxODg0OTl9."
+# A token with no alg header at all.
+MISSING_ALG_TOKEN = (
+    "eyJraWQiOiIwIn0."
+    "eyJpc3MiOiJpc3N1ZXIiLCJleHAiOjcyODQxODg0OTl9."
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+# RS256 against the oct (HMAC) key: the algorithm does not fit the key type.
+KEY_TYPE_MISMATCH_TOKEN = (
+    "eyJhbGciOiJSUzI1NiIsImtpZCI6IjAifQ."
+    "eyJpc3MiOiJpc3N1ZXIiLCJleHAiOjcyODQxODg0OTl9."
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+# HS512 against a key pinned to HS256: rejected even though the HMAC verifies.
+ALG_MISMATCH_TOKEN = (
+    "eyJhbGciOiJIUzUxMiIsImtpZCI6IjAifQ."
+    "eyJpc3MiOiJpc3N1ZXIiLCJleHAiOjcyODQxODg0OTl9."
+    "vPIaTGbrn0WuZ1Tyd9K8TVjL71MWG9kT6M3mjqYvht_jNIZ7KRcIRfioQgpXgJP44bVfV73J3fAOi0iNtQ2XnQ")
+
+# The diagnostic each rejected token must leave in traffic.out.
+REJECTION_LOGS = (
+    "Missing issuer in verified JWT",
+    "Rejecting JWS with 'none' algorithm",
+    "Unable to read JWS: URISigningPackage, invalid argument",
+    "No valid configured key for alg RS256 kid 0 found",
+    "No valid configured key for alg HS512 kid 0 found",
+)
 
 
 @dataclass(frozen=True)
@@ -125,6 +151,14 @@ def request_cases() -> tuple[RequestCase, ...]:
             f"URISigningPackage={EXPIRED_TOKEN};URISigningPackage={GOOD_TOKEN}",
         ),
         RequestCase("missing issuer", f"/someasset.ts?URISigningPackage={MISSING_ISS_TOKEN}", "403 Forbidden"),
+        RequestCase("alg none", f"/someasset.ts?URISigningPackage={ALG_NONE_TOKEN}", "403 Forbidden"),
+        RequestCase("missing alg", f"/someasset.ts?URISigningPackage={MISSING_ALG_TOKEN}", "403 Forbidden"),
+        RequestCase(
+            "key type mismatch",
+            f"/someasset.ts?URISigningPackage={KEY_TYPE_MISMATCH_TOKEN}",
+            "403 Forbidden",
+        ),
+        RequestCase("alg mismatch", f"/someasset.ts?URISigningPackage={ALG_MISMATCH_TOKEN}", "403 Forbidden"),
     )
 
 
@@ -162,8 +196,5 @@ def test_uri_signing(ats_factory: ATSFactory, services: ServiceFactory) -> None:
     _origin.start()
     _ats.start()
     run_client(_ats=_ats, _curl=_curl)
-    wait_for_file_lines(
-        _ats.traffic_out,
-        "Initial JWT Failure: iss is missing, must be present",
-        1,
-    )
+    for message in REJECTION_LOGS:
+        wait_for_file_lines(_ats.traffic_out, message, 1)

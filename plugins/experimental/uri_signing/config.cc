@@ -38,47 +38,16 @@ struct auth_directive {
 };
 
 struct config {
-  struct hsearch_data   *issuers;
-  cjose_jwk_t         ***jwkis;
-  char                 **issuer_names;
-  struct signer          signer;
-  struct auth_directive *auth_directives;
-  char                  *id;
-  bool                   strip_token;
+  struct hsearch_data       *issuers;
+  cjose_jwk_t             ***jwkis;
+  char                     **issuer_names;
+  struct config_key_binding *keys;
+  size_t                     key_count;
+  struct signer              signer;
+  struct auth_directive     *auth_directives;
+  char                      *id;
+  bool                       strip_token;
 };
-
-cjose_jwk_t **
-find_keys(struct config *cfg, const char *issuer)
-{
-  ENTRY *entry;
-  if (!hsearch_r((ENTRY){.key = const_cast<char *>(issuer), .data = nullptr}, FIND, &entry, cfg->issuers) || !entry) {
-    PluginDebug("Unable to locate any keys at %p for issuer %s in %p->%p", entry, issuer, cfg, cfg->issuers);
-    return nullptr;
-  }
-
-  int n = 0;
-  for (auto jwks = static_cast<cjose_jwk_t **>(entry->data); *jwks; ++jwks, ++n) {
-    ;
-  }
-  PluginDebug("Located %d keys for issuer %s in %p->%p", n, issuer, cfg, cfg->issuers);
-  return static_cast<cjose_jwk_t **>(entry->data);
-}
-
-cjose_jwk_t *
-find_key_by_kid(struct config *cfg, const char *issuer, const char *kid)
-{
-  const char   *this_kid;
-  cjose_jwk_t **jwkis = find_keys(cfg, issuer);
-  if (!jwkis) {
-    return nullptr;
-  }
-  for (cjose_jwk_t **jwks = jwkis; *jwks; ++jwks) {
-    if ((this_kid = cjose_jwk_get_kid(*jwks, nullptr)) && !strcmp(this_kid, kid)) {
-      return *jwks;
-    }
-  }
-  return nullptr;
-}
 
 const char *
 config_get_id(struct config *cfg)
@@ -92,25 +61,84 @@ config_strip_token(struct config *cfg)
   return cfg->strip_token;
 }
 
-struct config *
-config_new(size_t n)
+static size_t
+count_keys(json_t *const issuer_json)
 {
-  PluginDebug("Creating new config object with size %ld", n);
+  size_t      key_count = 0;
+  const char *json_issuer;
+  json_t     *jwks;
+
+  json_object_foreach(issuer_json, json_issuer, jwks)
+  {
+    (void)json_issuer;
+    json_t *key_ary = json_object_get(jwks, "keys");
+    if (key_ary && json_is_array(key_ary)) {
+      key_count += json_array_size(key_ary);
+    }
+  }
+
+  return key_count;
+}
+
+struct config *
+config_new(size_t n, size_t key_count)
+{
+  if (key_count == 0) {
+    PluginError("Config has no verification keys.");
+    return nullptr;
+  }
+
+  PluginDebug("Creating new config object with size %zu", n);
   config *cfg = static_cast<config *>(malloc(sizeof *cfg));
+  if (!cfg) {
+    PluginError("Unable to allocate config!");
+    return nullptr;
+  }
 
   cfg->issuers = static_cast<hsearch_data *>(calloc(1, sizeof *cfg->issuers));
+  if (!cfg->issuers) {
+    PluginError("Unable to allocate config table!");
+    free(cfg);
+    return nullptr;
+  }
   if (!hcreate_r(n * 2, cfg->issuers)) {
     PluginError("Unable to create config table (%d)!", errno);
+    free(cfg->issuers);
     free(cfg);
     return nullptr;
   }
   PluginDebug("Created table with size %d", cfg->issuers->size);
 
-  cfg->jwkis    = static_cast<cjose_jwk_t ***>(malloc((n + 1) * sizeof *cfg->jwkis));
-  cfg->jwkis[n] = nullptr;
+  cfg->jwkis = static_cast<cjose_jwk_t ***>(calloc(n + 1, sizeof *cfg->jwkis));
+  if (!cfg->jwkis) {
+    PluginError("Unable to allocate config jwkis!");
+    hdestroy_r(cfg->issuers);
+    free(cfg->issuers);
+    free(cfg);
+    return nullptr;
+  }
 
-  cfg->issuer_names    = static_cast<char **>(malloc((n + 1) * sizeof *cfg->issuer_names));
-  cfg->issuer_names[n] = nullptr;
+  cfg->issuer_names = static_cast<char **>(calloc(n + 1, sizeof *cfg->issuer_names));
+  if (!cfg->issuer_names) {
+    PluginError("Unable to allocate config issuer names!");
+    hdestroy_r(cfg->issuers);
+    free(cfg->issuers);
+    free(cfg->jwkis);
+    free(cfg);
+    return nullptr;
+  }
+
+  cfg->keys = static_cast<config_key_binding *>(calloc(key_count, sizeof *cfg->keys));
+  if (!cfg->keys) {
+    PluginError("Unable to allocate config key bindings!");
+    hdestroy_r(cfg->issuers);
+    free(cfg->issuers);
+    free(cfg->jwkis);
+    free(cfg->issuer_names);
+    free(cfg);
+    return nullptr;
+  }
+  cfg->key_count = 0;
 
   cfg->signer.issuer = nullptr;
   cfg->signer.jwk    = nullptr;
@@ -145,6 +173,12 @@ config_delete(struct config *cfg)
   if (cfg->id) {
     free(cfg->id);
   }
+
+  for (size_t idx = 0; idx < cfg->key_count; ++idx) {
+    free(cfg->keys[idx].alg);
+    free(cfg->keys[idx].kid);
+  }
+  free(cfg->keys);
 
   for (char **name = cfg->issuer_names; *name; ++name) {
     free(*name);
@@ -196,9 +230,10 @@ read_config_from_json(json_t *const issuer_json)
   }
 
   {
-    cfg = config_new(issuers_ct);
+    size_t key_count = count_keys(issuer_json);
+
+    cfg = config_new(issuers_ct, key_count);
     if (!cfg) {
-      PluginError("Unable to allocate config.");
       goto issuer_fail;
     }
 
@@ -269,6 +304,11 @@ read_config_from_json(json_t *const issuer_json)
         *jwkis = nullptr;
         goto cfg_fail;
       }
+      if (!json_is_array(key_ary)) {
+        PluginError("Keys member for issuer %s is not an array.", *issuer);
+        *jwkis = nullptr;
+        goto cfg_fail;
+      }
       PluginDebug("Created table with size %d", cfg->issuers->size);
 
       const char *renewal_kid      = nullptr;
@@ -294,7 +334,11 @@ read_config_from_json(json_t *const issuer_json)
       }
 
       size_t        jwks_ct = json_array_size(key_ary);
-      cjose_jwk_t **jwks = *jwkis++ = static_cast<cjose_jwk_t **>(malloc((jwks_ct + 1) * sizeof *jwks));
+      cjose_jwk_t **jwks = *jwkis++ = static_cast<cjose_jwk_t **>(calloc(jwks_ct + 1, sizeof *jwks));
+      if (!jwks) {
+        PluginError("Unable to allocate jwks array for issuer %s.", *issuer);
+        goto cfg_fail;
+      }
       PluginDebug("Created table with size %d", cfg->issuers->size);
       ENTRY *dummy;
       if (!hsearch_r(((ENTRY){*issuer, jwks}), ENTER, &dummy, cfg->issuers)) {
@@ -308,27 +352,50 @@ read_config_from_json(json_t *const issuer_json)
       memset(&jwk_err, 0, sizeof(cjose_err));
       for (size_t idx = 0; (idx < jwks_ct) && (jwk_obj = json_array_get(key_ary, idx)); ++idx, ++jwks) {
         if ((*jwks = load_jwk(jwk_obj, &jwk_err))) {
-          const char *kid = cjose_jwk_get_kid(*jwks, nullptr);
-          PluginDebug("Stored jwk %ld for issuer %s, kid %s, cfg %p->%p", idx, *issuer, kid ? kid : "<no kid>", cfg, cfg->issuers);
+          char const *const kid     = cjose_jwk_get_kid(*jwks, nullptr);
+          char const *const jwk_alg = json_string_value(json_object_get(jwk_obj, "alg"));
+          PluginDebug("Stored jwk %zu for issuer %s, kid %s, cfg %p->%p", idx, *issuer, kid ? kid : "<no kid>", cfg, cfg->issuers);
+          if (!jwk_alg) {
+            PluginError("Cannot load JWK algorithm for issuer %s key %zu.", *issuer, idx);
+            goto cfg_fail;
+          }
+
+          char *alg_copy = strdup(jwk_alg);
+          char *kid_copy = kid ? strdup(kid) : nullptr;
+          if (!alg_copy || (kid && !kid_copy)) {
+            PluginError("Unable to allocate key metadata for issuer %s key %zu.", *issuer, idx);
+            free(alg_copy);
+            free(kid_copy);
+            goto cfg_fail;
+          }
+
+          cfg->keys[cfg->key_count++] = {
+            .issuer = *issuer,
+            .alg    = alg_copy,
+            .kid    = kid_copy,
+            .jwk    = *jwks,
+          };
+
           if (renewal_kid && kid && !strcmp(kid, renewal_kid)) {
             if (cfg->signer.issuer) {
               PluginError("Cannot load multiple renewal keys for a single remap. iss:\"%s\", kid:\"%s\"; iss:\"%s\", kid:\"%s\"",
                           cfg->signer.issuer, cjose_jwk_get_kid(cfg->signer.jwk, nullptr), *issuer, kid);
               goto cfg_fail;
             } else {
-              cfg->signer.issuer = *issuer;
-              cfg->signer.jwk    = *jwks;
-
-              const char *jwk_alg = json_string_value(json_object_get(jwk_obj, "alg"));
-              if (!jwk_alg) {
-                PluginError("Cannot load JWK algorithm for renewal key.");
+              char *signer_alg = strdup(jwk_alg);
+              if (!signer_alg) {
+                PluginError("Unable to allocate signer algorithm for issuer %s key %zu.", *issuer, idx);
+                free(signer_alg);
                 goto cfg_fail;
               }
-              cfg->signer.alg = strdup(jwk_alg);
+
+              cfg->signer.issuer = *issuer;
+              cfg->signer.jwk    = *jwks;
+              cfg->signer.alg    = signer_alg;
             }
           }
         } else {
-          PluginError("Failed to load jwk %ld for issuer %s: %s", idx, *issuer, jwk_err.message);
+          PluginError("Failed to load jwk %zu for issuer %s: %s", idx, *issuer, jwk_err.message);
           goto cfg_fail;
         }
       }
@@ -374,6 +441,18 @@ read_config_from_string(char const *const buffer)
     return nullptr;
   }
   return read_config_from_json(issuer_json);
+}
+
+struct config_key_binding const *
+config_keys(struct config *cfg)
+{
+  return cfg ? cfg->keys : nullptr;
+}
+
+size_t
+config_key_count(struct config *cfg)
+{
+  return cfg ? cfg->key_count : 0;
 }
 
 struct signer *

@@ -29,12 +29,19 @@ struct signer {
   char                  *alg;
 };
 
-struct config          *read_config_from_path(const char *const path);
-struct config          *read_config_from_string(const char *const buffer);
-void                    config_delete(struct config *g);
-struct signer          *config_signer(struct config *);
-struct _cjose_jwk_int **find_keys(struct config *cfg, const char *issuer);
-struct _cjose_jwk_int  *find_key_by_kid(struct config *cfg, const char *issuer, const char *kid);
-bool                    uri_matches_auth_directive(struct config *cfg, const char *uri, size_t uri_ct);
-const char             *config_get_id(struct config *cfg);
-bool                    config_strip_token(struct config *cfg);
+struct config_key_binding {
+  char const            *issuer;
+  char                  *alg;
+  char                  *kid;
+  struct _cjose_jwk_int *jwk;
+};
+
+struct config                   *read_config_from_path(const char *const path);
+struct config                   *read_config_from_string(const char *const buffer);
+void                             config_delete(struct config *g);
+struct signer                   *config_signer(struct config *);
+struct config_key_binding const *config_keys(struct config *cfg);
+size_t                           config_key_count(struct config *cfg);
+bool                             uri_matches_auth_directive(struct config *cfg, const char *uri, size_t uri_ct);
+const char                      *config_get_id(struct config *cfg);
+bool                             config_strip_token(struct config *cfg);

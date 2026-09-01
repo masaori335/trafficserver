@@ -148,6 +148,20 @@ get_jws_from_cookie(const char **cookie, size_t *cookie_ct, const char *paramNam
   return jws;
 }
 
+static bool
+header_matches_configured_key(char const *const alg, char const *const kid, struct config_key_binding const &key)
+{
+  if (strcmp(alg, key.alg) != 0) {
+    return false;
+  }
+
+  if (kid != nullptr) {
+    return key.kid != nullptr && strcmp(kid, key.kid) == 0;
+  }
+
+  return true;
+}
+
 struct jwt *
 validate_jws(cjose_jws_t *jws, struct config *cfg, const char *uri, size_t /* uri_ct ATS_UNUSED */)
 {
@@ -163,43 +177,6 @@ validate_jws(cjose_jws_t *jws, struct config *cfg, const char *uri, size_t /* ur
   } while (0)
 
   PluginDebug("Validating JWS for %16p", jws);
-  cjose_err cerr;
-  memset(&cerr, 0, sizeof(cjose_err));
-  size_t      pt_ct;
-  char const *pt;
-  if (!cjose_jws_get_plaintext(jws, (uint8_t **)&pt, &pt_ct, &cerr)) {
-    PluginDebug("Cannot get plaintext for %16p", jws);
-    return nullptr;
-  }
-
-  TimerDebug("getting jws plaintext");
-
-  json_error_t jerr;
-  memset(&jerr, 0, sizeof(json_error_t));
-  json_t *const jwk_json = json_loadb(pt, pt_ct, 0, &jerr);
-  if (!jwk_json) {
-    if (jerr.text[0]) {
-      PluginDebug("Cannot load json for %16p: %.*s '%s'", jws, (int)pt_ct, pt, jerr.text);
-    } else {
-      PluginDebug("Cannot load json for %16p: %.*s", jws, (int)pt_ct, pt);
-    }
-    return nullptr;
-  }
-  struct jwt *const jwt = parse_jwt(jwk_json);
-
-  TimerDebug("parsing jwt");
-  if (!jwt) {
-    json_decref(jwk_json);
-    return nullptr;
-  }
-
-  ts::PostScript ps([&jwt]() -> void { jwt_delete(jwt); });
-
-  if (!jwt_validate(jwt)) {
-    PluginDebug("Initial validation of JWT failed for %16p", jws);
-    return nullptr;
-  }
-  TimerDebug("initial validation of jwt");
 
   cjose_header_t *hdr = cjose_jws_get_protected(jws);
   TimerDebug("getting header of jws");
@@ -208,44 +185,119 @@ validate_jws(cjose_jws_t *jws, struct config *cfg, const char *uri, size_t /* ur
     return nullptr;
   }
 
-  const char *kid = cjose_header_get(hdr, "kid", nullptr);
+  /* Reject tokens that carry no algorithm or use the "none" algorithm.
+   * The protected header drives candidate selection. Unverified payload
+   * claims must not influence verification. */
+  char const *const alg = cjose_header_get(hdr, CJOSE_HDR_ALG, nullptr);
+  TimerDebug("getting alg of jws header");
+  if (!alg) {
+    PluginDebug("Missing alg in protected header for %16p", jws);
+    return nullptr;
+  }
+  if (strcmp(alg, CJOSE_HDR_ALG_NONE) == 0) {
+    PluginDebug("Rejecting JWS with 'none' algorithm for %16p", jws);
+    return nullptr;
+  }
+
+  char const *const kid = cjose_header_get(hdr, "kid", nullptr);
   TimerDebug("getting kid of jws header");
+
+  struct config_key_binding const *matched_key  = nullptr;
+  struct config_key_binding const *keys         = config_keys(cfg);
+  size_t const                     key_count    = config_key_count(cfg);
+  json_t                          *payload_json = nullptr;
+  struct jwt                      *jwt          = nullptr;
+
   if (kid) {
-    cjose_jwk_t *jwk = find_key_by_kid(cfg, jwt->iss, kid);
-    TimerDebug("finding key for jwt");
-    if (!jwk) {
-      PluginDebug("Cannot find key %s for issuer %s for %16p", kid, jwt->iss, jws);
-      return nullptr;
+    PluginDebug("Searching all configured keys for kid %s alg %s for %16p", kid, alg, jws);
+  } else {
+    PluginDebug("Searching all configured keys for alg %s for %16p", alg, jws);
+  }
+
+  for (size_t idx = 0; idx < key_count; ++idx) {
+    struct config_key_binding const &candidate = keys[idx];
+
+    if (!header_matches_configured_key(alg, kid, candidate)) {
+      continue;
     }
+
     cjose_err err;
     memset(&err, 0, sizeof(cjose_err));
-    if (!cjose_jws_verify(jws, jwk, &err)) {
-      PluginDebug("Key %s for issuer %s for %16p does not validate: '%s'", kid, jwt->iss, jws, (err.message ? err.message : ""));
-      return nullptr;
+    if (!cjose_jws_verify(jws, candidate.jwk, &err)) {
+      PluginDebug("Key validation failed for issuer %s kid %s alg %s: '%s'", candidate.issuer,
+                  candidate.kid ? candidate.kid : "<no kid>", candidate.alg, (err.message ? err.message : ""));
+      continue;
     }
-    TimerDebug("checking crypto signature for jwt");
-  } else {
-    PluginDebug("Searching all keys for issuer %s for %16p", jwt->iss, jws);
-    cjose_jwk_t **jwks;
-    for (jwks = find_keys(cfg, jwt->iss); jwks && *jwks; ++jwks) {
-      cjose_err err;
-      memset(&err, 0, sizeof(cjose_err));
-      if (cjose_jws_verify(jws, *jwks, &err)) {
-        break;
-      } else {
-        PluginDebug("Key validation failed: '%s'", (err.message ? err.message : ""));
+
+    /* Signature verified under this candidate. Parse the payload on the first
+     * successful verification — the payload bytes are the same regardless of
+     * which key verified, so parse once and reuse across candidates. */
+    if (payload_json == nullptr) {
+      cjose_err cerr;
+      memset(&cerr, 0, sizeof(cjose_err));
+      size_t      pt_ct;
+      char const *pt;
+      if (!cjose_jws_get_plaintext(jws, (uint8_t **)&pt, &pt_ct, &cerr)) {
+        PluginDebug("Cannot get plaintext for %16p", jws);
+        return nullptr;
+      }
+      TimerDebug("getting jws plaintext");
+
+      json_error_t jerr;
+      memset(&jerr, 0, sizeof(json_error_t));
+      payload_json = json_loadb(pt, pt_ct, 0, &jerr);
+      if (!payload_json) {
+        if (jerr.text[0]) {
+          PluginDebug("Cannot load json for %16p: %.*s '%s'", jws, (int)pt_ct, pt, jerr.text);
+        } else {
+          PluginDebug("Cannot load json for %16p: %.*s", jws, (int)pt_ct, pt);
+        }
+        return nullptr;
+      }
+      jwt = parse_jwt(payload_json);
+      TimerDebug("parsing jwt");
+      if (!jwt) {
+        json_decref(payload_json);
+        return nullptr;
       }
     }
-    TimerDebug("checking the crypto signature of all possible keys for jwt");
-    if (!jwks || !*jwks) {
-      if (!jwks) {
-        PluginDebug("No keys found for issuer %s for %16p.", jwt->iss, jws);
-      } else {
-        PluginDebug("No valid key for issuer %s found for %16p", jwt->iss, jws);
-      }
+
+    /* Require the verified key's configured issuer to match the payload iss.
+     * If they disagree, continue searching so that shared keys across
+     * issuers are handled correctly. */
+    if (!jwt->iss) {
+      PluginDebug("Missing issuer in verified JWT for %16p", jws);
+      jwt_delete(jwt);
       return nullptr;
     }
+    if (strcmp(jwt->iss, candidate.issuer) != 0) {
+      PluginDebug("Verified key issuer %s does not match payload iss %s for %16p", candidate.issuer, jwt->iss, jws);
+      continue;
+    }
+
+    matched_key = &candidate;
+    break;
   }
+  TimerDebug("checking crypto signature for jwt");
+
+  if (matched_key == nullptr) {
+    jwt_delete(jwt);
+    if (kid) {
+      PluginDebug("No valid configured key for alg %s kid %s found for %16p", alg, kid, jws);
+    } else {
+      PluginDebug("No valid configured key for alg %s found for %16p", alg, jws);
+    }
+    return nullptr;
+  }
+
+  ts::PostScript ps([&jwt]() -> void { jwt_delete(jwt); });
+  TimerDebug("post-signature JWT validation");
+
+  if (!jwt_validate(jwt)) {
+    PluginDebug("Initial validation of JWT failed for %16p", jws);
+    return nullptr;
+  }
+  TimerDebug("initial validation of jwt");
 
   if (!jwt_check_aud(jwt->aud, config_get_id(cfg))) {
     PluginDebug("Valid key for %16p that does not match aud.", jws);
