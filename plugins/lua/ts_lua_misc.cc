@@ -550,12 +550,14 @@ ts_lua_host_lookup_handler(TSCont contp, TSEvent event, void *edata)
   char               cip[128];
   lua_State         *L;
   ts_lua_coroutine  *crt;
+  ts_lua_main_ctx   *main_ctx;
   unsigned int       resume;
 
-  ai  = static_cast<decltype(ai)>(TSContDataGet(contp));
-  ci  = ai->cinfo;
-  crt = &ci->routine;
-  L   = crt->lua;
+  ai       = static_cast<decltype(ai)>(TSContDataGet(contp));
+  ci       = ai->cinfo;
+  crt      = &ci->routine;
+  L        = crt->lua;
+  main_ctx = crt->mctx;
 
   // find out if need to resume luaVM before async item cleanup
   if (ai->data != nullptr) {
@@ -567,6 +569,12 @@ ts_lua_host_lookup_handler(TSCont contp, TSEvent event, void *edata)
   // async item cleanup
   ai->data = nullptr;
   ts_lua_host_lookup_cleanup(ai);
+
+  // Held through the TSContCall below so the pushed result cannot be disturbed
+  // between landing on the stack and the coroutine consuming it. This matches
+  // ts_lua_fetch_multi_handler(), which guards the same mutex across its own
+  // coroutine resume.
+  TSMutexLockGuard lock(main_ctx->mutexp);
 
   if (event != TS_EVENT_HOST_LOOKUP) {
     TSError("[ts_lua][%s] ts.host_lookup receives unknown event", __FUNCTION__);
