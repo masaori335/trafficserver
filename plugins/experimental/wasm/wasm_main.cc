@@ -142,6 +142,13 @@ transform_handler(TSCont contp, ats_wasm::TransformInfo *ti)
     towrite = 0;
   }
 
+  // proxy-wasm VMs are not thread-safe and one Wasm object is shared by every transaction on the config, so
+  // entry into the guest has to be serialized on the per-VM mutex like the other handlers do. The lock is
+  // taken around the guest calls alone: the transform result lives on the per-transaction Context and the
+  // IOBuffers belong to this transform, so holding it across them would serialize every transaction on the
+  // config behind one body's buffer management for no benefit.
+  auto *transform_wasm = static_cast<ats_wasm::Wasm *>(c->wasm());
+
   do {
     Dbg(ats_wasm::dbg_ctl, "[%s] inside transform handler loop", __FUNCTION__);
     proxy_wasm::FilterDataStatus status = proxy_wasm::FilterDataStatus::Continue;
@@ -168,25 +175,24 @@ transform_handler(TSCont contp, ats_wasm::TransformInfo *ti)
         towrite = 0;
       }
 
-      if (!towrite && eos) {
+      bool const end_of_stream = !towrite && eos;
+      {
+        TSMutexLockGuard lock(transform_wasm->mutex());
         if (ti->request) {
-          status = c->onRequestBody(size, true);
+          status = c->onRequestBody(size, end_of_stream);
         } else {
-          status = c->onResponseBody(size, true);
-        }
-      } else {
-        if (ti->request) {
-          status = c->onRequestBody(size, false);
-        } else {
-          status = c->onResponseBody(size, false);
+          status = c->onResponseBody(size, end_of_stream);
         }
       }
     } else {
       c->setTransformResult(nullptr, 0);
-      if (ti->request) {
-        status = c->onRequestBody(0, true);
-      } else {
-        status = c->onResponseBody(0, true);
+      {
+        TSMutexLockGuard lock(transform_wasm->mutex());
+        if (ti->request) {
+          status = c->onRequestBody(0, true);
+        } else {
+          status = c->onResponseBody(0, true);
+        }
       }
     }
 
