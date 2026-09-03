@@ -361,20 +361,22 @@ ts_lua_fetch_one_item(lua_State *L, const char *url, size_t url_len, ts_lua_fetc
   if (ht == 0) {
     ptr = static_cast<char const *>(memchr(url, ':', url_len));
 
-    if (ptr) {
+    if (ptr && (url_len - static_cast<size_t>(ptr - url)) >= 3 && ptr[1] == '/' && ptr[2] == '/') {
       host = ptr + 3;
       left = url_len - (host - url);
 
-      ptr = static_cast<char const *>(memchr(host, '/', left));
-
-      if (ptr) {
-        host_len = ptr - host;
-
-      } else {
-        host_len = left;
+      // The authority ends at the first '/', '?' or '#' (RFC 3986 section 3.2).
+      // Stopping only at '/' folds the query or fragment of a URL like
+      // "http://example.com?x=1" into the Host header.
+      size_t authority_len = 0;
+      while (authority_len < left && host[authority_len] != '/' && host[authority_len] != '?' && host[authority_len] != '#') {
+        ++authority_len;
       }
+      host_len = static_cast<int>(authority_len);
 
-      TSFetchHeaderAdd(fi->fch, TS_MIME_FIELD_HOST, TS_MIME_LEN_HOST, host, host_len);
+      if (host_len > 0) {
+        TSFetchHeaderAdd(fi->fch, TS_MIME_FIELD_HOST, TS_MIME_LEN_HOST, host, host_len);
+      }
     }
   }
 
