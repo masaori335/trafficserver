@@ -59,7 +59,7 @@ ts_lua_log_object_creat(lua_State *L)
 
   if (lua_isnil(L, 3)) {
     TSError("[ts_lua][%s] No log name!!", __FUNCTION__);
-    return -1;
+    return 0;
   } else {
     log_mode = luaL_checknumber(L, 3);
   }
@@ -68,7 +68,8 @@ ts_lua_log_object_creat(lua_State *L)
 
   if (!ts_log || error == TS_ERROR) {
     TSError("[ts_lua][%s] Unable to create log <%s>", __FUNCTION__, log_name);
-    return -1;
+    ts_log = nullptr;
+    return 0;
   }
   return 0;
 }
@@ -88,7 +89,7 @@ ts_lua_log_object_write(lua_State *L)
 
   text = luaL_checklstring(L, 1, &text_len);
   if (ts_log) {
-    TSTextLogObjectWrite(ts_log, (char *)text, nullptr);
+    TSTextLogObjectWrite(ts_log, "%s", text);
   } else {
     TSError("[ts_lua][%s] log object does not exist for write", __FUNCTION__);
   }
@@ -106,9 +107,21 @@ ts_lua_inject_log_object_destroy_api(lua_State *L)
 static int
 ts_lua_log_object_destroy(lua_State *L ATS_UNUSED)
 {
+  // TSTextLogObjectDestroy() sdk_asserts on a null handle, which aborts
+  // traffic_server, so a script calling object_destroy() twice or without a
+  // prior object_creat() must not reach it.
+  if (!ts_log) {
+    TSError("[ts_lua][%s] log object does not exist for destroy", __FUNCTION__);
+    return 0;
+  }
+
   if (TSTextLogObjectDestroy(ts_log) != TS_SUCCESS) {
     TSError("[ts_lua][%s] TSTextLogObjectDestroy error!", __FUNCTION__);
   }
+
+  // Clear it either way: the handle is not usable after a destroy attempt and
+  // object_write() only guards on it being non-null.
+  ts_log = nullptr;
 
   return 0;
 }
