@@ -274,3 +274,39 @@ TEST_CASE("LogAccess JSON string slice stays within the raw value", "[LogAccess]
     CHECK(std::string_view(dest, n) == "\\u0001\\u0001");
   }
 }
+TEST_CASE("LogAccess unmarshal_itoa handles INT64_MIN without undefined behavior", "[LogAccess]")
+{
+  char buf[128] = {};
+
+  // INT64_MIN: negating a signed minimum is UB; the fix uses uint64_t for magnitude.
+  char *dest = buf + 127;
+  int   len  = LogAccess::unmarshal_itoa(INT64_MIN, dest);
+  // INT64_MIN decimal representation is "-9223372036854775808" (20 chars).
+  REQUIRE(len == 20);
+  std::string result(dest - len + 1, len);
+  CHECK(result == "-9223372036854775808");
+
+  // Spot-check a few other values to ensure the fix does not regress normal cases.
+  len = LogAccess::unmarshal_itoa(0, dest);
+  CHECK(len == 1);
+  CHECK(std::string(dest - len + 1, len) == "0");
+
+  len = LogAccess::unmarshal_itoa(-1, dest);
+  CHECK(len == 2);
+  CHECK(std::string(dest - len + 1, len) == "-1");
+
+  len = LogAccess::unmarshal_itoa(INT64_MAX, dest);
+  // INT64_MAX decimal representation is "9223372036854775807" (19 chars).
+  CHECK(len == 19);
+  CHECK(std::string(dest - len + 1, len) == "9223372036854775807");
+
+  // Verify field_width padding: a value shorter than field_width gets leading chars.
+  len = LogAccess::unmarshal_itoa(5, dest, 3, '0');
+  CHECK(len == 3);
+  CHECK(std::string(dest - len + 1, len) == "005");
+
+  // A value wider than field_width is not truncated.
+  len = LogAccess::unmarshal_itoa(INT64_MIN, dest, 3, '0');
+  CHECK(len == 20);
+  CHECK(std::string(dest - len + 1, len) == "-9223372036854775808");
+}

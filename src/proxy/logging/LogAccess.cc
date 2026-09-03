@@ -619,18 +619,14 @@ LogAccess::unmarshal_itoa(int64_t val, char *dest, int field_width, char leading
 {
   ink_assert(dest != nullptr);
 
-  char *p        = dest;
-  bool  negative = false;
-
-  if (val < 0) {
-    negative = true;
-    val      = -val;
-  }
+  char    *p        = dest;
+  bool     negative = val < 0;
+  uint64_t uval     = negative ? -static_cast<uint64_t>(val) : static_cast<uint64_t>(val);
 
   do {
-    *p--  = '0' + (val % 10);
-    val  /= 10;
-  } while (val);
+    *p--  = static_cast<char>('0' + (uval % 10));
+    uval /= 10;
+  } while (uval);
 
   while (dest - p < field_width) {
     *p-- = leading_char;
