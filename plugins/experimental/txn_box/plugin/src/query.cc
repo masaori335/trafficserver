@@ -771,10 +771,10 @@ Mod_query_filter::operator()(Context &ctx, feature_type_for<STRING> qs)
   QPair *&qp_ex   = ctx.storage_for(*ctx.cfg().named_object<cfg_store_type>(CFG_STORE_KEY)).rebind<QPair *>()[0];
 
   while (qs) {
-    auto   qp     = query_take_qpair(qs);
+    auto qp       = query_take_qpair(qs);
+    qp_ex         = &qp; // pass to potential extractors used by comparisons and actions.
     auto   c      = this->compare(ctx, qp);
     Action action = (c ? c->_action : DROP);
-    qp_ex         = &qp; // pass to potential extractors.
     switch (action) {
     case DROP:
       break;
@@ -785,6 +785,10 @@ Mod_query_filter::operator()(Context &ctx, feature_type_for<STRING> qs)
       c->eval_pair(ctx, c->_replace, qp);
       list->append(ctx.make<QPair>(qp));
       break;
+    }
+
+    if (c == nullptr) {
+      continue;
     }
 
     // Append action.

@@ -1,0 +1,44 @@
+meta:
+  version: "1.0"
+
+  txn_box:
+    global:
+    - when: ua-req
+      do:
+      - ua-req-query:
+        - ua-req-query
+        - query-filter:
+          - match<nc>: "remove-me"
+            drop:
+
+  blocks:
+  - base-req: &base-req
+      version: "1.1"
+      method: "GET"
+  - base-rsp: &base-rsp
+      status: 200
+      reason: OK
+      headers:
+        fields:
+        - [ Content-Type, html/plaintext ]
+        - [ Content-Length, 96 ]
+
+sessions:
+- protocol:
+    stack: http
+  transactions:
+  - all: { headers: { fields: [[ uuid, unmatched-query-pair ]]}}
+    client-request:
+      <<: *base-req
+      url: "/page.html?keep-me=1"
+      headers:
+        fields:
+        - [ Host, one.ex ]
+    proxy-request:
+      <<: *base-req
+      url:
+      - [ query, { as: absent } ]
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 200
