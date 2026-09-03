@@ -253,7 +253,7 @@ ts_lua_script_registered(lua_State *L, char *script)
   }
 }
 
-void
+int
 ts_lua_script_register(lua_State *L, char *script, ts_lua_instance_conf *conf)
 {
   TSMgmtInt time;
@@ -261,21 +261,54 @@ ts_lua_script_register(lua_State *L, char *script, ts_lua_instance_conf *conf)
   Dbg(dbg_ctl, "[%s] registering script [%s]", __FUNCTION__, script);
 
   // we recorded the script reconfigure_time and its conf pointer in registry
-  if (TS_SUCCESS == TSMgmtIntGet("proxy.process.proxy.reconfigure_time", &time)) {
-    lua_pushliteral(L, "__scriptTime");
-    lua_pushstring(L, script);
-    lua_concat(L, 2);
-    lua_pushnumber(L, time);
-    lua_rawset(L, LUA_REGISTRYINDEX);
-
-    lua_pushliteral(L, "__scriptPtr");
-    lua_pushstring(L, script);
-    lua_concat(L, 2);
-    lua_pushlightuserdata(L, conf);
-    lua_rawset(L, LUA_REGISTRYINDEX);
-  } else {
+  if (TS_SUCCESS != TSMgmtIntGet("proxy.process.proxy.reconfigure_time", &time)) {
     TSError("[ts_lua][%s] failed to get node's reconfigure time while registering script", __FUNCTION__);
+    return -1;
   }
+
+  lua_pushliteral(L, "__scriptTime");
+  lua_pushstring(L, script);
+  lua_concat(L, 2);
+  lua_pushnumber(L, time);
+  lua_rawset(L, LUA_REGISTRYINDEX);
+
+  lua_pushliteral(L, "__scriptPtr");
+  lua_pushstring(L, script);
+  lua_concat(L, 2);
+  lua_pushlightuserdata(L, conf);
+  lua_rawset(L, LUA_REGISTRYINDEX);
+
+  return 0;
+}
+
+void
+ts_lua_script_unregister(lua_State *L, char *script, ts_lua_instance_conf *conf)
+{
+  Dbg(dbg_ctl, "[%s] unregistering script [%s]", __FUNCTION__, script);
+
+  lua_pushliteral(L, "__scriptPtr");
+  lua_pushstring(L, script);
+  lua_concat(L, 2);
+  lua_rawget(L, LUA_REGISTRYINDEX);
+
+  if (!lua_islightuserdata(L, -1) || static_cast<ts_lua_instance_conf *>(lua_touserdata(L, -1)) != conf) {
+    lua_pop(L, 1);
+    return;
+  }
+
+  lua_pop(L, 1);
+
+  lua_pushliteral(L, "__scriptPtr");
+  lua_pushstring(L, script);
+  lua_concat(L, 2);
+  lua_pushnil(L);
+  lua_rawset(L, LUA_REGISTRYINDEX);
+
+  lua_pushliteral(L, "__scriptTime");
+  lua_pushstring(L, script);
+  lua_concat(L, 2);
+  lua_pushnil(L);
+  lua_rawset(L, LUA_REGISTRYINDEX);
 }
 
 int

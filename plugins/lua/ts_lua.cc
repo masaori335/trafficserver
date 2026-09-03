@@ -438,9 +438,19 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char *errbuf, int errbuf_s
   if (fn && (argc - optind < 2)) {
     Dbg(dbg_ctl, "[%s] checking if script has been registered", __FUNCTION__);
 
-    // we only need to check the first lua VM for script registration
+    // We only need to check the first lua VM for script registration. The
+    // lookup and the reference bump have to happen under the same lock that
+    // TSRemapDeleteInstance uses: an instance dropping its last reference
+    // clears its registry entry before it is freed, so holding the lock
+    // across both means we either adopt a live instance or miss it entirely.
+    // Splitting them lets a reload adopt an instance that is concurrently
+    // being freed.
     TSMutexLock(ts_lua_main_ctx_array[0].mutexp);
     conf = ts_lua_script_registered(ts_lua_main_ctx_array[0].lua, script);
+    if (conf) {
+      conf->ref_count++;
+      Dbg(dbg_ctl, "Reference Count = %d , reference existing instance...", conf->ref_count);
+    }
     TSMutexUnlock(ts_lua_main_ctx_array[0].mutexp);
   }
 
@@ -481,12 +491,9 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char *errbuf, int errbuf_s
     if (fn && !conf->init_func) {
       // we only need to register the script for the first lua VM
       TSMutexLock(ts_lua_main_ctx_array[0].mutexp);
-      ts_lua_script_register(ts_lua_main_ctx_array[0].lua, conf->script, conf);
+      conf->script_registered = (0 == ts_lua_script_register(ts_lua_main_ctx_array[0].lua, conf->script, conf)) ? 1 : 0;
       TSMutexUnlock(ts_lua_main_ctx_array[0].mutexp);
     }
-  } else {
-    conf->ref_count++;
-    Dbg(dbg_ctl, "Reference Count = %d , reference existing instance...", conf->ref_count);
   }
 
   *ih = conf;
@@ -497,6 +504,8 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char *errbuf, int errbuf_s
 void
 TSRemapDeleteInstance(void *ih)
 {
+  auto *conf = static_cast<ts_lua_instance_conf *>(ih);
+
   // Once the shutdown barrier owns the Lua state mutexes it never gives them back,
   // so ts_lua_del_module() would block here for good, on the event thread that
   // still has the rest of ATS shutdown to run. ATS as it stands does not get here
@@ -505,21 +514,36 @@ TSRemapDeleteInstance(void *ih)
   // enough outcome to guard against that changing. The process is exiting, so
   // leaving the instance alone costs nothing but a __clean__ call.
   if (shutdown_barrier_engaged.load(std::memory_order_acquire)) {
-    Dbg(dbg_ctl, "shutdown barrier engaged, skipping remap instance teardown for '%s'", ((ts_lua_instance_conf *)ih)->script);
+    Dbg(dbg_ctl, "shutdown barrier engaged, skipping remap instance teardown for '%s'", conf->script);
     return;
   }
 
-  int states = ((ts_lua_instance_conf *)ih)->states;
-  ts_lua_del_module((ts_lua_instance_conf *)ih, ts_lua_main_ctx_array, states);
-  ts_lua_del_instance(static_cast<ts_lua_instance_conf *>(ih));
-  ((ts_lua_instance_conf *)ih)->ref_count--;
-  if (((ts_lua_instance_conf *)ih)->ref_count == 0) {
-    Dbg(dbg_ctl, "Reference Count = %d , freeing...", ((ts_lua_instance_conf *)ih)->ref_count);
-    TSfree(ih);
-  } else {
-    Dbg(dbg_ctl, "Reference Count = %d , not freeing...", ((ts_lua_instance_conf *)ih)->ref_count);
+  // Drop the reference and clear the registry entry under the same lock the
+  // lookup in TSRemapNewInstance takes. Once the entry is gone no incoming
+  // configuration can adopt this instance, so the teardown below owns it
+  // exclusively and must not hold this lock: ts_lua_del_module takes every
+  // VM's lock itself, including this one.
+  TSMutexLock(ts_lua_main_ctx_array[0].mutexp);
+  int const remaining = --conf->ref_count;
+
+  if (0 == remaining && conf->script_registered) {
+    ts_lua_script_unregister(ts_lua_main_ctx_array[0].lua, conf->script, conf);
   }
-  return;
+  TSMutexUnlock(ts_lua_main_ctx_array[0].mutexp);
+
+  if (0 != remaining) {
+    Dbg(dbg_ctl, "Reference Count = %d , not freeing...", remaining);
+    return;
+  }
+
+  // Only the last reference tears the instance down. A shared instance is
+  // still serving traffic through the configuration that adopted it, so
+  // running its __clean__ here would clean up under the live configuration.
+  ts_lua_del_module(conf, ts_lua_main_ctx_array, conf->states);
+  ts_lua_del_instance(conf);
+
+  Dbg(dbg_ctl, "Reference Count = %d , freeing...", remaining);
+  TSfree(conf);
 }
 
 static TSRemapStatus

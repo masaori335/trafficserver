@@ -107,6 +107,7 @@ typedef struct {
   int ref_count;
 
   int init_func;
+  int script_registered; // set iff this instance's script is recorded in the lua registry
 } ts_lua_instance_conf;
 
 /* lua state for vconn */
