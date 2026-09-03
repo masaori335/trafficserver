@@ -781,7 +781,6 @@ Context::getProperty(std::string_view path, std::string *result)
     X509           *cert        = SSL_get_certificate(ssl);
     if (cert != nullptr) {
       print_certificate(result, X509_get_subject_name(cert));
-      X509_free(cert);
     } else {
       *result = pv_empty;
     }
@@ -819,7 +818,6 @@ Context::getProperty(std::string_view path, std::string *result)
     X509           *cert        = SSL_get_certificate(ssl);
     if (cert != nullptr) {
       print_san_certificate(result, cert, GEN_DNS);
-      X509_free(cert);
     } else {
       *result = pv_empty;
     }
@@ -857,7 +855,6 @@ Context::getProperty(std::string_view path, std::string *result)
     X509           *cert        = SSL_get_certificate(ssl);
     if (cert != nullptr) {
       print_san_certificate(result, cert, GEN_URI);
-      X509_free(cert);
     } else {
       *result = pv_empty;
     }
@@ -946,7 +943,6 @@ Context::getProperty(std::string_view path, std::string *result)
     X509           *cert        = SSL_get_certificate(ssl);
     if (cert != nullptr) {
       print_certificate(result, X509_get_subject_name(cert));
-      X509_free(cert);
     } else {
       *result = pv_empty;
     }
@@ -984,7 +980,6 @@ Context::getProperty(std::string_view path, std::string *result)
     X509           *cert        = SSL_get_certificate(ssl);
     if (cert != nullptr) {
       print_san_certificate(result, cert, GEN_DNS);
-      X509_free(cert);
     } else {
       *result = pv_empty;
     }
@@ -1022,7 +1017,6 @@ Context::getProperty(std::string_view path, std::string *result)
     X509           *cert        = SSL_get_certificate(ssl);
     if (cert != nullptr) {
       print_san_certificate(result, cert, GEN_URI);
-      X509_free(cert);
     } else {
       *result = pv_empty;
     }
