@@ -415,11 +415,13 @@ TEST_CASE("esi vars test")
 
   SECTION("Test 5")
   {
-    int       dummy;
-    Variables esi_vars(&dummy, std::move(allowlistCookies));
+    Utils::HeaderValueList allowlistHeaders{"hDr1", "hdr2", "@intenal-HDR1", "cookie"};
+    int                    dummy;
+    Variables              esi_vars(&dummy, std::move(allowlistCookies), std::move(allowlistHeaders));
     esi_vars.populate(HttpHeader("hdr1", -1, "hval1", -1));
     esi_vars.populate(HttpHeader("Hdr2", -1, "hval2", -1));
     esi_vars.populate(HttpHeader("@Intenal-hdr1", -1, "internal-hval1", -1));
+    esi_vars.populate(HttpHeader("Authorization", -1, "Bearer secret", -1));
     esi_vars.populate(HttpHeader("cookie", -1, "x=y", -1));
 
     REQUIRE(esi_vars.getValue("HTTP_HEADER{hdr1}") == "hval1");
@@ -427,7 +429,33 @@ TEST_CASE("esi vars test")
     REQUIRE(esi_vars.getValue("HTTP_HEADER{Hdr2}") == "hval2");
     REQUIRE(esi_vars.getValue("HTTP_HEADER{non-existent}") == "");
     REQUIRE(esi_vars.getValue("HTTP_HEADER{@Intenal-hdr1}") == "internal-hval1");
+    REQUIRE(esi_vars.getValue("HTTP_HEADER{Authorization}") == "");
     REQUIRE(esi_vars.getValue("HTTP_HEADER{cookie}") == "");
+  }
+
+  SECTION("HTTP_HEADER denies all headers by default")
+  {
+    int       dummy;
+    Variables esi_vars(&dummy, std::move(allowlistCookies), {});
+
+    esi_vars.populate(HttpHeader("X-Request-ID", -1, "request-id", -1));
+    esi_vars.populate(HttpHeader("Authorization", -1, "Bearer secret", -1));
+
+    REQUIRE(esi_vars.getValue("HTTP_HEADER{X-Request-ID}") == "");
+    REQUIRE(esi_vars.getValue("HTTP_HEADER{Authorization}") == "");
+  }
+
+  SECTION("HTTP_HEADER has no wildcard allowlist")
+  {
+    Utils::HeaderValueList allowlistHeaders{"*"};
+    int                    dummy;
+    Variables              esi_vars(&dummy, std::move(allowlistCookies), std::move(allowlistHeaders));
+
+    esi_vars.populate(HttpHeader("X-Request-ID", -1, "request-id", -1));
+    esi_vars.populate(HttpHeader("Authorization", -1, "Bearer secret", -1));
+
+    REQUIRE(esi_vars.getValue("HTTP_HEADER{X-Request-ID}") == "");
+    REQUIRE(esi_vars.getValue("HTTP_HEADER{Authorization}") == "");
   }
 
   SECTION("Test 6")

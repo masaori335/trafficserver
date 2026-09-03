@@ -69,6 +69,7 @@ struct OptionInfo {
   unsigned                    max_doc_size{1024 * 1024};
   unsigned                    max_inclusion_depth{3};
   response_codes_t            allowed_response_codes{200, 304};
+  Utils::HeaderValueList      allowlist_headers;
   EsiLib::IncludeUrlValidator url_validator;
 };
 
@@ -267,7 +268,7 @@ ContData::init()
       data_fetcher = new HttpDataFetcherImpl(contp, client_addr, FETCHER_DEBUG_TAG);
     }
     if (!esi_vars) {
-      esi_vars = new Variables(contp, gAllowlistCookies);
+      esi_vars = new Variables(contp, gAllowlistCookies, option_info->allowlist_headers);
     }
 
     esi_proc = new EsiProcessor(contp, *data_fetcher, *esi_vars, *gHandlerManager, option_info->max_doc_size, request_url,
@@ -300,7 +301,7 @@ ContData::getClientState()
 
   if (!esi_vars) {
     string vars_tag;
-    esi_vars = new Variables(contp, gAllowlistCookies);
+    esi_vars = new Variables(contp, gAllowlistCookies, option_info->allowlist_headers);
   }
   if (!data_fetcher) {
     string fetcher_tag;
@@ -1641,20 +1642,46 @@ globalHookHandler(TSCont contp, TSEvent event, void *edata)
 }
 
 static void
-loadHandlerConf(const char *file_name, Utils::KeyValueMap &handler_conf)
+loadHandlerConf(const char *file_name, Utils::KeyValueMap &handler_conf, Utils::HeaderValueList &allowlist_headers)
 {
   std::list<string> conf_lines;
-  TSFile            conf_file = TSfopen(file_name, "r");
+  string            resolved_path(file_name);
+
+  // Resolve a relative path against the ATS config directory, matching how
+  // other plugins locate their config files.
+  if (!resolved_path.empty() && resolved_path[0] != '/') {
+    if (const char *config_dir = TSConfigDirGet(); config_dir != nullptr) {
+      resolved_path = string(config_dir) + '/' + resolved_path;
+    }
+  }
+
+  string file_path(resolved_path);
+  TSFile conf_file = TSfopen(file_path.c_str(), "r");
+
+  // Fall back to the path exactly as configured so a deployment that passes a
+  // path relative to the process working directory keeps working.
+  if (conf_file == nullptr && resolved_path != file_name) {
+    Dbg(dbg_ctl_local, "[%s] Could not open handler config file [%s]; retrying as [%s]", __FUNCTION__, resolved_path.c_str(),
+        file_name);
+    file_path.assign(file_name);
+    conf_file = TSfopen(file_path.c_str(), "r");
+  }
+
   if (conf_file != nullptr) {
     char buf[1024];
     while (TSfgets(conf_file, buf, sizeof(buf) - 1) != nullptr) {
       conf_lines.push_back(string(buf));
     }
     TSfclose(conf_file);
-    Utils::parseKeyValueConfig(conf_lines, handler_conf, gAllowlistCookies);
-    Dbg(dbg_ctl_local, "[%s] Loaded handler conf file [%s]", __FUNCTION__, file_name);
+    Utils::parseKeyValueConfig(conf_lines, handler_conf, gAllowlistCookies, allowlist_headers);
+    Dbg(dbg_ctl_local, "[%s] Loaded handler conf file [%s]", __FUNCTION__, file_path.c_str());
+  } else if (resolved_path != file_name) {
+    TSError("[esi][%s] Failed to open handler config file [%s] (also tried [%s]); HTTP_COOKIE and HTTP_HEADER variable "
+            "expansion are disabled",
+            __FUNCTION__, file_name, resolved_path.c_str());
   } else {
-    TSError("[esi][%s] Failed to open handler config file [%s]", __FUNCTION__, file_name);
+    TSError("[esi][%s] Failed to open handler config file [%s]; HTTP_COOKIE and HTTP_HEADER variable expansion are disabled",
+            __FUNCTION__, file_name);
   }
 }
 
@@ -1723,7 +1750,7 @@ esiPluginInit(int argc, const char *argv[], OptionInfo *pOptionInfo)
         break;
       case 'f': {
         Utils::KeyValueMap handler_conf;
-        loadHandlerConf(optarg, handler_conf);
+        loadHandlerConf(optarg, handler_conf, pOptionInfo->allowlist_headers);
         gHandlerManager->loadObjects(handler_conf);
         break;
       }

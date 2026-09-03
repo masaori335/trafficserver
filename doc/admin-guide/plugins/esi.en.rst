@@ -54,7 +54,7 @@ Supported variables:
     $(HTTP_ACCEPT_LANGUAGE{name})
     $(HTTP_COOKIE{name}) or $(HTTP_COOKIE{name;subkey})
     $(QUERY_STRING{name})
-    $(HTTP_HEADER{hdr_name})
+    $(HTTP_HEADER{hdr_name}) (only for explicitly allowed headers)
 
 Note: the name is the key name such as "username", "id" etc. For cookie support sub-name or sub-key, the format is:
 name;subkey, such as "l;u", "l;t" etc. e.g. such cookie string: l=u=test&t=1350952328, the value of
@@ -131,26 +131,51 @@ Enabling ESI
   are rejected outright. Enable this flag only if you intentionally use ESI to assemble responses from internal-IP
   backends. Schemes other than ``http`` and ``https`` are always rejected regardless of this flag.
 
-3. ``HTTP_COOKIE`` variable support is turned off by default. It can be turned on with ``-f <handler_config>`` or
-   ``-handler <handler_config>``. For example:
+3. ``HTTP_COOKIE`` and ``HTTP_HEADER`` variable support is turned off by default. It can be turned on with
+   ``-f <handler_config>`` or ``--handler-filename <handler_config>``. For example:
 
 ::
 
     esi.so -f handler.conf
 
-The ``handler.conf`` file then contains the list of allowed cookie names. For example, to allow the ``A`` and ``LOGIN``
-cookies, the file will look like the following:
+A relative ``<handler_config>`` is resolved against the |TS| configuration directory, falling back to a path relative to
+the |TS| working directory if it is not found there. If the file cannot be opened, an error is logged and both
+``HTTP_COOKIE`` and ``HTTP_HEADER`` expansion stay disabled for that plugin instance, so check :file:`diags.log` after
+changing the path.
+
+The ``handler.conf`` file then contains the allowed cookie and request header names. For example, to allow the ``A`` and
+``LOGIN`` cookies through ``HTTP_COOKIE`` and ``X-Request-ID`` through ``HTTP_HEADER``, the file will look like the
+following:
 
 ::
 
     allowlistCookie A
     allowlistCookie LOGIN
+    allowlistHeader X-Request-ID
+
+Header allowlist matching is case-insensitive, but every header name must be listed explicitly. The ``Cookie`` request
+header cannot be exposed through ``HTTP_HEADER``; use the separately filtered ``HTTP_COOKIE`` variable instead.
+
+Note that ``$(HTTP_HEADER{...})`` lookups in the ESI document are case-sensitive and must spell the header name the way
+|TS| reports it. Well-known headers are always reported in their canonical form (for example ``Authorization``)
+regardless of the case used on the wire.
+
+.. important::
+
+   Request headers can contain credentials and other sensitive values. In particular, headers such as ``Authorization``
+   and ``Proxy-Authorization`` are unavailable through ``HTTP_HEADER`` unless the operator explicitly allowlists them.
+   Only allowlist a header when it is safe for an ESI document to insert its value into the client response.
+
+   This allowlist controls ESI variable expansion only. It does not remove headers from the request sent to the origin.
 
 You can also allow all cookies for ``HTTP_COOKIE`` variable by using a wildcard character. For example:
 
 ::
 
     allowlistCookie *
+
+``allowlistHeader`` has no such wildcard: there is no way to allow all request headers through ``HTTP_HEADER``, and
+``allowlistHeader *`` is treated as a literal header name that never matches. Such an entry is logged as an error.
 
 4. An entry in :file:`remap.config` will be needed to map to the orginer server providing the ESI response. Assume that
    the ATS proxy is ``abc.com``, your origin server is ``xyz.com``, and the URI containing ESI markup is
@@ -218,4 +243,5 @@ Differences from Spec - http://www.w3.org/TR/esi-lang
 
 5. ``HTTP_COOKIE`` supports fetching for sub-key.
 
-6. ``HTTP_HEADER`` supports accessing request headers as variables except "Cookie".
+6. ``HTTP_HEADER`` supports accessing explicitly allowlisted request headers as variables. ``Cookie`` is always
+   unavailable through ``HTTP_HEADER``.

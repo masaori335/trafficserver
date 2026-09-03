@@ -99,8 +99,10 @@ namespace Utils
 
   // parses given lines (assumes <key><whitespace><value> format) and
   // stores them in supplied map; Lines beginning with '#' are ignored
-  // also if line starts with "allowlistCookie", we store next token in a list
-  void parseKeyValueConfig(const std::list<std::string> &lines, KeyValueMap &kvMap, HeaderValueList &allowlistCookies);
+  // also if line starts with "allowlistCookie" or "allowlistHeader", we store
+  // the next token in the corresponding list
+  void parseKeyValueConfig(const std::list<std::string> &lines, KeyValueMap &kvMap, HeaderValueList &allowlistCookies,
+                           HeaderValueList &allowlistHeaders);
 
   inline std::string
   unescape(const char *str, int len = -1)

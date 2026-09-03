@@ -35,10 +35,11 @@ namespace EsiLib
 class Variables
 {
 public:
-  Variables(void *cont_addr, Utils::HeaderValueList allowlistCookies)
+  Variables(void *cont_addr, Utils::HeaderValueList allowlistCookies, Utils::HeaderValueList allowlistHeaders = {})
     : _headers_parsed(false), _query_string(""), _query_string_parsed(false), _cookie_jar_created(false), _cont_addr(cont_addr)
   {
     _allowlistCookies.insert(_allowlistCookies.end(), allowlistCookies.begin(), allowlistCookies.end());
+    _allowlistHeaders.insert(_allowlistHeaders.end(), allowlistHeaders.begin(), allowlistHeaders.end());
   };
 
   /** currently 'host', 'referer', 'accept-language', 'cookie' and 'user-agent' headers are parsed */
@@ -140,11 +141,13 @@ private:
   void                _parseCachedHeaders();
 
   inline void _insert(StringHash &hash, const std::string &key, const std::string &value);
+  bool        _isHttpHeaderAllowed(const char *name, int name_len) const;
 
   Utils::HeaderValueList _cached_simple_headers[N_SIMPLE_HEADERS];
   Utils::HeaderValueList _cached_special_headers[N_SPECIAL_HEADERS];
 
   Utils::HeaderValueList _allowlistCookies;
+  Utils::HeaderValueList _allowlistHeaders;
   std::string            _cookie_str;
   bool                   _headers_parsed;
   std::string            _query_string;

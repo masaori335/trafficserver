@@ -106,7 +106,8 @@ Utils::getAttribute(const string &data, const string &attr, size_t curr_pos, siz
 }
 
 void
-Utils::parseKeyValueConfig(const std::list<string> &lines, KeyValueMap &kvMap, HeaderValueList &allowlistCookies)
+Utils::parseKeyValueConfig(const std::list<string> &lines, KeyValueMap &kvMap, HeaderValueList &allowlistCookies,
+                           HeaderValueList &allowlistHeaders)
 {
   string             key, value;
   std::istringstream iss;
@@ -122,6 +123,17 @@ Utils::parseKeyValueConfig(const std::list<string> &lines, KeyValueMap &kvMap, H
       iss >> value;
       if (key == "allowlistCookie") {
         allowlistCookies.push_back(value);
+        continue;
+      }
+      if (key == "allowlistHeader") {
+        // Unlike allowlistCookie, allowlistHeader has no wildcard form. An
+        // operator writing "allowlistHeader *" by analogy would otherwise get
+        // an allowlist that looks configured but matches nothing.
+        if (value.find('*') != string::npos) {
+          TSError("[%s] allowlistHeader does not support wildcards; entry [%s] will never match a header name", __FUNCTION__,
+                  value.c_str());
+        }
+        allowlistHeaders.push_back(value);
         continue;
       }
       if (key.size() && value.size()) {

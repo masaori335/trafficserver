@@ -90,6 +90,21 @@ Variables::_insert(StringHash &hash, const std::string &key, const std::string &
   }
 }
 
+bool
+Variables::_isHttpHeaderAllowed(const char *name, int name_len) const
+{
+  if (Utils::areEqual(name, name_len, "Cookie", 6)) {
+    return false;
+  }
+
+  for (const auto &allowed_header : _allowlistHeaders) {
+    if (Utils::areEqual(name, name_len, allowed_header)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void
 Variables::populate(const HttpHeader &header)
 {
@@ -120,7 +135,9 @@ Variables::populate(const HttpHeader &header)
         }
       }
     }
-    _insert(_dict_data[HTTP_HEADER], string(header.name, name_len), string(header.value, value_len));
+    if (_isHttpHeaderAllowed(header.name, name_len)) {
+      _insert(_dict_data[HTTP_HEADER], string(header.name, name_len), string(header.value, value_len));
+    }
   }
 }
 

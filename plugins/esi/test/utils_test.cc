@@ -117,15 +117,19 @@ TEST_CASE("esi utils test")
     std::list<string> lines;
     lines.push_back("allowlistCookie AGE");
     lines.push_back("allowlistCookie GRADE");
+    lines.push_back("allowlistHeader X-Request-ID");
     lines.push_back("a b");
     Utils::KeyValueMap     kv;
-    Utils::HeaderValueList list;
-    Utils::parseKeyValueConfig(lines, kv, list);
+    Utils::HeaderValueList cookie_allowlist;
+    Utils::HeaderValueList header_allowlist;
+    Utils::parseKeyValueConfig(lines, kv, cookie_allowlist, header_allowlist);
     const auto b = kv.find("a");
     REQUIRE((b != std::end(kv) && b->second == "b"));
-    REQUIRE(list.back() == "GRADE");
-    list.pop_back();
-    REQUIRE(list.back() == "AGE");
-    list.pop_back();
+    REQUIRE(cookie_allowlist.back() == "GRADE");
+    cookie_allowlist.pop_back();
+    REQUIRE(cookie_allowlist.back() == "AGE");
+    cookie_allowlist.pop_back();
+    REQUIRE(header_allowlist.back() == "X-Request-ID");
+    header_allowlist.pop_back();
   }
 }
