@@ -23,6 +23,8 @@
 
 #include <ts/ts.h>
 
+#include <cstring>
+
 #include "DocNode.h"
 #include "Utils.h"
 
@@ -75,7 +77,10 @@ DocNode::pack(string &buffer) const
     packString(iter.value, iter.value_len, buffer);
   }
   child_nodes.packToBuffer(buffer);
-  *(reinterpret_cast<int32_t *>(&buffer[orig_buf_size + 1])) = buffer.size() - orig_buf_size;
+  int32_t node_size = buffer.size() - orig_buf_size;
+  // The length field is stored 1 byte past orig_buf_size (after DOCNODE_VERSION), so its
+  // address is not int32_t-aligned; use memcpy to avoid a misaligned store (UB).
+  memcpy(&buffer[orig_buf_size + 1], &node_size, sizeof(node_size));
 }
 
 bool
