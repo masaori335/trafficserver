@@ -20,7 +20,6 @@ limitations under the License.
 #pragma once
 
 #include <atomic>
-#include <cassert>
 #include <cstring>
 #include <iostream>
 #include <mutex>
@@ -53,16 +52,18 @@ public:
     void                     *byte_array = bs_data.get_bytes(len);
     // Dbg(dbg_ctl, "commit %lu: %s", log_idx, hex_str(std::string(reinterpret_cast<char *>(byte_array), len)).c_str());
 
-    assert(len == SSL_TICKET_KEY_SIZE);
+    // Update last committed index number.
+    last_committed_idx_ = log_idx;
+
+    if (len != SSL_TICKET_KEY_SIZE) {
+      return nullptr;
+    }
 
     {
       std::lock_guard<std::mutex> l(stek_lock_);
       std::memcpy(&stek_, byte_array, len);
       received_stek_ = true;
     }
-
-    // Update last committed index number.
-    last_committed_idx_ = log_idx;
 
     nuraft::ptr<nuraft::buffer> ret = nuraft::buffer::alloc(sizeof(log_idx));
     nuraft::buffer_serializer   bs_ret(ret);
@@ -134,7 +135,10 @@ public:
     nuraft::buffer_serializer bs_data(data);
     void                     *byte_array = bs_data.get_bytes(len);
 
-    assert(len == SSL_TICKET_KEY_SIZE);
+    if (len != SSL_TICKET_KEY_SIZE) {
+      obj_id++;
+      return;
+    }
 
     ssl_ticket_key_t local_stek;
     std::memcpy(&local_stek, byte_array, len);
