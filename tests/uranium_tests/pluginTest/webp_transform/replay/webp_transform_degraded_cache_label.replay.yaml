@@ -1,0 +1,184 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing,
+#  software distributed under the License is distributed on an
+#  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+#  KIND, either express or implied.  See the License for the
+#  specific language governing permissions and limitations
+#  under the License.
+
+meta:
+  version: "1.0"
+
+autest:
+  description: 'A degraded webp_transform response is never served under the conversion target type, and a successful conversion still caches'
+
+  server:
+    name: 'webp-degraded-cache-server'
+
+  client:
+    name: 'webp-degraded-cache-client'
+
+  ats:
+    name: 'webp-degraded-cache-ts'
+    process_config:
+      enable_cache: true
+      disable_log_checks: true
+
+    plugin_config:
+      - 'webp_transform.so convert_to_jpeg'
+
+    records_config:
+      proxy.config.diags.debug.enabled: 1
+      proxy.config.diags.debug.tags: 'webp_transform'
+
+    remap_config:
+      - from: 'http://www.example.com/'
+        to: 'http://127.0.0.1:{SERVER_HTTP_PORT}/'
+
+    log_validation:
+      diags_log:
+        contains:
+          - expression: 'input body does not match its declared image encoding'
+            description: 'Verify the transform degraded to the original bytes'
+
+sessions:
+  - transactions:
+      # --- Degraded transform -------------------------------------------------
+      # The body is not a valid webp, so the conversion is skipped and the
+      # original bytes are forwarded. The read hook already stamped image/jpeg
+      # for a conversion that did not happen.
+      - client-request:
+          method: GET
+          version: '1.1'
+          url: /degraded.webp
+          headers:
+            fields:
+              - [Host, www.example.com]
+              - [Accept, 'image/jpeg']
+              - [uuid, degraded-1]
+
+        server-response:
+          status: 200
+          reason: OK
+          headers:
+            fields:
+              - [Content-Type, image/webp]
+              - [Cache-Control, 'max-age=300']
+              - [Content-Length, 8]
+          content:
+            data: notawebp
+
+        proxy-response:
+          status: 200
+          headers:
+            fields:
+              - [Content-Type, {value: image/webp, as: equal}]
+          content:
+            verify: {value: notawebp, as: equal}
+
+      # A second request must not be answered from a stored copy labeled with
+      # the conversion target. Before the fix this was a cache hit reporting
+      # image/jpeg while carrying the original webp-declared body.
+      - client-request:
+          delay: 100ms
+          method: GET
+          version: '1.1'
+          url: /degraded.webp
+          headers:
+            fields:
+              - [Host, www.example.com]
+              - [Accept, 'image/jpeg']
+              - [uuid, degraded-2]
+
+        server-response:
+          status: 200
+          reason: OK
+          headers:
+            fields:
+              - [Content-Type, image/webp]
+              - [Cache-Control, 'max-age=300']
+              - [Content-Length, 8]
+          content:
+            data: notawebp
+
+        proxy-response:
+          status: 200
+          headers:
+            fields:
+              - [Content-Type, {value: image/webp, as: equal}]
+          content:
+            verify: {value: notawebp, as: equal}
+
+      # --- Successful conversion --------------------------------------------
+      # Guard against "fixing" the label by disabling caching wholesale: a real
+      # conversion must still be stored and served from cache.
+      - client-request:
+          method: GET
+          version: '1.1'
+          url: /converted.webp
+          headers:
+            fields:
+              - [Host, www.example.com]
+              - [Accept, 'image/jpeg']
+              - [uuid, converted-1]
+
+        server-response:
+          status: 200
+          reason: OK
+          headers:
+            fields:
+              - [Content-Type, image/webp]
+              - [Cache-Control, 'max-age=300']
+              - [Content-Length, 68]
+          content:
+            encoding: uri
+            data: "%52%49%46%46%3c%00%00%00%57%45%42%50%56%50%38%20%30%00%00%00%d0%01%00%9d\
+              %01%2a%01%00%01%00%02%00%34%25%a0%02%74%ba%01%f8%00%03%b0%00%fe%f0%c4%0b\
+              %ff%20%b9%61%75%c8%d7%ff%20%3f%e4%07%fc%80%ff%f8%f2%00%00%00"
+
+        proxy-response:
+          status: 200
+          headers:
+            fields:
+              - [Content-Type, {value: image/jpeg, as: equal}]
+          content:
+            verify: {value: JFIF, as: contains}
+
+      # This one must be a cache hit: the origin is not contacted again.
+      - client-request:
+          delay: 100ms
+          method: GET
+          version: '1.1'
+          url: /converted.webp
+          headers:
+            fields:
+              - [Host, www.example.com]
+              - [Accept, 'image/jpeg']
+              - [uuid, converted-2]
+
+        proxy-request:
+          expect: absent
+
+        server-response:
+          status: 404
+          reason: Not Found
+          headers:
+            fields:
+              - [Content-Length, 0]
+
+        proxy-response:
+          status: 200
+          headers:
+            fields:
+              - [Content-Type, {value: image/jpeg, as: equal}]
+          content:
+            verify: {value: JFIF, as: contains}

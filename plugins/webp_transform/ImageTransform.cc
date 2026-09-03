@@ -181,6 +181,7 @@ public:
   ImageTransform(Transaction &transaction, std::string input_content_type, ImageEncoding input_image_type,
                  ImageEncoding transform_image_type)
     : TransformationPlugin(transaction, TransformationPlugin::RESPONSE_TRANSFORMATION),
+      _txn(static_cast<TSHttpTxn>(transaction.getAtsHandle())),
       _input_content_type(std::move(input_content_type)),
       _input_image_type(input_image_type),
       _transform_image_type(transform_image_type)
@@ -194,11 +195,10 @@ public:
   {
     // Label the server response so both the cached transform and the client
     // copy carry the target type. On a degraded transform (pass-through or
-    // decode error) the body is the original encoding but the label still says
-    // the target; handleSendResponseHeaders below corrects the client-facing
-    // copy using _input_content_type in that case. The cached label can still
-    // end up wrong on a degraded transform; fixing that without mislabeling
-    // the cache is tracked as a separate correctness issue.
+    // decode error) the body is the original encoding, so this label is wrong;
+    // handleSendResponseHeaders corrects the client-facing copy using
+    // _input_content_type, and pass_through() keeps the mislabeled object out
+    // of the cache entirely.
     if (const char *ctype = content_type_for(_transform_image_type); ctype != nullptr) {
       transaction.getServerResponse().getHeaders()["Content-Type"] = ctype;
     }
@@ -326,12 +326,29 @@ private:
   void
   pass_through(std::string_view data)
   {
+    // The conversion did not happen, so the body is the input encoding while
+    // the header the cache would store still says the target. Relabeling that
+    // header is not a fix: the read hook also added Vary: Accept, so alternate
+    // selection compares the stored Content-Type against the request's Accept.
+    // A truthful image/webp label can never match the Accept: image/jpeg that
+    // asked for the conversion, and the entry becomes unusable rather than
+    // correct. There is no label that is both honest and matchable, because the
+    // object simply is not the variant that was negotiated.
+    //
+    // So keep it out of the cache. The client still gets the right label from
+    // handleSendResponseHeaders, and no later request can be served a body
+    // whose encoding disagrees with its Content-Type. Only the transformed
+    // store is suppressed; cache_untransformed is off by default, so this
+    // leaves nothing behind for this response.
+    TSHttpTxnTransformedRespCache(_txn, 0);
+
     if (!data.empty()) {
       produce(data);
     }
     _transform_image_type = _input_image_type;
   }
 
+  TSHttpTxn     _txn;
   std::string   _img;
   std::string   _input_content_type;
   bool          _refused = false;

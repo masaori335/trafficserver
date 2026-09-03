@@ -83,3 +83,13 @@ resource limits (image dimensions, pixel-cache memory, and disk) so that a
 small image declaring very large dimensions cannot decode into an oversized
 pixel buffer. An image that exceeds those limits is passed through in its
 original format rather than converted.
+
+Responses that are passed through are not cached. The plugin labels a response
+with the conversion target before the body is available, so a response that
+ends up passed through carries a body in the original encoding. Correcting the
+stored label is not sufficient, because the plugin also adds ``Vary: Accept``:
+alternate selection then compares the stored ``Content-Type`` against the
+request's ``Accept``, and an honestly labeled pass-through can never match the
+``Accept`` that asked for the conversion. Such a response is not the variant
+that was negotiated, so it is served to the requesting client with the correct
+``Content-Type`` and then not stored. Successful conversions cache normally.
