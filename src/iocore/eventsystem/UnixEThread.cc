@@ -178,17 +178,26 @@ EThread::process_event(Event *e, int calling_code, ink_hrtime event_time)
     }
     ink_assert(!e->in_the_priority_queue);
     ink_assert(c_temp == e->continuation);
+
+    // Snapshot the fields that decide whether to reschedule or free the event
+    // while e->mutex is still held. After the lock is released, a handler that
+    // rescheduled e onto another thread lets that thread process and free e
+    // concurrently, so reading e->period or the queue flags past the unlock
+    // could touch freed memory. The snapshot is only acted on through e in the
+    // branches where e is on no queue, where this thread remains its sole owner.
+    ink_hrtime const e_period   = e->period;
+    bool const       not_queued = !e->in_the_prot_queue && !e->in_the_priority_queue;
     MUTEX_RELEASE(lock);
-    if (e->period) {
-      if (!e->in_the_prot_queue && !e->in_the_priority_queue) {
-        if (e->period < 0) {
-          e->timeout_at = e->period;
+    if (e_period) {
+      if (not_queued) {
+        if (e_period < 0) {
+          e->timeout_at = e_period;
         } else {
-          e->timeout_at = event_time + e->period;
+          e->timeout_at = event_time + e_period;
         }
         EventQueueExternal.enqueue_local(e);
       }
-    } else if (!e->in_the_prot_queue && !e->in_the_priority_queue) {
+    } else if (not_queued) {
       free_event(e);
     }
   }
