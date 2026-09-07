@@ -244,3 +244,121 @@ def test_cli_help_lists_error_format_flag() -> None:
     assert "--error-format" in result.stdout
     for choice in ("plain", "json", "markdown"):
         assert choice in result.stdout
+
+
+#
+# Exit-code contract: a compile error must fail the build.
+#
+
+
+def test_cli_exits_nonzero_on_syntax_error(tmp_path: Path) -> None:
+    """A syntax error must exit non-zero even though ANTLR recovers and yields a tree."""
+    bad = tmp_path / "bad.hrw4u"
+    bad.write_text("REMAP {\n  inbound.req.X-Foo = \n}\n")
+
+    result = run_hrw4u([str(bad)])
+
+    assert result.returncode != 0
+    assert ": error:" in result.stderr
+
+
+def test_cli_exits_nonzero_on_semantic_error(tmp_path: Path) -> None:
+    """A semantic error must exit non-zero; the parse tree exists, so only sema catches it."""
+    bad = tmp_path / "bad.hrw4u"
+    bad.write_text("REMAP {\n    test::add-debug-header(\"foo\");\n}\n")
+
+    result = run_hrw4u([str(bad)])
+
+    assert result.returncode != 0
+    assert "unknown procedure" in result.stderr
+
+
+def test_cli_collects_all_errors_and_still_exits_nonzero(tmp_path: Path) -> None:
+    """Multi-error mode must report every diagnostic AND fail; the two are not exclusive."""
+    bad = tmp_path / "bad.hrw4u"
+    bad.write_text("REMAP {\n  bogus.one = \"a\";\n  bogus.two = \"b\";\n}\n")
+
+    result = run_hrw4u([str(bad)])
+
+    assert result.returncode != 0
+    assert result.stderr.count(": error:") >= 2
+
+
+def test_cli_multi_file_exits_nonzero_if_any_fails(sample_hrw4u_files: tuple[Path, Path, Path], tmp_path: Path) -> None:
+    """One bad file among good ones fails the run, but the good ones are still processed."""
+    good, _, _ = sample_hrw4u_files
+    bad = tmp_path / "bad.hrw4u"
+    bad.write_text("REMAP {\n    test::nope(\"x\");\n}\n")
+
+    result = run_hrw4u([str(bad), str(good)])
+
+    assert result.returncode != 0
+    assert "no-op" in result.stdout, "processing must continue past the failing file"
+
+
+#
+# --check: validate only, emit no artifact.
+#
+
+
+def test_cli_check_valid_file_is_silent_and_succeeds(sample_hrw4u_files: tuple[Path, Path, Path]) -> None:
+    """--check on a valid file exits 0 and writes nothing to stdout."""
+    file1, _, _ = sample_hrw4u_files
+
+    result = run_hrw4u(["--check", str(file1)])
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+
+
+def test_cli_check_invalid_file_reports_and_fails(tmp_path: Path) -> None:
+    """--check on a bad file exits non-zero, diagnoses on stderr, and emits no partial config."""
+    bad = tmp_path / "bad.hrw4u"
+    bad.write_text("REMAP {\n    test::add-debug-header(\"foo\");\n}\n")
+
+    result = run_hrw4u(["--check", str(bad)])
+
+    assert result.returncode != 0
+    assert "unknown procedure" in result.stderr
+    assert result.stdout == ""
+
+
+def test_cli_check_multi_file_emits_no_separators(sample_hrw4u_files: tuple[Path, Path, Path]) -> None:
+    """The '# ---' inter-file separator is output, so --check must not emit it."""
+    file1, file2, file3 = sample_hrw4u_files
+
+    result = run_hrw4u(["--check", str(file1), str(file2), str(file3)])
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+
+
+def test_cli_check_json_format(tmp_path: Path) -> None:
+    """--check composes with --error-format json for CI consumption."""
+    bad = tmp_path / "bad.hrw4u"
+    bad.write_text("REMAP {\n    test::add-debug-header(\"foo\");\n}\n")
+
+    result = run_hrw4u(["--check", "--error-format", "json", str(bad)])
+
+    assert result.returncode != 0
+    payload = json.loads(result.stderr.strip().splitlines()[-1])
+    assert payload["summary"]["error_count"] >= 1
+
+
+def test_cli_check_rejects_bulk_pairs(sample_hrw4u_files: tuple[Path, Path, Path], tmp_path: Path) -> None:
+    """--check produces no artifact, so input:output is a contradiction."""
+    file1, _, _ = sample_hrw4u_files
+    out = tmp_path / "out.conf"
+
+    result = run_hrw4u(["--check", f"{file1}:{out}"])
+
+    assert result.returncode != 0
+    assert not out.exists()
+
+
+def test_cli_help_lists_check_flag() -> None:
+    """--help must advertise the new flag."""
+    result = run_hrw4u(["--help"])
+
+    assert result.returncode == 0
+    assert "--check" in result.stdout

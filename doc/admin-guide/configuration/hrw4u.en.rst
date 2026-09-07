@@ -115,6 +115,34 @@ This is particularly useful for build systems or when processing many configurat
 files at once. All files are processed in a single invocation, improving performance
 for large batches of files.
 
+Validation Only
+^^^^^^^^^^^^^^^
+
+``--check`` runs the full front end for its diagnostics and writes no output,
+which is the form intended for a CI gate:
+
+.. code-block:: none
+
+   hrw4u --check rules.hrw4u
+
+Because it produces no artifact, ``--check`` is rejected together with the
+``input:output`` form.
+
+Exit Status
+^^^^^^^^^^^
+
+====== ==========================================================================
+Status Meaning
+====== ==========================================================================
+0      Every input compiled. Warnings may still have been reported.
+1      At least one input had an error, or the command line was invalid.
+====== ==========================================================================
+
+Every input is processed before the status is decided, so one bad file in a
+multi-file or bulk run does not stop the files after it. Without ``--check`` a
+failing compile still writes its partial output; the exit status is what marks
+that output untrustworthy.
+
 Reverse Tool (u4wrh)
 ^^^^^^^^^^^^^^^^^^^^
 

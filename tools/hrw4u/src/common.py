@@ -238,12 +238,19 @@ def generate_output(
         filename: str,
         args: Any,
         error_collector: ErrorCollector | None = None,
-        extra_kwargs: dict[str, Any] | None = None) -> None:
-    """Generate and print output based on mode with optional error collection."""
+        extra_kwargs: dict[str, Any] | None = None) -> bool:
+    """Generate and print output based on mode with optional error collection.
+
+    Returns True when the input produced errors, so the caller can set the exit
+    status after every input has been processed rather than aborting mid-run.
+    """
+    check_only = getattr(args, 'check', False)
+
     if args.ast:
         if tree is not None:
-            print(tree.toStringTree(recog=parser_obj))
-        elif error_collector and error_collector.has_errors():
+            if not check_only:
+                print(tree.toStringTree(recog=parser_obj))
+        elif error_collector and error_collector.has_errors() and not check_only:
             print("Parse tree not available due to syntax errors.")
     else:
         if tree is not None:
@@ -262,7 +269,7 @@ def generate_output(
                     result = visitor.flatten(tree)
                 else:
                     result = visitor.visit(tree)
-                if result:
+                if result and not check_only:
                     print("\n".join(result))
             except Exception as e:
                 if error_collector:
@@ -278,8 +285,8 @@ def generate_output(
 
     if error_collector and (error_collector.has_errors() or error_collector.has_warnings()):
         print(error_collector.get_error_summary(), file=sys.stderr)
-        if error_collector.has_errors() and not args.ast and tree is None:
-            sys.exit(1)
+
+    return bool(error_collector and error_collector.has_errors())
 
 
 def run_main(
@@ -341,6 +348,13 @@ def run_main(
             "'markdown' emits a rendered report suitable for PR comments and chat. "
             "Columns are always 0-based."))
 
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "Validate only: run the full front-end and report diagnostics, but write no output. "
+            "Exits non-zero if any input has errors. Intended as a CI gate."))
+
     if add_args is not None:
         add_args(parser, output_group)
 
@@ -363,10 +377,15 @@ def run_main(
                 emit_fatal_error(args.error_format, e)
         tree, parser_obj, error_collector = create_parse_tree(
             content, filename, lexer_class, parser_class, error_prefix, not args.stop_on_error, args.max_errors, args.error_format)
-        generate_output(tree, parser_obj, visitor_class, filename, args, error_collector, extra_kwargs)
+        if generate_output(tree, parser_obj, visitor_class, filename, args, error_collector, extra_kwargs):
+            sys.exit(1)
         return
 
     if any(':' in f for f in args.files):
+        if args.check:
+            emit_fatal_message(args.error_format, "Error: --check produces no output; drop the 'input:output' form.")
+
+        failed = False
         for pair in args.files:
             if ':' not in pair:
                 emit_fatal_message(
@@ -398,14 +417,15 @@ def run_main(
                     original_stdout = sys.stdout
                     try:
                         sys.stdout = output_file
-                        generate_output(tree, parser_obj, visitor_class, filename, args, error_collector, extra_kwargs)
+                        failed |= generate_output(tree, parser_obj, visitor_class, filename, args, error_collector, extra_kwargs)
                     finally:
                         sys.stdout = original_stdout
             except Exception as e:
                 emit_fatal_message(args.error_format, f"Error writing to '{output_path}': {e}", filename=output_path)
     else:
+        failed = False
         for i, input_path in enumerate(args.files):
-            if i > 0:
+            if i > 0 and not args.check:
                 print("# ---")
 
             try:
@@ -426,4 +446,7 @@ def run_main(
                 content, filename, lexer_class, parser_class, error_prefix, not args.stop_on_error, args.max_errors,
                 args.error_format)
 
-            generate_output(tree, parser_obj, visitor_class, filename, args, error_collector, extra_kwargs)
+            failed |= generate_output(tree, parser_obj, visitor_class, filename, args, error_collector, extra_kwargs)
+
+    if failed:
+        sys.exit(1)
