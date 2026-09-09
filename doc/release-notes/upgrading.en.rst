@@ -486,6 +486,10 @@ The following features have been changed in this version of ATS.
   * Propagate socket options specified in :ts:cv:`proxy.config.net.sock_option_flag_in` to newly accepted connections
   * HostDB internals were restructured, this should (externally) be backwards compatible.
     In any case you can check :ref:`developer-doc-hostdb` for more details.
+  * Certificate name verification no longer falls back to the Common Name once the certificate presents a
+    ``dNSName`` or ``iPAddress`` subject alternative name, per :rfc:`9525`. Origin certificates that only
+    matched via their Common Name are now rejected under ``verify_server_properties`` of ``NAME`` or ``ALL``,
+    with a ``not in certificate`` warning in :file:`diags.log`. See :file:`sni.yaml`.
 
 API Changes
 -----------

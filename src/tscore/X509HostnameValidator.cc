@@ -222,11 +222,11 @@ validate_hostname(X509 *x, std::string_view hostname, bool is_ip, char **peernam
   GENERAL_NAMES *gens = nullptr;
   int            i;
   int            alt_type;
-  bool           retval = false;
-  ;
-  equal_fn    equal;
-  auto const *hostname_data = reinterpret_cast<const unsigned char *>(hostname.data());
-  size_t      hostname_len  = hostname.length();
+  bool           retval         = false;
+  bool           found_alt_name = false;
+  equal_fn       equal;
+  auto const    *hostname_data = reinterpret_cast<const unsigned char *>(hostname.data());
+  size_t         hostname_len  = hostname.length();
 
   if (hostname.empty()) {
     return false;
@@ -249,6 +249,12 @@ validate_hostname(X509 *x, std::string_view hostname, bool is_ip, char **peernam
       ASN1_STRING  *cstr;
       gen = sk_GENERAL_NAME_value(gens, i);
 
+      if (gen->type != GEN_DNS && gen->type != GEN_IPADD) {
+        continue;
+      }
+      // Any dNSName or iPAddress binds the identity, even one the requested type cannot compare against.
+      found_alt_name = true;
+
       if (is_ip && gen->type == GEN_IPADD) {
         cstr = gen->d.iPAddress;
       } else if (!is_ip && gen->type == GEN_DNS) {
@@ -266,12 +272,17 @@ validate_hostname(X509 *x, std::string_view hostname, bool is_ip, char **peernam
     if (retval) {
       return retval;
     }
+    // RFC 9525: a presented dNSName or iPAddress binds the identity -- no CN fallback.
+    if (found_alt_name) {
+      return false;
+    }
   }
-  // No SAN match -- check the subject
-  i          = -1;
+  // No SAN to bind the identity -- check the subject
   auto *name = X509_get_subject_name(x);
 
-  while ((i = X509_NAME_get_index_by_NID(name, NID_commonName, i)) >= 0) {
+  // Only the first Common Name is examined; a subject with more is not a shape worth honoring.
+  i = X509_NAME_get_index_by_NID(name, NID_commonName, -1);
+  if (i >= 0) {
     const ASN1_STRING *str;
     int                astrlen;
     unsigned char     *astr;
@@ -280,6 +291,7 @@ validate_hostname(X509 *x, std::string_view hostname, bool is_ip, char **peernam
     astrlen = ASN1_STRING_to_UTF8(&astr, str);
 
     if (astrlen < 0) {
+      // An undecodable CN cannot be shown to match the requested name.
       return false;
     }
     retval = equal(astr, astrlen, hostname_data, hostname_len);

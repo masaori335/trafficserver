@@ -197,6 +197,20 @@ if(BUILD_TESTING)
   endif()
 
   add_catch2_test(NAME test_tscore COMMAND $<TARGET_FILE:test_tscore>)
+
+  # Separate target because this test provides its own main().
+  add_executable(test_X509HostnameValidator unit_tests/test_X509HostnameValidator.cc)
+  target_link_libraries(
+    test_X509HostnameValidator
+    PRIVATE libswoc::libswoc
+            ts::tscore
+            ts::tsutil
+            OpenSSL::Crypto
+            OpenSSL::SSL
+            Catch2::Catch2
+            inkevent
+  )
+  add_catch2_test(NAME test_X509HostnameValidator COMMAND $<TARGET_FILE:test_X509HostnameValidator>)
 endif()
 
 clang_tidy_check(tscore)

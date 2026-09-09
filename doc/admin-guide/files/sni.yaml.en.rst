@@ -424,6 +424,13 @@ In addition ``verify_server_properties`` specifies what |TS| will check when per
 :code:`NAME`
   Verify that the SNI is in the origin certificate.
 
+  The subject alternative name (SAN) extension is authoritative: if the origin certificate presents any
+  ``dNSName`` or ``iPAddress`` SAN, the SNI must match one of them and the Common Name is not consulted.
+  The Common Name is only used for a certificate that presents no such SAN. A certificate whose SNI match
+  comes solely from its Common Name is therefore rejected, and logs ``SNI (%s) not in certificate`` to
+  :file:`diags.log`. Note that |TS| compares the SNI as a name, so an origin certificate must carry a
+  ``dNSName`` SAN even when the SNI is an IP address literal.
+
 :code:`ALL`
   Verify both the signature and the SNI in the origin certificate.
 
