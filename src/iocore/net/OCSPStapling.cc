@@ -45,11 +45,6 @@
 // Macros for ASN1 and the code in TS_OCSP_* functions were borrowed from OpenSSL 3.1.0 (a92271e03a8d0dee507b6f1e7f49512568b2c7ad),
 // and were modified to make them compilable with BoringSSL and C++ compiler.
 
-// Maximum OCSP stapling response size.
-// This should be the response for a single certificate and will typically include the responder certificate chain,
-// so 10K should be more than enough.
-#define MAX_STAPLING_DER 10240
-
 // maximum length allowed for the encoded OCSP GET request; per RFC 6960, Appendix A, the encoded request must be less than 255
 // bytes
 #define MAX_OCSP_GET_ENCODED_LENGTH 255 // maximum of 254 bytes + \0
@@ -835,22 +830,26 @@ end:
 static bool
 stapling_cache_response(TS_OCSP_RESPONSE *rsp, certinfo *cinf)
 {
-  unsigned char  resp_der[MAX_STAPLING_DER];
-  unsigned char *p;
-  unsigned int   resp_derlen;
+  unsigned char resp_der[MAX_STAPLING_DER];
 
-  p           = resp_der;
-  resp_derlen = i2d_TS_OCSP_RESPONSE(rsp, &p);
-
-  if (resp_derlen == 0) {
-    Error("stapling_cache_response: cannot decode OCSP response for %s", cinf->certname);
+  int len = i2d_TS_OCSP_RESPONSE(rsp, nullptr);
+  if (len <= 0) {
+    Error("stapling_cache_response: cannot encode OCSP response for %s", cinf->certname);
     return false;
   }
 
-  if (resp_derlen > MAX_STAPLING_DER) {
-    Error("stapling_cache_response: OCSP response too big (%u bytes) for %s", resp_derlen, cinf->certname);
+  if (len > MAX_STAPLING_DER) {
+    Error("stapling_cache_response: OCSP response too big (%d bytes) for %s", len, cinf->certname);
     return false;
   }
+
+  unsigned char *p       = resp_der;
+  int            enc_len = i2d_TS_OCSP_RESPONSE(rsp, &p);
+  if (enc_len != len) {
+    Error("stapling_cache_response: OCSP response encode length mismatch for %s", cinf->certname);
+    return false;
+  }
+  unsigned int resp_derlen = static_cast<unsigned int>(enc_len);
 
   {
     std::lock_guard<ts::bravo::shared_mutex> lock(cinf->resp_mutex);

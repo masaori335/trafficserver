@@ -23,6 +23,11 @@
 
 #include <openssl/ssl.h>
 
+// Maximum OCSP stapling response size.
+// This should be the response for a single certificate and will typically include the responder certificate chain,
+// so 10K should be more than enough.
+constexpr int MAX_STAPLING_DER = 10240;
+
 void ssl_stapling_ex_init();
 bool ssl_stapling_init_cert(SSL_CTX *ctx, X509 *cert, const char *certname, const char *rsp_file);
 
