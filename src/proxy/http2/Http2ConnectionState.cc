@@ -211,7 +211,7 @@ Http2ConnectionState::rcv_data_frame(const Http2Frame &frame)
 
   // Check whether Window Size is acceptable
   // compare to 0 because we already decreased the connection rwnd with payload_length
-  if (!this->_local_rwnd_is_shrinking && this->get_local_rwnd() < 0) {
+  if (this->get_local_rwnd() < 0) {
     return Http2Error(Http2ErrorClass::HTTP2_ERROR_CLASS_CONNECTION, Http2ErrorCode::HTTP2_ERROR_FLOW_CONTROL_ERROR,
                       "recv data this->local_rwnd < payload_length");
   }
@@ -1483,11 +1483,9 @@ Http2ConnectionState::init(Http2CommonSession *ssn)
     // There is no HTTP/2 specified way to shrink the connection window size
     // other than to receive data and not send WINDOW_UPDATE frames for a
     // while.
-    this->_local_rwnd              = HTTP2_INITIAL_WINDOW_SIZE;
-    this->_local_rwnd_is_shrinking = true;
+    this->_local_rwnd = HTTP2_INITIAL_WINDOW_SIZE;
   } else {
-    this->_local_rwnd              = configured_session_window;
-    this->_local_rwnd_is_shrinking = false;
+    this->_local_rwnd = configured_session_window;
   }
   Http2ConDebug(session, "initial _local_rwnd: %zd", this->_local_rwnd);
 
@@ -2175,7 +2173,6 @@ Http2ConnectionState::restart_receiving(Http2Stream *stream)
     Http2WindowSize diff_size = configured_session_window - this->get_local_rwnd();
     if (diff_size > 0) {
       this->increment_local_rwnd(diff_size);
-      this->_local_rwnd_is_shrinking = false;
       this->send_window_update_frame(HTTP2_CONNECTION_CONTROL_STREAM, diff_size);
     }
   }

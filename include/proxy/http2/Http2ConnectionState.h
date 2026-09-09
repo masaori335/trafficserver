@@ -372,18 +372,6 @@ private:
    */
   ssize_t _local_rwnd = 0;
 
-  /** Whether the client-side session window is in a shrinking state before we
-   * send the first WINDOW_UPDATE frame.
-   *
-   * Unlike HTTP/2 streams, the HTTP/2 session window has no way to initialize
-   * it to a value lower than 65,535. If the initial value is lower than
-   * 65,535, the session window will have to shrink while we receive DATA
-   * frames without incrementing the window via WINDOW_UPDATE frames. Once the
-   * window gets to the desired size, we start maintaining the window via
-   * WINDOW_UPDATE frames.
-   */
-  bool _local_rwnd_is_shrinking = false;
-
   std::array<size_t, 5> _recent_rwnd_increment       = {SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX};
   int                   _recent_rwnd_increment_index = 0;
 
