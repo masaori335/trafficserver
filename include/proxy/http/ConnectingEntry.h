@@ -46,12 +46,19 @@ public:
                                                 IOBufferReader *netvc_reader);
 
 public:
-  std::string        sni;
-  std::string        cert_name;
-  IpEndpoint         ipaddr;
-  std::string        hostname;
+  std::string sni;
+  std::string cert_name;
+  IpEndpoint  ipaddr;
+  std::string hostname;
+  /** The state machines waiting on this connection attempt.
+   *
+   * Every member is a live HttpSM for as long as it is in the set: an SM
+   * removes itself via HttpSM::cancel_pending_server_connection() before it
+   * is destroyed. Fetch per-transaction state (the UA transaction, txn_conf,
+   * timeouts) from a member at the point of use. Never cache such state in
+   * this entry, because the entry outlives any individual queued SM.
+   */
   std::set<HttpSM *> connect_sms;
-  ProxyTransaction  *ua_txn              = nullptr;
   NetVConnection    *netvc               = nullptr;
   bool               is_no_plugin_tunnel = false;
 

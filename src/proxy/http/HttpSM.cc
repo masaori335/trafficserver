@@ -6136,7 +6136,6 @@ HttpSM::do_http_server_open(bool raw, bool only_direct)
       SMDbg(dbg_ctl_http_ss, "Queue multiplexed request");
       new_entry          = new ConnectingEntry();
       new_entry->mutex   = this->mutex;
-      new_entry->ua_txn  = _ua.get_txn();
       new_entry->handler = (ContinuationHandler)&ConnectingEntry::state_http_server_open;
       new_entry->ipaddr.assign(&t_state.current.server->dst_addr.sa);
       new_entry->hostname            = t_state.current.server->name;

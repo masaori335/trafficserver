@@ -70,6 +70,12 @@ ConnectingEntry::state_http_server_open(int event, void *data)
     _netvc_read_buffer = new_MIOBuffer(HTTP_SERVER_RESP_HDR_BUFFER_INDEX);
     _netvc_reader      = _netvc_read_buffer->alloc_reader();
     ink_release_assert(!connect_sms.empty());
+    // connect_sms is ordered by pointer value, so this is an arbitrary queued
+    // SM rather than the first arrival. It may differ from the SM that later
+    // creates the server session in the WRITE_READY handler; the set can
+    // change between the two callbacks, so there is no single prime SM to
+    // share. Any queued SM's transaction configuration is equally valid for
+    // a shared connection.
     HttpSM *prime_connect_sm = *(connect_sms.begin());
 
     // Perform a zero-byte read to ensure this function can be called back for
@@ -77,8 +83,13 @@ ConnectingEntry::state_http_server_open(int event, void *data)
     netvc->do_io_read(this, 0, _netvc_reader->mbuf);
     int64_t nbytes = 1;
     if (is_no_plugin_tunnel && prime_connect_sm->t_state.txn_conf->proxy_protocol_out >= 0) {
-      nbytes = do_outbound_proxy_protocol(_netvc_reader->mbuf, vc, ua_txn->get_netvc(),
-                                          prime_connect_sm->t_state.txn_conf->proxy_protocol_out);
+      if (auto *ua_txn = prime_connect_sm->get_ua_txn(); ua_txn != nullptr && ua_txn->get_netvc() != nullptr) {
+        nbytes = do_outbound_proxy_protocol(_netvc_reader->mbuf, vc, ua_txn->get_netvc(),
+                                            prime_connect_sm->t_state.txn_conf->proxy_protocol_out);
+      } else {
+        Warning("Skipping outbound PROXY protocol to %s: the client connection for the queued transaction is gone",
+                hostname.c_str());
+      }
     }
     netvc->do_io_write(this, nbytes, _netvc_reader);
     netvc->set_inactivity_timeout(prime_connect_sm->get_server_connect_timeout());
