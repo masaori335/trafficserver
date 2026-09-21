@@ -231,7 +231,7 @@ net_accept(NetAccept *na, void *ep, bool blockable)
       if (res == -EAGAIN || res == -ECONNABORTED || res == -EPIPE) {
         goto Ldone;
       }
-      if (na->server.sock.is_ok() && !na->action_->cancelled) {
+      if (na->action_->is_listening()) {
         if (!blockable) {
           na->action_->continuation->handleEvent(EVENT_ERROR, reinterpret_cast<void *>(res));
         } else {
@@ -668,7 +668,7 @@ NetAccept::do_blocking_accept(EThread *t)
       case -1:
         [[fallthrough]];
       default:
-        if (!action_->cancelled) {
+        if (action_->is_listening()) {
           SCOPED_MUTEX_LOCK(lock, action_->mutex ? action_->mutex : t->mutex, t);
           action_->continuation->handleEvent(EVENT_ERROR, reinterpret_cast<void *>(res));
           Warning("accept thread received fatal error: errno = %d", errno);
