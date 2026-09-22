@@ -45,6 +45,10 @@ public:
    * This will only correctly handle the *first* range that is
    * parsed via TSMimeHdrFieldValueStringGet with index '0'.
    * Range representing last N bytes will be coded as (-N, 0)
+   * @a rangestr must be NUL-terminated within 1024 bytes, or else point to
+   * at least 1024 readable bytes. The longest accepted value is 1023
+   * characters, which occupies 1024 bytes with its terminator. A longer
+   * value, or one with no terminator in the first 1024 bytes, is rejected.
    */
   bool fromStringClosed(char const *const rangestr);
 

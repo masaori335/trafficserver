@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include "Range.h"
+
 #include "ts/ts.h"
 
 /**
@@ -39,7 +41,15 @@ struct ContentRange {
   }
 
   /** parsed from a Content-Range field
-   * Must be null terminated.
+   * Must be null terminated. Expects "bytes", one or more blanks, then
+   * "<first>-<last>/<length>" with optional trailing blanks. All three are
+   * non-negative integers with first <= last < length <= Range::maxval.
+   * At most 1023 characters are accepted before the terminator; a longer
+   * value rejects.
+   * Anything outside that shape, or any value out of those bounds,
+   * rejects rather than clamping: unlike a request Range, a
+   * response we cannot represent exactly is a response we cannot safely
+   * slice against.
    */
   bool fromStringClosed(char const *const valstr);
 
