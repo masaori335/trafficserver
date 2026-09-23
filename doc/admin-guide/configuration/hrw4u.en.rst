@@ -115,6 +115,27 @@ This is particularly useful for build systems or when processing many configurat
 files at once. All files are processed in a single invocation, improving performance
 for large batches of files.
 
+Exit Status
+^^^^^^^^^^^
+
+====== ==========================================================================
+Status Meaning
+====== ==========================================================================
+0      Every input compiled. Warnings may still have been reported.
+1      At least one input had an error, or the run aborted on a fatal problem:
+       a missing or unreadable input, an unwritable output, or ``input:output``
+       pairs mixed with plain file arguments.
+2      The command line was rejected before any input was read: an unknown
+       option, an invalid option value, or conflicting output modes. This comes
+       from ``argparse`` and follows Python's usage-error convention.
+====== ==========================================================================
+
+A compile error does not stop the run: every input is still processed before
+the status is decided, so one bad file in a multi-file or bulk run does not
+skip the files after it. The fatal problems above still abort immediately. A
+failing compile writes its partial output; the exit status is what marks that
+output untrustworthy.
+
 Reverse Tool (u4wrh)
 ^^^^^^^^^^^^^^^^^^^^
 
@@ -697,6 +718,7 @@ Schema for editor validation and autocomplete is provided at
        conditions:  [ ... ]   # condition keys, e.g. geo.
        operators:   [ ... ]   # operator keys, e.g. inbound.conn.dscp
        language:    [ ... ]   # break, variables, in, else, elif
+       modifiers:   [ ... ]   # condition modifiers, e.g. NOT, NOCASE
      warn:
        functions:   [ ... ]   # same categories as deny
        conditions:  [ ... ]
@@ -710,9 +732,9 @@ Denied Sections
 ---------------
 
 The ``sections`` list accepts any of the HRW4U section names listed in the
-`Sections`_ table, plus ``VARS`` to deny the variable declaration block.
-A denied section causes the entire block to be rejected; the body is not
-validated.
+`Sections`_ table, plus ``VARS`` and ``SESSION_VARS`` to deny the variable
+declaration blocks. A denied section causes the entire block to be rejected;
+the body is not validated.
 
 Functions
 ---------
@@ -775,11 +797,26 @@ The ``language`` list accepts a fixed set of constructs:
 Construct        What it controls
 ================ ===================================================
 ``break``        The ``break;`` statement (early section exit)
-``variables``    The entire ``VARS`` section and all variable usage
+``variables``    The entire ``VARS`` and ``SESSION_VARS`` section and all variable usage
 ``else``         The ``else { ... }`` branch of conditionals
 ``elif``         The ``elif ... { ... }`` branch of conditionals
-``in``           The ``in [...]`` and ``!in [...]`` set membership operators
+``in``           Set membership: the ``[...]`` value form and
+                 the ``{...}`` IP range form, negated or not
 ================ ===================================================
+
+Condition Modifiers
+-------------------
+
+The ``modifiers`` list accepts ``AND``, ``OR``, ``NOT``, ``NOCASE``, ``PRE``,
+``SUF``, ``EXT``, ``MID``, ``I``, ``L`` and ``QSA``. Entries match the modifier
+however it is written, not only the explicit ``with`` form: ``AND`` also covers
+``&&``, ``OR`` also covers ``||``, and ``NOT`` also covers ``!``, ``!=``,
+``!~`` and ``!in``.
+
+Negation that the compiler introduces on its own is not matched. A bare header
+test such as ``if inbound.req.X-Foo`` compiles to
+``cond %{CLIENT-HEADER:X-Foo} ="" [NOT]``, and denying ``NOT`` does not reject
+it — the policy governs what the source writes.
 
 Output
 ------
