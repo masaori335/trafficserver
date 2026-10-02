@@ -109,7 +109,7 @@ cp apple/CMakeUserPresets.json .
 
 # Take the libc++ floor from the toolchain installed in this build image, so it can't
 # drift from what actually compiled the RPM.
-LLVM_VERSION=$(rpm -q --queryformat '%{VERSION}' bazinga-llvm-libs)
+LLVM_VERSION=$(rpm -q --queryformat '%{VERSION}-%{RELEASE}' bazinga-llvm-libs)
 
 if [ $BUILD -eq 1 ]; then
   export LIBURING_VERSION
