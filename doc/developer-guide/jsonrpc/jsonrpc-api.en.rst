@@ -103,6 +103,38 @@ Field                  Type          Description
 
    If ``record_name`` and ``record_name_regex`` are both provided, the server will not use any of them. Only one should be provided.
 
+.. note::
+
+   Matching a ``record_name_regex`` against a record name is capped at a number of backtracking
+   steps, because the expression is run against every registered name and the handler is not
+   restricted. A name the match stops on before reaching a verdict, whether at that cap or for
+   another reason, yields no verdict; the record is then omitted from the result and the lookup is
+   a partial one.
+
+   A partial lookup still succeeds: the records that were resolved are returned in the usual
+   ``recordList``, and an entry is added to ``errorList`` reporting that the list is incomplete,
+   with code ``LOOKUP_INCOMPLETE`` (see :ref:`RecordErrorObject-Enum`). A client that ignores
+   ``errorList`` cannot tell a truncated result from one where nothing matched.
+
+   The response says only that the list is incomplete, not by how much. The count of undecided
+   names goes to :file:`diags.log`, and that line is throttled per call site by
+   :ts:cv:`proxy.config.log.throttling_interval_msec`, so a second truncated lookup inside that
+   interval is reported to its own caller but contributes no count to the log.
+
+   What is reported is narrower than "the lookup was expensive", and the difference matters when
+   reading ``errorList``. The cap counts backtracking steps, and the report is driven by the error
+   codes that signal a match stopped before reaching a verdict. The cost of a step is a
+   property of the expression, so an expression can consume a great deal of work while every name
+   still reaches an ordinary verdict; such a lookup is complete and correct, and reports nothing.
+   A non-zero ``errorList`` therefore means "known partial", but an empty one does not mean
+   "inexpensive".
+
+   No list of safe constructs is offered here, because none would be accurate. Nested
+   quantification and recursion, such as ``^([a-z.]+)+[~=]`` or ``(?R)``, are shapes the engine
+   gives up on for the short names a |TS| build registers, but they are not the only expensive ones,
+   and anchoring does not exempt an expression. Bounding the work a lookup may cost, as distinct from
+   the steps one match may take, is tracked separately.
+
 
 Example:
 
@@ -332,6 +364,22 @@ The following errors could be generated when requesting record from the server.
    .. enumerator:: INVALID_INCOMING_DATA = 2008
 
       This could be caused by an invalid value in the incoming request which may cause the parser to fail.
+
+   .. enumerator:: RECORD_READ_ONLY = 2009
+
+      The record is read-only and cannot be modified through the management interface.
+
+   .. enumerator:: RECORD_NO_ACCESS = 2010
+
+      The record is not accessible through the management interface.
+
+   .. enumerator:: LOOKUP_INCOMPLETE = 2011
+
+      Matching the supplied ``record_name_regex`` was abandoned for some record names before a
+      verdict was reached, so the returned ``recordList`` is a partial one. The step limit is the
+      usual reason, but not the only one: a recursive expression exhausts the regex engine's stack
+      first, and the outcome is the same. Unlike every other code here, this does not mean the
+      lookup failed: the records that were resolved are returned alongside it.
 
 
 .. _RecordRequestObject:

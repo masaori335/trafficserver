@@ -227,7 +227,13 @@ lookup_records(std::string_view const & /* id ATS_UNUSED */, YAML::Node const &p
       ei.recordName = recordElement.recName;
 
       errorList.push_back(ei);
-      continue;
+
+      // LOOKUP_INCOMPLETE reports a partial result, not a failed one, so the records that were
+      // resolved still belong in the response. Every other error means recordNode holds nothing
+      // worth returning.
+      if (error != err::RecordError::LOOKUP_INCOMPLETE) {
+        continue;
+      }
     }
 
     // Regex lookup, will get us back a sequence, of nodes. In this case we will add them one by 1 so we get a list of objects and

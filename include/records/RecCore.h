@@ -264,7 +264,27 @@ RecEstablishStaticConfigByte(RecByte &rec_byte, const char *name, bool lock = tr
 using RecLookupCallback = void (*)(const RecRecord *, void *);
 
 RecErrT RecLookupRecord(const char *name, RecLookupCallback callback, void *data, bool lock = true);
-RecErrT RecLookupMatchingRecords(unsigned rec_type, const char *match, RecLookupCallback callback, void *data, bool lock = true);
+
+/** Invoke @a callback for every record of @a rec_type whose name matches @a match.
+ *
+ * Matching is capped, so a pattern that exhausts a regex-engine resource yields no verdict for that
+ * name and the record is omitted from the callback. Such a lookup still returns @c REC_ERR_OKAY
+ * with the records it did resolve; pass @a indeterminate to learn that the result is a partial one.
+ *
+ * @a indeterminate counts the attempts on which the engine reported a resource failure. It is not
+ * a count of everything a caller might consider incomplete, and the cap behind it bounds step
+ * count rather than work: a pattern can be arbitrarily expensive and still reach an ordinary
+ * verdict on every name, in which case this reports zero and the result is complete and correct.
+ * Treat a non-zero value as "known partial", not its absence as "known whole".
+ *
+ * @param indeterminate If not @c nullptr, set to the number of match attempts the engine ended
+ *        with a resource failure, which is zero when no such failure occurred. Meaningful only
+ *        when the return is @c REC_ERR_OKAY; it is also zeroed when the pattern fails to compile,
+ *        where no walk happened at all. This counts attempts rather than distinct names, so a name
+ *        present in both the published and the hidden metric store counts twice.
+ */
+RecErrT RecLookupMatchingRecords(unsigned rec_type, const char *match, RecLookupCallback callback, void *data, bool lock = true,
+                                 unsigned *indeterminate = nullptr);
 
 RecErrT RecGetRecordType(const char *name, RecT *rec_type, bool lock = true);
 RecErrT RecGetRecordDataType(const char *name, RecDataT *data_type, bool lock = true);

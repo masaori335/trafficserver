@@ -67,6 +67,9 @@ RPCRecordErrorCategory::message(int ev) const
     return {"Record is read-only and cannot be modified through the management interface."};
   case rpc::handlers::errors::RecordError::RECORD_NO_ACCESS:
     return {"Record is not accessible through the management interface."};
+  case rpc::handlers::errors::RecordError::LOOKUP_INCOMPLETE:
+    return {"Matching the pattern was abandoned for some record names before a verdict was "
+            "reached; the returned list is incomplete."};
   default:
     return "Record error error " + std::to_string(ev);
   }
@@ -154,13 +157,16 @@ void static get_record_regex_impl(std::string const &regex, unsigned recType, Co
 
     try {
       recordYaml = *record;
+      // Appending is inside the try because when librecords reaches this callback from its record
+      // table walk it holds that record's lock and releases it without RAII, so an exception
+      // escaping here would leak the lock. The three metric walks hold no lock, so this matters
+      // only for the config case. It does not make the callback exception-safe in general; the
+      // durable fix is a scope guard in RecCore.cc, which would also cover RecLookupRecord.
+      ctx.yaml.push_back(recordYaml);
     } catch (std::exception const &ex) {
       ctx.ec = rpc::handlers::errors::RecordError::GENERAL_ERROR;
       return;
     }
-
-    // we have to append the records to the context one.
-    ctx.yaml.push_back(recordYaml);
   };
 
   ctx.checkCb = [recType](RecT rec_type, std::error_code &ec) {
@@ -171,7 +177,28 @@ void static get_record_regex_impl(std::string const &regex, unsigned recType, Co
     return true;
   };
 
-  const auto ret = RecLookupMatchingRecords(recType, regex.c_str(), yamlConverter, &ctx);
+  unsigned   indeterminate = 0;
+  const auto ret           = RecLookupMatchingRecords(recType, regex.c_str(), yamlConverter, &ctx, true, &indeterminate);
+
+  // Takes precedence over the checks below, because ctx.ec holds one code per element and both
+  // conditions can be true at once: a walk that matched a record of an unwanted type sets ctx.ec
+  // while other names in the same walk were left undecided. Claiming the list is complete because a
+  // different error happened first would be the silent truncation this reporting exists to prevent.
+  //
+  // ctx.ec carries one code, so the displaced one would otherwise reach no channel at all. It is
+  // logged rather than dropped: the caller learns the list is short, and the operator learns why a
+  // record was refused. The log line is throttled per call site, so within one interval the first
+  // such cause is what reaches the log, not every one.
+  if (indeterminate > 0) {
+    if (ctx.ec) {
+      SiteThrottledWarning("record lookup left %u name(s) undecided and also refused a record (%s); reporting the "
+                           "incomplete list, which takes precedence",
+                           indeterminate, ctx.ec.message().c_str());
+    }
+    ctx.ec = rpc::handlers::errors::RecordError::LOOKUP_INCOMPLETE;
+    return;
+  }
+
   // if the passed regex didn't match, it will not report any error. We will only get errors when converting
   // the record into yaml(so far).
   if (ctx.ec) {

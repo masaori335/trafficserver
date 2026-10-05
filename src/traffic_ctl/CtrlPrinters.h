@@ -114,7 +114,21 @@ public:
   Options::FormatFlags get_format() const;
   bool                 print_rpc_message() const;
   bool                 is_json_format() const;
-  void                 disable_json_format();
+
+  /** Whether this printer's result carries per-record errors.
+   *
+   * The JSON output path returns before the derived printer runs, so it has to decide the exit
+   * status itself. Only the record lookups put per-record failures inside an otherwise successful
+   * result, so only they should drive the status from an errorList; other handlers reuse the same
+   * field name for things their text path does not treat as a failure.
+   *
+   * The invariant: every printer whose @c write_output calls @c print_record_error_list must
+   * override this to return @c true, because that helper sets the exit status on the text path and
+   * the two paths must agree. Today that is @c RecordPrinter, @c MetricRecordPrinter,
+   * @c DiffConfigPrinter (which inherits it) and @c RecordDescribePrinter.
+   */
+  virtual bool reports_record_errors() const;
+  void         disable_json_format();
 
   bool is_records_format() const;
   bool should_include_default() const;
@@ -200,6 +214,8 @@ class RecordPrinter : public BasePrinter
   void write_output(YAML::Node const &result) override;
 
 public:
+  bool reports_record_errors() const override;
+
   RecordPrinter(Options opt) : BasePrinter(opt) {}
 
 protected:
@@ -210,6 +226,8 @@ class MetricRecordPrinter : public BasePrinter
   void write_output(YAML::Node const &result) override;
 
 public:
+  bool reports_record_errors() const override;
+
   MetricRecordPrinter(BasePrinter::Options opt) : BasePrinter(opt) {}
 };
 //------------------------------------------------------------------------------------------------------------------------------------
@@ -274,6 +292,8 @@ class RecordDescribePrinter : public BasePrinter
   void write_output(YAML::Node const &result) override;
 
 public:
+  bool reports_record_errors() const override;
+
   RecordDescribePrinter(BasePrinter::Options opt) : BasePrinter(opt) {}
 };
 //------------------------------------------------------------------------------------------------------------------------------------

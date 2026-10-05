@@ -954,10 +954,10 @@ struct match_context_test_t {
 };
 
 std::vector<match_context_test_t> match_context_test_data{
-  {{"abc"},                          {"abc"},          true,  1  },
-  {{"abc"},                          {"a"},            true,  -1 },
-  {{R"(^(\d{3})-(\d{3})-(\d{4})$)"}, {"123-456-7890"}, true,  -47},
-  {{"(."},                           {"a"},            false, -51},
+  {{"abc"},                          {"abc"},          true,  1                  },
+  {{"abc"},                          {"a"},            true,  RE_ERROR_NOMATCH   },
+  {{R"(^(\d{3})-(\d{3})-(\d{4})$)"}, {"123-456-7890"}, true,  RE_ERROR_MATCHLIMIT},
+  {{"(."},                           {"a"},            false, RE_ERROR_NULL      },
 };
 
 TEST_CASE("RegexMatchContext", "[libts][Regex][RegexMatchContext]")
@@ -1644,5 +1644,120 @@ TEST_CASE("Regex copies answer the same as their original", "[libts][Regex][copy
     RegexMatches original_ordinary;
     RegexMatches copy_ordinary;
     CHECK(original.exec(ordinary, original_ordinary) == copy.exec(ordinary, copy_ordinary));
+  }
+}
+
+TEST_CASE("Regex RE_NEVER_UTF refuses an inline (*UTF) only where it is asked for", "[libts][Regex]")
+{
+  // Both halves matter. The first is what the records lookup wants: a pattern from an
+  // unauthenticated caller cannot switch the engine into UTF mode. The second is why the flag is
+  // opt-in rather than applied to every compile -- (*UTF) is documented for operator-written
+  // patterns in admin-guide/configuration/regex-best-practices, and making it a compile error
+  // everywhere would break a configuration that is using it today.
+  std::string error;
+  int         offset = 0;
+
+  // The message and offset are asserted, not merely the failure: "error is non-empty" is satisfied
+  // by any rejection, including ones that have nothing to do with the flag.
+  Regex refused;
+  CHECK(refused.compile("(*UTF)proxy\\.config\\..*", error, offset, RE_CASE_INSENSITIVE | RE_UNANCHORED | RE_NEVER_UTF) == false);
+  CHECK(error == "using UTF is disabled by the application");
+  CHECK(offset == 6);
+
+  Regex allowed;
+  REQUIRE(allowed.compile("(*UTF)proxy\\.config\\..*", error, offset, RE_CASE_INSENSITIVE | RE_UNANCHORED) == true);
+
+  RegexMatches matches;
+  CHECK(allowed.exec("proxy.config.diags.debug.enabled", matches) > 0);
+
+  // The flag rejects the verb, not every pattern, so an ordinary one still compiles with it set.
+  Regex ordinary;
+  REQUIRE(ordinary.compile("proxy\\.config\\..*", error, offset, RE_CASE_INSENSITIVE | RE_UNANCHORED | RE_NEVER_UTF) == true);
+  CHECK(ordinary.exec("proxy.config.diags.debug.enabled", matches) > 0);
+}
+
+TEST_CASE("RegexMatchContext copies carry the cap they report", "[libts][Regex]")
+{
+  // The cap is recorded beside the pcre2 context rather than as a member of this class, so that
+  // sizeof(RegexMatchContext) stays at one pointer -- it is embedded by value in plugins that are
+  // already built. Copying therefore has to carry the recorded value across as well as the
+  // context, and both halves matter: match_limit() must report it, and the context the copy holds
+  // must actually have it installed.
+  //
+  // The pattern and subject are chosen to sit between the two bounds. Measured against PCRE2
+  // 10.47, two sequential ".*" proving no match over a 400 character subject costs about 70,000
+  // steps: past the 50,000 installed here, so a capped context abandons the match and reports
+  // RE_ERROR_MATCHLIMIT, and far short of PCRE2's compiled-in 10,000,000 default, so an uncapped
+  // context resolves the same subject to an ordinary NOMATCH. That difference is what makes these
+  // assertions discriminating -- with a pattern that exceeds both bounds every case returns -47
+  // and the test would pass on a copy carrying no cap at all.
+  Regex re;
+  REQUIRE(re.compile(R"(^.*.*[~=])"));
+
+  std::string const subject(400, 'x');
+
+  RegexMatchContext original;
+  original.set_match_limit(50000);
+  REQUIRE(original.match_limit() == 50000);
+
+  RegexMatches matches;
+  REQUIRE(re.exec(subject, matches, 0, &original) == RE_ERROR_MATCHLIMIT);
+
+  SECTION("a context with no cap installed reports zero and resolves the same subject")
+  {
+    RegexMatchContext uncapped;
+    CHECK(uncapped.match_limit() == 0);
+    CHECK(re.exec(subject, matches, 0, &uncapped) == RE_ERROR_NOMATCH);
+  }
+
+  SECTION("copy construction")
+  {
+    RegexMatchContext copy(original);
+    CHECK(copy.match_limit() == 50000);
+    CHECK(re.exec(subject, matches, 0, &copy) == RE_ERROR_MATCHLIMIT);
+    // A copy, not a handover: the source keeps its own context and cap.
+    CHECK(original.match_limit() == 50000);
+    CHECK(re.exec(subject, matches, 0, &original) == RE_ERROR_MATCHLIMIT);
+  }
+
+  SECTION("copy assignment over an object with its own cap")
+  {
+    RegexMatchContext other;
+    other.set_match_limit(1024);
+    REQUIRE(other.match_limit() == 1024);
+
+    other = original;
+    CHECK(other.match_limit() == 50000);
+    CHECK(re.exec(subject, matches, 0, &other) == RE_ERROR_MATCHLIMIT);
+  }
+
+  SECTION("assignment from an uncapped context clears the destination's cap")
+  {
+    // The source holds a context with no cap installed -- not a context-less object, which only
+    // arises if pcre2_match_context_create fails and is therefore not reachable from a test. So
+    // this covers the ordinary path, where the source's recorded zero is carried across; the
+    // context-less branch in the assignment operator is exercised only under allocation failure.
+    RegexMatchContext const uncapped;
+    RegexMatchContext       target;
+    target.set_match_limit(50000);
+    REQUIRE(target.match_limit() == 50000);
+
+    target = uncapped;
+    CHECK(target.match_limit() == 0);
+    CHECK(re.exec(subject, matches, 0, &target) == RE_ERROR_NOMATCH);
+  }
+
+  SECTION("self assignment keeps the cap")
+  {
+    // Assigned through a reference on purpose. Writing "original = original" is what this case
+    // means, but clang diagnoses literal self-assignment (-Wself-assign-overloaded) and this tree
+    // builds warnings as errors, so the indirection is what lets the case exist at all. It still
+    // reaches operator= with both sides the same object, which is the guard being tested: without
+    // it the copy would free the context it is about to read.
+    RegexMatchContext &alias = original;
+
+    original = alias;
+    CHECK(original.match_limit() == 50000);
+    CHECK(re.exec(subject, matches, 0, &original) == RE_ERROR_MATCHLIMIT);
   }
 }

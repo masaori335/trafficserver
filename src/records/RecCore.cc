@@ -41,8 +41,40 @@
 #include "tscore/Layout.h"
 #include "tsutil/ts_errata.h"
 #include "tsutil/Metrics.h"
+#include "tsutil/Regex.h"
 
 using ts::Metrics;
+
+namespace
+{
+// Cap on the backtracking steps one record name may cost during a regex lookup.
+//
+// The pattern comes from the admin_lookup_records RPC and is run against every record name, so a
+// pattern that backtracks without limit monopolizes the single-threaded RPC server. This cap ends
+// that particular shape: measured on a default build, which registers 576 config records, the
+// shapes in the test suite drop from seconds to milliseconds per lookup, and a concurrent trivial
+// lookup stops being blocked behind them. Those figures are one host's readings, and the metric
+// count on any instance is a runtime quantity; only the order of magnitude transfers.
+//
+// What this cap does NOT do is bound the work a lookup can cost. It counts steps, and the cost of
+// a step is set by the pattern, so a caller can stay inside the cap and still be expensive, and
+// can be expensive while every name reaches an ordinary verdict. Nothing below reports that case,
+// because the counting is keyed on the codes PCRE2 returns when a resource runs out. Bounding the
+// work itself needs a different mechanism and is tracked separately; do not read this constant, or
+// the reporting under it, as a general bound.
+//
+// For the shape it does cover: attacker cost grows linearly with the cap, while the longest name a
+// legitimate pattern can still resolve grows only as its square root, since proving no match costs
+// about L^2/2 steps for a backtracking run of length L. 50,000 resolves runs up to ~310
+// characters, 4.7x the 66 character longest name a default build registers.
+//
+// The 1750 still used by esi reaches only ~59 by the same model and so cannot resolve what ships.
+// It is not a precedent for a work budget in any case: per apache/trafficserver#13651 the PCRE2
+// conversion turned what had been a PCRE1 recursion-depth limit into a match-work limit, a
+// different quantity, and apache/trafficserver#13652 removed it from regex_remap for that reason,
+// leaving esi as its only remaining user.
+constexpr uint32_t REGEX_MATCH_LIMIT = 50000;
+} // namespace
 
 // This is needed to manage the size of the librecords record. It can't be static, because it needs to be modified
 // and used (read) from several binaries / modules.
@@ -574,19 +606,79 @@ RecLookupRecord(const char *name, void (*callback)(const RecRecord *, void *), v
 
 RecErrT
 RecLookupMatchingRecords(unsigned rec_type, const char *match, void (*callback)(const RecRecord *, void *), void *data,
-                         bool /* lock ATS_UNUSED */)
+                         bool /* lock ATS_UNUSED */, unsigned *indeterminate_out)
 {
   Regex regex;
 
-  if (!regex.compile(match, RE_CASE_INSENSITIVE | RE_UNANCHORED)) {
+  if (indeterminate_out) {
+    *indeterminate_out = 0;
+  }
+
+  std::string compile_error;
+  int         compile_offset = 0;
+
+  // RE_NEVER_UTF refuses a pattern that opens with (*UTF). In UTF mode pcre2 validates each subject
+  // as UTF-8 first, and a record name is a byte string that nothing guarantees is valid UTF-8: such
+  // a name returns PCRE2_ERROR_UTF8_ERR*, which the classification below counts as undecided, so
+  // one verb from the caller reports the whole lookup incomplete over names the pattern does not
+  // even match. The verb is refused only here, where the pattern is untrusted; elsewhere (*UTF) is
+  // a documented thing for an operator to write (doc/admin-guide/configuration/regex-best-practices).
+  //
+  // It is not a backtracking bound. Measured against PCRE2 10.47 a (*UTF) pattern JIT-compiles and
+  // stays on the JIT, hitting the same limits as the same pattern without it. (*NO_JIT) is the verb
+  // that moves a match to the interpreter, and pcre2 offers no way to refuse that one; it buys an
+  // attacker about 5x the CPU per name within the same step cap, which is the step-cost residual
+  // this cap does not close and the file comment below describes.
+  if (!regex.compile(match, compile_error, compile_offset, RE_CASE_INSENSITIVE | RE_UNANCHORED | RE_NEVER_UTF)) {
+    // The pattern itself is not echoed; the log should not carry unvalidated input. PCRE2's message
+    // and offset are its own, so they are safe to report and are the only way an operator learns
+    // which character was rejected.
+    SiteThrottledWarning("record lookup pattern failed to compile at offset %d: %s", compile_offset, compile_error.c_str());
     return REC_ERR_FAIL;
   }
+
+  RegexMatchContext match_context;
+  match_context.set_match_limit(REGEX_MATCH_LIMIT);
+  RegexMatches matches;
+
+  // A bounded match has three outcomes, not two. PCRE2 reports a match, the single code that means
+  // "this name definitively does not match", or one of several codes meaning it gave up without
+  // deciding. Only the middle one is a verdict, so classify by exclusion: anything else negative is
+  // counted and reported once per lookup rather than silently dropping records from the caller's
+  // results.
+  //
+  // Enumerating the expected code instead would be wrong, because which resource runs out first is
+  // a property of the pattern, not a constant. Ordinary catastrophic backtracking does exhaust the
+  // step count and report PCRE2_ERROR_MATCHLIMIT, but a recursive pattern exhausts the JIT stack
+  // first and reports PCRE2_ERROR_JIT_STACKLIMIT, or PCRE2_ERROR_RECURSELOOP where JIT is
+  // unavailable; depth and heap limits have their own codes again. These call sites make the
+  // recursive case easier to reach than it would otherwise be, because a private match context
+  // carries no JIT stack and so runs on PCRE2's default 32KB block rather than the 1MB the
+  // thread-global context assigns (see RegexMatchContext, src/tsutil/Regex.cc). Counting only
+  // MATCHLIMIT let such a pattern drop every record while reporting nothing.
+  unsigned indeterminate = 0;
+  int      first_error   = 0;
+
+  // True if @a rc is a match, false if the name should be skipped. Bumps the counters as a side
+  // effect, so every call site classifies identically.
+  auto matched = [&indeterminate, &first_error](int rc) -> bool {
+    if (rc >= 0) {
+      return true;
+    }
+    if (rc != RE_ERROR_NOMATCH) {
+      ++indeterminate;
+      if (first_error == 0) {
+        first_error = rc;
+      }
+    }
+    return false;
+  };
 
   if ((rec_type & (RECT_PROCESS | RECT_NODE | RECT_PLUGIN))) {
     // First find the new metrics, this is a bit of a hack, because we still use the old
     // librecords callback with a "pseudo" record.
     ts::Metrics::instance().for_each([&](std::string_view name, ts::Metrics::MetricType type, int64_t val) {
-      if (regex.exec(name.data())) {
+      if (matched(regex.exec(name.data(), matches, 0, &match_context))) {
         RecRecord tmp{};
 
         tmp.rec_type = RECT_PROCESS;
@@ -599,7 +691,7 @@ RecLookupMatchingRecords(unsigned rec_type, const char *match, void (*callback)(
     });
     // Finally check string metrics
     ts::Metrics::StaticString::instance().for_each([&](const std::string &name, const std::string &value) {
-      if (regex.exec(name)) {
+      if (matched(regex.exec(name, matches, 0, &match_context))) {
         RecRecord tmp{};
 
         tmp.rec_type = RECT_PROCESS;
@@ -626,7 +718,7 @@ RecLookupMatchingRecords(unsigned rec_type, const char *match, void (*callback)(
         return;
       }
 
-      if (regex.exec(name.data())) {
+      if (matched(regex.exec(name.data(), matches, 0, &match_context))) {
         RecRecord tmp{};
 
         // Tag both bits so that a caller asking only for RECT_HIDDEN_METRIC passes the rec_type
@@ -652,13 +744,52 @@ RecLookupMatchingRecords(unsigned rec_type, const char *match, void (*callback)(
       continue;
     }
 
-    if (!regex.exec(r->name)) {
+    if (!matched(regex.exec(r->name, matches, 0, &match_context))) {
       continue;
     }
 
     rec_mutex_acquire(&(r->lock));
     callback(r, data);
     rec_mutex_release(&(r->lock));
+  }
+
+  if (indeterminate > 0) {
+    // Throttled because admin_lookup_records is NON_RESTRICTED_API: it takes no credentials and the
+    // management socket carries no peer check, so an unprivileged local caller can otherwise drive
+    // this line at will and bury the instances that matter.
+    //
+    // The caller supplied pattern is deliberately not echoed; the log should not carry unvalidated
+    // input.
+    //
+    // The step cap is reported as configuration and the PCRE2 error separately, because they are
+    // not the same claim: a recursive pattern exhausts the JIT stack well before the step count, so
+    // saying these names were undecided "within" the cap would misdescribe that case. The error
+    // string is what tells an operator which resource was actually binding.
+    //
+    // The cap comes from the context rather than from REGEX_MATCH_LIMIT so that the number named
+    // here is the one installed, and a context that took no cap cannot be reported as though it had.
+    // It is a ceiling rather than necessarily the limit applied: the caller's pattern can lower it
+    // with an inline (*LIMIT_MATCH=n), which only truncates that caller's own lookup further and is
+    // still reported, but cannot raise it.
+    //
+    // set_match_limit runs just above, so a zero here can only mean the match context could not be
+    // allocated. Regex::exec then refuses every name with RE_ERROR_NULL instead of matching under
+    // PCRE2's default, so no name was evaluated at all. Say that, rather than print the zero as
+    // though it were a cap. No PCRE2 error is printed either: every name was refused before PCRE2
+    // saw it, and PCRE2's own text for that code describes a null argument it never received.
+    if (uint32_t const cap = match_context.match_limit(); cap != 0) {
+      SiteThrottledWarning("record lookup pattern left %u record name(s) undecided (step cap in effect %u, first "
+                           "error: %s); results are incomplete",
+                           indeterminate, cap, Regex::get_error_string(first_error).c_str());
+    } else {
+      SiteThrottledWarning("record lookup pattern left %u record name(s) undecided (the match context could not be "
+                           "allocated, so nothing was matched); results are incomplete",
+                           indeterminate);
+    }
+  }
+
+  if (indeterminate_out) {
+    *indeterminate_out = indeterminate;
   }
 
   return REC_ERR_OKAY;

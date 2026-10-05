@@ -27,6 +27,7 @@
 #include "iocore/eventsystem/EventSystem.h"
 #include "iocore/eventsystem/RecProcess.h"
 #include "tscore/Layout.h"
+#include "tscore/LogMessage.h"
 #include "test_Diags.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -48,6 +49,10 @@ main(int argc, char *argv[])
     ts_session_protocol_well_known_name_indices_init();
     // Cheat for ts_host_res_global_init as there's no records.config to check for non-default.
     host_res_default_preference_order = HOST_RES_DEFAULT_PREFERENCE_ORDER;
+    // Tests that count SiteThrottled* messages need every message to be emitted. This is already
+    // the default here, since the interval is only ever set from LogConfig, which this binary does
+    // not link. Pinned so that a future change there cannot make those counts depend on ordering.
+    LogMessage::set_default_log_throttling_interval(std::chrono::milliseconds{0});
 
     int result = Catch::Session().run(argc, argv);
 

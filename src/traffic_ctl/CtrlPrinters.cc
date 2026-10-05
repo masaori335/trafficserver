@@ -57,11 +57,48 @@ print_record_error_list(std::vector<shared::rpc::RecordLookUpResponse::RecordErr
 }
 
 } // namespace
+bool
+BasePrinter::reports_record_errors() const
+{
+  return false;
+}
+
+bool
+RecordPrinter::reports_record_errors() const
+{
+  return true;
+}
+
+bool
+MetricRecordPrinter::reports_record_errors() const
+{
+  return true;
+}
+
+bool
+RecordDescribePrinter::reports_record_errors() const
+{
+  return true;
+}
+
 void
 BasePrinter::write_output(shared::rpc::JSONRPCResponse const &response)
 {
   // If json, then we print the full message, either ok or error.
   if (this->is_json_format()) {
+    // A record lookup can report per-record errors inside a result the RPC itself considered a
+    // success, a truncated regex lookup being one. The text path surfaces those through
+    // print_record_error_list, which also sets the exit status; returning here without doing the
+    // same would let a script asking for JSON receive a partial answer and read it as complete.
+    //
+    // Restricted to the record printers on purpose. Other handlers return a field of the same name
+    // whose text path does not treat it as a failure, and making the status depend on the output
+    // format would create the very divergence this is closing.
+    if (this->reports_record_errors()) {
+      if (auto errors = response.result["errorList"]; errors && errors.IsSequence() && errors.size() > 0) {
+        App_Exit_Status_Code = CTRL_EX_ERROR;
+      }
+    }
     write_output_json(response.fullMsg);
     return;
   }
@@ -145,6 +182,9 @@ MetricRecordPrinter::write_output(YAML::Node const &result)
   for (auto &&recordInfo : response.recordList) {
     std::cout << recordInfo.name << " " << recordInfo.currentValue << '\n';
   }
+  // `metric match` reaches the same bounded regex lookup as `config match`, so it needs the same
+  // notice; without this a truncated metric listing prints as though it were complete.
+  print_record_error_list(response.errorList);
 }
 //------------------------------------------------------------------------------------------------------------------------------------
 
@@ -174,6 +214,10 @@ DiffConfigPrinter::write_output(YAML::Node const &result)
   if (is_records_format() && recordList.size() > 0) {
     std::cout << RecNameToYaml{std::move(recordList), WithDefaults}.string() << '\n';
   }
+  // The third regex-backed printer. Its pattern is a fixed ".*" so it cannot truncate, but a
+  // record that fails to convert is reported here rather than leaving the caller a short diff and
+  // a zero exit.
+  print_record_error_list(response.errorList);
 }
 //------------------------------------------------------------------------------------------------------------------------------------
 void

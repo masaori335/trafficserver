@@ -28,6 +28,7 @@
 #include <pcre2.h>
 
 #include <array>
+#include <new>
 #include <string>
 #include <vector>
 #include <mutex>
@@ -37,8 +38,20 @@ static_assert(RE_CASE_INSENSITIVE == PCRE2_CASELESS, "Update RE_CASE_INSENSITIVE
 static_assert(RE_UNANCHORED == PCRE2_MULTILINE, "Update RE_UNANCHORED for current PCRE2 version.");
 static_assert(RE_ANCHORED == PCRE2_ANCHORED, "Update RE_ANCHORED for current PCRE2 version.");
 static_assert(RE_NOTEMPTY == PCRE2_NOTEMPTY, "Update RE_NOTEMPTY for current PCRE2 version.");
+static_assert(RE_NEVER_UTF == PCRE2_NEVER_UTF, "Update RE_NEVER_UTF for current PCRE2 version.");
+static_assert((RE_NEVER_UTF & RE_FULL_MATCH) == 0, "RE_NEVER_UTF bit collides with the ATS-only RE_FULL_MATCH");
+
+// RegexMatchContext is in an installed header and is embedded by value in plugins that are already
+// built -- regex_remap holds one in RemapInstance and esi in IncludeUrlValidator -- and every
+// mangled name survives a change to its size. A plugin built against a smaller layout than the
+// traffic_server it is loaded into therefore links silently, and the server's constructor writes
+// past the end of the object the plugin allocated. Pin the layout here so that adding a member
+// fails the build instead of a plugin.
+static_assert(sizeof(RegexMatchContext) == sizeof(void *),
+              "RegexMatchContext must stay one pointer wide; keep new state behind _MatchContextPtr");
 
 static_assert(RE_ERROR_NOMATCH == PCRE2_ERROR_NOMATCH, "Update RE_ERROR_NOMATCH for current PCRE2 version.");
+static_assert(RE_ERROR_MATCHLIMIT == PCRE2_ERROR_MATCHLIMIT, "Update RE_ERROR_MATCHLIMIT for current PCRE2 version.");
 static_assert(RE_ERROR_NULL == PCRE2_ERROR_NULL, "Update RE_ERROR_NULL for current PCRE2 version.");
 
 // PCRE2 10.30 added PCRE2_ENDANCHORED. Older PCRE2 (e.g., CentOS 7 ships 10.23) lacks it.
@@ -243,15 +256,96 @@ RegexMatches::operator[](size_t index) const
 
 //----------------------------------------------------------------------------
 struct RegexMatchContext::_MatchContext {
+  /// What @c _MatchContextPtr::_ptr actually addresses.
+  ///
+  /// pcre2 has no getter for a limit once installed, so the value has to be kept somewhere for
+  /// match_limit() to report it. It lives here rather than in RegexMatchContext because that class
+  /// sits in an installed header and is embedded by value in plugins that are already built
+  /// (plugins/regex_remap/regex_remap.cc and plugins/esi/lib/IncludeUrlValidator.h each hold one).
+  /// Adding a member takes the class from 8 to 16 bytes while leaving every mangled name
+  /// unchanged, so such a plugin keeps allocating 8 bytes and loads without complaint, and
+  /// RegexMatchContext's constructor then writes 16 bytes into it. Where that lands depends on
+  /// declaration order -- when the member preceded this pointer it put the context pointer itself
+  /// 8 bytes past the end -- so the hazard is the size change, not any one field's position.
+  struct Holder {
+    pcre2_match_context *ctx   = nullptr;
+    uint32_t             limit = 0;
+  };
+
+  static Holder *
+  holder(_MatchContextPtr const &p)
+  {
+    return static_cast<Holder *>(p._ptr);
+  }
+
   static pcre2_match_context *
   get(_MatchContextPtr const &p)
   {
-    return static_cast<pcre2_match_context *>(p._ptr);
+    Holder const *h = holder(p);
+
+    return h != nullptr ? h->ctx : nullptr;
   }
-  static void
-  set(_MatchContextPtr &p, pcre2_match_context *ptr)
+
+  static uint32_t
+  limit(_MatchContextPtr const &p)
   {
-    p._ptr = ptr;
+    Holder const *h = holder(p);
+
+    return h != nullptr ? h->limit : 0;
+  }
+
+  /// Take ownership of @a ctx and record @a limit alongside it.
+  ///
+  /// Allocates the holder on first use, and frees a context already held, so this is safe to call
+  /// on an object being assigned over. Both @a ctx and @a limit are stored unconditionally, so
+  /// re-adopting the context already held still overwrites the recorded limit.
+  ///
+  /// The allocation is @c nothrow deliberately. Callers include librecords and the esi plugin's
+  /// @c extern "C" entry points, neither of which is prepared for an exception, and constructing
+  /// one of these did not throw before the holder existed. On failure @a ctx is freed rather than
+  /// leaked and the object is left empty.
+  static void
+  adopt(_MatchContextPtr &p, pcre2_match_context *ctx, uint32_t limit)
+  {
+    Holder *h = holder(p);
+
+    if (h == nullptr) {
+      if (ctx == nullptr) {
+        return;
+      }
+      h = new (std::nothrow) Holder;
+      if (h == nullptr) {
+        pcre2_match_context_free(ctx);
+        return;
+      }
+      p._ptr = h;
+    }
+
+    if (h->ctx != nullptr && h->ctx != ctx) {
+      pcre2_match_context_free(h->ctx);
+    }
+    h->ctx   = ctx;
+    h->limit = ctx != nullptr ? limit : 0;
+  }
+
+  static void
+  store_limit(_MatchContextPtr &p, uint32_t limit)
+  {
+    if (Holder *h = holder(p); h != nullptr) {
+      h->limit = limit;
+    }
+  }
+
+  static void
+  destroy(_MatchContextPtr &p)
+  {
+    if (Holder *h = holder(p); h != nullptr) {
+      if (h->ctx != nullptr) {
+        pcre2_match_context_free(h->ctx);
+      }
+      delete h;
+      p._ptr = nullptr;
+    }
   }
 };
 
@@ -260,7 +354,7 @@ RegexMatchContext::RegexMatchContext()
 {
   auto ctx = pcre2_match_context_create(nullptr);
   debug_assert_message(ctx, "Failed to allocate custom pcre2 match context");
-  _MatchContext::set(_match_context, ctx);
+  _MatchContext::adopt(_match_context, ctx, 0);
 }
 
 //----------------------------------------------------------------------------
@@ -268,8 +362,13 @@ RegexMatchContext::RegexMatchContext(RegexMatchContext const &other)
 {
   auto ptr = _MatchContext::get(other._match_context);
   if (nullptr != ptr) {
-    pcre2_match_context *const ctx = pcre2_match_context_copy(ptr);
-    _MatchContext::set(_match_context, ctx);
+    // A failed copy leaves this object empty rather than holding a null context, the same choice
+    // Regex's own copy constructor makes below. match_limit() then reports 0, which is the truth:
+    // no cap is installed. Recording the source's limit here regardless -- which is what this did
+    // before the holder -- would report a cap that is not in effect.
+    if (pcre2_match_context *const ctx = pcre2_match_context_copy(ptr); ctx != nullptr) {
+      _MatchContext::adopt(_match_context, ctx, _MatchContext::limit(other._match_context));
+    }
   }
 }
 
@@ -278,12 +377,21 @@ RegexMatchContext &
 RegexMatchContext::operator=(RegexMatchContext const &other)
 {
   if (&other != this) {
-    auto ptr = _MatchContext::get(other._match_context);
+    auto                 ptr = _MatchContext::get(other._match_context);
+    pcre2_match_context *ctx = nullptr;
+
     if (nullptr != ptr) {
-      pcre2_match_context *const ctx = pcre2_match_context_copy(ptr);
-      _MatchContext::set(_match_context, ctx);
+      ctx = pcre2_match_context_copy(ptr);
+    }
+
+    if (ctx != nullptr) {
+      _MatchContext::adopt(_match_context, ctx, _MatchContext::limit(other._match_context));
     } else {
-      _MatchContext::set(_match_context, nullptr);
+      // Either the source holds nothing, or the copy failed. Release what this object held in
+      // both cases, so it cannot be left in a state that reports a cap while holding no context
+      // to install one on. A failed copy is then indistinguishable from an empty source, which is
+      // the safe direction: match_limit() reports 0 and no cap is claimed.
+      _MatchContext::destroy(_match_context);
     }
   }
   return *this;
@@ -292,11 +400,7 @@ RegexMatchContext::operator=(RegexMatchContext const &other)
 //----------------------------------------------------------------------------
 RegexMatchContext::~RegexMatchContext()
 {
-  auto ptr = _MatchContext::get(_match_context);
-  debug_assert_message(ptr, "Failed to get the match context");
-  if (ptr != nullptr) {
-    pcre2_match_context_free(ptr);
-  }
+  _MatchContext::destroy(_match_context);
 }
 
 //----------------------------------------------------------------------------
@@ -307,7 +411,15 @@ RegexMatchContext::set_match_limit(uint32_t limit)
   debug_assert_message(ptr, "Failed to get the match context");
   if (ptr != nullptr) {
     pcre2_set_match_limit(ptr, limit);
+    _MatchContext::store_limit(_match_context, limit);
   }
+}
+
+//----------------------------------------------------------------------------
+uint32_t
+RegexMatchContext::match_limit() const
+{
+  return _MatchContext::limit(_match_context);
 }
 
 //----------------------------------------------------------------------------
@@ -679,6 +791,30 @@ Regex::exec(std::string_view subject, RegexMatches &matches, uint32_t flags, Reg
     match_context = RegexContext::get_instance()->get_match_context();
   } else {
     match_context = RegexMatchContext::_MatchContext::get(matchContext->_match_context);
+
+    // The caller asked to match under its own context and that context holds nothing, because the
+    // allocation behind it failed. Falling through with nullptr would match under PCRE2's
+    // compiled-in default of 10,000,000 steps instead, discarding whatever cap the caller
+    // installed, so refuse.
+    //
+    // Three non-test callers pass a context, and the refusal means something different to each:
+    //
+    // - RecLookupMatchingRecords installs 50,000. RE_ERROR_NULL is not NOMATCH, so the name is
+    //   counted undecided and the lookup is reported to its caller as incomplete. Fails closed.
+    // - The esi include allowlist installs 1,750 and treats any negative return as not
+    //   allowlisted, so the include is refused. Fails closed.
+    // - regex_remap installs no cap (apache/trafficserver#13652 removed its 1,750). Every rule
+    //   returns RE_ERROR_NULL, which it logs as a TSError and skips, so the plugin rewrites
+    //   nothing. The core has already applied the remap.config rule's own target before the
+    //   plugin runs, so the request goes there with no regex_remap rule applied -- including one
+    //   that would have denied it, such as @status=403. Fails open, where without the refusal
+    //   those rules would have been evaluated under the default limits, and it gains no bound in
+    //   exchange.
+    //
+    // All three are reachable only once the allocation at construction has already failed.
+    if (nullptr == match_context) {
+      return RE_ERROR_NULL;
+    }
   }
 
   bool const     full_match  = (flags & RE_FULL_MATCH) != 0;

@@ -44,7 +44,11 @@ enum class RecordError {
   REQUESTED_TYPE_MISMATCH,
   INVALID_INCOMING_DATA,
   RECORD_READ_ONLY,
-  RECORD_NO_ACCESS
+  RECORD_NO_ACCESS,
+  // Not a failed lookup: the records already collected are valid, but at least one name could not
+  // be decided against the pattern, so the set is a partial one. Appended deliberately; these
+  // values are wire-visible error codes and renumbering them would change the RPC contract.
+  LOOKUP_INCOMPLETE
 };
 std::error_code make_error_code(rpc::handlers::errors::RecordError e);
 } // namespace rpc::handlers::errors

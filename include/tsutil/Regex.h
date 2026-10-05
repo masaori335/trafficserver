@@ -43,14 +43,34 @@ enum REFlags {
   /// that does not span [0, subject.size()) is reported as @c RE_ERROR_NOMATCH. Implemented
   /// as a post-match length check so JIT remains eligible on all supported PCRE2 versions.
   RE_FULL_MATCH = 0x10000000u,
+  /// Refuse a pattern that turns on UTF mode with a leading @c (*UTF) verb.
+  ///
+  /// In UTF mode pcre2 validates each subject as UTF-8 before matching it, so a subject holding a
+  /// byte that is not valid UTF-8 returns @c PCRE2_ERROR_UTF8_ERR* rather than a match verdict.
+  /// A caller that supplies only the pattern can therefore change the outcome for subjects it does
+  /// not match, which is worth refusing where the pattern is untrusted and the subjects are known
+  /// to be plain bytes. It is not worth refusing for a pattern an operator wrote in a configuration
+  /// file: @c (*UTF) is documented for those (admin-guide/configuration/regex-best-practices), so
+  /// this is opt-in rather than applied to every compile.
+  ///
+  /// @note This does not keep matching on the JIT. Measured against PCRE2 10.47, a @c (*UTF)
+  /// pattern JIT-compiles and runs there like any other; the verb that does force the interpreter
+  /// is @c (*NO_JIT), which pcre2 offers no way to refuse.
+  RE_NEVER_UTF = 0x00001000u,
 };
 
 /// @brief Error codes returned by regular expression operations.
 ///
 /// @internal As with REFlags, these values are copied from pcre2.h, to avoid having to include it.
 enum REErrors {
-  RE_ERROR_NOMATCH = -1, ///< No match found.
-  RE_ERROR_NULL    = -51 ///< NULL code or subject was passed.
+  RE_ERROR_NOMATCH    = -1,  ///< No match found.
+  RE_ERROR_MATCHLIMIT = -47, ///< Match limit exhausted; the match has no verdict.
+  /// Nothing was matched, because something the match needs was missing -- for example no
+  /// compiled pattern, no match data, or a caller-supplied RegexMatchContext that holds nothing
+  /// because its allocation failed. Checking compile() does not rule this code out.
+  /// RecLookupMatchingRecords folds it into its undecided count rather than special-casing it,
+  /// because the record was not evaluated and so must be reported, not dropped silently.
+  RE_ERROR_NULL = -51
 };
 
 /// @brief Wrapper for PCRE2 match data.
@@ -117,16 +137,59 @@ public:
   RegexMatchContext(RegexMatchContext const &orig);
   RegexMatchContext &operator=(RegexMatchContext const &orig);
 
+  /// @internal These are defaulted and therefore wrong: the member is a raw pointer to an owning
+  /// allocation, so both objects are left pointing at it and the second destructor frees it again.
+  /// That is pre-existing -- it was equally true when the pointer owned the pcre2 context directly
+  /// -- and nothing in the tree moves one of these, so it is latent. Not fixed here on purpose:
+  /// defining them emits move symbols that a traffic_server built before this change does not
+  /// export, so a plugin built against this header would fail to load into one. The fix belongs
+  /// with apache/trafficserver#13663, which replaces this class with a value type.
   RegexMatchContext(RegexMatchContext &&)            = default;
   RegexMatchContext &operator=(RegexMatchContext &&) = default;
 
-  /** Limits the amount of backtracking that can take place.
-   * Any regex exec call that fails will return PCRE2_ERROR_MATCHLIMIT(-47)
+  /** Caps the number of backtracking steps one match may take.
+   *
+   * This bounds the step @b count only. It does not bound the cost of a step, which is a property
+   * of the pattern, so it is not a bound on the work a match can do. A pattern can stay inside this
+   * limit and still be expensive, and it can be expensive while returning an ordinary verdict.
+   *
+   * Nor does exceeding it reliably report @c RE_ERROR_MATCHLIMIT. PCRE2 returns whichever resource
+   * it exhausted first, and which one that is depends on the pattern: a recursive pattern exhausts
+   * the JIT stack instead, and because this context assigns none it reports
+   * @c PCRE2_ERROR_JIT_STACKLIMIT (-46) from PCRE2's default 32KB block, or
+   * @c PCRE2_ERROR_RECURSELOOP (-52) where JIT is unavailable. Depth and heap limits have their own
+   * codes again.
+   *
+   * So a caller that wants to know whether a match reached a verdict must treat every negative code
+   * other than @c RE_ERROR_NOMATCH as "no verdict", rather than testing for any particular one. A
+   * caller that wants to bound work needs something other than this limit.
    */
   void set_match_limit(uint32_t limit);
 
+  /** The step cap installed by @c set_match_limit, or zero if none was installed.
+   *
+   * Report this rather than the value a caller intended to install, so that a diagnostic names the
+   * cap actually installed on the context. A pattern can lower the limit applied with an inline
+   * (*LIMIT_MATCH=n), which this does not see, but cannot raise it, so the value is an upper bound
+   * on the limit a match runs under.
+   *
+   * @note Zero has three meanings. The context may hold a pcre2 context with no cap installed, in
+   * which case matching runs under PCRE2's own compiled-in default unless the pattern lowers it,
+   * and that default is not unbounded. @c set_match_limit(0) may have installed a cap of zero. Or
+   * the context may hold nothing, because its allocation failed or because it was copied from one
+   * that did, in which case Regex::exec refuses to match and returns RE_ERROR_NULL. No caller in
+   * the tree installs zero. A diagnostic should say which case applies rather than print the number.
+   */
+  uint32_t match_limit() const;
+
 private:
   /// @internal This wraps a void* so to avoid requiring a pcre2 include.
+  ///
+  /// @internal The pointer addresses a holder that carries the pcre2 match context @b and the step
+  /// cap installed on it, because pcre2 offers no getter for a limit once set. Keeping that value
+  /// behind this pointer rather than as a member here is deliberate: this class is in an installed
+  /// header and is embedded by value in already-built plugins (regex_remap and esi both hold one),
+  /// so widening it would move the layout they allocate. See src/tsutil/Regex.cc.
   struct _MatchContext;
   struct _MatchContextPtr {
     void *_ptr = nullptr;

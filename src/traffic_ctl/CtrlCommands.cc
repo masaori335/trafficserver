@@ -510,7 +510,27 @@ ConfigCommand::config_reset()
   }
 
   // Build reset request from modified records (current != default)
-  auto const            &records = lookup_response.result.as<shared::rpc::RecordLookUpResponse>();
+  auto const &records = lookup_response.result.as<shared::rpc::RecordLookUpResponse>();
+
+  // The path above is sent as a regex, and a regex lookup is bounded, so it can come back as a
+  // partial list without the response itself being an error. Resetting from a partial list would
+  // write an arbitrary subset of what the user named, so refuse instead: a write must not act on an
+  // answer the server has already said is incomplete.
+  if (!records.errorList.empty()) {
+    if (_printer->is_json_format()) {
+      // Hand the whole response to the printer rather than formatting here, or a caller that asked
+      // for JSON gets prose mixed into its output.
+      _printer->write_output(lookup_response);
+    } else {
+      for (auto const &error : records.errorList) {
+        std::cout << error;
+      }
+      std::cout << "Not resetting any record: the lookup did not return a complete list.\n";
+    }
+    App_Exit_Status_Code = CTRL_EX_ERROR;
+    return;
+  }
+
   ConfigSetRecordRequest set_request;
 
   for (auto const &rec : records.recordList) {
