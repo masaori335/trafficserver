@@ -23,15 +23,20 @@ GIT_VERSION=notgit
 GIT_VERSION_SHORT=notgit
 if [ -d ${SRC_REPO}/.git ]; then
     GIT_VERSION=$(git --git-dir=${SRC_REPO}/.git rev-parse HEAD)
-    GIT_VERSION_SHORT=$(git --git-dir=${SRC_REPO}/.git rev-parse --short HEAD)
+    GIT_VERSION_SHORT=$(git --git-dir=${SRC_REPO}/.git rev-parse --short=9 HEAD)
 fi
 
 # TS_VERSION (eg -6.1.2-6.2)
-VERSION=$(parse_version)
-if [ "$BUILD_BRANCH" == "sec-10.2.x" ]; then
-  VERSION=$(parse_version)~sec$(date +%Y%m%d).${GIT_VERSION_SHORT}
-else
-  VERSION=$(parse_version)
+# apple/rio.sh exports VERSION so the RPM version, the _gittag baked into the
+# RPM, and the git tag it pushes cannot drift (they would otherwise each call
+# date(1) separately, and a build spanning midnight would disagree). Keep the
+# fallback so this script still works when invoked directly.
+if [ -z "${VERSION}" ]; then
+  if [ "$BUILD_BRANCH" == "sec-10.2.x" ]; then
+    VERSION=$(parse_version)~sec$(date +%Y%m%d).${GIT_VERSION_SHORT}
+  else
+    VERSION=$(parse_version)
+  fi
 fi
 VERSION_MAJOR=$(echo $VERSION | cut -d . -f 1)
 

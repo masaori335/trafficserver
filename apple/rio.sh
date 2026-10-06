@@ -80,6 +80,14 @@ function parse_version() {
 }
 
 VERSION=$(parse_version)
+# The sec branch ships pre-release RPMs whose version carries the build date and
+# the source revision. Compute it here rather than in apple/build.sh so the RPM
+# version, the _gittag baked into the RPM, and the git tag all come from one
+# value; build.sh uses VERSION when we export it.
+if [ "$BRANCH" = "sec-10.2.x" ]; then
+  VERSION="${VERSION}~sec$(date +%Y%m%d).$(git rev-parse --short=9 HEAD)"
+fi
+export VERSION
 COMMIT_TREE_LENGTH=$(git --git-dir=.git rev-list HEAD 2>/dev/null | wc -l)
 if [ -z ${BREAK_FIX} ]; then
   BUILD_VERSION="${BUILD_NUMBER}.${COMMIT_TREE_LENGTH}"
@@ -88,13 +96,17 @@ else
 fi
 export BUILD_VERSION
 
-export GIT_TAG=bazinga/$VERSION/$BUILD_VERSION
+# '~' orders a pre-release below the release in RPM but is not a legal character
+# in a git refname, so render it as '-' for tag names only.
+TAG_VERSION=${VERSION//\~/-}
+
+export GIT_TAG=bazinga/$TAG_VERSION/$BUILD_VERSION
 if [ $PRB -eq 1 ]; then
-    export GIT_TAG=prb/$VERSION/$BUILD_VERSION
+    export GIT_TAG=prb/$TAG_VERSION/$BUILD_VERSION
 fi
 
 if [ ! -z "$VARIATION" ]; then
-    export GIT_TAG=bazinga/$VERSION/${VARIATION}.$BUILD_VERSION
+    export GIT_TAG=bazinga/$TAG_VERSION/${VARIATION}.$BUILD_VERSION
 fi
 
 if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
