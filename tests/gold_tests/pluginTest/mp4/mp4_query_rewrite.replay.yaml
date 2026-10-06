@@ -1,0 +1,378 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+# The plugin rebuilds the query with the start parameter removed. It used to
+# build that result in a fixed 1024 byte buffer and then report the length the
+# result would have had, so a longer query was reported as longer than the bytes
+# that backed it. The padding below puts the tail marker past that boundary, so
+# a rewrite that does not carry the whole query drops the marker.
+#
+# The url rules below are what actually verify the rewrite. A bare `url:` scalar
+# in a proxy-request is the send specification and is not checked, so each
+# expectation is written as a rule list.
+
+meta:
+  version: "1.0"
+
+autest:
+  description: "Verify mp4 rewrites a query longer than one kilobyte exactly, and refuses a negative unusable start"
+
+  server:
+    name: "server"
+    log_validation:
+      contains:
+        - expression: "tail=mp4-query-tail-marker"
+          description: "The end of a long rewritten query must reach the origin"
+      # The three refused negative starts are not listed here. A substring
+      # exclude over the whole server log says nothing about which transaction
+      # skipped the origin, and all three passed before this change as well,
+      # since a plain negative was already refused. Each of those transactions
+      # carries `proxy-request: expect: absent` instead, which is a direct
+      # per-transaction oracle and subsumes an exclude.
+      excludes:
+        - expression: "start=1&pad="
+          description: "The parameter being removed must not reach the origin"
+
+  client:
+    name: "client"
+
+  ats:
+    name: "ts"
+    process_config:
+      enable_tls: true
+    records_config:
+      proxy.config.diags.debug.enabled: 0
+      proxy.config.http.cache.http: 0
+    remap_config:
+      - from: "http://domain.in/"
+        to: "http://127.0.0.1:{SERVER_HTTP_PORT}/"
+        plugins:
+          # The harness requires this key even for a plugin that takes no
+          # arguments.
+          - name: "mp4.so"
+            args: []
+      - from: "https://domain.in/"
+        to: "http://127.0.0.1:{SERVER_HTTP_PORT}/"
+        plugins:
+          - name: "mp4.so"
+            args: []
+
+sessions:
+  - transactions:
+      # A query whose rewrite is longer than any fixed buffer.
+      - client-request:
+          method: "GET"
+          version: "1.1"
+          url: "/video.mp4?start=1&pad=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&tail=mp4-query-tail-marker"
+          headers:
+            fields:
+              - [Host, domain.in]
+              - [uuid, long-query-h1]
+        proxy-request:
+          method: "GET"
+          url:
+          - [ path, { value: "/video.mp4", as: equal }]
+          - [ query, { value: "pad=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&tail=mp4-query-tail-marker", as: equal }]
+          headers:
+            fields:
+              - [Host, {value: "127.0.0.1", as: prefix}]
+        server-response:
+          status: 200
+          reason: "OK"
+          headers:
+            fields:
+              - [Content-Length, "0"]
+        proxy-response:
+          status: 200
+
+      # A short query, to show the ordinary rewrite is unchanged.
+      - client-request:
+          method: "GET"
+          version: "1.1"
+          url: "/short.mp4?start=5&keep=yes"
+          headers:
+            fields:
+              - [Host, domain.in]
+              - [uuid, short-query]
+        proxy-request:
+          method: "GET"
+          url:
+          - [ path, { value: "/short.mp4", as: equal }]
+          - [ query, { value: "keep=yes", as: equal }]
+          headers:
+            fields:
+              - [Host, {value: "127.0.0.1", as: prefix}]
+        server-response:
+          status: 200
+          reason: "OK"
+          headers:
+            fields:
+              - [Content-Length, "0"]
+        proxy-response:
+          status: 200
+
+      # No start parameter, so the query is forwarded untouched.
+      - client-request:
+          method: "GET"
+          version: "1.1"
+          url: "/nostart.mp4?keep=yes&other=1"
+          headers:
+            fields:
+              - [Host, domain.in]
+              - [uuid, no-start]
+        proxy-request:
+          method: "GET"
+          url:
+          - [ path, { value: "/nostart.mp4", as: equal }]
+          - [ query, { value: "keep=yes&other=1", as: equal }]
+          headers:
+            fields:
+              - [Host, {value: "127.0.0.1", as: prefix}]
+        server-response:
+          status: 200
+          reason: "OK"
+          headers:
+            fields:
+              - [Content-Length, "0"]
+        proxy-response:
+          status: 200
+
+      # A query ending in a separator keeps it, because dropping it would change the cache key.
+      - client-request:
+          method: "GET"
+          version: "1.1"
+          url: "/trail.mp4?a=1&start=5&"
+          headers:
+            fields:
+              - [Host, domain.in]
+              - [uuid, trailing-amp]
+        proxy-request:
+          method: "GET"
+          url:
+          - [ path, { value: "/trail.mp4", as: equal }]
+          - [ query, { value: "a=1&", as: equal }]
+          headers:
+            fields:
+              - [Host, {value: "127.0.0.1", as: prefix}]
+        server-response:
+          status: 200
+          reason: "OK"
+          headers:
+            fields:
+              - [Content-Length, "0"]
+        proxy-response:
+          status: 200
+
+      # The start parameter on its own, which is the ordinary pseudo streaming
+      # request. The rewrite is empty, so the query is set with a length of
+      # zero, and the proxy forwards no query at all rather than an empty one.
+      - client-request:
+          method: "GET"
+          version: "1.1"
+          url: "/only.mp4?start=5"
+          headers:
+            fields:
+              - [Host, domain.in]
+              - [uuid, only-start]
+        proxy-request:
+          method: "GET"
+          url:
+          - [ path, { value: "/only.mp4", as: equal }]
+          - [ query, { as: absent }]
+          headers:
+            fields:
+              - [Host, {value: "127.0.0.1", as: prefix}]
+        server-response:
+          status: 200
+          reason: "OK"
+          headers:
+            fields:
+              - [Content-Length, "0"]
+        proxy-response:
+          status: 200
+
+      # A start value can parse and still be no start time. The five that follow
+      # are all turned away before they reach the int64_t millisecond start the
+      # transform works in, because converting a value it cannot represent is
+      # undefined. The sign decides how:
+      #
+      #   nan, inf, 1e30   are not negative, so they become no start at all and
+      #                    are passed through with the query untouched, which is
+      #                    what an unparseable start has always done.
+      #   -inf, -1e30      are negative, so they get the 400 a plain negative
+      #                    gets and never reach the origin.
+      #
+      # "nan" is the one that hides: every comparison with a NaN is false, so it
+      # is caught by neither the zero nor the negative guard, and it lands on the
+      # pass-through side here for that same reason.
+      - client-request:
+          method: "GET"
+          version: "1.1"
+          url: "/nan.mp4?start=nan&keep=yes"
+          headers:
+            fields:
+              - [Host, domain.in]
+              - [uuid, not-a-number]
+        proxy-request:
+          method: "GET"
+          url:
+          - [ path, { value: "/nan.mp4", as: equal }]
+          - [ query, { value: "start=nan&keep=yes", as: equal }]
+          headers:
+            fields:
+              - [Host, {value: "127.0.0.1", as: prefix}]
+        server-response:
+          status: 200
+          reason: "OK"
+          headers:
+            fields:
+              - [Content-Length, "0"]
+        proxy-response:
+          status: 200
+
+      # "-inf" is a negative start, so it gets the same 400 a plain negative gets
+      # and never reaches the origin. Representability is decided first, but the
+      # sign still decides the answer: a value that cannot be represented is not
+      # a reason to forward a negative seek, and forwarding it would put the
+      # parameter in the cache key.
+      - client-request:
+          method: "GET"
+          version: "1.1"
+          url: "/neginf.mp4?start=-inf&keep=yes"
+          headers:
+            fields:
+              - [Host, domain.in]
+              - [uuid, negative-infinity]
+        # The plugin answers this itself, so no request reaches the origin and
+        # the transaction carries no server-response at all.
+        proxy-request:
+          expect: absent
+        proxy-response:
+          status: 400
+
+      # A finite negative that is too large to represent takes the range branch of
+      # the guard rather than the isfinite one, and must be refused the same way.
+      - client-request:
+          method: "GET"
+          version: "1.1"
+          url: "/negbig.mp4?start=-1e30&keep=yes"
+          headers:
+            fields:
+              - [Host, domain.in]
+              - [uuid, negative-too-large]
+        proxy-request:
+          expect: absent
+        proxy-response:
+          status: 400
+
+      # "inf" overflows the conversion in the other direction.
+      - client-request:
+          method: "GET"
+          version: "1.1"
+          url: "/inf.mp4?start=inf&keep=yes"
+          headers:
+            fields:
+              - [Host, domain.in]
+              - [uuid, infinity]
+        proxy-request:
+          method: "GET"
+          url:
+          - [ path, { value: "/inf.mp4", as: equal }]
+          - [ query, { value: "start=inf&keep=yes", as: equal }]
+          headers:
+            fields:
+              - [Host, {value: "127.0.0.1", as: prefix}]
+        server-response:
+          status: 200
+          reason: "OK"
+          headers:
+            fields:
+              - [Content-Length, "0"]
+        proxy-response:
+          status: 200
+
+      # A finite value does it too: 1e30 clears both guards, and 1e33 milliseconds
+      # is past what an int64_t holds. Checking only for a NaN would miss this.
+      - client-request:
+          method: "GET"
+          version: "1.1"
+          url: "/huge.mp4?start=1e30&keep=yes"
+          headers:
+            fields:
+              - [Host, domain.in]
+              - [uuid, too-large-for-int64]
+        proxy-request:
+          method: "GET"
+          url:
+          - [ path, { value: "/huge.mp4", as: equal }]
+          - [ query, { value: "start=1e30&keep=yes", as: equal }]
+          headers:
+            fields:
+              - [Host, {value: "127.0.0.1", as: prefix}]
+        server-response:
+          status: 200
+          reason: "OK"
+          headers:
+            fields:
+              - [Content-Length, "0"]
+        proxy-response:
+          status: 200
+
+      # A plain negative start is answered with 400 and nothing reaches the
+      # origin. The query is long on purpose so that a change which went back to
+      # rewriting before refusing would do it here, over one kilobyte, rather
+      # than on a short query where the old fixed buffer never showed.
+      - client-request:
+          method: "GET"
+          version: "1.1"
+          url: "/neg.mp4?start=-1&pad=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&tail=mp4-query-tail-marker"
+          headers:
+            fields:
+              - [Host, domain.in]
+              - [uuid, negative-start]
+        proxy-request:
+          expect: absent
+        proxy-response:
+          status: 400
+
+  # The same long query over HTTP/2, because the request target is reassembled
+  # from :path on a different path before the remap callback runs.
+  - protocol:
+      stack: http2
+      tls:
+        sni: "domain.in"
+    transactions:
+      - client-request:
+          headers:
+            fields:
+              - [":method", "GET"]
+              - [":scheme", "https"]
+              - [":authority", "domain.in"]
+              - [":path", "/video.mp4?start=1&pad=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&tail=mp4-query-tail-marker"]
+              - ["uuid", "long-query-h2"]
+        proxy-request:
+          method: "GET"
+          url:
+          - [ path, { value: "/video.mp4", as: equal }]
+          - [ query, { value: "pad=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&tail=mp4-query-tail-marker", as: equal }]
+        server-response:
+          status: 200
+          reason: "OK"
+          headers:
+            fields:
+              - [Content-Length, "0"]
+        proxy-response:
+          status: 200

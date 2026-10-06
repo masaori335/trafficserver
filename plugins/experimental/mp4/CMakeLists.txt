@@ -15,5 +15,11 @@
 #
 #######################
 
-add_atsplugin(mp4 mp4.cc mp4_meta.cc)
+project(mp4)
+
+add_atsplugin(mp4 mp4.cc mp4_meta.cc mp4_query.cc)
 verify_remap_plugin(mp4)
+
+if(BUILD_TESTING)
+  add_subdirectory(unit_tests)
+endif()

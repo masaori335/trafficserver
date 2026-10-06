@@ -17,15 +17,52 @@
 */
 
 #include "mp4_common.h"
+#include "mp4_query.h"
 
-static char *ts_arg(const char *param, size_t param_len, const char *key, size_t key_len, size_t *val_len);
-static int   mp4_handler(TSCont contp, TSEvent event, void *edata);
-static void  mp4_cache_lookup_complete(Mp4Context *mc, TSHttpTxn txnp);
-static void  mp4_read_response(Mp4Context *mc, TSHttpTxn txnp);
-static void  mp4_add_transform(Mp4Context *mc, TSHttpTxn txnp);
-static int   mp4_transform_entry(TSCont contp, TSEvent event, void *edata);
-static int   mp4_transform_handler(TSCont contp, Mp4Context *mc);
-static int   mp4_parse_meta(Mp4TransformContext *mtc, bool body_complete);
+#include <cmath>
+#include <cstdint>
+#include <string>
+#include <string_view>
+
+namespace
+{
+/** Whether @a seconds can become the start time the transform works in.
+ *
+ * Mp4TransformContext stores @c start*1000 as an @c int64_t of milliseconds.
+ * Converting a floating point value the destination cannot represent is
+ * undefined, so the values that cannot survive it have to be turned away before
+ * they get there. Parsing alone does not do that: the C library's conversion
+ * accepts "nan" and "inf", and neither is caught by a comparison against zero,
+ * because every comparison with a NaN is false.
+ */
+bool
+mp4_start_is_representable(float seconds)
+{
+  // 2^63, the first magnitude an int64_t cannot hold, exactly representable as
+  // a double. The conversion truncates toward zero, and int64_t reaches -2^63
+  // but stops at 2^63-1, so the bound is inclusive below and strict above.
+  //
+  // This tests in double while the arithmetic it protects is float:
+  // Mp4TransformContext computes start*1000 in float. Float rounding can move
+  // that product by at most half a float step, and there is more than that in
+  // hand, so the wider test lets nothing through. To re-derive the margin: a
+  // float step near 2^63 is 2^39, the largest float seconds this accepts is one
+  // float step below 2^63/1000, and its exact product sits 1.15625 float steps
+  // below 2^63, which rounding brings to exactly one step below. That margin is
+  // what the extra width buys, so do not narrow this to float.
+  constexpr double int64_bound  = 9223372036854775808.0;
+  double const     milliseconds = static_cast<double>(seconds) * 1000.0;
+  return std::isfinite(milliseconds) && milliseconds >= -int64_bound && milliseconds < int64_bound;
+}
+} // namespace
+
+static int  mp4_handler(TSCont contp, TSEvent event, void *edata);
+static void mp4_cache_lookup_complete(Mp4Context *mc, TSHttpTxn txnp);
+static void mp4_read_response(Mp4Context *mc, TSHttpTxn txnp);
+static void mp4_add_transform(Mp4Context *mc, TSHttpTxn txnp);
+static int  mp4_transform_entry(TSCont contp, TSEvent event, void *edata);
+static int  mp4_transform_handler(TSCont contp, Mp4Context *mc);
+static int  mp4_parse_meta(Mp4TransformContext *mtc, bool body_complete);
 
 TSReturnCode
 TSRemapInit(TSRemapInterface *api_info, char *errbuf, int errbuf_size)
@@ -65,13 +102,7 @@ TSRemapDoRemap(void * /* ih ATS_UNUSED */, TSHttpTxn rh, TSRemapRequestInfo *rri
 {
   const char *method, *query, *path;
   int         method_len, query_len, path_len;
-  size_t      val_len;
-  const char *val;
-  int         ret;
   float       start;
-  char        buf[1024];
-  int         buf_len;
-  int         left, right;
   TSMLoc      ae_field, range_field;
   TSCont      contp;
   Mp4Context *mc;
@@ -94,12 +125,29 @@ TSRemapDoRemap(void * /* ih ATS_UNUSED */, TSHttpTxn rh, TSRemapRequestInfo *rri
   start = 0;
   query = TSUrlHttpQueryGet(rri->requestBufp, rri->requestUrl, &query_len);
 
-  val = ts_arg(query, query_len, "start", sizeof("start") - 1, &val_len);
-  if (val != nullptr) {
-    ret = sscanf(val, "%f", &start);
-    if (ret != 1) {
-      start = 0;
+  // The query comes from the header heap with an explicit length and no NUL
+  // terminator, so carry that length along rather than scanning for an end.
+  std::string_view const query_view{query ? query : "", (query && query_len > 0) ? static_cast<size_t>(query_len) : 0};
+
+  std::string_view const start_value = mp4_query_param(query_view, "start");
+  if (start_value.data() != nullptr && !mp4_query_parse_float(start_value, start)) {
+    start = 0;
+  }
+
+  // A parse can succeed and still hand back a number that is no start time at
+  // all, so a value the transform cannot represent is refused here. A negative
+  // one is still a negative seek and keeps the 400 a plain negative gets, since
+  // being unrepresentable is no reason to forward it and put it in the cache
+  // key. The rest become no start at all, the way an unparseable value always
+  // has been treated. Without this, "nan" passes the two guards below untouched,
+  // and note that "nan < 0" is false, so NaN takes the no-start path here.
+  if (!mp4_start_is_representable(start)) {
+    if (start < 0) {
+      TSHttpTxnStatusSet(rh, TS_HTTP_STATUS_BAD_REQUEST, DEBUG_TAG);
+      TSHttpTxnErrorBodySet(rh, TSstrdup("Invalid request."), sizeof("Invalid request.") - 1, nullptr);
+      return TSREMAP_NO_REMAP;
     }
+    start = 0;
   }
 
   if (start == 0) {
@@ -108,22 +156,20 @@ TSRemapDoRemap(void * /* ih ATS_UNUSED */, TSHttpTxn rh, TSRemapRequestInfo *rri
   } else if (start < 0) {
     TSHttpTxnStatusSet(rh, TS_HTTP_STATUS_BAD_REQUEST, DEBUG_TAG);
     TSHttpTxnErrorBodySet(rh, TSstrdup("Invalid request."), sizeof("Invalid request.") - 1, nullptr);
+    // Stop here, the way the unrepresentable negative above does. Nothing
+    // observable changes: the status set here makes EndRemapRequest answer the
+    // request itself, so the transform this used to fall through and arm was
+    // never run. But that is an invariant of a different file, and everything
+    // below is work on a request already refused. Say no here instead.
+    return TSREMAP_NO_REMAP;
   }
 
-  // reset args
-  left  = val - sizeof("start") - query;
-  right = query + query_len - val - val_len;
-
-  if (left > 0) {
-    left--;
-  }
-
-  if (left == 0 && right > 0) {
-    right--;
-  }
-
-  buf_len = snprintf(buf, sizeof(buf), "%.*s%.*s", left, query, right, query + query_len - right);
-  TSUrlHttpQuerySet(rri->requestBufp, rri->requestUrl, buf, buf_len);
+  // Rebuild the query without the start parameter. The result is sized from the
+  // request, so the length handed to the API always matches the bytes behind it
+  // and no query is truncated. Truncating would change both the cache key and
+  // the request forwarded to origin.
+  std::string const rewritten = mp4_query_without_param(query_view, "start");
+  TSUrlHttpQuerySet(rri->requestBufp, rri->requestUrl, rewritten.data(), static_cast<int>(rewritten.size()));
 
   // remove Accept-Encoding
   ae_field = TSMimeHdrFieldFind(rri->requestBufp, rri->requestHdrp, TS_MIME_FIELD_ACCEPT_ENCODING, TS_MIME_LEN_ACCEPT_ENCODING);
@@ -475,44 +521,4 @@ mp4_parse_meta(Mp4TransformContext *mtc, bool body_complete)
   }
 
   return ret;
-}
-
-static char *
-ts_arg(const char *param, size_t param_len, const char *key, size_t key_len, size_t *val_len)
-{
-  const char *p, *last;
-  const char *val;
-
-  *val_len = 0;
-
-  if (!param || !param_len) {
-    return nullptr;
-  }
-
-  p    = param;
-  last = p + param_len;
-
-  for (; p < last; p++) {
-    p = static_cast<char *>(memmem(p, last - p, key, key_len));
-
-    if (p == nullptr) {
-      return nullptr;
-    }
-
-    if ((p == param || *(p - 1) == '&') && *(p + key_len) == '=') {
-      val = p + key_len + 1;
-
-      p = (char *)memchr(p, '&', last - p);
-
-      if (p == nullptr) {
-        p = param + param_len;
-      }
-
-      *val_len = p - val;
-
-      return const_cast<char *>(val);
-    }
-  }
-
-  return nullptr;
 }
