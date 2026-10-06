@@ -18,7 +18,53 @@
 
 // This file adds multiple test cases for Pattern: compile, match, capture, replace.
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include "pattern.h"
+
+#include <cstdio>
+#include <fcntl.h>
+#include <fstream>
+#include <string>
+#include <unistd.h>
+
+namespace
+{
+/* CacheKeyError writes to stderr in the unit test build, so capture stderr to
+ * read back what a failed compile actually reported. */
+class StdErrCapture
+{
+public:
+  StdErrCapture()
+  {
+    fflush(stderr);
+    _saved = ::dup(fileno(stderr));
+    _fd    = ::open(_path, O_RDWR | O_CREAT | O_TRUNC, 0600);
+    ::dup2(_fd, fileno(stderr));
+  }
+
+  ~StdErrCapture()
+  {
+    fflush(stderr);
+    ::dup2(_saved, fileno(stderr));
+    ::close(_saved);
+    ::close(_fd);
+    ::unlink(_path);
+  }
+
+  std::string
+  text() const
+  {
+    fflush(stderr);
+    std::ifstream in(_path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+  }
+
+private:
+  static constexpr const char *_path  = "/tmp/cachekey_pattern_test_stderr";
+  int                          _saved = -1;
+  int                          _fd    = -1;
+};
+} // namespace
 
 TEST_CASE("Pattern compile and match behavior", "[cachekey][pattern]")
 {
@@ -243,6 +289,48 @@ TEST_CASE("Pattern compile and match behavior", "[cachekey][pattern]")
 
     REQUIRE(p.replace("abcdefghijkl", res));
     CHECK(res == "ia");
+  }
+
+  SECTION("Replacement string ending with a bare $ is diagnosed accurately")
+  {
+    // init() already returned false for these before the bare-$ guard existed:
+    // std::string::operator[](size()) is defined and yields the terminating null,
+    // which then fails the '0'-'9' range test and reports an error of its own. So
+    // asserting only on the return value cannot distinguish the two versions. The
+    // diagnostic is the one thing that changed, so assert on that.
+    Pattern     p;
+    std::string err;
+    {
+      StdErrCapture capture;
+      CHECK(p.init("(\\w+)", "value=$", true) == false);
+      err = capture.text();
+    }
+    CHECK_THAT(err, Catch::Matchers::ContainsSubstring("ends with bare $"));
+    CHECK_THAT(err, !Catch::Matchers::ContainsSubstring("invalid replacement token"));
+
+    Pattern     p2;
+    std::string err2;
+    {
+      StdErrCapture capture;
+      CHECK(p2.init("(\\w+)", "$", true) == false);
+      err2 = capture.text();
+    }
+    CHECK_THAT(err2, Catch::Matchers::ContainsSubstring("ends with bare $"));
+  }
+
+  SECTION("A bare $ is reported as such even when the token table is full")
+  {
+    // Ten tokens then a trailing '$'. The old code tested the token count first
+    // and blamed the count; the guard tests the bare $ first. Pins the ordering.
+    Pattern     p;
+    std::string err;
+    {
+      StdErrCapture capture;
+      CHECK(p.init("(\\w+)", "$0$1$2$3$4$5$6$7$8$9$", true) == false);
+      err = capture.text();
+    }
+    CHECK_THAT(err, Catch::Matchers::ContainsSubstring("ends with bare $"));
+    CHECK_THAT(err, !Catch::Matchers::ContainsSubstring("too many tokens"));
   }
 
   SECTION("process() method - capture mode (no replacement)")

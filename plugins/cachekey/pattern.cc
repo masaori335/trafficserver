@@ -313,7 +313,12 @@ Pattern::compile()
 
   for (unsigned i = 0; i < _replacement.length(); i++) {
     if (_replacement[i] == '$') {
-      if (_tokenCount >= TOKENCOUNT) {
+      if (i + 1 >= _replacement.length()) {
+        CacheKeyError("replacement string ends with bare $: %s", _replacement.c_str());
+
+        success = false;
+        break;
+      } else if (_tokenCount >= TOKENCOUNT) {
         CacheKeyError("too many tokens in replacement string: %s", _replacement.c_str());
 
         success = false;
