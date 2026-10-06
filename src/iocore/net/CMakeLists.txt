@@ -146,6 +146,7 @@ if(BUILD_TESTING)
     libinknet_stub.cc
     NetVCTest.cc
     unit_tests/test_ConnectionTracker.cc
+    unit_tests/test_EventIO.cc
     unit_tests/test_EventIOMigration.cc
     unit_tests/test_ProxyProtocol.cc
     unit_tests/test_SSLCertLookup.cc
