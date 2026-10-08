@@ -1,0 +1,61 @@
+#
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+#
+# Round trips test_roundtrip.py knows to be broken, as
+#
+#   <case>: <check> ["<part of the error>"], ...
+#
+# A case must fail exactly these checks; u4wrh and hrw4u also need a piece of the error.
+# A fix removes its lines.
+
+# u4wrh drops [NOT] on %{GROUP:END}, inverting the condition.
+conds/double-negation: equivalent
+
+# u4wrh drops [L].
+rules/rule_cond_method: equivalent
+rules/rule_l_value: equivalent, stable
+
+# u4wrh nests a rule that begins after an else branch inside that branch, instead of
+# starting a new rule on the default hook.
+rules/implicit_hook: equivalent
+
+# u4wrh names state variables after their slot but does not pin it; hrw4u renumbers from 0.
+vars/explicit_slots: equivalent, stable
+rules/rule_session_vars: equivalent, stable, raw-percent
+
+# A quoted set member "foo,bar" comes back as "foo, bar".
+rules/rule_client: equivalent
+
+# u4wrh emits an empty REMAP { }, which hrw4u does not parse.
+examples/all-nonsense: hrw4u "extraneous input '}'"
+
+# u4wrh quotes http.cntl boolean spellings.
+ops/http_cntl_valid_bools: hrw4u "Invalid boolean value"
+
+# u4wrh leaves { in set-body text unescaped, so hrw4u reads it as interpolation.
+ops/json-body: hrw4u "Unknown condition symbol"
+rules/rule_json_body: hrw4u "Unknown condition symbol"
+
+# hrw4u rejects cidr(0, ...), which the plugin accepts.
+rules/rule_cidr: hrw4u "Value must be in range"
+
+# u4wrh does not know these operators.
+rules/rule_cookie: u4wrh "Unknown operator: add-cookie"
+rules/rule_effective_address: u4wrh "Unknown operator: set-effective-address"
+
+# u4wrh emits outbound.req.* into PRE_REMAP, which hrw4u rejects (#13619).
+sandbox/denied-section: hrw4u "is not available in the PRE_REMAP section"
