@@ -4552,6 +4552,19 @@ SSL Termination
    note that OpenSSL session tickets are sensitive to the version of the ca-certificates. Once the
    file is changed with new tickets, use :option:`traffic_ctl config reload` to begin using them.
 
+   For a connection to an address with its own ``dest_ip`` entry in :file:`ssl_multicert.config`,
+   the ticket keys are derived from these keys and that entry's certificate. This applies to every
+   client, including one whose SNI selects a different certificate, so a ticket resumes only on
+   addresses whose ``dest_ip`` entries serve the same certificate. Servers sharing this file resume
+   each other's tickets for such an address only if they serve the same certificate. A ``dest_ip``
+   entry with ``action: tunnel`` has no certificate, so connections to it use these keys as they
+   are. Two consequences follow:
+
+   * Renewing the certificate invalidates the outstanding tickets for that address, and servers
+     cannot resume each other's tickets while a certificate rollout is only partly done.
+   * For an entry that lists both an RSA and an ECDSA certificate, the keys are derived from the
+     certificate loaded last, so servers must list the certificates in the same order.
+
 .. ts:cv:: CONFIG proxy.config.ssl.servername.filename STRING sni.yaml
    :deprecated:
 
@@ -5248,7 +5261,7 @@ HTTP/2 Configuration
 .. ts:cv:: CONFIG proxy.config.http2.flow_control.policy_in INT 0
    :reloadable:
 
-   Specifies the mechanism |TS| uses to maintian flow control via the HTTP/2
+   Specifies the mechanism |TS| uses to maintain flow control via the HTTP/2
    stream and session windows for inbound connections. See IETF RFC 9113
    section 5.2 for details concerning HTTP/2 flow control.
 
@@ -5274,12 +5287,19 @@ HTTP/2 Configuration
          a way that shares the window equally among all concurrent streams.
    ===== ===========================================================================================
 
+   Reloading this setting applies the new policy only to connections initialized
+   after the update. Existing connections retain the policy selected when they
+   were initialized, including for streams opened after the reload. Close and
+   reopen a connection to use the new policy.
+
 .. ts:cv:: CONFIG proxy.config.http2.flow_control.policy_out INT 0
    :reloadable:
 
-   Specifies the mechanism |TS| uses to maintian flow control via the HTTP/2
+   Specifies the mechanism |TS| uses to maintain flow control via the HTTP/2
    stream and session windows for outbound connections. See the corresponding :ts:cv:`proxy.config.http2.flow_control.policy_in`
-   configuration for details concerning how this configuration variable is used.
+   configuration for details concerning how this configuration variable is used,
+   including reload behavior. Existing outbound connections retain their original
+   policy; the updated policy applies only to newly initialized connections.
 
 .. ts:cv:: CONFIG proxy.config.http2.max_frame_size INT 16384
    :reloadable:
@@ -5405,6 +5425,15 @@ HTTP/2 Configuration
    Clients exceeded this limit will be immediately disconnected with an error
    code of ENHANCE_YOUR_CALM.
    Any negative value configures no limit to the number of SETTINGS frames received.
+
+   On inbound and outbound connections, SETTINGS frames carrying the ACK flag are not
+   counted against this limit. Unsolicited ACKs are still protocol errors.
+   They are mandatory protocol responses to SETTINGS frames |TS| sent and
+   therefore cannot be used by a peer to flood |TS|; counting them would
+   spuriously close healthy connections. In particular, setting
+   :ts:cv:`proxy.config.http2.flow_control.policy_in` or
+   :ts:cv:`proxy.config.http2.flow_control.policy_out` to ``2`` causes |TS|
+   to send SETTINGS frames as the stream windows change.
 
 .. ts:cv:: CONFIG proxy.config.http2.max_ping_frames_per_minute INT 60
    :reloadable:
@@ -6222,6 +6251,15 @@ Sockets
 
    Turn on or off support for connection half open for client side. Default is on, so
    after client sends FIN, the connection is still there.
+
+   When this is enabled and the client aborts before the origin server has sent its response header, |TS| keeps the transaction
+   alive so that the response can still be fetched and cached, which is known as a **background fill**. This is done even for
+   transports such as TLS and HTTP/2 that have no way to half close a connection.
+
+   When this is disabled, a client abort ends the transaction: the connection to the origin server is closed rather than held
+   open for a client that is no longer there. See :ts:cv:`proxy.config.http.background_fill_completed_threshold` and
+   :ts:cv:`proxy.config.http.background_fill_active_timeout` for controlling background fills that have already started
+   delivering the response to the client.
 
 .. ts:cv:: CONFIG proxy.config.http.wait_for_cache INT 0
 
