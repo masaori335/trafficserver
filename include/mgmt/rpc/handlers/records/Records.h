@@ -23,6 +23,7 @@
 #include <string_view>
 #include <yaml-cpp/yaml.h>
 #include "tsutil/ts_errata.h"
+#include "mgmt/rpc/jsonrpc/JsonRPCManager.h"
 
 namespace rpc::handlers::records
 {
@@ -38,7 +39,10 @@ namespace rpc::handlers::records
 /// case of any missed search, ie: when paseed types didn't match the found record(s), the particular error will be added to the @c
 /// "errorList" field.
 ///
-swoc::Rv<YAML::Node> lookup_records(std::string_view const &id, YAML::Node const &params);
+/// @param budget What is left of the request's record allowance. The search stops once it is spent and the response is reported
+/// incomplete through @c errorList, since one element can match the whole store and nothing else bounds how much a request may
+/// ask to be returned.
+swoc::Rv<YAML::Node> lookup_records(std::string_view const &id, YAML::Node const &params, rpc::ResponseBudget &budget);
 
 ///
 /// @brief A RPC function handler that clear all the metrics.

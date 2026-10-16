@@ -37,11 +37,13 @@ Test.ContinueOnFail = True
 # so the run is ended only by a digit or an underscore, not by capitals.
 #
 # No crafted records are needed, but the margin is narrower than it looks. Measured against PCRE2
-# 10.47, a run of 15 characters is the shortest that exceeds the limit, and the shortest leading run
-# among the 582 names records.yaml registers is exactly 15 -- "proxy.config.io_uring", ended by its
-# underscore. Nothing that ships is below that, so every config record is undecided under this
-# pattern, which is what the reported count reflects. Against a stock server's names this costs
-# roughly 20s of CPU unbounded, against about 120ms once the match limit applies.
+# 10.47, proving no match over a leading run of k characters costs 2^(k+1)-2 steps under the JIT and
+# 3*2^k on the interpreter, so a run of 10 characters already exceeds the 1,024 smallest cap a name
+# gets either way, and the shortest leading run among
+# the names records.yaml registers is 15 -- "proxy.config.io_uring", ended by its underscore.
+# Nothing that ships is below that, so every config record is undecided under this pattern, which is
+# what the reported count reflects. Against a stock server's names this costs seconds of CPU
+# unbounded, and about 1.6ms once the cap applies.
 #
 # Two details are load bearing. The tail must be a character class rather than a literal, because
 # for an absent literal PCRE2's required-code-unit check rejects each name up front and no
@@ -51,20 +53,25 @@ Test.ContinueOnFail = True
 # useless here, no real name holds two consecutive 'a' characters to backtrack over.
 REDOS_PATTERN = '^([a-z.]+)+[~=]'
 
-# This shape exhausts the JIT stack before the step count, so PCRE2 reports
-# PCRE2_ERROR_JIT_STACKLIMIT (-46) rather than PCRE2_ERROR_MATCHLIMIT (-47). That depends on the
-# headroom, not on the pattern alone: measured against PCRE2 10.47 it reports -46 on the default
-# 32KB block these lookups run with, and -47 once given a 32769 byte stack. Classifying only the
-# step count as "no verdict" let this shape drop every record while reporting nothing at all: empty
-# output, no diags entry and a zero exit status, indistinguishable from a pattern that legitimately
-# matched nothing. It is covered here as well as in the unit tests because the RPC path is where an
-# unauthenticated caller reaches it.
+# This shape exhausts a resource other than the step count, so PCRE2 reports something other than
+# PCRE2_ERROR_MATCHLIMIT (-47). The recursion comes first in the group, so each name recurses at the
+# same position without consuming anything: the JIT runs out of stack and reports
+# PCRE2_ERROR_JIT_STACKLIMIT (-46), and the interpreter detects the loop and reports
+# PCRE2_ERROR_RECURSELOOP (-52). Measured against PCRE2 10.47 over the stock names, every name gets
+# that code under both the scaled step cap and a flat 50,000, so the case does not depend on how
+# small a name's cap is. A shape that consumes a character before recursing, such as
+# "^(?:[a-z.]|(?R))*[~=]", exhausts the scaled cap first instead and reports -47 like the case above.
+#
+# Classifying only the step count as "no verdict" let this shape drop every record while reporting
+# nothing at all: empty output, no diags entry and a zero exit status, indistinguishable from a
+# pattern that legitimately matched nothing. It is covered here as well as in the unit tests
+# because the RPC path is where an unauthenticated caller reaches it.
 #
 # The stdout and exit status below are what this case pins. Its diags.log line is not asserted,
 # because the warning is throttled per call site and the lookup above has already emitted one within
 # the interval, so this one is suppressed by design. Coverage of the -46 error text reaching the log
 # lives in src/records/unit_tests/test_RecLookupMatchingRecords.cc, where no throttle is active.
-RECURSIVE_PATTERN = '^(?:[a-z.]|(?R))*[~=]'
+RECURSIVE_PATTERN = '^(?:(?R)|[a-z.])*[~=]'
 
 # A truncated lookup is a partial answer, not a failed one, so traffic_ctl reports it through the
 # error list, which sets exit status CTRL_EX_ERROR.
@@ -198,11 +205,15 @@ traffic_ctl.ts.Disk.diags_log.Content += Testers.IncludesExpression(
     "results are incomplete", "the truncated lookup should be reported, not silently returned as a short answer")
 
 # Pins the value of the bound itself. Every other assertion here passes just as well on a build
-# whose limit has been raised back to PCRE2's 10,000,000 default, which is the vulnerability. Matched
-# with the words before it so a stray "50000" elsewhere in the log cannot satisfy it, and with the
-# comma after it so a cap of 500000 or 5000000 cannot either.
+# whose limit has been raised back to PCRE2's 10,000,000 default, which is the vulnerability. The
+# first warning comes from the config lookup above, and names the cap of the first config record it
+# left undecided. Every config name in RecordsConfig.cc is 21 to 62 characters, so its cap is that
+# length squared held at 1,024 or more: four digits. A flat 50,000 has five, so this also fails if
+# the cap stops being scaled. The ceiling is matched with the comma after it so a ceiling of 500000
+# or 5000000 cannot satisfy it.
 traffic_ctl.ts.Disk.diags_log.Content += Testers.IncludesExpression(
-    "step cap in effect 50000,", "the log should name the cap installed on the match context, not a compile-time constant")
+    "step cap [0-9]{4} for the first of them, scaled to name length up to 50000,",
+    "the log should name the scaled cap installed on the match context, not a compile-time constant")
 
 # Identifies the (*UTF) refusal above as that refusal, rather than as any of the other ways a
 # pattern can fail to compile. The wording is PCRE2's own, so it cannot be produced by a pattern

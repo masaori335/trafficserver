@@ -107,9 +107,24 @@ Field                  Type          Description
 
    Matching a ``record_name_regex`` against a record name is capped at a number of backtracking
    steps, because the expression is run against every registered name and the handler is not
-   restricted. A name the match stops on before reaching a verdict, whether at that cap or for
-   another reason, yields no verdict; the record is then omitted from the result and the lookup is
-   a partial one.
+   restricted. The cap is sized from the name: the square of its length, at least 1,024 and at most
+   50,000, so a short name gets far fewer steps than a long one. A name the match stops on before
+   reaching a verdict, whether at that cap or for another reason, yields no verdict; the record is
+   then omitted from the result and the lookup is a partial one.
+
+   The cap applies to each position the expression is tried from, not to the name as a whole. For an
+   unanchored expression |TS| gets the whole budget again at every start offset, so matching one name
+   can cost up to its length times the cap. Bounding what a whole lookup may cost is a separate
+   matter and is not what this cap does.
+
+   The budget admits two wildcards composing over a whole name, which is the most expensive shape an
+   ordinary expression needs: that costs about half the square of the run, leaving roughly twice the
+   room it uses. Adding ambiguity past that point -- a third ``.*``, or an optional separator between
+   two of them -- can exceed it, so such an expression may be reported as a partial lookup on names
+   a flat 50,000 step cap resolved. Whether it does depends on the shape, on the name's length, and
+   on whether the expression was JIT compiled, so it is not a bright line. Either keep to two
+   ambiguous parts, or anchor the expression on a literal prefix, which shortens the run that
+   backtracks rather than raising the budget.
 
    A partial lookup still succeeds: the records that were resolved are returned in the usual
    ``recordList``, and an entry is added to ``errorList`` reporting that the list is incomplete,
@@ -130,10 +145,31 @@ Field                  Type          Description
    "inexpensive".
 
    No list of safe constructs is offered here, because none would be accurate. Nested
-   quantification and recursion, such as ``^([a-z.]+)+[~=]`` or ``(?R)``, are shapes the engine
-   gives up on for the short names a |TS| build registers, but they are not the only expensive ones,
-   and anchoring does not exempt an expression. Bounding the work a lookup may cost, as distinct from
+   quantification and recursion, such as ``^([a-z.]+)+[~=]`` or ``^(?:(?R)|[a-z.])*[~=]``, are
+   shapes the engine gives up on for the short names a |TS| build registers, but they are not the
+   only expensive ones, and anchoring does not exempt an expression. Bounding the work a lookup may cost, as distinct from
    the steps one match may take, is tracked separately.
+
+.. note::
+
+   One request is answered with at most 10,000 records in total, counted across every element of
+   every message in the request. The limit exists because a single element may match the whole
+   store, so without it the response grows with the number of elements multiplied by the size of
+   the store, and the response is built in memory before any of it is written.
+
+   Reaching the limit is not an error. The records collected up to that point are returned in the
+   usual ``recordList``, no record is returned half-built, and an entry with code
+   ``RESPONSE_TRUNCATED`` (see :ref:`RecordErrorObject-Enum`) is added to ``errorList``. A client
+   that ignores ``errorList`` cannot tell a truncated result from a complete one. The limit bounds
+   what one request accumulates, not what one element costs: an element is still matched against
+   the whole store before any of its matches are counted.
+
+   The limit is not configurable. On a default instance one element matching every record returns
+   on the order of a thousand, so a lookup there stays well inside it. It is reachable by a single
+   element on an instance whose metric store is large: the metric store is not bounded the way the
+   config store is, and a plugin that registers metrics per host or per remap rule can take it past
+   10,000. Such a lookup is answered with the first 10,000 records and a ``RESPONSE_TRUNCATED``
+   entry.
 
 
 Example:
@@ -378,8 +414,20 @@ The following errors could be generated when requesting record from the server.
       Matching the supplied ``record_name_regex`` was abandoned for some record names before a
       verdict was reached, so the returned ``recordList`` is a partial one. The step limit is the
       usual reason, but not the only one: a recursive expression exhausts the regex engine's stack
-      first, and the outcome is the same. Unlike every other code here, this does not mean the
-      lookup failed: the records that were resolved are returned alongside it.
+      first, and the outcome is the same. Like ``RESPONSE_TRUNCATED`` below, and unlike the codes
+      above it, this does not mean the lookup failed: the records that were resolved are returned
+      alongside it.
+
+   .. enumerator:: RESPONSE_TRUNCATED = 2012
+
+      The request reached the number of records one response may carry, so the remaining records
+      were not collected and the returned ``recordList`` is a partial one. Like
+      ``LOOKUP_INCOMPLETE`` this does not mean the lookup failed. The two are kept distinct because
+      they report different things about the same response and can appear in it together: that one
+      says a pattern was abandoned on some names, this one says the response ran out of room, which
+      is a property of the request's size. When this one appears, the elements behind the
+      truncation were not looked at, so it says nothing about whether their names would have been
+      decided.
 
 
 .. _RecordRequestObject:

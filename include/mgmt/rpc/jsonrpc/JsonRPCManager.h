@@ -52,6 +52,45 @@ struct RPCRegistryInfo {
 };
 
 ///
+/// @brief What is left of a request's allowance for records in its response.
+///
+/// Created once per request and shared by every message of a batch, so a batch cannot multiply it. A handler that can emit an
+/// unbounded number of records takes from it as it builds the response and stops when it is spent; a handler that answers with
+/// a bounded amount does not need one and is registered without it.
+///
+class ResponseBudget
+{
+public:
+  explicit ResponseBudget(size_t records) : _remaining{records} {}
+
+  /// Take @a n records from what is left. False if they do not fit, and the budget is then spent for the rest of the request:
+  /// once one take has been refused no later take succeeds, however small, so a response that has gone short cannot start
+  /// growing again further down the batch. A take that lands exactly on the remainder fits, and leaves the budget unspent.
+  bool
+  take(size_t n = 1)
+  {
+    if (_spent || n > _remaining) {
+      _spent = true;
+      return false;
+    }
+    _remaining -= n;
+    return true;
+  }
+
+  /// True once a take() has been refused. Tells the caller its own result may be short; it does not say that this caller is
+  /// the one that lost records, since the budget is shared by every message of a batch.
+  bool
+  spent() const
+  {
+    return _spent;
+  }
+
+private:
+  size_t _remaining;
+  bool   _spent{false};
+};
+
+///
 /// @brief JSONRPC registration and JSONRPC invocation logic  https://www.jsonrpc.org/specification
 /// doc TBC
 class JsonRPCManager
@@ -64,8 +103,31 @@ private:
   using Encoder = json_codecs::yamlcpp_json_encoder;
 
 public:
+  /// Most params elements one request may carry, summed over every message of a batch; more is refused whole with
+  /// INVALID_PARAMS, before any handler runs. An element is one top-level entry of a message's params: an array element or an
+  /// object member. Each one can cost a handler a full walk of a store, and the request size alone does not bound the count,
+  /// because a YAML alias repeats an element for a few bytes. The batch-message count is bounded separately, by the decoder.
+  static constexpr size_t MAX_PARAMS_ELEMENTS = 1024;
+
+  /// Most records one request may put in its response, summed over every message of a batch.
+  ///
+  /// The element count above bounds how many lookups a request may ask for; it does not bound how much each one answers with,
+  /// and a lookup can match the whole record store. Measured on a default install without a sanitizer, one store walk is
+  /// 1,339 records and about 489 KB of encoded output, and the whole response is held as a YAML node tree before it is
+  /// encoded. So the two limits compose into a response of elements x store: 1024 broad lookups from a 28 KB request measured
+  /// 501 MB of output and 9.8 GB of peak RSS, about 7 KB of heap held per record.
+  ///
+  /// 10,000 holds one request's response to roughly 3.7 MB of encoded output. On a default install it is about 7.5x what one
+  /// broad lookup returns, so a lookup there stays well inside it; it is reachable in a single element on an instance whose
+  /// metric store is large, since the metric store is not bounded the way the config store is. Past it the lookup stops and
+  /// reports its result short, rather than returning a short answer that reads as complete.
+  static constexpr size_t MAX_RECORDS_PER_REQUEST = 10000;
+
   // Possible RPC method signatures.
-  using MethodHandlerSignature       = std::function<swoc::Rv<YAML::Node>(std::string_view const &, const YAML::Node &)>;
+  using MethodHandlerSignature = std::function<swoc::Rv<YAML::Node>(std::string_view const &, const YAML::Node &)>;
+  /// A method that can emit an unbounded number of records, and so answers within the request's budget.
+  using BudgetedMethodHandlerSignature =
+    std::function<swoc::Rv<YAML::Node>(std::string_view const &, const YAML::Node &, ResponseBudget &)>;
   using PluginMethodHandlerSignature = std::function<void(std::string_view const &, const YAML::Node &)>;
   using NotificationHandlerSignature = std::function<void(const YAML::Node &)>;
 
@@ -120,6 +182,17 @@ public:
   ///
   template <typename Func>
   bool add_notification_handler(std::string_view name, Func &&call, const RPCRegistryInfo *info, TSRPCHandlerOptions const &opt);
+
+  ///
+  /// @brief Add a method handler that answers within the request's record budget.
+  ///
+  /// For a handler whose response size is driven by the request rather than by the handler, so that a request cannot ask for
+  /// an unbounded answer. @see ResponseBudget. Internal only; a plugin handler registers through
+  /// @c add_method_handler_from_plugin and is not handed a budget.
+  ///
+  template <typename Handler>
+  bool add_method_handler_with_budget(std::string_view name, Handler &&call, const RPCRegistryInfo *info,
+                                      TSRPCHandlerOptions const &opt);
 
   ///
   /// @brief This function handles the incoming jsonrpc request and dispatch the associated registered handler.
@@ -205,7 +278,7 @@ private:
 
     /// Find and call the request's callback. If any error occurs, the return type will have the specific error.
     /// For notifications the @c RPCResponseInfo will not be set as part of the response. @c response_type
-    response_type dispatch(Context const &ctx, specs::RPCRequestInfo const &request) const;
+    response_type dispatch(Context const &ctx, specs::RPCRequestInfo const &request, ResponseBudget &budget) const;
 
     /// Find a particular registered handler(method) by its associated name.
     /// @return A pair. The handler itself and a boolean flag indicating that the handler was found. If not found, second will
@@ -221,6 +294,8 @@ private:
     // Supported handler endpoint types.
     using Method       = FunctionWrapper<MethodHandlerSignature>;
     using PluginMethod = FunctionWrapper<PluginMethodHandlerSignature>;
+    /// A method handed the request's record budget. Internal only: plugins register through PluginMethod.
+    using BudgetedMethod = FunctionWrapper<BudgetedMethodHandlerSignature>;
     // Plugins and non plugins handlers have no difference from the point of view of the RPC manager, we call and we do not expect
     // for the work to be finished. Notifications have no response at all.
     using Notification = FunctionWrapper<NotificationHandlerSignature>;
@@ -230,8 +305,10 @@ private:
     void register_service_descriptor_handler();
 
     // Functions to deal with the handler invocation.
-    response_type invoke_method_handler(InternalHandler const &handler, specs::RPCRequestInfo const &request) const;
-    response_type invoke_notification_handler(InternalHandler const &handler, specs::RPCRequestInfo const &request) const;
+    response_type invoke_method_handler(InternalHandler const &handler, specs::RPCRequestInfo const &request,
+                                        ResponseBudget &budget) const;
+    response_type invoke_notification_handler(InternalHandler const &handler, specs::RPCRequestInfo const &request,
+                                              ResponseBudget &budget) const;
 
     ///
     /// @brief Class that wraps callable objects of any RPC specific type. If provided, this class also holds a valid registry
@@ -247,7 +324,7 @@ private:
       explicit                         operator bool() const;
       bool                             operator!() const;
       /// Invoke the actual handler callback.
-      swoc::Rv<YAML::Node> invoke(specs::RPCRequestInfo const &request) const;
+      swoc::Rv<YAML::Node> invoke(specs::RPCRequestInfo const &request, ResponseBudget &budget) const;
       /// Check if the handler was registered as method.
       bool is_method() const;
 
@@ -267,11 +344,11 @@ private:
 
     private:
       // We need to keep this match with the order of types in the _func variant. This will help us to identify the holding type.
-      enum class VariantTypeIndexId : std::size_t { NOTIFICATION = 1, METHOD = 2, METHOD_FROM_PLUGIN = 3 };
-      // We support these three for now. This can easily be extended to support other signatures.
+      enum class VariantTypeIndexId : std::size_t { NOTIFICATION = 1, METHOD = 2, METHOD_FROM_PLUGIN = 3, METHOD_WITH_BUDGET = 4 };
+      // We support these for now. This can easily be extended to support other signatures.
       // that's one of the main points of the InternalHandler
-      std::variant<std::monostate, Notification, Method, PluginMethod> _func;
-      const RPCRegistryInfo                                           *_regInfo =
+      std::variant<std::monostate, Notification, Method, PluginMethod, BudgetedMethod> _func;
+      const RPCRegistryInfo                                                           *_regInfo =
         nullptr; ///< Can hold internal information about the handler, this could be null as it is optional.
                  ///< This pointer can eventually holds important information about the call.
       TSRPCHandlerOptions _options;
@@ -299,6 +376,14 @@ JsonRPCManager::add_method_handler_from_plugin(const std::string &name, Handler 
                                                TSRPCHandlerOptions const &opt)
 {
   return _dispatcher.add_handler<Dispatcher::PluginMethod, Handler>(name, std::forward<Handler>(call), info, opt);
+}
+
+template <typename Handler>
+bool
+JsonRPCManager::add_method_handler_with_budget(std::string_view name, Handler &&call, const RPCRegistryInfo *info,
+                                               TSRPCHandlerOptions const &opt)
+{
+  return _dispatcher.add_handler<Dispatcher::BudgetedMethod, Handler>(name, std::forward<Handler>(call), info, opt);
 }
 
 template <typename Handler>

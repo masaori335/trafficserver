@@ -48,7 +48,13 @@ enum class RecordError {
   // Not a failed lookup: the records already collected are valid, but at least one name could not
   // be decided against the pattern, so the set is a partial one. Appended deliberately; these
   // values are wire-visible error codes and renumbering them would change the RPC contract.
-  LOOKUP_INCOMPLETE
+  LOOKUP_INCOMPLETE,
+  // Also not a failed lookup. Distinct from the one above because it reports a different thing: the
+  // response ran out of room. Both can appear in one errorList. Kept separate from
+  // LOOKUP_INCOMPLETE because that code's text states a pattern was abandoned, which is not what
+  // happened here, and because the elements behind the truncation were never looked at, so this
+  // says nothing about whether their names would have been decided.
+  RESPONSE_TRUNCATED
 };
 std::error_code make_error_code(rpc::handlers::errors::RecordError e);
 } // namespace rpc::handlers::errors

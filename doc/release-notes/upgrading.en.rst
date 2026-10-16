@@ -233,6 +233,57 @@ Plugins
   :file:`sni.yaml` already require a whole-subject match and are unaffected by
   the setting (CVE-2026-22068).
 
+Management API
+~~~~~~~~~~~~~~
+
+* The JSON-RPC management socket bounds how much one request may carry, a request
+  being the whole JSON document sent on the socket and a message being one entry of it
+  when that document is a batch. A batch of more than 64 messages is refused with
+  ``-32600``, and a request whose ``params`` hold more than 1024 elements in total
+  across its messages is refused with ``-32602``. Both refusals name the limit in
+  ``error.data``. An element is one array element or object member of a message's
+  ``params``, counted once per YAML alias reference, and only messages the server
+  accepts for dispatch are counted. A refused request runs none of its messages, so a
+  client that sends more than this must split the work across requests. The |TS| clients that send a fixed number of elements stay well inside
+  the limit: the largest, ``traffic_top``, sends 101 per refresh. The one that scales
+  with the deployment is ``traffic_ctl config reset``, which sends one element per
+  record whose value differs from its default; on an instance with more than 1024
+  such records it is now refused whole and resets nothing, so reset by path there.
+  On the command line the same count is visible as arguments: every name given to
+  ``traffic_ctl config get``, ``config describe``, ``metric get`` or ``metric describe``
+  is one element, so 1024 names run and 1025 are refused with ``-32602`` having run
+  nothing.
+
+* One JSON-RPC request is answered with at most 10,000 records in total, counted
+  across every ``params`` element of every message in it. A request that reaches the
+  limit still succeeds: the records collected are returned and an ``errorList`` entry
+  with the new code ``2012`` (``RESPONSE_TRUNCATED``) reports the list as a partial
+  one. The record lookup commands -- ``config get``, ``config match``,
+  ``config describe``, ``metric get``, ``metric match``, ``metric describe`` -- exit
+  non-zero on it. The ``rpc`` pass-through commands do not: ``rpc file`` and
+  ``rpc invoke`` print the response and exit zero, and ``rpc input`` under
+  ``--format json`` prints nothing at all. That is left for a separate change,
+  since fixing it changes what those commands print. Clients that read ``errorList``
+  should treat ``2012`` the way they treat ``2011``.
+
+  On a default instance the limit is not reached: one element matching every record
+  returns on the order of a thousand. It is reachable on an instance whose metric
+  store is large, because the metric store is not bounded the way the config store is
+  and a plugin that registers metrics per host or per remap rule -- ``remap_stats`` is
+  the in-tree one -- can take it past 10,000. On such an instance
+  ``traffic_ctl metric match .`` now returns the first 10,000 metrics and exits 2
+  where it previously returned all of them and exited 0, and a monitoring client that
+  ignores ``errorList`` sees a silently short set. Which records a truncated answer
+  carries is not specified: the walk stops where it is, so the result is a store-walk
+  subset rather than a stable prefix. Raising the limit, retrieving the rest, and
+  specifying that order are left for a later release.
+
+* A ``record_name_regex`` lookup caps backtracking steps per record name, scaled to
+  the length of that name rather than flat. An expression whose ambiguous groups
+  compose can exceed the budget on short names where it previously resolved; the
+  lookup then reports a partial result through ``errorList`` rather than silently
+  omitting records, and ``traffic_ctl`` exits non-zero. See
+  :ref:`admin_lookup_records`.
 Changes in 10.2.1
 -----------------
 

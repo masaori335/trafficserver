@@ -8,8 +8,9 @@
          "$ref":"#/definitions/request"
       },
       {
-         "description":"An array of requests",
+         "description":"An array of requests. The server refuses a longer batch with -32600 before validating any of it.",
          "type":"array",
+         "maxItems":64,
          "items":{
             "$ref":"#/definitions/request"
          }
@@ -43,10 +44,13 @@
                ]
             },
             "params":{
+               "description":"The server refuses a request whose params hold more than 1024 elements with -32602. That count is a total across every message of a batch, and only messages the server accepts for dispatch are counted, neither of which this schema can express: a batch may be refused although every one of its messages satisfies the bound below, and a message that fails validation may exceed it without being refused for it.",
                "type":[
                   "array",
                   "object"
-               ]
+               ],
+               "maxItems":1024,
+               "maxProperties":1024
             }
          }
       }

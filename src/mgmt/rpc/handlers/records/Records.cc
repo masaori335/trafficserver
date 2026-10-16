@@ -206,12 +206,25 @@ namespace rpc::handlers::records
 namespace err = rpc::handlers::errors;
 
 swoc::Rv<YAML::Node>
-lookup_records(std::string_view const & /* id ATS_UNUSED */, YAML::Node const &params)
+lookup_records(std::string_view const & /* id ATS_UNUSED */, YAML::Node const &params, rpc::ResponseBudget &budget)
 {
   // TODO: we may want to deal with our own object instead of a node here.
   YAML::Node recordList{YAML::NodeType::Sequence}, errorList{YAML::NodeType::Sequence};
 
+  // Set where a record is refused or an element is skipped, rather than read back from the budget, because the budget is one
+  // per request: once another message of the same batch has spent it, budget.spent() stays true for every message that follows
+  // and says nothing about whether this one lost anything.
+  bool shortList = false;
+
   for (auto &&node : params) {
+    // Checked here rather than only after a record is refused, so that a message whose budget was spent by an earlier message
+    // of the same batch asks the store for nothing at all. The element the budget runs out on has already cost a whole walk,
+    // and every element after it would cost another for records no element can receive.
+    if (budget.spent()) {
+      shortList = true;
+      break;
+    }
+
     RequestRecordElement recordElement;
     try {
       recordElement = node.as<RequestRecordElement>();
@@ -238,13 +251,35 @@ lookup_records(std::string_view const & /* id ATS_UNUSED */, YAML::Node const &p
 
     // Regex lookup, will get us back a sequence, of nodes. In this case we will add them one by 1 so we get a list of objects and
     // not a sequence inside the result object, this can be changed ofc but for now this is fine.
+    //
+    // Each record added is taken from the request's allowance. One element can match the whole store and a request may carry
+    // many of them, so without this the response grows with elements x store; see ResponseBudget. What the allowance bounds is
+    // what the request accumulates, not what one element costs: find_records above has already matched this element against the
+    // whole store and built a node for every match before any of it is counted here. When the allowance runs out the copying
+    // stops between records rather than part way through one, and the check after the loop reports the result as short.
     if (recordNode.IsSequence()) {
       for (auto &&n : recordNode) {
+        if (!budget.take()) {
+          shortList = true;
+          break;
+        }
         recordList.push_back(std::move(n));
       }
     } else if (recordNode.IsMap()) {
-      recordList.push_back(std::move(recordNode));
+      if (budget.take()) {
+        recordList.push_back(std::move(recordNode));
+      } else {
+        shortList = true;
+      }
     }
+  }
+
+  // Reported the way a regex that gave up on a name is, with its own code: the records that were resolved are returned, and the
+  // caller is told the list is short rather than being handed a short list that reads as complete. It is a separate code because
+  // LOOKUP_INCOMPLETE's text says a pattern was abandoned, which is not what happened here, and both can appear in one
+  // errorList.
+  if (shortList) {
+    errorList.push_back(ErrorInfo{{err::RecordError::RESPONSE_TRUNCATED}});
   }
 
   YAML::Node resp;

@@ -60,7 +60,7 @@ target_link_libraries(
 if(BUILD_TESTING)
   file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/tests/var)
   file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/tests/config)
-  add_executable(test_jsonrpc jsonrpc/unit_tests/test_basic_protocol.cc)
+  add_executable(test_jsonrpc jsonrpc/unit_tests/test_basic_protocol.cc jsonrpc/unit_tests/test_response_budget.cc)
   target_link_libraries(
     test_jsonrpc ts::tsutil Catch2::Catch2WithMain ts::rpcpublichandlers ts::jsonrpc_protocol libswoc::libswoc
   )

@@ -86,6 +86,10 @@ BasePrinter::write_output(shared::rpc::JSONRPCResponse const &response)
 {
   // If json, then we print the full message, either ok or error.
   if (this->is_json_format()) {
+    if (response.is_error()) {
+      App_Exit_Status_Code = CTRL_EX_ERROR;
+    }
+
     // A record lookup can report per-record errors inside a result the RPC itself considered a
     // success, a truncated regex lookup being one. The text path surfaces those through
     // print_record_error_list, which also sets the exit status; returning here without doing the

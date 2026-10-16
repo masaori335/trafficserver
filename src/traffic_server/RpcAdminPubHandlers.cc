@@ -54,8 +54,9 @@ register_admin_jsonrpc_handlers()
 
   // Records
   using namespace rpc::handlers::records;
-  rpc::add_method_handler("admin_lookup_records", &lookup_records, &core_ats_rpc_service_provider_handle,
-                          {{rpc::NON_RESTRICTED_API}});
+  // Registered with a budget: one element can match the whole record store, so the response size is driven by the request.
+  rpc::add_method_handler_with_budget("admin_lookup_records", &lookup_records, &core_ats_rpc_service_provider_handle,
+                                      {{rpc::NON_RESTRICTED_API}});
 
   // plugin
   using namespace rpc::handlers::plugins;

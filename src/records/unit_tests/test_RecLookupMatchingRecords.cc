@@ -88,11 +88,13 @@ TEST_CASE("RecLookupMatchingRecords bounds regex backtracking", "[librecords][Re
   CHECK(indeterminate == RECORD_COUNT);
 
   REQUIRE(cdiag->messages.size() == 1);
-  CHECK(cdiag->messages[0].find("2 record name(s)") != std::string::npos);
+  CHECK(cdiag->messages[0].find("left 2 record name(s)") != std::string::npos);
   CHECK(cdiag->messages[0].find("results are incomplete") != std::string::npos);
-  // Names the cap in effect. The case that actually fails when the cap stops being installed is
-  // "installs the cap it reports" below; this only checks the message reports it.
-  CHECK(cdiag->messages[0].find("step cap in effect 50000,") != std::string::npos);
+  // Names the first undecided name's own cap, 67^2 for these 67 character names, and the ceiling it
+  // is held under. The cases that fail when the cap stops being installed or scaled are "installs
+  // the cap it reports" and "scales the step cap to the name" below; this only checks the message
+  // reports it.
+  CHECK(cdiag->messages[0].find("step cap 4489 for the first of them, scaled to name length up to 50000,") != std::string::npos);
 }
 
 // Metrics are two more exec() sites, reached only for RECT_PROCESS, RECT_NODE and RECT_PLUGIN. The
@@ -114,7 +116,7 @@ TEST_CASE("RecLookupMatchingRecords bounds regex backtracking for metrics", "[li
   // One name from each of the two loops, so the count is what shows both ran rather than just one.
   CHECK(indeterminate == 2);
   REQUIRE(cdiag->messages.size() == 1);
-  CHECK(cdiag->messages[0].find("2 record name(s)") != std::string::npos);
+  CHECK(cdiag->messages[0].find("left 2 record name(s)") != std::string::npos);
 }
 
 // The fourth exec() site, reached only when RECT_HIDDEN_METRIC is requested, since hidden metrics
@@ -138,7 +140,7 @@ TEST_CASE("RecLookupMatchingRecords bounds regex backtracking for hidden metrics
   // makes this count exact.
   CHECK(indeterminate == 1);
   REQUIRE(cdiag->messages.size() == 1);
-  CHECK(cdiag->messages[0].find("1 record name(s)") != std::string::npos);
+  CHECK(cdiag->messages[0].find("left 1 record name(s)") != std::string::npos);
 }
 
 // Pins the cap itself, which no other case in this file can do.
@@ -174,9 +176,11 @@ TEST_CASE("RecLookupMatchingRecords installs the cap it reports", "[librecords][
   CHECK(match_count == 0);
   CHECK(indeterminate == 1);
   REQUIRE(cdiag->messages.size() == 1);
-  // The cap named in the message comes from the match context, so this also fails if the diagnostic
-  // reverts to printing the compile-time constant while a different cap is in effect.
-  CHECK(cdiag->messages[0].find("step cap in effect 50000,") != std::string::npos);
+  // A 400 character name is past the 224 characters at which the scaled cap reaches the ceiling, so
+  // it runs under the full 50,000. No case in this file separates a number read back from the match
+  // context from the same number recomputed, because for every fixture here the two agree; what the
+  // cases below pin is that the number tracks the name rather than any constant.
+  CHECK(cdiag->messages[0].find("step cap 50000 for the first of them,") != std::string::npos);
 }
 
 // Regression for a pattern that exhausts a resource other than the step count.
@@ -189,10 +193,12 @@ TEST_CASE("RecLookupMatchingRecords installs the cap it reports", "[librecords][
 //
 // Which code appears is a property of the pattern here, not of the missing JIT stack: this one
 // reports -46 even against the 1MB stack the thread-global context assigns, and even with no match
-// limit set at all. The 32KB default does decide the outcome for shallower recursive patterns --
-// measured against PCRE2 10.47, the bare "^(?:[a-z.]|(?R))*[~=]" in
-// tests/gold_tests/traffic_ctl/traffic_ctl_config_match_redos.test.py flips from -46 to -47
-// exactly between a 32768 and a 32769 byte stack -- which is why that shape is covered there.
+// limit set at all. The RPC-level counterpart is the left-recursive shape in
+// tests/gold_tests/traffic_ctl/traffic_ctl_config_match_redos.test.py, which recurses before
+// consuming anything: measured against PCRE2 10.47 it reaches the stack in 683 steps, under the
+// 1,024 floor, so every name reports -46 whatever its length. A shape that consumes first, such as
+// a bare "^(?:[a-z.]|(?R))*[~=]", exhausts the scaled cap of a short name before the stack and
+// reports -47 instead.
 //
 // Recursion is confined to a named subroutine behind a literal prefix, rather than applied to the
 // whole pattern with (?R). A bare recursive pattern is expensive against every all-lowercase dotted
@@ -219,7 +225,9 @@ TEST_CASE("RecLookupMatchingRecords reports resource failures other than the mat
 
     RegexMatchContext match_context;
 
-    match_context.set_match_limit(50000);
+    // The cap the lookup installs for this 33 character name, 33^2, so the probe asks PCRE2 the
+    // same question the lookup will.
+    match_context.set_match_limit(1089);
 
     RegexMatches matches;
 
@@ -277,7 +285,7 @@ TEST_CASE("RecLookupMatchingRecords returns matches alongside an undecided sibli
   CHECK(match_count == 1);
   CHECK(indeterminate == 1);
   REQUIRE(cdiag->messages.size() == 1);
-  CHECK(cdiag->messages[0].find("1 record name(s)") != std::string::npos);
+  CHECK(cdiag->messages[0].find("left 1 record name(s)") != std::string::npos);
 }
 
 // The limit must also be loose enough for real lookups, or it silently drops records. Two sequential
@@ -431,5 +439,170 @@ TEST_CASE("RecLookupMatchingRecords sums both stores into one report under RECT_
   CHECK(match_count == 0);
   CHECK(indeterminate == 2);
   REQUIRE(cdiag->messages.size() == 1);
-  CHECK(cdiag->messages[0].find("2 record name(s)") != std::string::npos);
+  CHECK(cdiag->messages[0].find("left 2 record name(s)") != std::string::npos);
+}
+
+// Pins the scaling, which no case above can do: each name they register gets the same verdict
+// under the scaled cap as under a flat 50,000.
+//
+// This name sits between the two bounds. Measured against PCRE2 10.47, "(a+)+$" over a 12 'a' run
+// that ends in 'z' needs 8,190 steps to prove no match with JIT and 10,240 without. The name is 38
+// characters, so its cap is 38^2 = 1,444: the lookup gives up on it and counts it. Under a flat
+// 50,000 the same name resolves to an ordinary NOMATCH and nothing is counted, so this fails if the
+// cap stops being scaled.
+TEST_CASE("RecLookupMatchingRecords scales the step cap to the name", "[librecords][RecCore][redos]")
+{
+  std::string const name = "proxy.config.test.scaled." + std::string(12, 'a') + "z";
+
+  REQUIRE(name.size() == 38);
+  REQUIRE(RecRegisterConfigInt(RECT_CONFIG, name.c_str(), 0, RECU_DYNAMIC, RECC_NULL, nullptr, REC_SOURCE_NULL) == REC_ERR_OKAY);
+
+  CatchDiags *cdiag = clear_diags();
+
+  int      match_count   = 0;
+  unsigned indeterminate = 0;
+
+  REQUIRE(RecLookupMatchingRecords(RECT_CONFIG, R"(^proxy\.config\.test\.scaled\.(a+)+$)", count_callback, &match_count, true,
+                                   &indeterminate) == REC_ERR_OKAY);
+
+  CHECK(match_count == 0);
+  CHECK(indeterminate == 1);
+  REQUIRE(cdiag->messages.size() == 1);
+  CHECK(cdiag->messages[0].find("step cap 1444 for the first of them,") != std::string::npos);
+}
+
+// Pins the floor. Scaling alone would give a short name almost no room: L^2 is 121 steps for this
+// 11 character name, less than the "(a+)+$" over its 7 'a' run needs to prove no match, which is 254
+// steps with JIT and 320 without (PCRE2 10.47). The 1,024 floor lets it resolve, so this fails if
+// the floor is dropped and the lookup starts truncating ordinary patterns on short names.
+TEST_CASE("RecLookupMatchingRecords keeps a floor under the step cap for short names", "[librecords][RecCore][redos]")
+{
+  std::string const name = "fl." + std::string(7, 'a') + "z";
+
+  REQUIRE(name.size() == 11);
+  REQUIRE(RecRegisterConfigInt(RECT_CONFIG, name.c_str(), 0, RECU_DYNAMIC, RECC_NULL, nullptr, REC_SOURCE_NULL) == REC_ERR_OKAY);
+
+  CatchDiags *cdiag = clear_diags();
+
+  int      match_count   = 0;
+  unsigned indeterminate = 0;
+
+  REQUIRE(RecLookupMatchingRecords(RECT_CONFIG, R"(^fl\.(a+)+$)", count_callback, &match_count, true, &indeterminate) ==
+          REC_ERR_OKAY);
+
+  CHECK(match_count == 0);
+  CHECK(indeterminate == 0);
+  CHECK(cdiag->messages.empty());
+}
+
+// The warning names the cap of the FIRST undecided name. Every case above that leaves several names
+// undecided gives them the same length, and the name walked last is always one of the case's own, so
+// reporting the last undecided name's cap -- or reading the context after the loop, as the code did
+// when the cap was flat -- satisfies them all. Here the two undecided names differ in length, and a
+// third name of a third length is registered after them.
+TEST_CASE("RecLookupMatchingRecords reports the first undecided name's cap", "[librecords][RecCore][redos]")
+{
+  std::string const first  = "proxy.config.test.capfirst." + REDOS_SUFFIX;      // 27 + 41 = 68 -> 4624
+  std::string const second = "proxy.config.test.capfirst.bbbb." + REDOS_SUFFIX; // 32 + 41 = 73 -> 5329
+  std::string const last   = "proxy.config.test.capfirst.c";                    // decided, registered last
+
+  REQUIRE(first.size() == 68);
+  REQUIRE(second.size() == 73);
+  for (auto const &name : {first, second, last}) {
+    REQUIRE(RecRegisterConfigInt(RECT_CONFIG, name.c_str(), 0, RECU_DYNAMIC, RECC_NULL, nullptr, REC_SOURCE_NULL) == REC_ERR_OKAY);
+  }
+
+  CatchDiags *cdiag = clear_diags();
+
+  int      match_count   = 0;
+  unsigned indeterminate = 0;
+
+  REQUIRE(RecLookupMatchingRecords(RECT_CONFIG, R"(^proxy\.config\.test\.capfirst\.(bbbb\.)?(a+)+$)", count_callback, &match_count,
+                                   true, &indeterminate) == REC_ERR_OKAY);
+
+  CHECK(indeterminate == 2);
+  REQUIRE(cdiag->messages.size() == 1);
+  INFO(cdiag->messages[0]);
+  CHECK(cdiag->messages[0].find("step cap 4624 for the first of them,") != std::string::npos);
+}
+
+// Pins the floor's value, which the case above it does not: that fixture needs about 320 steps, so a
+// floor of 512 would satisfy it too. 24 characters squared is 576, below the floor, so the cap this
+// name runs under can only be the floor itself.
+TEST_CASE("RecLookupMatchingRecords installs the floor itself on a short name", "[librecords][RecCore][redos]")
+{
+  std::string const name = "afl." + std::string(19, 'a') + "z";
+
+  REQUIRE(name.size() == 24);
+  REQUIRE(RecRegisterConfigInt(RECT_CONFIG, name.c_str(), 0, RECU_DYNAMIC, RECC_NULL, nullptr, REC_SOURCE_NULL) == REC_ERR_OKAY);
+
+  CatchDiags *cdiag = clear_diags();
+
+  int      match_count   = 0;
+  unsigned indeterminate = 0;
+
+  REQUIRE(RecLookupMatchingRecords(RECT_CONFIG, R"(^afl\.(a+)+$)", count_callback, &match_count, true, &indeterminate) ==
+          REC_ERR_OKAY);
+
+  CHECK(indeterminate == 1);
+  REQUIRE(cdiag->messages.size() == 1);
+  INFO(cdiag->messages[0]);
+  CHECK(cdiag->messages[0].find("step cap 1024 for the first of them,") != std::string::npos);
+}
+
+// Between the floor and the ceiling the cap is the square. The other cases use names of 11, 24, 33,
+// 38, 67, 68, 73, 250 and 400 characters, so nothing between 74 and 223 is pinned, and a ceiling
+// shortcut taken from any length in that range would satisfy all of them. 150 squared is 22,500.
+TEST_CASE("RecLookupMatchingRecords squares a mid-range name rather than taking the ceiling", "[librecords][RecCore][redos]")
+{
+  std::string const prefix = "proxy.config.test.midrange.";
+  std::string const name   = prefix + std::string(150 - prefix.size() - 1, 'a') + "z";
+
+  REQUIRE(name.size() == 150);
+  REQUIRE(RecRegisterConfigInt(RECT_CONFIG, name.c_str(), 0, RECU_DYNAMIC, RECC_NULL, nullptr, REC_SOURCE_NULL) == REC_ERR_OKAY);
+
+  CatchDiags *cdiag = clear_diags();
+
+  int      match_count   = 0;
+  unsigned indeterminate = 0;
+
+  REQUIRE(RecLookupMatchingRecords(RECT_CONFIG, R"(^proxy\.config\.test\.midrange\.(a+)+$)", count_callback, &match_count, true,
+                                   &indeterminate) == REC_ERR_OKAY);
+
+  CHECK(indeterminate == 1);
+  REQUIRE(cdiag->messages.size() == 1);
+  INFO(cdiag->messages[0]);
+  CHECK(cdiag->messages[0].find("step cap 22500 for the first of them,") != std::string::npos);
+}
+
+// "does not truncate legitimate lookups" above uses a 250 character name, which sits at the ceiling
+// and so says nothing about the range every real name is in. This asks the two-".*" shape of every
+// name shorter than 224 characters, which is where the scaled cap actually applies, so halving the
+// scaling is caught by a truncated lookup rather than only by the number in the message.
+TEST_CASE("RecLookupMatchingRecords does not truncate two wildcards in the scaled range", "[librecords][RecCore]")
+{
+  for (size_t len : {12, 24, 32, 40, 64, 100, 150, 200, 223}) {
+    std::string const prefix = "sr." + std::to_string(len) + ".";
+    std::string const name   = prefix + std::string(len - prefix.size(), 'x');
+
+    REQUIRE(name.size() == len);
+    REQUIRE(RecRegisterConfigInt(RECT_CONFIG, name.c_str(), 0, RECU_DYNAMIC, RECC_NULL, nullptr, REC_SOURCE_NULL) == REC_ERR_OKAY);
+  }
+
+  CatchDiags *cdiag = clear_diags();
+
+  int      match_count   = 0;
+  unsigned indeterminate = 0;
+
+  // The lookahead refuses a longer subject outright, so the names other cases register at the
+  // ceiling are not what this measures.
+  REQUIRE(RecLookupMatchingRecords(RECT_CONFIG, R"(^(?=.{0,223}$).*.*[~=])", count_callback, &match_count, true, &indeterminate) ==
+          REC_ERR_OKAY);
+
+  CHECK(match_count == 0);
+  CHECK(indeterminate == 0);
+  if (!cdiag->messages.empty()) {
+    INFO(cdiag->messages[0]);
+  }
+  CHECK(cdiag->messages.empty());
 }

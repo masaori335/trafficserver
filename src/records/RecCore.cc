@@ -21,6 +21,7 @@
   limitations under the License.
  */
 
+#include <algorithm>
 #include <deque>
 #include <utility>
 #include <iostream>
@@ -68,12 +69,65 @@ namespace
 // about L^2/2 steps for a backtracking run of length L. 50,000 resolves runs up to ~310
 // characters, 4.7x the 66 character longest name a default build registers.
 //
+// So the cap is sized from each name, L^2 for a name of L characters, held between
+// REGEX_MATCH_LIMIT_FLOOR and REGEX_MATCH_LIMIT. A single flat cap gives every short name the
+// budget only the longest names need, and the short names are most of a store. The ceiling still
+// applies from 224 characters up, so a long name resolves exactly what it did under the flat cap,
+// and the floor keeps 1,024 steps for a name too short for L^2 to leave an ordinary pattern room.
+//
+// What the cap bounds is one start position, not one name. The limit is counted per pcre2_match()
+// call and is reset for each call, not carried across the start offsets tried within one (pcre2api,
+// MATCH LIMIT), so an unanchored pattern gets the whole budget again at every position. Probed on
+// 10.47 with this call site's compile flags: "zq" against a subject of 200 'z' characters, where
+// PCRE2's start-code-unit optimisation cannot skip a single offset, still resolves at a limit of 1,
+// exactly as it does at 25 characters; an accumulating counter would have needed one unit per
+// position. A name can therefore cost up to about L times the cap in total. Sizing the cap from L
+// is still what keeps the per-position budget proportionate, but this is not a per-name bound, and
+// bounding the work a whole lookup may cost is tracked separately.
+//
+// Every step count below is the minimum match limit at which the pattern reaches a verdict on PCRE2
+// 10.47 with this call site's compile flags, against a subject of L 'a' characters, which holds
+// neither '~' nor '='. The counts move with the name's content: the two for the grouped pattern
+// further down shift by a few percent against a real record name, while the rest are unchanged.
+//
+// What L^2 covers is the L^2/2 model above, which is two wildcards composing over a run of length
+// L, so that shape keeps about 2x headroom: ".*.*[~=]" needs 2,079 steps against the 3,844 a 62
+// character name is given, and 25,424 against the 49,729 of a 223 character one. A single ambiguous
+// quantifier is linear in L and nowhere near either number.
+//
+// Adding ambiguity beyond that costs about L^2 + 5L under the JIT, which for a name over about 30
+// characters is just over the cap: a third wildcard, or an optional separator between two, is
+// enough. Under the JIT ".*.*.*[~=]" needs 4,095 steps against the 3,844 a 62 character name is
+// given, and "^(.*)\.?(.*)\.?[~=]" needs 4,158. Both bounds are JIT and length specific: at 30
+// characters ".*.*.*[~=]" needs 1,023 against the 1,024 floor and resolves, and on the interpreter
+// the two shapes diverge -- "^(.*)\.?(.*)\.?[~=]" needs only 2,081 at 62 characters and resolves,
+// while ".*.*.*[~=]" grows cubically instead, 43,681 at 62 characters and 585,277 at 150. So a
+// pattern past two ambiguous parts may be reported as undecided on names a flat 50,000 resolved,
+// depending on the shape, the length and whether the JIT compiled it. The
+// trade is deliberate, since those are also the shapes whose cost grows fastest, and a cap wide
+// enough to admit every composition of them is the flat cap this replaces -- but it is a real
+// narrowing, and an operator who writes one sees it reported rather than silently dropped.
+//
 // The 1750 still used by esi reaches only ~59 by the same model and so cannot resolve what ships.
 // It is not a precedent for a work budget in any case: per apache/trafficserver#13651 the PCRE2
 // conversion turned what had been a PCRE1 recursion-depth limit into a match-work limit, a
 // different quantity, and apache/trafficserver#13652 removed it from regex_remap for that reason,
 // leaving esi as its only remaining user.
-constexpr uint32_t REGEX_MATCH_LIMIT = 50000;
+constexpr uint32_t REGEX_MATCH_LIMIT       = 50000;
+constexpr uint32_t REGEX_MATCH_LIMIT_FLOOR = 1024;
+
+// Step cap for one record name of @a name_length characters, as described above.
+uint32_t
+match_limit_for(size_t name_length)
+{
+  if (name_length >= REGEX_MATCH_LIMIT) {
+    // Any name this long clamps to the ceiling whatever its square is, so returning it here keeps
+    // the multiply below away from a length that could overflow it.
+    return REGEX_MATCH_LIMIT;
+  }
+  return static_cast<uint32_t>(
+    std::clamp<uint64_t>(static_cast<uint64_t>(name_length) * name_length, REGEX_MATCH_LIMIT_FLOOR, REGEX_MATCH_LIMIT));
+}
 } // namespace
 
 // This is needed to manage the size of the librecords record. It can't be static, because it needs to be modified
@@ -638,8 +692,7 @@ RecLookupMatchingRecords(unsigned rec_type, const char *match, void (*callback)(
   }
 
   RegexMatchContext match_context;
-  match_context.set_match_limit(REGEX_MATCH_LIMIT);
-  RegexMatches matches;
+  RegexMatches      matches;
 
   // A bounded match has three outcomes, not two. PCRE2 reports a match, the single code that means
   // "this name definitively does not match", or one of several codes meaning it gave up without
@@ -658,10 +711,14 @@ RecLookupMatchingRecords(unsigned rec_type, const char *match, void (*callback)(
   // MATCHLIMIT let such a pattern drop every record while reporting nothing.
   unsigned indeterminate = 0;
   int      first_error   = 0;
+  uint32_t first_cap     = 0;
 
-  // True if @a rc is a match, false if the name should be skipped. Bumps the counters as a side
-  // effect, so every call site classifies identically.
-  auto matched = [&indeterminate, &first_error](int rc) -> bool {
+  // Matches @a name under its own step cap. True if it matched, false if the name should be
+  // skipped. Bumps the counters as a side effect, so every call site caps and classifies
+  // identically. The cap is sized from the same view the match runs on.
+  auto matched = [&](std::string_view name) -> bool {
+    match_context.set_match_limit(match_limit_for(name.size()));
+    int const rc = regex.exec(name, matches, 0, &match_context);
     if (rc >= 0) {
       return true;
     }
@@ -669,6 +726,7 @@ RecLookupMatchingRecords(unsigned rec_type, const char *match, void (*callback)(
       ++indeterminate;
       if (first_error == 0) {
         first_error = rc;
+        first_cap   = match_context.match_limit();
       }
     }
     return false;
@@ -678,7 +736,7 @@ RecLookupMatchingRecords(unsigned rec_type, const char *match, void (*callback)(
     // First find the new metrics, this is a bit of a hack, because we still use the old
     // librecords callback with a "pseudo" record.
     ts::Metrics::instance().for_each([&](std::string_view name, ts::Metrics::MetricType type, int64_t val) {
-      if (matched(regex.exec(name.data(), matches, 0, &match_context))) {
+      if (matched(name.data())) {
         RecRecord tmp{};
 
         tmp.rec_type = RECT_PROCESS;
@@ -691,7 +749,7 @@ RecLookupMatchingRecords(unsigned rec_type, const char *match, void (*callback)(
     });
     // Finally check string metrics
     ts::Metrics::StaticString::instance().for_each([&](const std::string &name, const std::string &value) {
-      if (matched(regex.exec(name, matches, 0, &match_context))) {
+      if (matched(name)) {
         RecRecord tmp{};
 
         tmp.rec_type = RECT_PROCESS;
@@ -718,7 +776,7 @@ RecLookupMatchingRecords(unsigned rec_type, const char *match, void (*callback)(
         return;
       }
 
-      if (matched(regex.exec(name.data(), matches, 0, &match_context))) {
+      if (matched(name.data())) {
         RecRecord tmp{};
 
         // Tag both bits so that a caller asking only for RECT_HIDDEN_METRIC passes the rec_type
@@ -744,7 +802,7 @@ RecLookupMatchingRecords(unsigned rec_type, const char *match, void (*callback)(
       continue;
     }
 
-    if (!matched(regex.exec(r->name, matches, 0, &match_context))) {
+    if (!matched(r->name)) {
       continue;
     }
 
@@ -766,21 +824,23 @@ RecLookupMatchingRecords(unsigned rec_type, const char *match, void (*callback)(
     // saying these names were undecided "within" the cap would misdescribe that case. The error
     // string is what tells an operator which resource was actually binding.
     //
-    // The cap comes from the context rather than from REGEX_MATCH_LIMIT so that the number named
-    // here is the one installed, and a context that took no cap cannot be reported as though it had.
-    // It is a ceiling rather than necessarily the limit applied: the caller's pattern can lower it
-    // with an inline (*LIMIT_MATCH=n), which only truncates that caller's own lookup further and is
-    // still reported, but cannot raise it.
+    // Each name runs under its own cap, so the one named is the cap of the first undecided name,
+    // read back from the context right after that name's match, together with the ceiling every
+    // cap is held under. It is read back rather than recomputed so that the number named here is
+    // the one installed, and a context that took no cap cannot be reported as though it had. It is
+    // a ceiling rather than necessarily the limit applied: the caller's pattern can lower it with an
+    // inline (*LIMIT_MATCH=n), which only truncates that caller's own lookup further and is still
+    // reported, but cannot raise it.
     //
-    // set_match_limit runs just above, so a zero here can only mean the match context could not be
-    // allocated. Regex::exec then refuses every name with RE_ERROR_NULL instead of matching under
+    // match_limit_for never returns zero, so a zero here can only mean the match context could not
+    // be allocated. Regex::exec then refuses every name with RE_ERROR_NULL instead of matching under
     // PCRE2's default, so no name was evaluated at all. Say that, rather than print the zero as
     // though it were a cap. No PCRE2 error is printed either: every name was refused before PCRE2
     // saw it, and PCRE2's own text for that code describes a null argument it never received.
-    if (uint32_t const cap = match_context.match_limit(); cap != 0) {
-      SiteThrottledWarning("record lookup pattern left %u record name(s) undecided (step cap in effect %u, first "
-                           "error: %s); results are incomplete",
-                           indeterminate, cap, Regex::get_error_string(first_error).c_str());
+    if (first_cap != 0) {
+      SiteThrottledWarning("record lookup pattern left %u record name(s) undecided (step cap %u for the first of them, "
+                           "scaled to name length up to %u, first error: %s); results are incomplete",
+                           indeterminate, first_cap, REGEX_MATCH_LIMIT, Regex::get_error_string(first_error).c_str());
     } else {
       SiteThrottledWarning("record lookup pattern left %u record name(s) undecided (the match context could not be "
                            "allocated, so nothing was matched); results are incomplete",

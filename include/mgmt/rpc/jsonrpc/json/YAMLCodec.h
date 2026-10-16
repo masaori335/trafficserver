@@ -121,6 +121,11 @@ class yamlcpp_json_decoder
   }
 
 public:
+  /// Most messages one batch may carry; a longer batch is refused whole with INVALID_REQUEST, before any of its messages is
+  /// validated or run, and before the allocation sized by the message count. The count a message's params may add up to is
+  /// bounded above this layer instead, by @c JsonRPCManager::MAX_PARAMS_ELEMENTS, since nothing here dispatches.
+  static constexpr size_t MAX_BATCH_SIZE = 64;
+
   ///
   /// @brief Decode a string, either json or yaml into a @see specs::RPCRequest . @c ec will report the error if occurs @see
   /// RPCErrorCode
@@ -142,7 +147,14 @@ public:
       } break;
       case YAML::NodeType::Sequence: { // 3
         // In case we get [] which is valid sequence but invalid jsonrpc message.
-        if (node.size() > 0) {
+        if (node.size() > MAX_BATCH_SIZE) {
+          // Checked before the reserve below, which is sized by this count.
+          ec = error::RPCErrorCode::INVALID_REQUEST;
+          // Marked a batch although none of its messages is decoded, so that the caller can tell this refusal from the other
+          // INVALID_REQUEST cases -- an empty sequence, or a document that is neither map nor sequence -- and say which rule
+          // it broke. The refusal is answered with a single error object either way.
+          msg.is_batch(true);
+        } else if (node.size() > 0) {
           // it's a batch
           msg.is_batch(true);
           msg.reserve(node.size());

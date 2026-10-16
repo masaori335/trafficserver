@@ -29,6 +29,7 @@
 #include <swoc/swoc_meta.h>
 
 #include "mgmt/rpc/jsonrpc/json/YAMLCodec.h"
+#include "tsutil/ts_errata.h"
 
 namespace
 {
@@ -43,6 +44,25 @@ const std::string RPC_SERVICE_METHODS_KEY{"methods"};
 const std::string RPC_SERVICE_NOTIFICATIONS_KEY{"notifications"};
 const std::string RPC_SERVICE_PRIVILEGED_KEY{"privileged"};
 const std::string RPC_SERVICE_N_A_STR{"N/A"};
+
+/// Total params elements across every message of @a msg, stopping as soon as the total passes the limit it is checked against.
+///
+/// An element is one top-level entry of a message's params: an array element or an object member. A YAML alias counts once per
+/// reference, because yaml-cpp's @c size() counts references rather than distinct nodes. A message that failed to decode
+/// contributes nothing, because the decoder stores its params only once every other field has validated; such a message is
+/// answered with its own error and never dispatched.
+size_t
+params_elements(rpc::specs::RPCRequest const &msg)
+{
+  size_t total = 0;
+  for (auto const &[req, decode_error] : msg.get_messages()) {
+    total += req.params.size();
+    if (total > rpc::JsonRPCManager::MAX_PARAMS_ELEMENTS) {
+      break;
+    }
+  }
+  return total;
+}
 
 // jsonrpc debug control.
 DbgCtl dbg_ctl{"rpc"};
@@ -99,7 +119,7 @@ JsonRPCManager::Dispatcher::register_service_descriptor_handler()
 }
 
 JsonRPCManager::Dispatcher::response_type
-JsonRPCManager::Dispatcher::dispatch(Context const &ctx, specs::RPCRequestInfo const &request) const
+JsonRPCManager::Dispatcher::dispatch(Context const &ctx, specs::RPCRequestInfo const &request, ResponseBudget &budget) const
 {
   std::error_code ec;
   auto const     &handler = find_handler(request, ec);
@@ -119,11 +139,11 @@ JsonRPCManager::Dispatcher::dispatch(Context const &ctx, specs::RPCRequestInfo c
   }
 
   if (request.is_notification()) {
-    return invoke_notification_handler(handler, request);
+    return invoke_notification_handler(handler, request, budget);
   }
 
   // just a method call.
-  return invoke_method_handler(handler, request);
+  return invoke_method_handler(handler, request, budget);
 }
 
 JsonRPCManager::Dispatcher::InternalHandler const &
@@ -150,12 +170,12 @@ JsonRPCManager::Dispatcher::find_handler(specs::RPCRequestInfo const &request, s
 
 JsonRPCManager::Dispatcher::response_type
 JsonRPCManager::Dispatcher::invoke_method_handler(JsonRPCManager::Dispatcher::InternalHandler const &handler,
-                                                  specs::RPCRequestInfo const                       &request) const
+                                                  specs::RPCRequestInfo const &request, ResponseBudget &budget) const
 {
   specs::RPCResponseInfo response{request.id};
 
   try {
-    auto rv = handler.invoke(request);
+    auto rv = handler.invoke(request, budget);
 
     if (rv.is_ok()) {
       response.callResult.result = rv.result();
@@ -173,10 +193,10 @@ JsonRPCManager::Dispatcher::invoke_method_handler(JsonRPCManager::Dispatcher::In
 
 JsonRPCManager::Dispatcher::response_type
 JsonRPCManager::Dispatcher::invoke_notification_handler(JsonRPCManager::Dispatcher::InternalHandler const &handler,
-                                                        specs::RPCRequestInfo const                       &notification) const
+                                                        specs::RPCRequestInfo const &notification, ResponseBudget &budget) const
 {
   try {
-    handler.invoke(notification);
+    handler.invoke(notification, budget);
   } catch (std::exception const &e) {
     Dbg(dbg_ctl, "Oops, something happened during the callback(notification) invocation: %s", e.what());
     // it's a notification so we do not care much.
@@ -217,10 +237,43 @@ JsonRPCManager::handle_call(Context const &ctx, std::string const &request)
     // If any error happened within the request, they will be kept inside each
     // particular request, as they would need to be converted back in a proper error response.
     if (ec) {
+      // Includes a batch longer than the decoder accepts, which is refused before any of its messages is validated, so there
+      // is no id to answer with. Only the outcome is logged; the request itself is already on the same tag above.
+      Dbg(dbg_ctl_msg, "<-- Refused before dispatch: %s", ec.message().c_str());
+
       specs::RPCResponseInfo resp;
       resp.error.ec = ec;
+      // The code alone does not say which limit was hit: INVALID_REQUEST also answers an empty sequence and a document that is
+      // neither map nor sequence. The decoder marks an over-long batch as a batch for exactly this, so the detail naming the
+      // limit goes in error.data only when that is what happened.
+      if (ec == error::RPCErrorCode::INVALID_REQUEST && msg.is_batch()) {
+        resp.error.data = swoc::Errata(ec, ERRATA_ERROR, "A batch may carry at most {} messages.",
+                                       json_codecs::yamlcpp_json_decoder::MAX_BATCH_SIZE);
+      }
       return Encoder::encode(resp);
     }
+
+    // Refusing the whole request before the dispatch loop is what keeps a request that is over the budget from having part of
+    // it run: the loop below has side effects, so a count taken inside it would come too late.
+    if (params_elements(msg) > MAX_PARAMS_ELEMENTS) {
+      // params_elements stops counting once past the limit, so what it returned is a lower bound rather than the total.
+      Dbg(dbg_ctl_msg, "<-- Refused: over the %zu params element limit", MAX_PARAMS_ELEMENTS);
+
+      // The id of a single message is known, so it is answered as the protocol requires. A batch has no one id to answer with.
+      specs::RPCResponseInfo resp;
+      if (!msg.is_batch() && msg.get_messages().size() == 1) {
+        resp.id = msg.get_messages().front().first.id;
+      }
+      resp.error.ec = error::RPCErrorCode::INVALID_PARAMS;
+      resp.error.data =
+        swoc::Errata(resp.error.ec, ERRATA_ERROR, "A request may carry at most {} params elements in total across its messages.",
+                     MAX_PARAMS_ELEMENTS);
+      return Encoder::encode(resp);
+    }
+
+    // One allowance for the whole request, so a batch cannot multiply what its messages may answer with. It is spent as the
+    // handlers below build their responses; see MAX_RECORDS_PER_REQUEST.
+    ResponseBudget budget{MAX_RECORDS_PER_REQUEST};
 
     specs::RPCResponse response{msg.is_batch()};
     for (auto const &[req, decode_error] : msg.get_messages()) {
@@ -230,7 +283,7 @@ JsonRPCManager::handle_call(Context const &ctx, std::string const &request)
       if (!decode_error) {
         // request seems ok and ready to be dispatched. The dispatcher will tell us if the method exist and if so, it will dispatch
         // the call and gives us back the response.
-        auto encodedResponse = _dispatcher.dispatch(ctx, req);
+        auto encodedResponse = _dispatcher.dispatch(ctx, req, budget);
 
         if (encodedResponse) {
           // if any error was detected during invocation or before, the response will have the error field set, so this will
@@ -267,7 +320,7 @@ JsonRPCManager::handle_call(Context const &ctx, std::string const &request)
 
 // ---------------------------- InternalHandler ---------------------------------
 inline swoc::Rv<YAML::Node>
-JsonRPCManager::Dispatcher::InternalHandler::invoke(specs::RPCRequestInfo const &request) const
+JsonRPCManager::Dispatcher::InternalHandler::invoke(specs::RPCRequestInfo const &request, ResponseBudget &budget) const
 {
   swoc::Rv<YAML::Node> ret;
   std::visit(swoc::meta::vary{[](std::monostate) -> void { /* no op */ },
@@ -292,6 +345,11 @@ JsonRPCManager::Dispatcher::InternalHandler::invoke(specs::RPCRequestInfo const 
                                 g_rpcHandlerProcessingCompleted = false;
                                 // swoc::Rv this will handle both, error and success cases.
                                 ret = std::move(g_rpcHandlerResponseData);
+                              },
+                              [&ret, &request, &budget](BudgetedMethod const &handler) -> void {
+                                // As Method, but the handler is handed what is left of the request's record allowance so a
+                                // request cannot ask for an unbounded response. @see ResponseBudget.
+                                ret = handler.cb(request.id, request.params, budget);
                               }},
              this->_func);
   return ret;
@@ -304,6 +362,7 @@ JsonRPCManager::Dispatcher::InternalHandler::is_method() const
   switch (index) {
   case VariantTypeIndexId::METHOD:
   case VariantTypeIndexId::METHOD_FROM_PLUGIN:
+  case VariantTypeIndexId::METHOD_WITH_BUDGET:
     return true;
     break;
   default:;

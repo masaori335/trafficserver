@@ -70,6 +70,9 @@ RPCRecordErrorCategory::message(int ev) const
   case rpc::handlers::errors::RecordError::LOOKUP_INCOMPLETE:
     return {"Matching the pattern was abandoned for some record names before a verdict was "
             "reached; the returned list is incomplete."};
+  case rpc::handlers::errors::RecordError::RESPONSE_TRUNCATED:
+    return {"The request reached the number of records one response may carry; the returned list "
+            "is incomplete."};
   default:
     return "Record error error " + std::to_string(ev);
   }

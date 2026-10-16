@@ -197,9 +197,20 @@ Please find the `jsonrpc 2.0 request` schema for reference ( `mgmt/rpc/schema/js
 
 .. note::
 
-   The |RPC| protocol supports batch requests so, multiple independent requests can be send to the server in a single json message. Batch
-   request are basically an array of the above request, simply enclose them as an array ``[ .. ]``. The response for batch requests will be also
-   in a form of an array.
+   The |RPC| protocol supports batches, so several independent messages can be sent to the server in a single request. A batch is
+   an array of the request objects above, enclosed as ``[ .. ]``. A batch is answered with an array.
+
+.. note::
+
+   The server limits how much one request can carry, a request being the whole JSON document sent on the socket and a message
+   being one entry of it when that document is a batch. A batch of more than 64 messages is refused with ``-32600``
+   (Invalid Request), and a request whose ``params`` hold more than 1024 elements in total is refused with ``-32602``
+   (Invalid params). An element is one entry of a message's ``params``: an array element or an object member, counted across
+   every message of the request that the server accepts for dispatch; a message that fails validation is answered with its own
+   error and its ``params`` add nothing to the total. Both refusals name the limit in ``error.data``. A refused request is
+   answered with a single error object, carrying the ``id`` of a lone message or no ``id`` when it was a batch, and none of its
+   messages are run, so split larger work across requests. A notification is refused the same way, so one that is over a limit is answered with an
+   error even though a notification that runs is answered with nothing.
 
 .. _jsonrpc-response:
 

@@ -799,7 +799,7 @@ Regex::exec(std::string_view subject, RegexMatches &matches, uint32_t flags, Reg
     //
     // Three non-test callers pass a context, and the refusal means something different to each:
     //
-    // - RecLookupMatchingRecords installs 50,000. RE_ERROR_NULL is not NOMATCH, so the name is
+    // - RecLookupMatchingRecords installs a cap scaled to each record name. RE_ERROR_NULL is not NOMATCH, so the name is
     //   counted undecided and the lookup is reported to its caller as incomplete. Fails closed.
     // - The esi include allowlist installs 1,750 and treats any negative return as not
     //   allowlisted, so the include is refused. Fails closed.

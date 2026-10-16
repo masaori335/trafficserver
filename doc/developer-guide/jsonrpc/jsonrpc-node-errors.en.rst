@@ -79,9 +79,15 @@ Id              Message                                   Description
 =============== ========================================= =========================================================
 -32700          Parse error                               Invalid JSON was received by the server.
                                                           An error occurred on the server while parsing the JSON text.
--32600          Invalid Request                           The JSON sent is not a valid Request object.
+-32600          Invalid Request                           The JSON sent is not a valid Request object, or is a batch
+                                                          of more than 64 messages.
 -32601          Method not found                          The method does not exist / is not available.
--32602          Invalid params                            Invalid method parameter(s).
+-32602          Invalid params                            Invalid method parameter(s), or more than 1024 ``params``
+                                                          elements in one request, counted across every message
+                                                          of a batch rather than per message. Only messages the
+                                                          server accepts for dispatch are counted; one that fails
+                                                          validation is answered with its own error and its
+                                                          ``params`` add nothing to the total.
 -32603          Internal error                            Internal `JSONRPC`_ error.
 =============== ========================================= =========================================================
 
