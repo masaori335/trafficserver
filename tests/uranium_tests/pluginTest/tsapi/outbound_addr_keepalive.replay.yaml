@@ -49,7 +49,7 @@ sessions:
           # reusable by then depends on which side performed the active close, so
           # do not count on either outcome: a leak can surface as the second
           # request binding the pinned port, or as a failed rebind that kills the
-          # upstream connect.  The checker in the .test.py handles both shapes.
+          # upstream connect.  The checker in test_outbound_addr_keepalive.py handles both shapes.
           delay: 200ms
           method: "GET"
           version: "1.1"

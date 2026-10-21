@@ -18,8 +18,10 @@
 meta:
   version: "1.0"
 
-autest:
+urtest:
   description: 'A degraded webp_transform response is never served under the conversion target type, and a successful conversion still caches'
+  requires:
+    plugins: [webp_transform.so]
 
   server:
     name: 'webp-degraded-cache-server'
