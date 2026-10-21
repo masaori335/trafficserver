@@ -194,7 +194,7 @@ TEST_CASE("RecLookupMatchingRecords installs the cap it reports", "[librecords][
 // Which code appears is a property of the pattern here, not of the missing JIT stack: this one
 // reports -46 even against the 1MB stack the thread-global context assigns, and even with no match
 // limit set at all. The RPC-level counterpart is the left-recursive shape in
-// tests/gold_tests/traffic_ctl/traffic_ctl_config_match_redos.test.py, which recurses before
+// tests/uranium_tests/traffic_ctl/test_traffic_ctl_config_match_limit.py, which recurses before
 // consuming anything: measured against PCRE2 10.47 it reaches the stack in 683 steps, under the
 // 1,024 floor, so every name reports -46 whatever its length. A shape that consumes first, such as
 // a bare "^(?:[a-z.]|(?R))*[~=]", exhausts the scaled cap of a short name before the stack and

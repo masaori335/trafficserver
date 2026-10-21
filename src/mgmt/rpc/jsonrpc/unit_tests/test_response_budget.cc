@@ -235,9 +235,10 @@ TEST_CASE("lookup_records: the budget accumulates across the elements of one mes
 // Once the allowance is gone the remaining elements must not be walked at all. Nothing in the
 // change's tests observes that: the record count and the RESPONSE_TRUNCATED entry are the same with
 // the early stop and without it, and the only other difference is how long the request takes --
-// measured at 8s for tests/gold_tests/jsonrpc/jsonrpc_request_limits.test.py with the stop and
-// 2m29s without. An element behind the truncation that cannot be decoded gives the same difference
-// as a verdict instead of a duration: reaching it adds its own error to the list.
+// measured at 8s for a request of 1,024 broad elements with the stop and 2m29s without (the
+// urtest in tests/uranium_tests/jsonrpc/test_jsonrpc_request_limits.py sends a smaller one). An
+// element behind the truncation that cannot be decoded gives the same difference as a verdict
+// instead of a duration: reaching it adds its own error to the list.
 TEST_CASE("lookup_records: a truncated lookup does not process the elements behind it", "[limits][records]")
 {
   register_auditor_metrics();
