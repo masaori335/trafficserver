@@ -36,6 +36,89 @@ public pull requests, so they do not carry PR numbers; they are listed by commit
 subject at the end of ``CHANGELOG-10.2.0``. Refer to the advisory for the CVE
 identifiers, severities, and affected version ranges.
 
+Most of that work tightens what |TS| accepts rather than adding anything, so the
+operator-visible effect -- changed defaults, messages now refused, ACL conditions
+that now apply as written, and plugins that now require configuration -- is
+described under ``Security Hardening`` in :ref:`upgrading`. Read that section
+before upgrading.
+
+Further security fixes have landed on this branch since the ``10.2.0`` tag and
+ship in this maintenance release. Refer to the security advisory for this release
+for their identifiers, severities and affected version ranges. ``Security
+Hardening`` covers both sets. The surface those later fixes add, which a ``10.2.0``
+installation does not have, is:
+
+* :ts:cv:`proxy.config.http.reject_head_with_content`, controlling whether a
+  ``HEAD`` request carrying ``Content-Length`` or ``Transfer-Encoding`` is
+  refused. Enabled by default.
+* :ts:cv:`proxy.config.regex.anchor_policy_rules`, which can require a regex
+  driving a security or routing decision to match the whole subject. Disabled by
+  default.
+* :ts:stat:`proxy.process.ssl.user_agent_resumed_cert_rejected`, counting inbound
+  connections rejected because the session they resumed carried no client
+  certificate where the current SNI's ``verify_client`` policy requires one.
+  Sessions are bound to the policy that issued them, so an out-of-scope session
+  completes a full handshake rather than reaching this counter, which is normally
+  zero.
+* ``tsmemcache`` binds to the loopback address by default, with an optional second
+  plugin argument to set the bind address. Earlier builds bound the wildcard
+  address.
+* ``magick`` requires a signing key and will not load without one, and allowlists
+  the ImageMagick ``convert`` operators it will run.
+
+Changes in 10.2.1
+-----------------
+
+The 10.2.1 maintenance release adds 95 commits from 19 contributors to 10.2.0.
+Besides the security fixes above, the changes an operator or plugin author is
+likely to notice are below. The sections that follow describe 10.2 as a whole,
+including these changes where they touch the same feature. Behavior changes that
+need action before upgrading from 10.2.0 are collected under ``Changes in
+10.2.1`` in :ref:`upgrading`.
+
+* Per upstream server connection metrics. Setting
+  :ts:cv:`proxy.config.http.per_server.connection.metric_enabled` publishes
+  ``current_connection``, ``total_connection`` and ``blocked_connection`` for
+  each upstream server group, and the new
+  :ts:cv:`proxy.config.http.per_server.connection.metric_aggregate` can instead
+  publish only per hostname sums and a ``current_connection.max`` gauge, which
+  keeps the metric count proportional to hostnames rather than to addresses. The
+  optional :ts:cv:`proxy.config.http.per_server.connection.metric_prefix`
+  distinguishes metrics of separate ``match`` configurations. See
+  :ref:`per-server-connection-metrics`.
+* The metrics store supports hidden metrics, which are recorded but never
+  published, and MAX, MIN and incremental derived metrics. See the
+  ``ts::Metrics`` documentation in the developer guide.
+* Configuration reload accepts *reload directives*: operational parameters, such
+  as scoping a reload to one entry, passed to a single handler with
+  ``traffic_ctl config reload -D config_key.directive=value`` or under a
+  ``_reload`` key in the RPC payload. They are delivered to the handler
+  separately from the configuration content.
+* HTTP/2 to the origin is considerably more robust: 1xx interim responses are
+  handled, header blocks split across ``CONTINUATION`` frames are accepted,
+  responses to ``HEAD`` and ``304`` are validated correctly, a half-closed or
+  ``GOAWAY``-draining session is no longer reused, one request's
+  ``Connection: close`` no longer poisons a long-lived session, and a request the
+  origin reports as unprocessed (``GOAWAY`` or ``REFUSED_STREAM``) is retried when
+  its body can be replayed. New counters
+  :ts:stat:`proxy.process.http.origin.reuse_fail`,
+  :ts:stat:`proxy.process.http.origin.retry_admitted` and
+  :ts:stat:`proxy.process.http.origin.retry_body_unavailable` expose this.
+* :ts:cv:`proxy.config.http.cache.try_compat_key_read` is now usable end to end:
+  revalidating a legacy object stores the full response under the current key and
+  invalidations are sent to both keys.
+* The ``compress`` plugin adds ``Vary`` to cached client responses and sends a
+  weak ``ETag`` for compressed responses.
+* ``ja4_fingerprint`` and ``jax_fingerprint`` now follow the JA4 specification.
+* :program:`hrw4u` exits non-zero on compile errors, has a ``--version`` option,
+  and its sandbox policy covers value functions, string interpolation, implicit
+  ``NOT`` and ``in`` spellings, and the ``SESSION_VARS`` section.
+* ``TSStatIdIsValid()`` lets a plugin validate a statistic index received from an
+  external source before using it.
+* A new tool generates the changelog from a GitHub milestone.
+* Builds were fixed for LLVM 23 and Clang 21 and 23 diagnostics, OpenSSL 4
+  handshake buffers and certificate accessors, and Python 3.15.
+
 Configuration Reload
 --------------------
 
@@ -167,6 +250,14 @@ New :file:`records.yaml` settings in this release:
 
 Other configuration changes:
 
+* :ts:cv:`proxy.config.http2.default_buffer_water_mark` now defaults to ``32768``
+  and no longer accepts values below ``1024``.
+* :ts:cv:`proxy.config.http.header_field_max_size` and
+  :ts:cv:`proxy.config.hostdb.round_robin_max_count` are now range checked, at
+  ``0`` to ``65535`` and ``1`` to ``1024`` respectively. Their defaults are
+  unchanged, but a value outside the range is no longer accepted.
+* :file:`ip_allow.yaml` ships default outbound rules denying ``CONNECT`` tunnels
+  to unspecified, loopback, private, link-local and IPv4-mapped IPv6 destinations.
 * :ts:cv:`proxy.config.ssl.max_record_size` now accepts the documented ``-1``
   value, making dynamic TLS record sizing reachable from :file:`records.yaml`.
 * :ts:cv:`proxy.config.ssl.client.CA.cert.filename` is now overridable.
