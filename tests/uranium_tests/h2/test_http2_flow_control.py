@@ -20,7 +20,7 @@ import sys
 
 import pytest
 
-from tools.uranium.services import ATS, ATSFactory, ServiceFactory, VerifierServer, wait_for_file_lines
+from tools.uranium.services import ATS, ATSFactory, OriginServer, ServiceFactory, VerifierServer, wait_for_file_lines
 
 TEST_DIRECTORY = Path(__file__).parent
 
@@ -114,5 +114,50 @@ def test_dynamic_window_settings_cap(ats_factory: ATSFactory, services: ServiceF
     wait_for_file_lines(
         _ats.diags_log,
         r"ERROR: HTTP/2 connection error code=0x04.*send settings too many outstanding SETTINGS frames",
+        1,
+    )
+
+
+def shrinking_window_configure_ats(ats_factory: ATSFactory, *, _server: OriginServer) -> ATS:
+    """Shrink the inbound initial window below what the client is about to send.
+
+    :param _server: Test-local server configured by the test.
+    :param ats_factory: Factory for isolated Traffic Server instances.
+    """
+
+    ats = ats_factory.create("shrinking-window-ats", enable_tls=True, enable_cache=False)
+    ats.add_default_ssl_files()
+    ats.records.update(
+        {
+            "proxy.config.diags.debug.enabled": 1,
+            "proxy.config.diags.debug.tags": "http2",
+            "proxy.config.http2.initial_window_size_in": 32768,
+        })
+    ats.remap_config.add_line(f"map / http://127.0.0.1:{_server.port}")
+    return ats
+
+
+def test_shrinking_connection_window(ats_factory: ATSFactory, services: ServiceFactory) -> None:
+    """DATA that overflows the connection window while it shrinks is a FLOW_CONTROL_ERROR.
+
+    :param ats_factory: Factory for isolated Traffic Server instances.
+    :param services: Factory owning support services and their cleanup.
+    """
+    _server = services.origin("server-shrinking-window")
+    _ats = shrinking_window_configure_ats(ats_factory, _server=_server)
+
+    _server.start()
+    _ats.start()
+    result = _ats.run(
+        sys.executable,
+        TEST_DIRECTORY / "clients" / "h2_shrinking_window_violation.py",
+        str(_ats.https_port),
+        timeout=20,
+    )
+    assert result.returncode == 0, result.output
+    assert "GOAWAY error_code=3" in result.stdout
+    wait_for_file_lines(
+        _ats.diags_log,
+        r"ERROR: HTTP/2 connection error code=0x03.*recv data this->local_rwnd < payload_length",
         1,
     )
