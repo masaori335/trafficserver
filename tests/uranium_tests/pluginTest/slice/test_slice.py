@@ -63,13 +63,14 @@ def configure_ats(ats_factory: ATSFactory, *, _origin: OriginServer) -> ATS:
     return ats
 
 
-def request(host: str, byte_range: str | None = None, *, _ats: ATS, _curl: Curl) -> CommandResult:
+def request(host: str, byte_range: str | None = None, *, header: str | None = None, _ats: ATS, _curl: Curl) -> CommandResult:
     """Fetch one object while separating headers from its response body.
 
     :param _ats: Test-local ats configured by the test.
     :param _curl: Test-local curl configured by the test.
     :param host: HTTP host name used for the request.
     :param byte_range: Byte range to request, or whether to send the test range.
+    :param header: Raw request header sent as is, for values curl would rewrite.
     """
 
     arguments = [
@@ -83,6 +84,8 @@ def request(host: str, byte_range: str | None = None, *, _ats: ATS, _curl: Curl)
     ]
     if byte_range is not None:
         arguments.extend(("--range", byte_range))
+    if header is not None:
+        arguments.extend(("--header", header))
     arguments.append(f"http://{host}/path")
     result = _curl.run_for(
         _ats,
@@ -141,6 +144,8 @@ def test_slice(ats_factory: ATSFactory, services: ServiceFactory, curl: Curl) ->
     assert_response(request("slice", _ats=_ats, _curl=curl), "200 OK", "slice_200.stderr.gold")
     for byte_range, body_gold, content_range in cases[4:]:
         assert_response(request("slice", byte_range, _ats=_ats, _curl=curl), "206 Partial Content", body_gold, content_range)
+    # A range with internal whitespace is malformed.
+    assert_response(request("slice", header="Range: bytes=1 -2", _ats=_ats, _curl=curl), "416 Requested Range Not Satisfiable")
     invalid_begin = len(BODY) + 1
     assert_response(
         request("slice", f"{invalid_begin}-{invalid_begin + 7}", _ats=_ats, _curl=curl), "416 Requested Range Not Satisfiable")

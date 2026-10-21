@@ -27,30 +27,23 @@
 meta:
   version: "1.0"
 
-autest:
+urtest:
   description: "Verify mp4 rewrites a query longer than one kilobyte exactly, and refuses a negative unusable start"
+  requires:
+    plugins: ["mp4.so"]
 
+  # The origin keys transactions by uuid because the HTTP/2 transaction has no
+  # url to key on. The proxy-request rules in each transaction verify exactly
+  # what the origin receives, and `proxy-request: expect: absent` verifies that
+  # a refused request never reaches it.
   server:
-    name: "server"
-    log_validation:
-      contains:
-        - expression: "tail=mp4-query-tail-marker"
-          description: "The end of a long rewritten query must reach the origin"
-      # The three refused negative starts are not listed here. A substring
-      # exclude over the whole server log says nothing about which transaction
-      # skipped the origin, and all three passed before this change as well,
-      # since a plain negative was already refused. Each of those transactions
-      # carries `proxy-request: expect: absent` instead, which is a direct
-      # per-transaction oracle and subsumes an exclude.
-      excludes:
-        - expression: "start=1&pad="
-          description: "The parameter being removed must not reach the origin"
+    name: "mp4-query-origin"
 
   client:
-    name: "client"
+    name: "mp4-query-client"
 
   ats:
-    name: "ts"
+    name: "mp4-query-ts"
     process_config:
       enable_tls: true
     records_config:

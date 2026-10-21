@@ -23,8 +23,12 @@ urtest:
     records_config:
       proxy.config.diags.debug.enabled: 1
       proxy.config.diags.debug.tags: "http|plugin_esi"
+    # Explicitly allow the test header so the variable-expanded URL reaches
+    # the include URL validator. Other HTTP_HEADER values remain denied.
+    copy_to_config_dir:
+      - "esi_ssrf_validate.conf"
     plugin_config:
-      - "esi.so"
+      - "esi.so --handler-filename esi_ssrf_validate.conf"
     remap_config:
       - from: "http://www.example.com/"
         to: "http://127.0.0.1:{SERVER_HTTP_PORT}"
