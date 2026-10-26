@@ -523,6 +523,14 @@ static std::map<std::string, Action> action_map = {
   {"reject", Action::REJECT},
   {"follow", Action::FOLLOW},
 };
+
+/** The address a redirect target is classified as.
+ *
+ * A connection to an IPv4-mapped IPv6 address from a dual-stack socket is carried over IPv4 to the
+ * address it embeds, so that IPv4 address is what decides the target's class. Every other address
+ * is classified as itself.
+ */
+swoc::IPAddr classified_address(swoc::IPAddr const &addr);
 } // namespace RedirectEnabled
 
 /////////////////////////////////////////////////////////////

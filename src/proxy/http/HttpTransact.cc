@@ -2098,17 +2098,20 @@ HttpTransact::OSDNSLookup(State *s)
   if (s->redirect_info.redirect_in_process) {
     // If dns lookup was not successful, the code below will handle the error.
     RedirectEnabled::Action action = RedirectEnabled::Action::INVALID;
-    if (true == Machine::instance()->is_self(&s->dns_info.addr.sa)) {
+    // Classify, and check for self, by the IPv4 address a mapped IPv6 address embeds.
+    swoc::IPAddr const target = RedirectEnabled::classified_address(swoc::IPAddr(&s->dns_info.addr.sa));
+    IpEndpoint         target_ep{};
+    target.copy_to(&target_ep.sa);
+    if (true == Machine::instance()->is_self(&target_ep.sa)) {
       action = s->http_config_param->redirect_actions_self_action;
       TxnDbg(dbg_ctl_http_trans, "[OSDNSLookup] Self action - %d.", int(action));
     } else {
       ink_release_assert(s->http_config_param->redirect_actions_map != nullptr);
       auto &addrs = *(s->http_config_param->redirect_actions_map);
-      auto  spot  = addrs.find(swoc::IPAddr(&s->dns_info.addr.sa));
+      auto  spot  = addrs.find(target);
       ink_release_assert(spot != addrs.end()); // Should always find an entry.
       action = std::get<1>(*spot);
-      TxnDbg(dbg_ctl_http_trans, "[OSDNSLookup] Mapped action - %d for family %d.", int(action),
-             int(s->dns_info.active->data.ip.family()));
+      TxnDbg(dbg_ctl_http_trans, "[OSDNSLookup] Mapped action - %d for family %d.", int(action), int(target.family()));
     }
 
     if (action == RedirectEnabled::Action::FOLLOW) {

@@ -1705,6 +1705,18 @@ HttpConfig::parse_ports_list(char *ports_string)
   return (ports_list);
 }
 
+swoc::IPAddr
+RedirectEnabled::classified_address(swoc::IPAddr const &addr)
+{
+  if (addr.is_ip6() && addr.ip6().is_mapped_ip4()) {
+    in6_addr const a6 = addr.ip6().network_order();
+    in_addr_t      a4;
+    std::memcpy(&a4, &a6.s6_addr[12], sizeof(a4));
+    return swoc::IPAddr{swoc::IP4Addr{ntohl(a4)}};
+  }
+  return addr;
+}
+
 ////////////////////////////////////////////////////////////////
 //
 //  HttpConfig::parse_redirect_actions()
@@ -1769,6 +1781,9 @@ HttpConfig::parse_redirect_actions(char *input_string, RedirectEnabled::Action &
   action = configMapping.find(AddressClass::LOOPBACK) != configMapping.end() ? configMapping[AddressClass::LOOPBACK] :
                                                                                configMapping[AddressClass::DEFAULT];
 
+  // 0.0.0.0/8 is "this network": 0.0.0.0 reaches this host, so the range is classed with loopback
+  // rather than left to the routable fill.
+  ret->mark(swoc::IP4Range("0.0.0.0/8"), action);
   ret->mark(swoc::IP4Range("127.0.0.0/8"), action);
   ret->mark(swoc::IP6Addr("::1"), action);
 

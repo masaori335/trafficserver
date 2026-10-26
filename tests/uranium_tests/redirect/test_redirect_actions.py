@@ -15,6 +15,7 @@
 #  limitations under the License.
 
 from collections.abc import Mapping
+import ipaddress
 import json
 import socket
 import subprocess
@@ -50,6 +51,7 @@ SCENARIOS: tuple[dict[str, str], ...] = (
         "default": "return",
     },
     {
+        "private": "return",
         "loopback": "return",
         "default": "reject"
     },
@@ -87,13 +89,37 @@ def discover_targets() -> dict[str, tuple[str, ...]]:
                     elif address.get("family") == "inet6" and address.get("scope") != "link":
                         ipv6.add(f"[{address['local']}]")
     return {
-        "private": ("10.0.0.1", "[fc00::1]"),
-        "loopback": ("127.1.2.3",),
+        "private": ("10.0.0.1", "[fc00::1]", mapped("10.0.0.1")),
+        "loopback": ("127.1.2.3", "0.0.0.1", mapped("127.1.2.3"), mapped("0.0.0.0")),
         "multicast": ("224.1.2.3", "[ff42::]"),
         "linklocal": ("169.254.0.1", "[fe80::]"),
         "routable": ("72.30.35.10", "[2001:4998:58:1836::10]"),
-        "self": tuple(sorted(ipv4 | ipv6)),
+        "self": tuple(sorted(ipv4 | ipv6 | {mapped(address) for address in ipv4})),
     }
+
+
+def mapped(address: str) -> str:
+    """Return the bracketed IPv4-mapped IPv6 form of an IPv4 address.
+
+    The hexadecimal form is used because the test DNS server does not accept "::ffff:a.b.c.d".
+
+    :param address: IPv4 address.
+    """
+
+    value = int(ipaddress.IPv4Address(address))
+    return f"[::ffff:{value >> 16:x}:{value & 0xffff:x}]"
+
+
+def unreachable(address: str) -> bool:
+    """Whether a followed redirect to the address cannot reach the test origin.
+
+    Nothing listens in 0.0.0.0/8, so a redirect there that ATS follows fails to connect instead of
+    returning the origin's content. Its return and reject actions are still checked.
+
+    :param address: Redirect target address, bracketed if IPv6.
+    """
+
+    return ipaddress.ip_address(address.strip("[]")) in ipaddress.ip_network("0.0.0.0/8")
 
 
 def configure_dns(services: ServiceFactory, *, _targets: dict[str, tuple[str, ...]]) -> DNSServer:
@@ -218,7 +244,9 @@ def test_redirect_actions(ats_factory: ATSFactory, services: ServiceFactory, sce
     _ats.start()
     for category, addresses in _targets.items():
         action = scenario.get(category, scenario["default"])
-        for index, _ in enumerate(addresses):
+        for index, address in enumerate(addresses):
+            if action == "follow" and unreachable(address):
+                continue
             response = request(f"/redirect/{category}/{index}", _ats=_ats, _origin=_origin)
             assert response.startswith(ACTION_STATUS[action]), response
     unresolved = request("/redirect/unresolved", _ats=_ats, _origin=_origin)

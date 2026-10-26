@@ -1872,13 +1872,18 @@ HTTP Redirection
    Key           Description
    ============= ===============================================================
    ``self``      Addresses of the host's interfaces
-   ``loopback``  IPv4 ``127.0.0.0/8`` and IPv6 ``::1``
+   ``loopback``  IPv4 ``0.0.0.0/8`` ``127.0.0.0/8`` and IPv6 ``::1``
    ``private``   IPv4 ``10.0.0.0/8`` ``100.64.0.0/10`` ``172.16.0.0/12`` ``192.168.0.0/16`` and IPv6 ``fc00::/7``
    ``multicast`` IPv4 ``224.0.0.0/4`` and IPv6 ``ff00::/8``
    ``linklocal`` IPv4 ``169.254.0.0/16`` and IPv6 ``fe80::/10``
    ``routable``  All publicly routable addresses
    ``default``   All address ranges not configured specifically
    ============= ===============================================================
+
+   An IPv4-mapped IPv6 address (``::ffff:0:0/96``) is classified by the IPv4
+   address it embeds, so ``::ffff:127.0.0.1`` is a ``loopback`` address,
+   ``::ffff:10.0.0.1`` is a ``private`` one, and the mapped form of one of the
+   host's own IPv4 addresses is ``self``.
 
    The following are valid values:
 
