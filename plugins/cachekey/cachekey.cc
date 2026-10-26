@@ -42,38 +42,13 @@ appendEncoded(String &target, const char *s, size_t len)
   if (0 == len || len > static_cast<size_t>(INT_MAX)) {
     return;
   }
-
-  ts::LocalBuffer<char, 8192> tmp(len * 3 + 1);
+  ts::LocalBuffer<char, 8192> tmp(len * 3);
   size_t                      written;
-
-  /* The default table does not encode the comma, so we need to use our own table here. */
-  static const unsigned char map[32] = {
-    0xFF, 0xFF, 0xFF,
-    0xFF,       // control
-    0xB4,       // space " # %
-    0x08,       // ,
-    0x00,       //
-    0x0A,       // < >
-    0x00, 0x00, //
-    0x00,       //
-    0x1E, 0x80, // [ \ ] ^ `
-    0x00, 0x00, //
-    0x1F,       // { | } ~ DEL
-    0x00, 0x00, 0x00,
-    0x00, // all non-ascii characters unmodified
-    0x00, 0x00, 0x00,
-    0x00, //               .
-    0x00, 0x00, 0x00,
-    0x00, //               .
-    0x00, 0x00, 0x00,
-    0x00 //               .
-  };
-
-  if (TSStringPercentEncode(s, len, tmp.data(), tmp.size(), &written, map) == TS_SUCCESS) {
+  if (cachekey_encode_value(s, len, tmp.data(), tmp.size(), &written)) {
     target.append(tmp.data(), written);
   } else {
-    /* If the encoding fails (pretty unlikely), then just append what we have.
-     * This is just a best-effort encoding anyway. */
+    /* If the encoding fails (pretty unlikely given the buffer is sized for the
+     * worst case), fall back to the raw bytes. Best-effort. */
     target.append(s, len);
   }
 }
@@ -193,46 +168,28 @@ getUri(TSMBuffer buf, TSMLoc url)
 static String
 getCanonicalUrl(TSMBuffer buf, TSMLoc url, bool canonicalPrefix, bool provideDefaultKey)
 {
-  String canonicalUrl;
-
   String      scheme;
   int         schemeLen;
   const char *schemePtr = TSUrlSchemeGet(buf, url, &schemeLen);
-  if (nullptr != schemePtr && 0 != schemeLen) {
-    scheme.assign(schemePtr, schemeLen);
-  } else {
+  if (nullptr == schemePtr || 0 == schemeLen) {
     CacheKeyError("failed to get scheme");
-    return canonicalUrl;
+    return {};
   }
+  scheme.assign(schemePtr, schemeLen);
 
   String      host;
   int         hostLen;
   const char *hostPtr = TSUrlHostGet(buf, url, &hostLen);
-  if (nullptr != hostPtr && 0 != hostLen) {
-    host.assign(hostPtr, hostLen);
-  } else {
+  if (nullptr == hostPtr || 0 == hostLen) {
     CacheKeyError("failed to get host");
-    return canonicalUrl;
+    return {};
   }
+  host.assign(hostPtr, hostLen);
 
   String port;
-  int    portInt = TSUrlPortGet(buf, url);
-  ::append(port, portInt);
+  ::append(port, TSUrlPortGet(buf, url));
 
-  if (canonicalPrefix) {
-    /* return the same for both regex input or default key, results in 'scheme://host:port' */
-    canonicalUrl.assign(scheme).append("://").append(host).append(":").append(port);
-  } else {
-    if (provideDefaultKey) {
-      /* return the key default - results in '/host/port' */
-      canonicalUrl.assign(1, '/').append(host).append("/").append(port);
-    } else {
-      /* return regex input string - results in 'host:port' (use-case kept for compatibility reasons) */
-      canonicalUrl.assign(host).append(":").append(port);
-    }
-  }
-
-  return canonicalUrl;
+  return buildCanonicalUrlPrefix(scheme, host, port, canonicalPrefix, provideDefaultKey);
 }
 
 /**

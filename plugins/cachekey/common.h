@@ -25,6 +25,7 @@
 
 #define PLUGIN_NAME "cachekey"
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -37,6 +38,16 @@ using StringView   = std::string_view;
 using StringSet    = std::set<std::string>;
 using StringList   = std::list<std::string>;
 using StringVector = std::vector<std::string>;
+
+// Percent-encode the first `len` bytes of `s` per cachekey's escape policy
+// into the caller-provided buffer `dst[0..dst_size)`. On success returns true
+// and stores the number of bytes written into `*written`. Returns false and
+// sets `*written` to 0 if `dst_size` is too small; the caller must size for
+// `len * 3` bytes for guaranteed success.
+bool cachekey_encode_value(const char *s, std::size_t len, char *dst, std::size_t dst_size, std::size_t *written);
+
+String buildCanonicalUrlPrefix(const String &scheme, const String &host, const String &port, bool canonicalPrefix,
+                               bool provideDefaultKey);
 
 #ifdef CACHEKEY_UNIT_TEST
 #include <stdio.h>
