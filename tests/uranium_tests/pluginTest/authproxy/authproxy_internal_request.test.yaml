@@ -1,0 +1,146 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+#
+# An internal request issued by another plugin (here, an ESI include) must
+# be authorized by authproxy like any other request. Only authproxy's own
+# authorization subrequests are exempt.
+#
+# The origin doubles as the authorization service. Pristine host headers let
+# it tell content requests (Host: www.example.com) apart from authorization
+# requests (Host: auth.example.com:80). The authorization rule also carries
+# authproxy, so every authorization subrequest exercises the own-subrequest
+# exemption; a missing exemption would recurse instead of completing.
+#
+
+meta:
+  version: "1.0"
+
+urtest:
+  description: "Verify authproxy authorizes internal requests issued by other plugins"
+  requires:
+    plugins: ["authproxy.so", "esi.so"]
+  server:
+    name: "authproxy-internal-origin"
+    process_config:
+      other_args: '--format "{url}|{field.host}"'
+    log_validation:
+      contains:
+        - {expression: "/page.html\\|www.example.com", description: "The ESI page must reach the origin"}
+        - {expression: "/protected/secret\\|auth.example.com:80", description: "The include must be sent for authorization"}
+      excludes:
+        - {expression: "/protected/secret\\|www.example.com", description: "Denied content must never reach the origin"}
+  client:
+    name: "authproxy-internal-client"
+    process_config:
+      other_args: '--format "{url}|{field.host}"'
+  ats:
+    name: "authproxy-internal-ts"
+    process_config:
+      enable_cache: false
+      disable_log_checks: true
+    records_config:
+      proxy.config.diags.debug.enabled: 1
+      proxy.config.diags.debug.tags: "http|authproxy|plugin_esi"
+      proxy.config.url_remap.pristine_host_hdr: 1
+    plugin_config:
+      - "esi.so"
+    remap_config:
+      - from: "http://www.example.com/protected/"
+        to: "http://127.0.0.1:{SERVER_HTTP_PORT}/protected/"
+        plugins:
+          - name: "authproxy.so"
+            args: ["--auth-transform=redirect", "--auth-host=auth.example.com", "--auth-port=80"]
+      - from: "http://www.example.com/"
+        to: "http://127.0.0.1:{SERVER_HTTP_PORT}/"
+      - from: "http://auth.example.com/"
+        to: "http://127.0.0.1:{SERVER_HTTP_PORT}/"
+        plugins:
+          - name: "authproxy.so"
+            args: ["--auth-transform=redirect", "--auth-host=auth.example.com", "--auth-port=80"]
+
+sessions:
+
+- transactions:
+
+  # The authorization service denies /protected/secret. Requesting it
+  # directly on the authorization host is itself authorized by authproxy,
+  # whose subrequest lands back on this rule and must not be re-authorized.
+  - client-request:
+      method: GET
+      url: /protected/secret
+      version: '1.1'
+      headers:
+        fields:
+        - [ Host, "auth.example.com:80" ]
+
+    server-response:
+      status: 403
+      reason: Forbidden
+      headers:
+        fields:
+        - [ Content-Length, "0" ]
+
+    proxy-response:
+      status: 403
+
+- transactions:
+
+  # A direct client request for the protected content is denied.
+  - client-request:
+      method: GET
+      url: /protected/secret
+      version: '1.1'
+      headers:
+        fields:
+        - [ Host, www.example.com ]
+
+    server-response:
+      status: 200
+      headers:
+        fields:
+        - [ Content-Type, "text/plain" ]
+        - [ Content-Length, "14" ]
+      content:
+        encoding: plain
+        data: "SECRET-CONTENT"
+
+    proxy-response:
+      status: 403
+
+- transactions:
+
+  # An unprotected page whose ESI markup includes the protected content.
+  # The include is an internal request and must be denied as well.
+  - client-request:
+      method: GET
+      url: /page.html
+      version: '1.1'
+      headers:
+        fields:
+        - [ Host, www.example.com ]
+
+    server-response:
+      status: 200
+      headers:
+        fields:
+        - [ X-Esi, "1" ]
+        - [ Content-Type, "text/html" ]
+        - [ Connection, "close" ]
+        - [ Transfer-Encoding, "chunked" ]
+      content:
+        encoding: plain
+        data: "<body>before:<esi:include src=\"http://www.example.com/protected/secret\"/>:after</body>\n"

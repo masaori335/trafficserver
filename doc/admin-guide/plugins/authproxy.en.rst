@@ -93,9 +93,13 @@ Plugin Options
   option on the request.
 
 --cache-internal
-  The option will allow the Traffic Server to cache internal
-  requests. By default, internally generated requests are
+  The option will allow the Traffic Server to cache the authorization
+  requests that ``AuthProxy`` issues. By default, these requests are
   not cached as the agent needs to take the authorization decisions.
+
+``AuthProxy`` does not authorize its own authorization requests. Internal
+requests issued by other plugins (for example ESI includes or
+``background_fetch``) are authorized like any other request.
 
 Examples
 --------

@@ -47,6 +47,10 @@ using AuthRequestTransform = bool (*)(AuthRequestContext *);
 
 const static int MAX_HOST_LENGTH = 4096;
 
+// Plugin tag on the auth subrequests we issue. Internal transactions created
+// by other plugins carry a different tag and must still be authorized.
+static constexpr string_view AuthSubrequestTag{"authproxy"};
+
 // We can operate in global plugin mode or remap plugin mode. If we are in
 // global mode, then we will authorize every request. In remap mode, we will
 // only authorize tagged requests.
@@ -435,7 +439,7 @@ StateAuthProxyConnect(AuthRequestContext *auth, void * /* edata ATS_UNUSED */)
   auth->method = AuthRequestGetMethod(auth->txn);
   AuthLogDebug("client request %s a HEAD request", auth->method == TS_HTTP_METHOD_HEAD ? "is" : "is not");
 
-  auth->vconn = TSHttpConnect(ip);
+  auth->vconn = TSHttpConnectWithPluginId(ip, AuthSubrequestTag.data(), 0);
   if (auth->vconn == nullptr) {
     return TS_EVENT_ERROR;
   }
@@ -702,6 +706,18 @@ AuthRequestIsTagged(TSHttpTxn txn)
   return AuthTaggedRequestArg != -1 && TSUserArgGet(txn, AuthTaggedRequestArg) != nullptr;
 }
 
+// Return true if the given request is an auth subrequest issued by this plugin.
+static bool
+AuthRequestIsSubrequest(TSHttpTxn txn)
+{
+  if (!TSHttpTxnIsInternal(txn)) {
+    return false;
+  }
+
+  const char *tag = TSHttpTxnPluginTagGet(txn);
+  return tag != nullptr && AuthSubrequestTag == tag;
+}
+
 // Return true if the internal requests can be cached.
 static bool
 CacheInternalRequests(TSHttpTxn txn)
@@ -719,8 +735,8 @@ AuthProxyGlobalHook(TSCont /* cont ATS_UNUSED */, TSEvent event, void *edata)
 
   switch (event) {
   case TS_EVENT_HTTP_POST_REMAP:
-    // Ignore internal requests since we generated them.
-    if (TSHttpTxnIsInternal(txn)) {
+    // Don't authorize our own auth subrequests.
+    if (AuthRequestIsSubrequest(txn)) {
       // All our internal requests *must* hit the origin since it is the
       // agent that needs to make the authorization decision. We can't
       // allow that to be cached. Note that this only affects the remap
