@@ -39,13 +39,16 @@ def configure_origin(services: ServiceFactory) -> OriginServer:
     return origin
 
 
-def configure_ats(ats_factory: ATSFactory, *, _origin: OriginServer) -> ATS:
-    """Configure five IP-reputation buckets and the SNI selector.
+def configure_ats(ats_factory: ATSFactory, *, _origin: OriginServer, size: int | None = 10, buckets: int = 5) -> ATS:
+    """Configure an IP-reputation table and the SNI selector.
 
-    :param _origin: Test-local origin configured by the test.
     :param ats_factory: Factory for isolated Traffic Server instances.
+    :param _origin: Test-local origin configured by the test.
+    :param size: The ip-rep ``size``, or None to leave it unset.
+    :param buckets: The ip-rep ``buckets``.
     """
 
+    size_line = "" if size is None else f"    size: {size}\n"
     ats = ats_factory.create("ts", enable_tls=True)
     if not ats.plugin_exists("rate_limit.so"):
         pytest.skip("rate_limit.so is required")
@@ -53,8 +56,8 @@ def configure_ats(ats_factory: ATSFactory, *, _origin: OriginServer) -> ATS:
         "rate_limit.yaml",
         "ip-rep:\n"
         "  - name: test-iprep\n"
-        "    buckets: 5\n"
-        "    size: 10\n"
+        f"    buckets: {buckets}\n"
+        f"{size_line}"
         "    percentage: 90\n"
         "    max_age: 300\n"
         "selector:\n"
@@ -88,15 +91,18 @@ def request(*, _ats: ATS, _curl: Curl) -> CommandResult:
             f"'https://iprep.example.com:{_ats.https_port}/test'"),)
 
 
-def test_rate_limit_iprep(ats_factory: ATSFactory, services: ServiceFactory, curl: Curl) -> None:
+# Size 4 with 5 buckets is the smallest accepted size, leaving a single-entry last bucket.
+@pytest.mark.parametrize("size", [10, 4])
+def test_rate_limit_iprep(ats_factory: ATSFactory, services: ServiceFactory, curl: Curl, size: int) -> None:
     """IP-reputation buckets are sized before indexed initialization and updates.
 
     :param ats_factory: Factory for isolated Traffic Server instances.
     :param services: Factory owning support services and their cleanup.
     :param curl: Transport-aware curl command runner.
+    :param size: The ip-rep ``size``.
     """
     _origin = configure_origin(services)
-    _ats = configure_ats(ats_factory, _origin=_origin)
+    _ats = configure_ats(ats_factory, _origin=_origin, size=size)
 
     _origin.start()
     _ats.start()
@@ -105,3 +111,41 @@ def test_rate_limit_iprep(ats_factory: ATSFactory, services: ServiceFactory, cur
         assert result.returncode == 0, result.output
         assert result.stdout == "200", result.output
     assert "FATAL" not in _ats.diags_log.read_text(errors="replace")
+
+
+def test_rate_limit_iprep_default_size_disabled(ats_factory: ATSFactory, services: ServiceFactory, curl: Curl) -> None:
+    """An ip-rep node without ``size`` is disabled rather than creating unbounded buckets.
+
+    :param ats_factory: Factory for isolated Traffic Server instances.
+    :param services: Factory owning support services and their cleanup.
+    :param curl: Transport-aware curl command runner.
+    """
+    _origin = configure_origin(services)
+    _ats = configure_ats(ats_factory, _origin=_origin, size=None)
+
+    _origin.start()
+    _ats.start()
+    result = request(_ats=_ats, _curl=curl)
+    assert result.returncode == 0, result.output
+    assert result.stdout == "200", result.output
+    assert "has no size, IP reputation is disabled" in _ats.diags_log.read_text(errors="replace")
+    assert "no IP reputation" in _ats.traffic_out.read_text(errors="replace")
+
+
+# One case per clause of the sizing guard in SieveLru::parseYaml().
+@pytest.mark.parametrize(("size", "buckets"), [(3, 5), (31, 5), (10, 0)])
+def test_rate_limit_iprep_invalid_size(ats_factory: ATSFactory, services: ServiceFactory, size: int, buckets: int) -> None:
+    """An ip-rep size the buckets cannot be derived from fails the configuration load.
+
+    :param ats_factory: Factory for isolated Traffic Server instances.
+    :param services: Factory owning support services and their cleanup.
+    :param size: The ip-rep ``size``.
+    :param buckets: The ip-rep ``buckets``.
+    """
+    _origin = configure_origin(services)
+    _ats = configure_ats(ats_factory, _origin=_origin, size=size, buckets=buckets)
+    _ats.expect_start_failure(r"Invalid ip-rep test-iprep", return_code=70)
+
+    _ats.start()
+    assert not _ats.is_running
+    assert "Invalid ip-rep test-iprep" in _ats.diags_log.read_text(errors="replace")

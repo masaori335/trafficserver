@@ -255,14 +255,15 @@ and the following options:
    is ``10``, which is the default, but can be configured. The reason for the different
    buckets is to account for a pseudo-sorted list of IPs on the frequency seen. Too
    few buckets will not be enough to keep such sorting, rendering the algorithm useless.
-   To function in our setup, the number of buckets must be less than ``100``.
+   The number of buckets must be at least ``1``, and at most ``31``.
 
 .. option:: size
 
    This is the size of the largest LRU bucket (the ``entry bucket``), ``15`` is a good
    value. This is a power of 2, so ``15`` means the largest LRU can hold ``32768`` entries.
-   Note that this option must be bigger then the ``--iprep_buckets`` setting, for the
-   bucket halfing to function.
+   Each smaller bucket is half the size of the previous one, so this must be at
+   least ``buckets - 1`` and at most ``30``. Any other non-zero value is rejected
+   and fails the configuration load.
 
    The default here is ``0``, which means the IP reputation filter is not enabled!
 

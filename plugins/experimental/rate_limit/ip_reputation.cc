@@ -22,12 +22,14 @@
  */
 
 #include <iostream>
-#include <cmath>
 
 #include "ip_reputation.h"
 
 namespace IpReputation
 {
+// The sizing loop doubles up to 2^(MAX_SIZE + 1), which must fit in a uint32_t.
+constexpr uint32_t MAX_SIZE = 30;
+
 // These static class members are here to calculate a uint64_t hash of an IP
 uint64_t
 SieveLru::hasher(const sockaddr *sock)
@@ -118,9 +120,22 @@ SieveLru::parseYaml(const YAML::Node &node)
     }
   }
 
-  uint32_t cur_size = pow(2, 1 + _size - _num_buckets);
+  // A size of 0 is documented as "disabled"; leave _initialized false so callers skip this table.
+  if (_size == 0) {
+    TSWarning("[%s] ip-rep %s has no size, IP reputation is disabled", PLUGIN_NAME, _name.c_str());
+    return true;
+  }
 
-  _map.reserve(pow(2, _size + 1));   // Allow for all the sieve LRUs
+  // A bucket size of 0 means "unlimited" in SieveBucket::full(), so the sizes must never underflow or wrap.
+  if (_size > MAX_SIZE || _num_buckets < 1 || _size + 1 < _num_buckets) {
+    TSError("[%s] Invalid ip-rep %s: size (%u) must be between buckets - 1 and %u, with buckets (%u) >= 1", PLUGIN_NAME,
+            _name.c_str(), _size, MAX_SIZE, _num_buckets);
+    return false;
+  }
+
+  uint32_t cur_size = 1u << (1 + _size - _num_buckets);
+
+  _map.reserve(1ull << (_size + 1)); // Allow for all the sieve LRUs
   _buckets.resize(_num_buckets + 1); // One extra bucket, for the deny list
 
   // Create the other buckets, in smaller and smaller sizes (power of 2)
