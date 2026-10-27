@@ -129,6 +129,43 @@ TEST_CASE("Header: iterate over the field names", "[cripts][Headers]")
   CHECK(names == std::vector<std::string>{"Host", "X-Foo", "X-Dup", "X-Dup"});
 }
 
+TEST_CASE("Header: erasing the current field while iterating", "[cripts][Headers]")
+{
+  Txn  txn{"GET / HTTP/1.1\r\nHost: example.com\r\nX-Internal-A: 1\r\nX-Internal-B: 2\r\nX-Keep: 3\r\n\r\n"};
+  auto context = txn.context();
+
+  borrow                   req = cripts::Client::Request::Get();
+  std::vector<std::string> names;
+
+  for (auto name : req) {
+    names.emplace_back(name.GetSV());
+    if (name.starts_with("X-Internal")) {
+      req.Erase(name);
+    }
+  }
+  CHECK(names == std::vector<std::string>{"Host", "X-Internal-A", "X-Internal-B", "X-Keep"});
+  CHECK(txn.client_request_field_count("X-Internal-A") == 0);
+  CHECK(txn.client_request_field_count("X-Internal-B") == 0);
+  CHECK(txn.client_request_field("X-Keep") == "3");
+}
+
+TEST_CASE("Header: erasing a later field while iterating", "[cripts][Headers]")
+{
+  Txn  txn{"GET / HTTP/1.1\r\nHost: example.com\r\nX-A: 1\r\nX-B: 2\r\nX-C: 3\r\n\r\n"};
+  auto context = txn.context();
+
+  borrow                   req = cripts::Client::Request::Get();
+  std::vector<std::string> names;
+
+  for (auto name : req) {
+    names.emplace_back(name.GetSV());
+    if (name == "X-A") {
+      req.Erase("X-B");
+    }
+  }
+  CHECK(names == std::vector<std::string>{"Host", "X-A", "X-C"});
+}
+
 TEST_CASE("Header: the next hook sees the current headers", "[cripts][Headers]")
 {
   Txn  txn{REQUEST};

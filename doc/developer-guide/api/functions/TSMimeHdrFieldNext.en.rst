@@ -32,3 +32,9 @@ Synopsis
 
 Description
 ===========
+
+Returns the location of the MIME field that follows :arg:`field` in the MIME header located at :arg:`hdr` within
+:arg:`bufp`, or :var:`TS_NULL_MLOC` if :arg:`field` is the last one. If :arg:`field` has been destroyed with
+:func:`TSMimeHdrFieldDestroy`, this is the field that followed it, so a loop can destroy the current field and continue.
+
+Release the returned :cpp:type:`TSMLoc` with :func:`TSHandleMLocRelease`.

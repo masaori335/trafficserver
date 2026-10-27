@@ -2075,7 +2075,11 @@ TSMimeHdrFieldNext(TSMBuffer bufp, TSMLoc hdr, TSMLoc field)
 
   if (auto handle = reinterpret_cast<MIMEFieldSDKHandle *>(field); handle->mh != nullptr) {
     if (auto spot = handle->mh->find(handle->field_ptr); spot != handle->mh->end()) {
-      if (++spot != handle->mh->end()) {
+      // find() steps past a destroyed field, so spot already is the field after it.
+      if (&*spot == handle->field_ptr) {
+        ++spot;
+      }
+      if (spot != handle->mh->end()) {
         MIMEFieldSDKHandle *h = sdk_alloc_field_handle(bufp, handle->mh);
         h->field_ptr          = &*spot;
         return reinterpret_cast<TSMLoc>(h);
