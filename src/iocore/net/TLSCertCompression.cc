@@ -102,6 +102,11 @@ register_certificate_compression_preference(SSL_CTX *ctx, const std::vector<std:
 {
   ink_assert(ctx != nullptr);
   if (specified_algs.empty()) {
+#if defined(SSL_OP_NO_RX_CERTIFICATE_COMPRESSION) && defined(SSL_OP_NO_TX_CERTIFICATE_COMPRESSION)
+    // OpenSSL negotiates certificate compression with every algorithm it was built with unless told not to.
+    // An empty list means certificate compression is disabled, so turn it off explicitly.
+    SSL_CTX_set_options(ctx, SSL_OP_NO_RX_CERTIFICATE_COMPRESSION | SSL_OP_NO_TX_CERTIFICATE_COMPRESSION);
+#endif
     return 1;
   }
 

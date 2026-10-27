@@ -305,11 +305,14 @@ SSLInitClientContext(const SSLConfigParams *params)
   }
 #endif
 
-  if (params->client_cert_compression_algorithms) {
+  {
+    // Register even when the list is empty so that certificate compression is explicitly disabled.
     std::vector<std::string> algs;
-    SimpleTokenizer          tok(params->client_cert_compression_algorithms, ',');
-    for (const char *token = tok.getNext(); token; token = tok.getNext()) {
-      algs.emplace_back(token);
+    if (params->client_cert_compression_algorithms) {
+      SimpleTokenizer tok(params->client_cert_compression_algorithms, ',');
+      for (const char *token = tok.getNext(); token; token = tok.getNext()) {
+        algs.emplace_back(token);
+      }
     }
     if (register_certificate_compression_preference(client_ctx, algs) != 1) {
       SSLError("invalid client certificate compression algorithm list in %s", ts::filename::RECORDS);
