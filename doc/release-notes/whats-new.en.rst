@@ -299,6 +299,12 @@ Metrics
   contention metric
 * ``proxy.process.http.incoming_requests`` is now counted at transaction
   start
+* Added :ts:stat:`proxy.process.net.inactivity_cop_visited`.
+* Added :ts:stat:`proxy.process.net.inactivity_cop_budget_exhausted`.
+* Added :ts:stat:`proxy.process.net.inactivity_cop_passes`.
+* Added :ts:stat:`proxy.process.net.inactivity_cop_fired`.
+* Added :ts:stat:`proxy.process.net.inactivity_cop_pass_time_us`.
+* Added :ts:stat:`proxy.process.net.inactivity_cop_pass_max_us`.
 
 Logging
 -------
@@ -322,6 +328,17 @@ Other logging changes:
 * Plugins can register custom log fields at runtime with ``TSLogFieldRegister``
   and the ``TSLog*Marshal`` functions.
 * Added the ``ERR_TUN_ACTIVE_TIMEOUT`` squid code for tunnel timeouts.
+
+Performance
+-----------
+
+* Connection timeouts are now dispatched from a per-thread timer wheel instead
+  of a once-per-second walk of every open connection, so the cost of a timeout
+  check scales with the number of deadlines that have come due rather than with
+  the number of connections open. See :ref:`developer-doc-net-timeouts`.
+
+  This changes how :ts:cv:`proxy.config.net.inactivity_check_frequency` should
+  be tuned; see :ref:`upgrading` if you have raised it from the default.
 
 Plugins
 -------
