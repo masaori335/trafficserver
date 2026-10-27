@@ -170,6 +170,42 @@ DbgCtl dbg_ctl_ssl_cert_update{"ssl.cert_update"};
 DbgCtl dbg_ctl_ssl_session_cache_insert{"ssl.session_cache.insert"};
 DbgCtl dbg_ctl_rpc_api{"rpc.api"};
 
+// The scheduling APIs take an event count reference on the plugin continuation, which TSActionCancel has to give
+// back. The TSAction handed to the plugin is the Event pointer with a tag in its low bits saying where that
+// continuation is found, since the Event's own continuation is not always the plugin's.
+enum class ScheduledActionTag : uintptr_t {
+  NONE         = 0x0, ///< Not a scheduled plugin event, e.g. an Action from a net or cache API.
+  PLUGIN_CONT  = 0x1, ///< The Event's continuation is the plugin's INKContInternal.
+  HTTP_SM_CONT = 0x2, ///< A TSHttpSchedule Event: its continuation is the HttpSM, its cookie the plugin's INKContInternal.
+};
+
+constexpr uintptr_t SCHEDULED_ACTION_TAG_MASK = 0x3;
+static_assert(alignof(Event) > SCHEDULED_ACTION_TAG_MASK, "Event alignment must leave room for the TSAction tag bits");
+
+// Build the TSAction returned to the plugin for a scheduled Event: the Event's address with @a tag ORed into its
+// unused low bits. The Event itself is not modified.
+TSAction
+make_tagged_action(Event *e, ScheduledActionTag tag)
+{
+  return reinterpret_cast<TSAction>(reinterpret_cast<uintptr_t>(e) | static_cast<uintptr_t>(tag));
+}
+
+// Read back which ScheduledActionTag a plugin supplied TSAction carries, so TSActionCancel knows where to find the
+// plugin continuation whose event count it must release.
+ScheduledActionTag
+get_action_tag(TSAction actionp)
+{
+  return static_cast<ScheduledActionTag>(reinterpret_cast<uintptr_t>(actionp) & SCHEDULED_ACTION_TAG_MASK);
+}
+
+// Recover the real Action pointer from a plugin supplied TSAction by clearing the tag bits. Untagged actions, such as
+// those from the net or cache APIs, come back unchanged.
+Action *
+get_untagged_action(TSAction actionp)
+{
+  return reinterpret_cast<Action *>(reinterpret_cast<uintptr_t>(actionp) & ~SCHEDULED_ACTION_TAG_MASK);
+}
+
 } // end anonymous namespace
 
 /******************************************************/
@@ -3508,16 +3544,14 @@ TSContScheduleOnPool(TSCont contp, TSHRTime timeout, TSThreadPool tp)
     break;
   }
 
-  TSAction action;
+  Event *e;
   if (timeout == 0) {
-    action = reinterpret_cast<TSAction>(eventProcessor.schedule_imm(i, etype));
+    e = eventProcessor.schedule_imm(i, etype);
   } else {
-    action = reinterpret_cast<TSAction>(eventProcessor.schedule_in(i, HRTIME_MSECONDS(timeout), etype));
+    e = eventProcessor.schedule_in(i, HRTIME_MSECONDS(timeout), etype);
   }
 
-  /* This is a hack. Should be handled in ink_types */
-  action = reinterpret_cast<TSAction>(reinterpret_cast<uintptr_t>(action) | 0x1);
-  return action;
+  return make_tagged_action(e, ScheduledActionTag::PLUGIN_CONT);
 }
 
 TSAction
@@ -3540,16 +3574,14 @@ TSContScheduleOnThread(TSCont contp, TSHRTime timeout, TSEventThread ethread)
     i->setThreadAffinity(eth);
   }
 
-  TSAction action;
+  Event *e;
   if (timeout == 0) {
-    action = reinterpret_cast<TSAction>(eth->schedule_imm(i));
+    e = eth->schedule_imm(i);
   } else {
-    action = reinterpret_cast<TSAction>(eth->schedule_in(i, HRTIME_MSECONDS(timeout)));
+    e = eth->schedule_in(i, HRTIME_MSECONDS(timeout));
   }
 
-  /* This is a hack. Should be handled in ink_types */
-  action = reinterpret_cast<TSAction>(reinterpret_cast<uintptr_t>(action) | 0x1);
-  return action;
+  return make_tagged_action(e, ScheduledActionTag::PLUGIN_CONT);
 }
 
 std::vector<TSAction>
@@ -3628,11 +3660,7 @@ TSContScheduleEveryOnPool(TSCont contp, TSHRTime every, TSThreadPool tp)
     break;
   }
 
-  TSAction action = reinterpret_cast<TSAction>(eventProcessor.schedule_every(i, HRTIME_MSECONDS(every), etype));
-
-  /* This is a hack. Should be handled in ink_types */
-  action = reinterpret_cast<TSAction>(reinterpret_cast<uintptr_t>(action) | 0x1);
-  return action;
+  return make_tagged_action(eventProcessor.schedule_every(i, HRTIME_MSECONDS(every), etype), ScheduledActionTag::PLUGIN_CONT);
 }
 
 TSAction
@@ -3655,11 +3683,7 @@ TSContScheduleEveryOnThread(TSCont contp, TSHRTime every, TSEventThread ethread)
     i->setThreadAffinity(eth);
   }
 
-  TSAction action = reinterpret_cast<TSAction>(eth->schedule_every(i, HRTIME_MSECONDS(every)));
-
-  /* This is a hack. Should be handled in ink_types */
-  action = reinterpret_cast<TSAction>(reinterpret_cast<uintptr_t>(action) | 0x1);
-  return action;
+  return make_tagged_action(eth->schedule_every(i, HRTIME_MSECONDS(every)), ScheduledActionTag::PLUGIN_CONT);
 }
 
 std::vector<TSAction>
@@ -3759,20 +3783,20 @@ TSHttpSchedule(TSCont contp, TSHttpTxn txnp, TSHRTime timeout)
     ink_assert(!"not reached");
   }
 
-  TSAction      action;
-  Continuation *cont = reinterpret_cast<Continuation *>(contp);
-  HttpSM       *sm   = reinterpret_cast<HttpSM *>(txnp);
+  HttpSM *sm = reinterpret_cast<HttpSM *>(txnp);
 
-  sm->set_http_schedule(cont);
+  sm->set_http_schedule(i);
 
+  // The Event goes to the HttpSM, which relays it to the plugin continuation. The cookie records that continuation
+  // so TSActionCancel can return the event count reference taken above.
+  Event *e;
   if (timeout == 0) {
-    action = reinterpret_cast<TSAction>(eventProcessor.schedule_imm(sm, ET_NET));
+    e = eventProcessor.schedule_imm(sm, ET_NET, EVENT_IMMEDIATE, i);
   } else {
-    action = reinterpret_cast<TSAction>(eventProcessor.schedule_in(sm, HRTIME_MSECONDS(timeout), ET_NET));
+    e = eventProcessor.schedule_in(sm, HRTIME_MSECONDS(timeout), ET_NET, EVENT_INTERVAL, i);
   }
 
-  action = reinterpret_cast<TSAction>(reinterpret_cast<uintptr_t>(action) | 0x1);
-  return action;
+  return make_tagged_action(e, ScheduledActionTag::HTTP_SM_CONT);
 }
 
 int
@@ -5869,25 +5893,26 @@ TSHttpConnectTransparent(sockaddr const *client_addr, sockaddr const *server_add
 void
 TSActionCancel(TSAction actionp) noexcept
 try {
-  Action          *thisaction;
-  INKContInternal *i;
+  Action *thisaction = get_untagged_action(actionp);
 
   // Nothing to cancel
-  if (actionp == nullptr) {
+  if (thisaction == nullptr) {
     return;
   }
 
-  /* This is a hack. Should be handled in ink_types */
-  if (reinterpret_cast<uintptr_t>(actionp) & 0x1) {
-    thisaction = reinterpret_cast<Action *>(reinterpret_cast<uintptr_t>(actionp) - 1);
-    if (thisaction) {
-      i = static_cast<INKContInternal *>(thisaction->continuation);
-      i->handle_event_count(EVENT_IMMEDIATE);
-    } else { // The action pointer for an INKContInternal was effectively null, just go away
-      return;
-    }
-  } else {
-    thisaction = reinterpret_cast<Action *>(actionp);
+  INKContInternal *i = nullptr;
+  switch (get_action_tag(actionp)) {
+  case ScheduledActionTag::PLUGIN_CONT:
+    i = static_cast<INKContInternal *>(thisaction->continuation);
+    break;
+  case ScheduledActionTag::HTTP_SM_CONT:
+    i = static_cast<INKContInternal *>(static_cast<Event *>(thisaction)->cookie);
+    break;
+  default:
+    break;
+  }
+  if (i != nullptr) {
+    i->handle_event_count(EVENT_IMMEDIATE);
   }
 
   thisaction->cancel();

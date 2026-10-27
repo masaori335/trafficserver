@@ -1,0 +1,137 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+meta:
+  version: "1.0"
+
+urtest:
+  description: "Verify TSHttpSchedule() callbacks and that TSActionCancel() of a TSHttpSchedule() action neither corrupts the HttpSM nor leaks the plugin continuation"
+
+  server:
+    name: "http-schedule-origin"
+
+  client:
+    name: "http-schedule-client"
+
+  ats:
+    name: "http-schedule-ts"
+
+    process_config:
+      enable_cache: false
+
+    records_config:
+      proxy.config.diags.debug.enabled: 1
+      proxy.config.diags.debug.tags: "test_TSHttpSchedule|plugin"
+
+    plugin_config:
+      - "test_TSHttpSchedule.so"
+
+    copy_custom_plugin:
+      - "{AtsBuildUraniumTestsDir}/pluginTest/tsapi/.libs/test_TSHttpSchedule.so"
+
+    remap_config:
+      - "map / http://127.0.0.1:{SERVER_HTTP_PORT}/"
+
+    log_validation:
+      traffic_out:
+        contains:
+          - expression: "reserved 16 transaction user args"
+            description: "The plugin should claim every transaction user arg slot."
+          - expression: "cancel-intact"
+            description: "The transaction user args should survive TSActionCancel()."
+          - expression: "fire-intact"
+            description: "The transaction user args should survive a TSHttpSchedule() callback."
+        excludes:
+          - expression: "corrupted"
+            description: "TSActionCancel() should not write into the HttpSM."
+          - expression: "Deletable but not deleted"
+            description: "TSActionCancel() should release the continuation's event count."
+          - expression: "is not the transaction"
+            description: "The TSHttpSchedule() callback should receive the transaction."
+
+sessions:
+  - transactions:
+      - client-request:
+          method: "GET"
+          url: "/cancel/first"
+          version: "1.1"
+          headers:
+            fields:
+              - [Host, example.com]
+              - [uuid, cancel-first]
+
+        proxy-request:
+          headers:
+            fields:
+              - [X-Http-Schedule, {value: cancel-intact, as: equal}]
+
+        server-response:
+          status: 200
+          reason: "OK"
+          headers:
+            fields:
+              - [Content-Length, "0"]
+
+        proxy-response:
+          status: 200
+
+      - client-request:
+          method: "GET"
+          url: "/cancel/second"
+          version: "1.1"
+          headers:
+            fields:
+              - [Host, example.com]
+              - [uuid, cancel-second]
+
+        proxy-request:
+          headers:
+            fields:
+              - [X-Http-Schedule, {value: cancel-intact, as: equal}]
+
+        server-response:
+          status: 200
+          reason: "OK"
+          headers:
+            fields:
+              - [Content-Length, "0"]
+
+        proxy-response:
+          status: 200
+
+      - client-request:
+          method: "GET"
+          url: "/fire/first"
+          version: "1.1"
+          headers:
+            fields:
+              - [Host, example.com]
+              - [uuid, fire-first]
+
+        proxy-request:
+          headers:
+            fields:
+              - [X-Http-Schedule, {value: fire-intact, as: equal}]
+
+        server-response:
+          status: 200
+          reason: "OK"
+          headers:
+            fields:
+              - [Content-Length, "0"]
+
+        proxy-response:
+          status: 200
