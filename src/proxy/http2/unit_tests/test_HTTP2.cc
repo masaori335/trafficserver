@@ -490,3 +490,136 @@ TEST_CASE("Parse a header split across IOBuffer blocks at EOF", "[HTTP2]")
     CHECK(parsed.value_get("X-Pad"sv) == pad_value);
   }
 }
+
+namespace
+{
+std::string
+hpack_literal(std::string_view name, std::string_view value)
+{
+  std::string out;
+
+  out += '\0';
+  out += static_cast<char>(name.size());
+  out += name;
+  out += static_cast<char>(value.size());
+  out += value;
+  return out;
+}
+
+// Mirrors Http2Stream::decode_header_blocks() and send_headers() up to, but not including, the HTTP/1 re-parse.
+bool
+is_rejected_before_reparse(std::string_view name, std::string_view value)
+{
+  std::string block = hpack_literal(":method", "GET") + hpack_literal(":scheme", "https") +
+                      hpack_literal(":authority", "example.com") + hpack_literal(":path", "/") + hpack_literal(name, value);
+  HpackHandle    handle(HTTP2_HEADER_TABLE_SIZE);
+  HTTPHdr        hdr;
+  ts::PostScript hdr_defer([&]() -> void { hdr.destroy(); });
+
+  hdr.create(HTTPType::REQUEST);
+  if (http2_decode_header_blocks(&hdr, reinterpret_cast<const uint8_t *>(block.data()), block.size(), nullptr, handle, false,
+                                 HTTP2_HEADER_TABLE_SIZE, 131072, false) != Http2ErrorCode::HTTP2_ERROR_NO_ERROR) {
+    return true;
+  }
+  return http2_convert_header_from_2_to_1_1(&hdr) == ParseResult::ERROR;
+}
+
+// send_headers() prints a trailer without converting it, so decoding is the only check before the re-parse.
+bool
+is_trailer_rejected_before_reparse(std::string_view name, std::string_view value)
+{
+  std::string    block = hpack_literal(name, value);
+  HpackHandle    handle(HTTP2_HEADER_TABLE_SIZE);
+  HTTPHdr        hdr;
+  ts::PostScript hdr_defer([&]() -> void { hdr.destroy(); });
+
+  hdr.create(HTTPType::REQUEST);
+  return http2_decode_header_blocks(&hdr, reinterpret_cast<const uint8_t *>(block.data()), block.size(), nullptr, handle, true,
+                                    HTTP2_HEADER_TABLE_SIZE, 131072, false) != Http2ErrorCode::HTTP2_ERROR_NO_ERROR;
+}
+} // namespace
+
+TEST_CASE("Malformed HTTP/2 fields are rejected before the HTTP/1 re-parse", "[HTTP2]")
+{
+  struct Field {
+    std::string_view name;
+    std::string_view value;
+  };
+
+  SECTION("clean field is accepted")
+  {
+    CHECK_FALSE(is_rejected_before_reparse("x-clean", "v"));
+  }
+
+  SECTION("colon in name")
+  {
+    constexpr Field fields[] = {
+      {"transfer-encoding:chunked", ""       },
+      {"transfer-encoding:",        "chunked"},
+      {"host:example.net",          ""       },
+      {"content-length:99",         ""       },
+      {"x:bc",                      "v"      },
+    };
+
+    for (auto [name, value] : fields) {
+      CAPTURE(name, value);
+      CHECK(is_rejected_before_reparse(name, value));
+    }
+  }
+
+  SECTION("control or whitespace in name")
+  {
+    constexpr Field fields[] = {
+      {"x\r\ntransfer-encoding",    "chunked"},
+      {"x\ny",                      "v"      },
+      {"x\ry",                      "v"      },
+      {std::string_view{"x\0y", 3}, "v"      },
+      {"x y",                       "v"      },
+    };
+
+    for (auto [name, value] : fields) {
+      CAPTURE(name, value);
+      CHECK(is_rejected_before_reparse(name, value));
+    }
+  }
+
+  SECTION("control character in value")
+  {
+    constexpr Field fields[] = {
+      {"x", "a\r\ntransfer-encoding: chunked"},
+      {"x", "a\nb"                           },
+      {"x", "a\rb"                           },
+      {"x", std::string_view{"a\0b", 3}      },
+    };
+
+    for (auto [name, value] : fields) {
+      CAPTURE(name, value);
+      CHECK(is_rejected_before_reparse(name, value));
+    }
+  }
+
+  SECTION("clean trailer is accepted")
+  {
+    CHECK_FALSE(is_trailer_rejected_before_reparse("x-clean", "v"));
+  }
+
+  SECTION("colon in trailer name")
+  {
+    CHECK(is_trailer_rejected_before_reparse("transfer-encoding:chunked", ""));
+  }
+
+  SECTION("control character in trailer value")
+  {
+    constexpr Field fields[] = {
+      {"x", "a\r\ntransfer-encoding: chunked"},
+      {"x", "a\nb"                           },
+      {"x", "a\rb"                           },
+      {"x", std::string_view{"a\0b", 3}      },
+    };
+
+    for (auto [name, value] : fields) {
+      CAPTURE(name, value);
+      CHECK(is_trailer_rejected_before_reparse(name, value));
+    }
+  }
+}

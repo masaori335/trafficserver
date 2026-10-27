@@ -24,6 +24,8 @@
 #include "proxy/hdrs/HeaderValidator.h"
 #include "proxy/hdrs/HTTP.h"
 
+#include <algorithm>
+
 using namespace std::literals;
 
 bool
@@ -44,6 +46,10 @@ HeaderValidator::is_h2_h3_header_valid(const HTTPHdr &hdr, bool is_response, boo
     expected_pseudo_header_count = 0;
   }
   for (auto &field : hdr) {
+    // Trailers are printed without going through VersionConverter, so its control-character check never sees them.
+    if (!field.value_is_valid()) {
+      return false;
+    }
     auto name{field.name_get()};
     // Pseudo headers must appear before regular headers
     if (name.length() && name[0] == ':') {
@@ -52,6 +58,9 @@ HeaderValidator::is_h2_h3_header_valid(const HTTPHdr &hdr, bool is_response, boo
         return false;
       }
     } else if (name.length() == 0) {
+      return false;
+    } else if (!std::all_of(name.begin(), name.end(), &ParseRules::is_http_field_name)) {
+      // Same rule as the HTTP/1 parser that re-parses the printed request, so both layers agree on the field name.
       return false;
     } else {
       if (pseudo_header_count != expected_pseudo_header_count) {

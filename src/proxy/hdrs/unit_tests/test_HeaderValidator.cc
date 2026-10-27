@@ -193,6 +193,15 @@ TEST_CASE("testIsHeaderValid", "[proxy][hdrtest]")
     // Trailer headers may not contain any pseudo-header field.
     check_header(fields, hdr, !IS_VALID_HEADER, IS_TRAILER);
   }
+  SECTION("Test (invalid) trailer header with CRLF in a field value")
+  {
+    hdr.create(HTTPType::REQUEST, HTTP_1_1, heap);
+    Fields_type fields = {
+      {"x-trailer", "a\r\ntransfer-encoding: chunked"},
+    };
+    static constexpr bool IS_TRAILER = true;
+    check_header(fields, hdr, !IS_VALID_HEADER, IS_TRAILER);
+  }
   SECTION("Test request with Connection headers")
   {
     hdr.create(HTTPType::REQUEST, HTTP_1_1, heap);
@@ -257,6 +266,30 @@ TEST_CASE("testIsHeaderValid", "[proxy][hdrtest]")
     };
     // Connection-specific headers are not allowed.
     check_header(fields, hdr, !IS_VALID_HEADER);
+  }
+  SECTION("Test request with a colon in a regular field name")
+  {
+    hdr.create(HTTPType::REQUEST, HTTP_1_1, heap);
+    Fields_type fields = {
+      {":method",                   "GET"         },
+      {":scheme",                   "https"       },
+      {":authority",                "www.this.com"},
+      {":path",                     "/some/path"  },
+      {"transfer-encoding:chunked", ""            },
+    };
+    check_header(fields, hdr, !IS_VALID_HEADER);
+  }
+  SECTION("Test request with an '@' in a regular field name, as the HTTP/1 parser accepts")
+  {
+    hdr.create(HTTPType::REQUEST, HTTP_1_1, heap);
+    Fields_type fields = {
+      {":method",    "GET"         },
+      {":scheme",    "https"       },
+      {":authority", "www.this.com"},
+      {":path",      "/some/path"  },
+      {"@x-field",   "v"           },
+    };
+    check_header(fields, hdr, IS_VALID_HEADER);
   }
   // teardown
   hdr.destroy();
