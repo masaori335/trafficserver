@@ -669,6 +669,10 @@ StateAuthorized(AuthRequestContext *auth, void *)
     TSMLoc    request_hdr;
 
     TSReleaseAssert(TSHttpTxnClientReqGet(auth->txn, &request_bufp, &request_hdr) == TS_SUCCESS);
+
+    // The prefix marks headers asserted by the auth service, so never trust client-supplied ones.
+    HttpRemoveMimeHeadersWithPrefix(request_bufp, request_hdr, options->forward_header_prefix);
+
     field_loc = TSMimeHdrFieldGet(auth->rheader.buffer, auth->rheader.header, 0);
 
     while (field_loc) {

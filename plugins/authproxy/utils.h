@@ -111,6 +111,9 @@ void HttpSetMimeHeader(TSMBuffer mbuf, TSMLoc mhdr, const std::string_view name,
 // Remove every instance of an HTTP header.
 void HttpRemoveMimeHeader(TSMBuffer mbuf, TSMLoc mhdr, const char *name);
 
+// Remove every header field, including duplicates, whose name begins with the given prefix.
+void HttpRemoveMimeHeadersWithPrefix(TSMBuffer mbuf, TSMLoc mhdr, const std::string &prefix);
+
 // Dump the given HTTP header to the debug log.
 void HttpDebugHeader(TSMBuffer mbuf, TSMLoc mhdr);
 

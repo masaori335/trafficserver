@@ -48,6 +48,22 @@ HttpDebugHeader(TSMBuffer mbuf, TSMLoc mhdr)
   AuthLogDebug("http request (%u of %u bytes):\n%*.*s", (unsigned)nbytes, (unsigned)avail, (int)nbytes, (int)nbytes, ptr);
 }
 
+// A field may be repeated on multiple lines; destroy every instance after the first so a
+// set cannot leave a stale duplicate behind.
+static void
+DestroyDuplicateFields(TSMBuffer mbuf, TSMLoc mhdr, TSMLoc first)
+{
+  TSMLoc dup = TSMimeHdrFieldNextDup(mbuf, mhdr, first);
+
+  while (dup != TS_NULL_MLOC) {
+    TSMLoc next = TSMimeHdrFieldNextDup(mbuf, mhdr, dup);
+
+    TSReleaseAssert(TSMimeHdrFieldDestroy(mbuf, mhdr, dup) == TS_SUCCESS);
+    TSHandleMLocRelease(mbuf, mhdr, dup);
+    dup = next;
+  }
+}
+
 void
 HttpSetMimeHeader(TSMBuffer mbuf, TSMLoc mhdr, const char *name, unsigned value)
 {
@@ -57,6 +73,7 @@ HttpSetMimeHeader(TSMBuffer mbuf, TSMLoc mhdr, const char *name, unsigned value)
   if (mloc == TS_NULL_MLOC) {
     TSReleaseAssert(TSMimeHdrFieldCreateNamed(mbuf, mhdr, name, -1, &mloc) == TS_SUCCESS);
   } else {
+    DestroyDuplicateFields(mbuf, mhdr, mloc);
     TSReleaseAssert(TSMimeHdrFieldValuesClear(mbuf, mhdr, mloc) == TS_SUCCESS);
   }
 
@@ -75,6 +92,7 @@ HttpSetMimeHeader(TSMBuffer mbuf, TSMLoc mhdr, const char *name, const char *val
   if (mloc == TS_NULL_MLOC) {
     TSReleaseAssert(TSMimeHdrFieldCreateNamed(mbuf, mhdr, name, -1, &mloc) == TS_SUCCESS);
   } else {
+    DestroyDuplicateFields(mbuf, mhdr, mloc);
     TSReleaseAssert(TSMimeHdrFieldValuesClear(mbuf, mhdr, mloc) == TS_SUCCESS);
   }
 
@@ -92,6 +110,7 @@ HttpSetMimeHeader(TSMBuffer mbuf, TSMLoc mhdr, const std::string_view name, cons
   if (mloc == TS_NULL_MLOC) {
     TSReleaseAssert(TSMimeHdrFieldCreateNamed(mbuf, mhdr, name.data(), name.size(), &mloc) == TS_SUCCESS);
   } else {
+    DestroyDuplicateFields(mbuf, mhdr, mloc);
     TSReleaseAssert(TSMimeHdrFieldValuesClear(mbuf, mhdr, mloc) == TS_SUCCESS);
   }
 
@@ -110,6 +129,25 @@ HttpRemoveMimeHeader(TSMBuffer mbuf, TSMLoc mhdr, const char *name)
   while ((mloc = TSMimeHdrFieldFind(mbuf, mhdr, name, -1)) != TS_NULL_MLOC) {
     TSReleaseAssert(TSMimeHdrFieldDestroy(mbuf, mhdr, mloc) == TS_SUCCESS);
     TSHandleMLocRelease(mbuf, mhdr, mloc);
+  }
+}
+
+void
+HttpRemoveMimeHeadersWithPrefix(TSMBuffer mbuf, TSMLoc mhdr, const std::string &prefix)
+{
+  TSMLoc field = TSMimeHdrFieldGet(mbuf, mhdr, 0);
+
+  while (field != TS_NULL_MLOC) {
+    int         name_len = 0;
+    const char *name     = TSMimeHdrFieldNameGet(mbuf, mhdr, field, &name_len);
+    TSMLoc      next     = TSMimeHdrFieldNext(mbuf, mhdr, field);
+
+    if (name != nullptr && ContainsPrefix(std::string_view(name, name_len), prefix)) {
+      TSReleaseAssert(TSMimeHdrFieldDestroy(mbuf, mhdr, field) == TS_SUCCESS);
+    }
+
+    TSHandleMLocRelease(mbuf, mhdr, field);
+    field = next;
   }
 }
 
