@@ -153,10 +153,18 @@ namespace
   _write_ip_address(const ASN1_OCTET_STRING *ip, BIO *_bio)
   {
     char                 buffer[INET6_ADDRSTRLEN];
-    const unsigned char *raw = ASN1_STRING_get0_data(ip);
-    int                  len = ASN1_STRING_length(ip);
+    const unsigned char *raw    = ASN1_STRING_get0_data(ip);
+    int                  len    = ASN1_STRING_length(ip);
+    int                  family = AF_INET6;
 
-    if (inet_ntop(len == 4 ? AF_INET : AF_INET6, raw, buffer, sizeof(buffer))) {
+    // The peer picks the length, and inet_ntop() reads the full address regardless.
+    if (len == 4) {
+      family = AF_INET;
+    } else if (len != 16) {
+      return;
+    }
+
+    if (inet_ntop(family, raw, buffer, sizeof(buffer))) {
       BIO_printf(_bio, "%s", buffer);
     }
   }
