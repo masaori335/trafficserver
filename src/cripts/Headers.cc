@@ -133,24 +133,24 @@ Header::String::operator=(const cripts::string_view str)
         TSHandleMLocRelease(_owner->_bufp, _owner->_hdr_loc, _field_loc);
         _field_loc = tmp;
       }
+      clear();
     } else {
-      TSMLoc tmp   = nullptr;
-      bool   first = true;
+      // Replace the first field line, and collapse any repeated ones into it
+      TSMLoc dup = TSMimeHdrFieldNextDup(_owner->_bufp, _owner->_hdr_loc, _field_loc);
 
-      // Replace the existing header
-      while (_field_loc) {
-        tmp = TSMimeHdrFieldNextDup(_owner->_bufp, _owner->_hdr_loc, _field_loc);
-        if (first) {
-          first = false;
-          // A coalesce while setting the value can free the heap that str points into.
-          _owner->_state->context->p_instance.debug("Replacing header {} = {}", _name, str);
-          TSMimeHdrFieldValueStringSet(_owner->_bufp, _owner->_hdr_loc, _field_loc, -1, str.data(), str.size());
-        } else {
-          TSMimeHdrFieldDestroy(_owner->_bufp, _owner->_hdr_loc, _field_loc);
-        }
-        TSHandleMLocRelease(_owner->_bufp, _owner->_hdr_loc, _field_loc);
-        _field_loc = tmp;
+      // A coalesce while setting the value can free the heap that str points into.
+      _owner->_state->context->p_instance.debug("Replacing header {} = {}", _name, str);
+      TSMimeHdrFieldValueStringSet(_owner->_bufp, _owner->_hdr_loc, _field_loc, -1, str.data(), str.size());
+
+      while (dup) {
+        TSMLoc tmp = TSMimeHdrFieldNextDup(_owner->_bufp, _owner->_hdr_loc, dup);
+
+        TSMimeHdrFieldDestroy(_owner->_bufp, _owner->_hdr_loc, dup);
+        TSHandleMLocRelease(_owner->_bufp, _owner->_hdr_loc, dup);
+        dup = tmp;
       }
+
+      _setSV(_owner->_field_value(_field_loc));
     }
   } else {
     if (str.size() > 0) {
@@ -163,6 +163,7 @@ Header::String::operator=(const cripts::string_view str)
         if (TS_SUCCESS ==
             TSMimeHdrFieldValueStringSet(_owner->_bufp, _owner->_hdr_loc, _field_loc, -1, value.data(), value.size())) {
           TSMimeHdrFieldAppend(_owner->_bufp, _owner->_hdr_loc, _field_loc);
+          _setSV(_owner->_field_value(_field_loc));
         }
       }
     } else {
@@ -179,24 +180,22 @@ Header::String::operator=(integer val)
   _ensure_initialized(_owner);
   ++_owner->_state->heap_writes;
   if (_field_loc) {
-    TSMLoc tmp   = nullptr;
-    bool   first = true;
+    // Replace the first field line, and collapse any repeated ones into it
+    TSMLoc dup = TSMimeHdrFieldNextDup(_owner->_bufp, _owner->_hdr_loc, _field_loc);
 
-    // Replace the existing header
-    while (_field_loc) {
-      tmp = TSMimeHdrFieldNextDup(_owner->_bufp, _owner->_hdr_loc, _field_loc);
-      if (first) {
-        first = false;
-        // tsapi TSReturnCode TSMimeHdrFieldValueInt64Set(TSMBuffer bufp, TSMLoc hdr, TSMLoc field, int idx, int64_t value);
-        if (TS_SUCCESS == TSMimeHdrFieldValueInt64Set(_owner->_bufp, _owner->_hdr_loc, _field_loc, -1, val)) {
-          _owner->_state->context->p_instance.debug("Replacing integer header {} = {} ", _name, val);
-        }
-      } else {
-        TSMimeHdrFieldDestroy(_owner->_bufp, _owner->_hdr_loc, _field_loc);
-      }
-      TSHandleMLocRelease(_owner->_bufp, _owner->_hdr_loc, _field_loc);
-      _field_loc = tmp;
+    if (TS_SUCCESS == TSMimeHdrFieldValueInt64Set(_owner->_bufp, _owner->_hdr_loc, _field_loc, -1, val)) {
+      _owner->_state->context->p_instance.debug("Replacing integer header {} = {} ", _name, val);
     }
+
+    while (dup) {
+      TSMLoc tmp = TSMimeHdrFieldNextDup(_owner->_bufp, _owner->_hdr_loc, dup);
+
+      TSMimeHdrFieldDestroy(_owner->_bufp, _owner->_hdr_loc, dup);
+      TSHandleMLocRelease(_owner->_bufp, _owner->_hdr_loc, dup);
+      dup = tmp;
+    }
+
+    _setSV(_owner->_field_value(_field_loc));
   } else {
     // Create a new header
     _owner->_state->context->p_instance.debug("Adding integer header {} = {} ", _name, val);
@@ -204,6 +203,7 @@ Header::String::operator=(integer val)
     if (TS_SUCCESS == TSMimeHdrFieldCreateNamed(_owner->_bufp, _owner->_hdr_loc, _name.data(), _name.size(), &_field_loc)) {
       if (TS_SUCCESS == TSMimeHdrFieldValueInt64Set(_owner->_bufp, _owner->_hdr_loc, _field_loc, -1, val)) {
         TSMimeHdrFieldAppend(_owner->_bufp, _owner->_hdr_loc, _field_loc);
+        _setSV(_owner->_field_value(_field_loc));
       }
     }
   }
@@ -219,25 +219,100 @@ Header::String::operator+=(const cripts::string_view str)
     if (!str.empty()) {
       // Naming the new field can coalesce the string heaps and free the one str points into.
       std::string const value{str};
-
-      // Drop the old field loc for now ... ToDo: Oh well, we need to figure out how to handle multi-value headers better
-      TSHandleMLocRelease(_owner->_bufp, _owner->_hdr_loc, _field_loc);
+      TSMLoc            field_loc = nullptr;
 
       _owner->_state->context->p_instance.debug("Appending header {} = {} ", _name, str);
 
-      if (TS_SUCCESS == TSMimeHdrFieldCreateNamed(_owner->_bufp, _owner->_hdr_loc, _name.data(), _name.size(), &_field_loc)) {
+      // Add another field line; _field_loc stays on the first one so a later assignment still
+      // collapses every line.
+      if (TS_SUCCESS == TSMimeHdrFieldCreateNamed(_owner->_bufp, _owner->_hdr_loc, _name.data(), _name.size(), &field_loc)) {
         if (TS_SUCCESS ==
-            TSMimeHdrFieldValueStringSet(_owner->_bufp, _owner->_hdr_loc, _field_loc, -1, value.data(), value.size())) {
-          TSMimeHdrFieldAppend(_owner->_bufp, _owner->_hdr_loc, _field_loc);
+            TSMimeHdrFieldValueStringSet(_owner->_bufp, _owner->_hdr_loc, field_loc, -1, value.data(), value.size())) {
+          TSMimeHdrFieldAppend(_owner->_bufp, _owner->_hdr_loc, field_loc);
+          _setSV(_owner->_field_value(_field_loc));
         }
-      } // Nothing to append with an empty header, we don't allow that
-    }
+        TSHandleMLocRelease(_owner->_bufp, _owner->_hdr_loc, field_loc);
+      }
+    } // Nothing to append with an empty header, we don't allow that
   } else {
     // No previous field, so just make a new one
     operator=(str);
   }
 
   return *this;
+}
+
+integer
+Header::String::Count() const
+{
+  integer count = 0;
+
+  for (TSMLoc cur = _field_loc; cur;) {
+    TSMLoc next = TSMimeHdrFieldNextDup(_owner->_bufp, _owner->_hdr_loc, cur);
+
+    ++count;
+    if (cur != _field_loc) {
+      TSHandleMLocRelease(_owner->_bufp, _owner->_hdr_loc, cur);
+    }
+    cur = next;
+  }
+
+  return count;
+}
+
+std::vector<cripts::string_view>
+Header::String::Values() const
+{
+  std::vector<cripts::string_view> values;
+
+  for (TSMLoc cur = _field_loc; cur;) {
+    int         len   = 0;
+    const char *value = TSMimeHdrFieldValueStringGet(_owner->_bufp, _owner->_hdr_loc, cur, -1, &len);
+    TSMLoc      next  = TSMimeHdrFieldNextDup(_owner->_bufp, _owner->_hdr_loc, cur);
+
+    values.emplace_back(value, len);
+    if (cur != _field_loc) {
+      TSHandleMLocRelease(_owner->_bufp, _owner->_hdr_loc, cur);
+    }
+    cur = next;
+  }
+
+  return values;
+}
+
+cripts::string_view
+Header::_field_value(TSMLoc field_loc)
+{
+  int         len   = 0;
+  const char *value = TSMimeHdrFieldValueStringGet(_bufp, _hdr_loc, field_loc, -1, &len);
+  TSMLoc      dup   = TSMimeHdrFieldNextDup(_bufp, _hdr_loc, field_loc);
+
+  if (!dup) {
+    return {value, static_cast<cripts::string_view::size_type>(len)};
+  }
+
+  // RFC 9110 5.3: repeated field lines are semantically one comma separated value.
+  std::string &joined = _joined.emplace_back();
+
+  if (value) {
+    joined.append(value, static_cast<std::string::size_type>(len));
+  }
+
+  while (dup) {
+    value = TSMimeHdrFieldValueStringGet(_bufp, _hdr_loc, dup, -1, &len);
+
+    joined.push_back(',');
+    if (value) {
+      joined.append(value, static_cast<std::string::size_type>(len));
+    }
+
+    TSMLoc next = TSMimeHdrFieldNextDup(_bufp, _hdr_loc, dup);
+
+    TSHandleMLocRelease(_bufp, _hdr_loc, dup);
+    dup = next;
+  }
+
+  return joined;
 }
 
 Header::String
@@ -250,10 +325,7 @@ Header::operator[](const cripts::string_view str)
   Header::String ret;
 
   if (field_loc) {
-    int         len   = 0;
-    const char *value = TSMimeHdrFieldValueStringGet(_bufp, _hdr_loc, field_loc, -1, &len);
-
-    ret._initialize(str, cripts::string_view(value, len), this, field_loc);
+    ret._initialize(str, _field_value(field_loc), this, field_loc);
   } else {
     ret._initialize(str, {}, this, nullptr);
   }

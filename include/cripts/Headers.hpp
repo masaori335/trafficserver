@@ -19,7 +19,9 @@
 
 #include <cstring>
 #include <iterator>
+#include <list>
 #include <string>
+#include <vector>
 
 #include "ts/ts.h"
 
@@ -184,6 +186,12 @@ public:
     self_type &operator=(const cripts::string_view str) override;
     self_type &operator=(integer val);
     self_type &operator+=(const cripts::string_view str);
+
+    // Number of field lines for this header name, 0 when the header is absent.
+    [[nodiscard]] integer Count() const;
+
+    // One entry per field line, for headers such as Set-Cookie which must not be comma joined.
+    [[nodiscard]] std::vector<cripts::string_view> Values() const;
 
     // ToDo: This was useful at some point, but was breaking other useful uses. Leaving
     // it here for now for maybe future work.
@@ -401,12 +409,20 @@ protected:
 
   void virtual _initialize() { _initialized = true; }
 
+  // RFC 9110 5.3 value for a header, comma joining duplicate field lines when there are any.
+  cripts::string_view _field_value(TSMLoc field_loc);
+
   TSMBuffer            _bufp         = nullptr;
   TSMLoc               _hdr_loc      = nullptr;
   cripts::Transaction *_state        = nullptr; // Pointer into the owning Context's State
   TSMLoc               _iterator_loc = nullptr;
   uint32_t             _iterator_tag = 0; // This is used to assure that we don't have more than one active iterator on a header
   bool                 _initialized  = false;
+
+  // Backing store for the joined values above. A node based container is required, since the
+  // string_views handed to the scripts must survive later reads (an SSO string moves on realloc).
+  // Reset() keeps it, so a joined view outlives the hook like a single field line's heap view does.
+  std::list<std::string> _joined;
 
 }; // End class Header
 

@@ -130,6 +130,67 @@ TEST_CASE("Header: += adds another field line", "[cripts][Headers]")
   CHECK(txn.client_request_field("X-Other") == "first");
 }
 
+TEST_CASE("Header: repeated field lines read as one comma joined value", "[cripts][Headers]")
+{
+  Txn  txn{REQUEST};
+  auto context = txn.context();
+
+  borrow req = cripts::Client::Request::Get();
+
+  CHECK(str(req["X-Dup"]) == "1,2");
+  CHECK_FALSE(req["X-Dup"] == "1");
+  CHECK(req["X-Dup"].Count() == 2);
+  CHECK(req["X-Dup"].Values() == std::vector<cripts::string_view>{"1", "2"});
+
+  CHECK(req["X-Foo"].Count() == 1);
+  CHECK(req["X-Foo"].Values() == std::vector<cripts::string_view>{"bar"});
+  CHECK(req["X-Missing"].Count() == 0);
+  CHECK(req["X-Missing"].Values().empty());
+}
+
+// A view must outlive its proxy and any later reads. The long values catch a buffer owned by the proxy, the short ones a
+// container that moves its SSO strings as it grows; either way the stale read is only caught by ASan.
+TEST_CASE("Header: joined values stay valid across later reads", "[cripts][Headers]")
+{
+  std::string const a(64, 'a');
+  std::string const b(64, 'b');
+  Txn               txn{"GET / HTTP/1.1\r\nHost: example.com\r\nX-A: " + a + "\r\nX-A: " + b + "\r\nX-B: " + a + "\r\nX-B: " + b +
+          "\r\nX-Dup: 1\r\nX-Dup: 2\r\n\r\n"};
+  auto              context = txn.context();
+
+  borrow                    req = cripts::Client::Request::Get();
+  cripts::string_view const long_view{req["X-A"]};
+  cripts::string_view const short_view{req["X-Dup"]};
+
+  CHECK(req["X-A"] == req["X-B"]);
+  for (int i = 0; i < 16; ++i) {
+    CHECK(str(req["X-B"]) == a + "," + b);
+  }
+  CHECK(std::string{long_view} == a + "," + b);
+  CHECK(std::string{short_view} == "1,2");
+}
+
+TEST_CASE("Header: += keeps the value readable, and = collapses it again", "[cripts][Headers]")
+{
+  Txn  txn{REQUEST};
+  auto context = txn.context();
+
+  borrow req   = cripts::Client::Request::Get();
+  auto   built = req["X-Built"];
+
+  built  = "x";
+  built += "y";
+  CHECK(str(built) == "x,y");
+  CHECK(built.Count() == 2);
+  CHECK(str(req["X-Built"]) == "x,y");
+
+  built = "z";
+  CHECK(str(built) == "z");
+  CHECK(built.Count() == 1);
+  CHECK(txn.client_request_field_count("X-Built") == 1);
+  CHECK(txn.client_request_field("X-Built") == "z");
+}
+
 TEST_CASE("Header: assigning another field copies its value", "[cripts][Headers]")
 {
   Txn  txn{REQUEST};
@@ -296,6 +357,20 @@ TEST_CASE("Header: the next hook sees the current headers", "[cripts][Headers]")
   txn.sm().t_state.hdr_info.client_request.value_set("X-Foo"sv, "changed"sv);
 
   CHECK(str(cripts::Client::Request::Get()["X-Foo"]) == "changed");
+}
+
+// Only ASan sees the stale read.
+TEST_CASE("Header: a joined value outlives the hook", "[cripts][Headers]")
+{
+  Txn  txn{REQUEST};
+  auto context = txn.context();
+
+  cripts::string_view const view{cripts::Client::Request::Get()["X-Dup"]};
+
+  context->reset();
+
+  CHECK(str(cripts::Client::Request::Get()["X-Foo"]) == "bar");
+  CHECK(std::string{view} == "1,2");
 }
 
 TEST_CASE("Header: server response status", "[cripts][Headers]")

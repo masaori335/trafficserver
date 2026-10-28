@@ -42,6 +42,15 @@ caches by hostname, which includes browsers and curl, are unaffected. Sessions
 issued by a previous release may not resume after the upgrade and complete a
 full handshake instead. See :ref:`admin-mtls` for details.
 
+Cripts Changes
+--------------
+
+Reading a header now returns every field line comma joined, per :rfc:`9110` Section 5.3, where it
+previously returned only the first. A Cript comparing a header that can legitimately repeat, such
+as ``Cache-Control`` or ``Accept-Encoding``, will see ``a,b`` where it saw ``a`` before. This
+matches what :ref:`admin-plugins-header-rewrite` has always done. Use ``Count()`` and ``Values()``
+on the header for per field line access, see :ref:`cripts-headers-repeated`.
+
 Security Hardening
 ------------------
 

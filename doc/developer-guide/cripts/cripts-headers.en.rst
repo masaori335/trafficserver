@@ -99,6 +99,54 @@ the general plugin-facing rules, see :ref:`developer-plugins-http-headers-mime-h
 
 .. note:: There is also a Cripts Bundle for headers, see :ref:`Bundles <cripts-bundles-headers>`.
 
+.. _cripts-headers-repeated:
+
+Repeated headers
+----------------
+
+A header name can appear on more than one field line. Per :rfc:`9110` Section 5.3 those lines are
+semantically a single, comma separated value, and that is what reading the header gives you:
+
+.. code-block:: cpp
+
+  // Client sent:
+  //   Accept-Encoding: gzip
+  //   Accept-Encoding: br
+
+  borrow req = cripts::Client::Request::Get();
+
+  req["Accept-Encoding"];            // "gzip,br"
+  req["Accept-Encoding"].Count();    // 2
+  req["Accept-Encoding"].Values();   // {"gzip", "br"}
+
+``Count()`` is the number of field lines, and is ``0`` for a header that is not present.
+``Values()`` returns one entry per field line. Use it for headers that must not be comma joined,
+``Set-Cookie`` being the notable example, since its values can contain commas of their own and
+cannot be split apart again:
+
+.. code-block:: cpp
+
+  borrow resp = cripts::Client::Response::Get();
+
+  for (auto cookie : resp["Set-Cookie"].Values()) {
+    CDebug("Set-Cookie: {}", cookie);
+  }
+
+On the write side, ``+=`` adds a field line while ``=`` replaces the first one and removes the
+rest, so assigning always collapses a repeated header down to a single line:
+
+.. code-block:: cpp
+
+  req["X-Foo"]  = "a";
+  req["X-Foo"] += "b";  // Two field lines, reads back as "a,b"
+  req["X-Foo"]  = "c";  // One field line, "c"
+
+.. note::
+
+   Before ATS v11, reading a header returned only its first field line. Scripts that compare
+   against a header which can legitimately repeat will now see ``a,b`` where they previously saw
+   ``a``. This matches :ref:`admin-plugins-header-rewrite`.
+
 .. _cripts-headers-iterators:
 
 Iterators
@@ -117,6 +165,10 @@ a pattern such as the following example:
 
 The request object implements a standard C++ style iterator, so any type of loop that works with
 standard C++ iterators will work with the request object.
+
+.. note::
+
+   The iterator walks field lines, not names, so a repeated header yields its name once per line.
 
 .. _cripts-headers-methods:
 
