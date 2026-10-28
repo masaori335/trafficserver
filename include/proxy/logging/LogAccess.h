@@ -340,6 +340,7 @@ public:
   static int     unmarshal_int_to_str_hex(char **buf, char *dest, int len);
   static int     unmarshal_milestone_diff(char **buf, char *dest, int len);
   static int     unmarshal_str(char **buf, char *dest, int len, LogSlice *slice, LogEscapeType escape_type);
+  static int     unmarshal_str_untrusted(char **buf, char *dest, int len, LogSlice *slice, LogEscapeType escape_type);
   static int     unmarshal_ttmsf(char **buf, char *dest, int len);
   static int     unmarshal_int_to_date_str(char **buf, char *dest, int len);
   static int     unmarshal_int_to_time_str(char **buf, char *dest, int len);

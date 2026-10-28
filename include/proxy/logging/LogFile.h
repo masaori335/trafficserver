@@ -43,7 +43,7 @@ class LogFile : public LogBufferSink, public RefCountObjInHeap
 {
 public:
   LogFile(const char *name, const char *header, LogFileFormat format, uint64_t signature, size_t ascii_buffer_size = 4 * 9216,
-          size_t max_line_size = 9216, int pipe_buffer_size = 0, LogEscapeType escape_type = LOG_ESCAPE_NONE);
+          size_t max_line_size = 9216, int pipe_buffer_size = 0, LogEscapeType escape_type = LOG_ESCAPE_DEFAULT);
   LogFile(const LogFile &) = delete;
   ~LogFile() override;
 

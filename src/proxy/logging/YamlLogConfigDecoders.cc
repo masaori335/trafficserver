@@ -72,11 +72,13 @@ convert<std::unique_ptr<LogFormat>>::decode(const Node &node, std::unique_ptr<Lo
   }
 
   // escape type
-  LogEscapeType escape_type = LOG_ESCAPE_NONE; // default value
+  LogEscapeType escape_type = LOG_ESCAPE_DEFAULT; // default value
   if (node["escape"]) {
     std::string escape = node["escape"].as<std::string>();
     if (ts::iequals(escape, "json")) {
       escape_type = LOG_ESCAPE_JSON;
+    } else if (ts::iequals(escape, "hex")) {
+      escape_type = LOG_ESCAPE_HEX;
     } else if (ts::iequals(escape, "none")) {
       escape_type = LOG_ESCAPE_NONE;
     } else {

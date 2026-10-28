@@ -37,6 +37,8 @@
 #include "tscore/ink_inet.h"
 #include "tscore/ink_base64.h"
 
+#include <cstring>
+
 char INVALID_STR[] = "!INVALID_STR!";
 
 // should be at least 22 bytes to always accommodate a converted
@@ -900,6 +902,58 @@ unmarshal_str_json(char **buf, char *dest, int len, LogSlice *slice)
   return -1;
 }
 
+int
+escape_hex(char *dest, const char *buf, int len)
+{
+  int escaped_len = 0;
+
+  for (int i = 0; i < len; i++) {
+    auto c = static_cast<unsigned char>(buf[i]);
+
+    if (c < ' ' || c == '"' || c == '\\' || c >= '\x7f') {
+      if (dest) {
+        *dest++ = '\\';
+        *dest++ = 'x';
+        *dest++ = nibble(c >> 4);
+        *dest++ = nibble(c & 0x0f);
+      }
+      escaped_len += 4;
+    } else {
+      if (dest) {
+        *dest++ = c;
+      }
+      escaped_len++;
+    }
+  }
+  return escaped_len;
+}
+
+int
+unmarshal_str_hex(char **buf, char *dest, int len, LogSlice *slice)
+{
+  char *val_buf = *buf;
+  int   val_len = static_cast<int>(::strlen(val_buf));
+  int   offset  = 0;
+
+  *buf += LogAccess::padded_strlen(val_buf); // this is how it was stored
+
+  if (slice && slice->m_enable) {
+    val_len = slice->toStrOffset(val_len, &offset);
+    if (val_len <= 0) {
+      return 0;
+    }
+  }
+
+  int escaped_len = escape_hex(nullptr, val_buf + offset, val_len);
+
+  if (escaped_len < len) {
+    escape_hex(dest, val_buf + offset, val_len);
+    return escaped_len;
+  }
+  DBG_UNMARSHAL_DEST_OVERRUN
+  return -1;
+}
+
 } // end anonymous namespace
 
 /*-------------------------------------------------------------------------
@@ -920,6 +974,10 @@ LogAccess::unmarshal_str(char **buf, char *dest, int len, LogSlice *slice, LogEs
 
   if (LOG_ESCAPE_JSON == escape_type) {
     return unmarshal_str_json(buf, dest, len, slice);
+  }
+
+  if (LOG_ESCAPE_HEX == escape_type) {
+    return unmarshal_str_hex(buf, dest, len, slice);
   }
 
   char *val_buf = *buf;
@@ -950,6 +1008,13 @@ LogAccess::unmarshal_str(char **buf, char *dest, int len, LogSlice *slice, LogEs
   }
   DBG_UNMARSHAL_DEST_OVERRUN
   return -1;
+}
+
+// For fields whose value comes from a peer. Unless the format specifies an escape, escape the value.
+int
+LogAccess::unmarshal_str_untrusted(char **buf, char *dest, int len, LogSlice *slice, LogEscapeType escape_type)
+{
+  return unmarshal_str(buf, dest, len, slice, LOG_ESCAPE_DEFAULT == escape_type ? LOG_ESCAPE_HEX : escape_type);
 }
 
 int
@@ -1674,10 +1739,17 @@ LogAccess::marshal_proxy_protocol_authority(char *buf)
   int              len       = INK_MIN_ALIGN;
   std::string_view authority = m_data->get_pp_authority();
 
+  // A stored string ends at its first NUL.
+  authority = authority.substr(0, authority.find('\0'));
+
   if (!authority.empty()) {
     len = padded_length(static_cast<int>(authority.size()) + 1);
     if (buf) {
       marshal_mem(buf, authority.data(), static_cast<int>(authority.size()), len);
+    }
+  } else {
+    if (buf) {
+      marshal_mem(buf, nullptr, 0, len);
     }
   }
   return len;
@@ -1688,6 +1760,9 @@ LogAccess::marshal_proxy_protocol_tls_cipher(char *buf)
 {
   int              len    = INK_MIN_ALIGN;
   std::string_view cipher = m_data->get_pp_tls_cipher();
+
+  // A stored string ends at its first NUL.
+  cipher = cipher.substr(0, cipher.find('\0'));
 
   if (!cipher.empty()) {
     len = padded_length(static_cast<int>(cipher.size()) + 1);
@@ -1708,6 +1783,9 @@ LogAccess::marshal_proxy_protocol_tls_version(char *buf)
   int              len     = INK_MIN_ALIGN;
   std::string_view version = m_data->get_pp_tls_version();
 
+  // A stored string ends at its first NUL.
+  version = version.substr(0, version.find('\0'));
+
   if (!version.empty()) {
     len = padded_length(static_cast<int>(version.size()) + 1);
     if (buf) {
@@ -1726,6 +1804,9 @@ LogAccess::marshal_proxy_protocol_tls_group(char *buf)
 {
   int              len   = INK_MIN_ALIGN;
   std::string_view group = m_data->get_pp_tls_group();
+
+  // A stored string ends at its first NUL.
+  group = group.substr(0, group.find('\0'));
 
   if (!group.empty()) {
     len = padded_length(static_cast<int>(group.size()) + 1);

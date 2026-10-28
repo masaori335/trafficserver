@@ -41,7 +41,17 @@ string defining the contents of each line in the log, and may also contain an
 optional ``Interval`` attribute defining the log aggregation interval for
 any logs which use the format (see :ref:`admin-logging-type-summary` for more
 information). It may also contain an optional ``escape`` attribute defining the
-escape of log fields. Possible values for ``escape`` are ``json`` or ``none``.
+escape of log fields. Possible values for ``escape`` are ``json``, ``hex``, or
+``none``. ``hex`` writes the bytes below ``0x20``, ``"``, ``\`` and the bytes
+``0x7f`` and above as ``\xHH``. When ``escape`` is not specified, the fields
+whose values are supplied by a peer (``ppa``, ``pptc``, ``pptv`` and ``pptg``)
+are escaped as if ``hex`` were specified, and the other fields are written as
+they are. Specify ``escape: none`` to write these fields as they are. ``escape``
+applies when a log is written as text, so a binary log keeps the original bytes,
+up to the first NUL.
+``traffic_logcat`` does not use ``escape``. It converts a binary log as if
+``escape`` were not specified, or with ``--json``, escapes every string as JSON.
+``escape`` does not apply to fields registered by plugins.
 
 The return value from the ``format`` function is the log format object which
 may then be supplied to the appropriate ``log.*`` functions that define your
@@ -1048,3 +1058,5 @@ Note when ``escape`` in ``format`` is set to ``json``, the start is the
 position before escaping JSON strings, and escaped values are sliced at
 the length (= end - start). If slicing cuts in the middle of escaped
 characters, the whole character is removed.
+
+When ``escape`` is ``hex``, the slice is applied before escaping.

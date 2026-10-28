@@ -38,7 +38,7 @@
 #include "proxy/logging/LogFieldAliasMap.h"
 #include "proxy/Milestones.h"
 
-enum LogEscapeType { LOG_ESCAPE_NONE, LOG_ESCAPE_JSON };
+enum LogEscapeType { LOG_ESCAPE_NONE, LOG_ESCAPE_JSON, LOG_ESCAPE_HEX, LOG_ESCAPE_DEFAULT };
 
 class LogAccess;
 
@@ -166,7 +166,7 @@ public:
   unsigned marshal_len(LogAccess *lad);
   unsigned marshal(LogAccess *lad, char *buf);
   unsigned marshal_agg(char *buf);
-  unsigned unmarshal(char **buf, char *dest, int len, LogEscapeType escape_type = LOG_ESCAPE_NONE);
+  unsigned unmarshal(char **buf, char *dest, int len, LogEscapeType escape_type = LOG_ESCAPE_DEFAULT);
   void     display(FILE *fd = stdout);
   bool     operator==(LogField &rhs);
   void     updateField(LogAccess *lad, char *val, int len);

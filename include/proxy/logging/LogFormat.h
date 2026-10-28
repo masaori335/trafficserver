@@ -52,7 +52,7 @@ enum LogFileFormat {
 class LogFormat : public RefCountObjInHeap
 {
 public:
-  LogFormat(const char *name, const char *format_str, unsigned interval_sec = 0, LogEscapeType escape_type = LOG_ESCAPE_NONE);
+  LogFormat(const char *name, const char *format_str, unsigned interval_sec = 0, LogEscapeType escape_type = LOG_ESCAPE_DEFAULT);
   LogFormat(const char *name, const char *fieldlist_str, const char *printf_str, unsigned interval_sec = 0);
   LogFormat(const LogFormat &rhs);
 

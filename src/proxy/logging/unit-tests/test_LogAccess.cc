@@ -29,6 +29,10 @@
 #include "tscore/ink_align.h"
 #include "tscore/ink_inet.h"
 
+#include <cstdio>
+#include <cstring>
+#include <ios>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -309,4 +313,306 @@ TEST_CASE("LogAccess unmarshal_itoa handles INT64_MIN without undefined behavior
   len = LogAccess::unmarshal_itoa(INT64_MIN, dest, 3, '0');
   CHECK(len == 20);
   CHECK(std::string(dest - len + 1, len) == "-9223372036854775808");
+}
+
+namespace
+{
+struct UnmarshalResult {
+  int         ret;
+  std::string out;
+  size_t      advanced; ///< bytes the source pointer moved
+  bool        guard_intact;
+};
+
+// Store @a value the way a marshaled string field is stored, then unmarshal it.
+UnmarshalResult
+unmarshal_string(std::string_view value, LogEscapeType escape_type, bool untrusted = false, const char *slice_str = nullptr,
+                 int dest_len = 1024)
+{
+  constexpr unsigned char GUARD = 0xaa;
+
+  std::vector<char> stored(INK_ALIGN_DEFAULT(value.size() + 1), '$');
+
+  std::memcpy(stored.data(), value.data(), value.size());
+  stored[value.size()] = '\0';
+
+  std::vector<char> dest(dest_len + 16, static_cast<char>(GUARD));
+
+  LogSlice slice;
+
+  if (slice_str != nullptr) {
+    std::string tmp{slice_str};
+
+    slice = LogSlice(tmp.data());
+  }
+
+  char *cursor = stored.data();
+  int   ret    = untrusted ? LogAccess::unmarshal_str_untrusted(&cursor, dest.data(), dest_len, &slice, escape_type) :
+                             LogAccess::unmarshal_str(&cursor, dest.data(), dest_len, &slice, escape_type);
+
+  bool guard_intact = true;
+
+  for (size_t i = dest_len; i < dest.size(); ++i) {
+    guard_intact = guard_intact && static_cast<unsigned char>(dest[i]) == GUARD;
+  }
+
+  return {ret, ret > 0 ? std::string(dest.data(), ret) : std::string{}, static_cast<size_t>(cursor - stored.data()), guard_intact};
+}
+
+bool
+needs_hex_escape(unsigned char c)
+{
+  return c < 0x20 || c == '"' || c == '\\' || c >= 0x7f;
+}
+
+std::string
+expected_hex(std::string_view value)
+{
+  std::string out;
+
+  for (unsigned char c : value) {
+    if (needs_hex_escape(c)) {
+      char esc[5];
+
+      std::snprintf(esc, sizeof(esc), "\\x%02x", c);
+      out += esc;
+    } else {
+      out += static_cast<char>(c);
+    }
+  }
+  return out;
+}
+} // namespace
+
+TEST_CASE("LogAccess unmarshal_str with LOG_ESCAPE_HEX escapes every byte class", "[LogAccess][escape]")
+{
+  SECTION("each byte value")
+  {
+    for (int b = 1; b < 256; ++b) {
+      std::string value{"a"};
+
+      value += static_cast<char>(b);
+      value += "z";
+
+      INFO("byte 0x" << std::hex << b);
+      auto r = unmarshal_string(value, LOG_ESCAPE_HEX);
+
+      CHECK(r.out == expected_hex(value));
+      CHECK(r.ret == static_cast<int>(expected_hex(value).size()));
+    }
+  }
+
+  SECTION("class boundaries")
+  {
+    CHECK(unmarshal_string("\x1f", LOG_ESCAPE_HEX).out == "\\x1f");
+    CHECK(unmarshal_string(" ", LOG_ESCAPE_HEX).out == " ");
+    CHECK(unmarshal_string("!", LOG_ESCAPE_HEX).out == "!");
+    CHECK(unmarshal_string("\"", LOG_ESCAPE_HEX).out == "\\x22");
+    CHECK(unmarshal_string("[", LOG_ESCAPE_HEX).out == "[");
+    CHECK(unmarshal_string("\\", LOG_ESCAPE_HEX).out == "\\x5c");
+    CHECK(unmarshal_string("]", LOG_ESCAPE_HEX).out == "]");
+    CHECK(unmarshal_string("~", LOG_ESCAPE_HEX).out == "~");
+    CHECK(unmarshal_string("\x7f", LOG_ESCAPE_HEX).out == "\\x7f");
+    CHECK(unmarshal_string("\x80", LOG_ESCAPE_HEX).out == "\\x80");
+    CHECK(unmarshal_string("\xff", LOG_ESCAPE_HEX).out == "\\xff");
+  }
+
+  SECTION("line breaks cannot reach the output")
+  {
+    auto r = unmarshal_string("lowpriv\r\nX-Forwarded-User: admin\n", LOG_ESCAPE_HEX);
+
+    CHECK(r.out == "lowpriv\\x0d\\x0aX-Forwarded-User: admin\\x0a");
+    CHECK(r.out.find_first_of("\r\n") == std::string::npos);
+  }
+
+  SECTION("an escaped backslash is not confused with an escape sequence")
+  {
+    CHECK(unmarshal_string("\\x0d", LOG_ESCAPE_HEX).out == "\\x5cx0d");
+  }
+
+  SECTION("a string with nothing to escape is unchanged")
+  {
+    CHECK(unmarshal_string("example.com:8080/path?q=1", LOG_ESCAPE_HEX).out == "example.com:8080/path?q=1");
+  }
+}
+
+TEST_CASE("LogAccess unmarshal_str with LOG_ESCAPE_NONE and LOG_ESCAPE_DEFAULT writes the bytes as they are", "[LogAccess][escape]")
+{
+  std::string all;
+
+  for (int b = 1; b < 256; ++b) {
+    all += static_cast<char>(b);
+  }
+
+  for (auto type : {LOG_ESCAPE_NONE, LOG_ESCAPE_DEFAULT}) {
+    auto r = unmarshal_string(all, type);
+
+    CHECK(r.out == all);
+    CHECK(r.ret == static_cast<int>(all.size()));
+  }
+}
+
+TEST_CASE("LogAccess unmarshal_str_untrusted chooses the escape", "[LogAccess][escape]")
+{
+  constexpr std::string_view value = "a\"b\\c\r\n\x7f\x80z";
+
+  SECTION("DEFAULT escapes with hex")
+  {
+    CHECK(unmarshal_string(value, LOG_ESCAPE_DEFAULT, true).out == expected_hex(value));
+  }
+
+  SECTION("HEX escapes with hex")
+  {
+    CHECK(unmarshal_string(value, LOG_ESCAPE_HEX, true).out == expected_hex(value));
+  }
+
+  SECTION("NONE writes the bytes as they are")
+  {
+    CHECK(unmarshal_string(value, LOG_ESCAPE_NONE, true).out == value);
+  }
+
+  SECTION("JSON escapes with JSON")
+  {
+    auto json = unmarshal_string(value, LOG_ESCAPE_JSON);
+    auto r    = unmarshal_string(value, LOG_ESCAPE_JSON, true);
+
+    CHECK(r.out == json.out);
+    CHECK(r.out != expected_hex(value));
+    CHECK(r.out.find_first_of("\r\n") == std::string::npos);
+  }
+}
+
+TEST_CASE("LogAccess unmarshal_str with LOG_ESCAPE_HEX moves the source past the stored string", "[LogAccess][escape]")
+{
+  // A field is stored NUL terminated and padded to INK_MIN_ALIGN. The next field must be read from the right place.
+  for (std::string_view value : {"a", "1234567", "12345678", "a\r\nb", "\x80\x81\x82\x83\x84\x85\x86\x87\x88"}) {
+    INFO("length " << value.size());
+    auto r = unmarshal_string(value, LOG_ESCAPE_HEX);
+
+    CHECK(r.advanced == INK_ALIGN_DEFAULT(value.size() + 1));
+  }
+
+  SECTION("two consecutive fields")
+  {
+    std::string stored(INK_ALIGN_DEFAULT(std::strlen("x\r\ny") + 1) + INK_ALIGN_DEFAULT(std::strlen("next") + 1), '$');
+
+    std::memcpy(stored.data(), "x\r\ny", 5);
+    std::memcpy(stored.data() + INK_ALIGN_DEFAULT(5), "next", 5);
+
+    char     dest[64];
+    char    *cursor = stored.data();
+    LogSlice slice;
+
+    int len = LogAccess::unmarshal_str(&cursor, dest, sizeof(dest), &slice, LOG_ESCAPE_HEX);
+
+    CHECK(std::string(dest, len) == "x\\x0d\\x0ay");
+
+    len = LogAccess::unmarshal_str(&cursor, dest, sizeof(dest), &slice, LOG_ESCAPE_HEX);
+    CHECK(std::string(dest, len) == "next");
+  }
+}
+
+TEST_CASE("LogAccess unmarshal_str with LOG_ESCAPE_HEX checks the destination size", "[LogAccess][escape]")
+{
+  constexpr std::string_view value   = "a\r\nb"; // escapes to 10 bytes
+  const int                  escaped = static_cast<int>(expected_hex(value).size());
+
+  REQUIRE(escaped == 10);
+
+  SECTION("a destination that is too small fails")
+  {
+    for (int len : {1, 2, 4, 9, escaped}) {
+      INFO("destination " << len);
+      auto r = unmarshal_string(value, LOG_ESCAPE_HEX, false, nullptr, len);
+
+      CHECK(r.ret == -1);
+      CHECK(r.guard_intact);
+      // The source still moves past the field, as it does for the other escapes.
+      CHECK(r.advanced == INK_ALIGN_DEFAULT(value.size() + 1));
+    }
+  }
+
+  SECTION("the smallest sufficient destination succeeds")
+  {
+    auto r = unmarshal_string(value, LOG_ESCAPE_HEX, false, nullptr, escaped + 1);
+
+    CHECK(r.ret == escaped);
+    CHECK(r.out == expected_hex(value));
+    CHECK(r.guard_intact);
+  }
+
+  SECTION("no byte is written past the destination")
+  {
+    for (int len = 1; len <= escaped + 2; ++len) {
+      INFO("destination " << len);
+      CHECK(unmarshal_string(value, LOG_ESCAPE_HEX, false, nullptr, len).guard_intact);
+    }
+  }
+}
+
+TEST_CASE("LogAccess unmarshal_str with LOG_ESCAPE_HEX slices before escaping", "[LogAccess][escape]")
+{
+  constexpr std::string_view value = "a\r\nb"; // 4 bytes
+
+  SECTION("a slice that cuts through escaped bytes keeps whole bytes")
+  {
+    CHECK(unmarshal_string(value, LOG_ESCAPE_HEX, false, "x[1:3]").out == "\\x0d\\x0a");
+  }
+
+  SECTION("open ended slices")
+  {
+    CHECK(unmarshal_string(value, LOG_ESCAPE_HEX, false, "x[:]").out == expected_hex(value));
+    CHECK(unmarshal_string(value, LOG_ESCAPE_HEX, false, "x[:2]").out == "a\\x0d");
+    CHECK(unmarshal_string(value, LOG_ESCAPE_HEX, false, "x[3:]").out == "b");
+  }
+
+  SECTION("negative indexes")
+  {
+    CHECK(unmarshal_string(value, LOG_ESCAPE_HEX, false, "x[-2:]").out == "\\x0ab");
+    CHECK(unmarshal_string(value, LOG_ESCAPE_HEX, false, "x[:-2]").out == "a\\x0d");
+  }
+
+  SECTION("an empty slice writes nothing")
+  {
+    auto r = unmarshal_string(value, LOG_ESCAPE_HEX, false, "x[4:]");
+
+    CHECK(r.ret == 0);
+    CHECK(r.advanced == INK_ALIGN_DEFAULT(value.size() + 1));
+  }
+
+  SECTION("the length limit applies to the escaped slice")
+  {
+    // "\r\n" escapes to 8 bytes, so a destination of 8 is too small and 9 is enough.
+    CHECK(unmarshal_string(value, LOG_ESCAPE_HEX, false, "x[1:3]", 8).ret == -1);
+    CHECK(unmarshal_string(value, LOG_ESCAPE_HEX, false, "x[1:3]", 9).ret == 8);
+  }
+}
+
+TEST_CASE("LogAccess writes every PROXY protocol field when there is no PROXY protocol data", "[LogAccess]")
+{
+  NonHttpSmLogData data;
+
+  populate_non_http_sm_data(data, "GET", "https"sv, "example.com"sv, "/"sv);
+  TransactionLogData log_data(data);
+  LogAccess          access(log_data);
+
+  access.init();
+
+  // The buffer starts with a marker, so a field that writes nothing is caught even where callers do not clear the buffer.
+  auto check = [](auto marshal) {
+    int len = marshal(nullptr);
+
+    REQUIRE(len == INK_MIN_ALIGN);
+
+    std::vector<char> buffer(len, '\xaa');
+
+    CHECK(marshal(buffer.data()) == len);
+    REQUIRE(std::memchr(buffer.data(), '\0', len) != nullptr);
+    CHECK(std::string_view(buffer.data()) == "-");
+  };
+
+  check([&](char *buf) { return access.marshal_proxy_protocol_authority(buf); });
+  check([&](char *buf) { return access.marshal_proxy_protocol_tls_cipher(buf); });
+  check([&](char *buf) { return access.marshal_proxy_protocol_tls_version(buf); });
+  check([&](char *buf) { return access.marshal_proxy_protocol_tls_group(buf); });
 }

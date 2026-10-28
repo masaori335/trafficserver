@@ -835,16 +835,16 @@ Log::init_fields()
                               &LogAccess::unmarshal_ip_to_str));
 
   register_field(new LogField("proxy_protocol_authority", "ppa", LogField::Type::STRING,
-                              &LogAccess::marshal_proxy_protocol_authority, &LogAccess::unmarshal_str));
+                              &LogAccess::marshal_proxy_protocol_authority, &LogAccess::unmarshal_str_untrusted));
 
   register_field(new LogField("proxy_protocol_tls_cipher", "pptc", LogField::Type::STRING,
-                              &LogAccess::marshal_proxy_protocol_tls_cipher, &LogAccess::unmarshal_str));
+                              &LogAccess::marshal_proxy_protocol_tls_cipher, &LogAccess::unmarshal_str_untrusted));
 
   register_field(new LogField("proxy_protocol_tls_version", "pptv", LogField::Type::STRING,
-                              &LogAccess::marshal_proxy_protocol_tls_version, &LogAccess::unmarshal_str));
+                              &LogAccess::marshal_proxy_protocol_tls_version, &LogAccess::unmarshal_str_untrusted));
 
   register_field(new LogField("proxy_protocol_tls_group", "pptg", LogField::Type::STRING,
-                              &LogAccess::marshal_proxy_protocol_tls_group, &LogAccess::unmarshal_str));
+                              &LogAccess::marshal_proxy_protocol_tls_group, &LogAccess::unmarshal_str_untrusted));
 
   register_field(new LogField("version_build_number", "vbn", LogField::Type::STRING, &LogAccess::marshal_version_build_number,
                               &LogAccess::unmarshal_str));
