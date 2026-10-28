@@ -205,6 +205,25 @@ Ex_has_outbound_protocol_prefix::extract(Context &ctx, Spec const &spec) -> Feat
   return !ctx._txn.outbound_protocol_contains(spec._data.text).empty();
 }
 /* ------------------------------------------------------------------------------------ */
+namespace
+{
+/// Write @a tags directly, as extracting a tuple is not allowed while rendering to the transient buffer.
+BufferWriter &
+format_protocol_stack(BufferWriter &w, Extractor::Spec const &spec, MemSpan<char const *> tags)
+{
+  if (tags.empty()) {
+    return bwformat(w, spec, NIL_FEATURE);
+  }
+  for (auto const &tag : tags) {
+    if (&tag != tags.data()) {
+      w.write(", ");
+    }
+    bwformat(w, spec, TextView{tag, TextView::npos});
+  }
+  return w;
+}
+} // namespace
+
 class Ex_inbound_protocol_stack : public Extractor
 {
 public:
@@ -245,7 +264,9 @@ Ex_inbound_protocol_stack::extract(Context &ctx, Spec const &) -> Feature
 BufferWriter &
 Ex_inbound_protocol_stack::format(BufferWriter &w, Extractor::Spec const &spec, Context &ctx)
 {
-  return bwformat(w, spec, this->extract(ctx, spec));
+  std::array<char const *, 10> tags;
+  auto                         n = ctx._txn.inbound_ssn().protocol_stack(MemSpan{tags.data(), tags.size()});
+  return format_protocol_stack(w, spec, MemSpan{tags.data(), static_cast<size_t>(std::max(n, 0))});
 }
 
 class Ex_outbound_protocol_stack : public Extractor
@@ -258,6 +279,9 @@ public:
 
   /// Extract the feature from the @a ctx.
   Feature extract(Context &ctx, Spec const &spec) override;
+
+  /// Required text formatting access.
+  BufferWriter &format(BufferWriter &w, Spec const &spec, Context &ctx) override;
 };
 
 Rv<ActiveType>
@@ -280,6 +304,14 @@ Ex_outbound_protocol_stack::extract(Context &ctx, Spec const &) -> Feature
     return span;
   }
   return NIL_FEATURE;
+}
+
+BufferWriter &
+Ex_outbound_protocol_stack::format(BufferWriter &w, Extractor::Spec const &spec, Context &ctx)
+{
+  std::array<char const *, 10> tags;
+  auto                         n = ctx._txn.outbound_protocol_stack(MemSpan{tags.data(), tags.size()});
+  return format_protocol_stack(w, spec, MemSpan{tags.data(), static_cast<size_t>(std::max(n, 0))});
 }
 /* ------------------------------------------------------------------------------------ */
 /// Client Session protocol information.

@@ -935,7 +935,8 @@ public:
   using Extractor::extract; // declare hidden member function
   Rv<ActiveType> validate(Config &cfg, Spec &spec, TextView const &arg) override;
 
-  Feature extract(Context &ctx, Spec const &spec) override;
+  Feature       extract(Context &ctx, Spec const &spec) override;
+  BufferWriter &format(BufferWriter &w, Spec const &spec, Context &ctx) override;
 
 protected:
   static constexpr auto INVALID_IDX = Do_ip_space_define::INVALID_IDX;
@@ -1047,6 +1048,34 @@ Ex_ip_col::extract(Context &ctx, const Spec &spec)
     }
   }
   return NIL_FEATURE;
+}
+
+BufferWriter &
+Ex_ip_col::format(BufferWriter &w, Spec const &spec, Context &ctx)
+{
+  // Flags are written directly because extracting them as a tuple allocates, which is not allowed
+  // while the transient buffer is in use for rendering.
+  if (auto ctx_ai = Txb_IP_Space::ctx_active_info(ctx); ctx_ai && ctx_ai->_row) {
+    auto info = spec._data.span.rebind<Info>().data();
+    auto idx  = (info->_idx != INVALID_IDX ? info->_idx : ctx_ai->_drtv->col_idx(info->_arg));
+    if (idx != INVALID_IDX) {
+      if (auto &col = ctx_ai->_drtv->_cols[idx]; col._type == ColumnData::FLAGS) {
+        auto bits    = BitSpan(col.data_in_row(ctx_ai->_row));
+        bool first_p = true;
+        for (unsigned k = 0; k < col._tags.count(); ++k) {
+          if (bits[k]) {
+            if (!first_p) {
+              w.write(", ");
+            }
+            first_p = false;
+            bwformat(w, spec, col._tags[k]);
+          }
+        }
+        return w;
+      }
+    }
+  }
+  return Extractor::format(w, spec, ctx);
 }
 
 /* ------------------------------------------------------------------------------------ */

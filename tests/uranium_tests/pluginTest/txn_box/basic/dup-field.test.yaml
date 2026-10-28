@@ -1,0 +1,253 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+meta:
+  version: "1.0"
+
+  txn_box:
+    global:
+    - when: post-load
+      do:
+      - text-block-define:
+          name: "block"
+          path: "dup-field.txt"
+          duration: "1 hour"
+      - ip-space-define:
+          name: "space"
+          path: "dup-field.csv"
+          columns:
+          - name: "flags"
+            type: "flags"
+            values: [ "secure", "local", "edge" ]
+
+    - when: proxy-req
+      do:
+      - proxy-req-field<X-Composite>: "{ua-req-field<x-foo>}/x"
+      - proxy-req-field<X-Stack>: "stack={inbound-protocol-stack}"
+      - proxy-req-field<X-Block>: "block={text-block<block>}"
+      - proxy-req-field<X-Flags>: [ "10.1.2.3", { as-ip-addr: }, { ip-space<space>: "flags={ip-col<flags>}" } ]
+      - proxy-req-field<X-No-Flags>: [ "172.16.1.1", { as-ip-addr: }, { ip-space<space>: "flags={ip-col<flags>}" } ]
+      # A single flag is a one element tuple, which concat must not index past.
+      - proxy-req-field<X-Cat>: [ "base", { concat: [ "192.168.1.1", { as-ip-addr: }, { ip-space<space>: ip-col<flags> } ] } ]
+      - with: "{ua-req-field<x-foo>}/x"
+        select:
+        - match: "a, b/x"
+          do:
+          - proxy-req-field<X-Matched>: "yes"
+
+      # An empty query is an empty view with a null data pointer, which the TS API must not see.
+      - with: ua-req-path
+        select:
+        - match: "query"
+          do:
+          - proxy-req-field<X-Enc>: [ pre-remap-query, { url-encode: } ]
+          - proxy-req-field<X-Dec>: [ pre-remap-query, { url-decode: } ]
+          - proxy-req-field<X-Q>: ua-req-query
+
+    - when: upstream-rsp
+      do:
+      - upstream-rsp-field<X-Out-Stack>: "stack={outbound-protocol-stack}"
+      - with: ua-req-path
+        select:
+        - match: "query"
+          do:
+          - upstream-reason: ua-req-query
+          - upstream-rsp-body: ua-req-query
+
+    - when: proxy-rsp
+      do:
+      - with: ua-req-path
+        select:
+        - match: "query"
+          do:
+          - proxy-rsp-reason: ua-req-query
+
+  blocks:
+  - base-req: &base-req
+      version: "1.1"
+      method: "GET"
+      url: "/path"
+
+  - base-rsp: &base-rsp
+      status: 200
+      reason: "OK"
+      headers:
+        fields:
+        - [ Content-Length, 0 ]
+
+  - body-rsp: &body-rsp
+      status: 200
+      reason: "OK"
+      headers:
+        fields:
+        - [ Content-Length, 16 ]
+      content:
+        size: 16
+
+sessions:
+- protocol:
+    stack: http
+  transactions:
+
+  # A single field renders as before.
+  - all: { headers: { fields: [[ uuid, single ]]}}
+    client-request:
+      <<: *base-req
+      headers:
+        fields:
+        - [ Host, one.ex ]
+        - [ x-foo, a ]
+    proxy-request:
+      headers:
+        fields:
+        - [ X-Composite, { value: "a/x", as: equal } ]
+        - [ X-Stack, { value: "tcp, ipv4", as: contains } ]
+        - [ X-Block, { value: "block=Delain", as: equal } ]
+        - [ X-Flags, { value: "flags=secure, edge", as: equal } ]
+        - [ X-No-Flags, { value: "flags=", as: equal } ]
+        - [ X-Matched, { as: absent } ]
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 200
+      headers:
+        fields:
+        - [ X-Out-Stack, { value: "stack=http/1.1, tcp, ipv4", as: equal } ]
+
+  # Duplicated fields are joined with ", " inside the interpolated string.
+  - all: { headers: { fields: [[ uuid, duplicate ]]}}
+    client-request:
+      <<: *base-req
+      headers:
+        fields:
+        - [ Host, one.ex ]
+        - [ x-foo, a ]
+        - [ x-foo, b ]
+    proxy-request:
+      headers:
+        fields:
+        - [ X-Composite, { value: "a, b/x", as: equal } ]
+        - [ X-Matched, { value: "yes", as: equal } ]
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 200
+
+  # Traffic still flows after the duplicate request.
+  - all: { headers: { fields: [[ uuid, after ]]}}
+    client-request:
+      <<: *base-req
+      headers:
+        fields:
+        - [ Host, one.ex ]
+    proxy-request:
+      headers:
+        fields:
+        - [ X-Composite, { value: "NULL/x", as: equal } ]
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 200
+
+  # A query renders through url-encode, url-decode, and the field and reason setters.
+  - all: { headers: { fields: [[ uuid, query ]]}}
+    client-request:
+      <<: *base-req
+      url: "/query?q=a%20b"
+      headers:
+        fields:
+        - [ Host, one.ex ]
+    proxy-request:
+      headers:
+        fields:
+        - [ X-Enc, { value: "q%3Da%2520b", as: equal } ]
+        - [ X-Dec, { value: "q=a b", as: equal } ]
+        - [ X-Q, { value: "q=a%20b", as: equal } ]
+        - [ X-Cat, { value: "base", as: equal } ]
+    server-response:
+      <<: *body-rsp
+    proxy-response:
+      status: 200
+      content:
+        verify: { value: "q=a%20b", as: equal }
+
+  # Without a query, the same rules see empty values and must not abort the process.
+  - all: { headers: { fields: [[ uuid, no-query ]]}}
+    client-request:
+      <<: *base-req
+      url: "/query"
+      headers:
+        fields:
+        - [ Host, one.ex ]
+    proxy-request:
+      headers:
+        fields:
+        - [ X-Enc, { as: present } ]
+        - [ X-Dec, { as: present } ]
+        - [ X-Q, { as: present } ]
+    # The body transform only writes once the origin sends a body.
+    server-response:
+      <<: *body-rsp
+    proxy-response:
+      status: 200
+
+  # Traffic still flows after the empty-query request.
+  - all: { headers: { fields: [[ uuid, after-no-query ]]}}
+    client-request:
+      <<: *base-req
+      url: "/path"
+      headers:
+        fields:
+        - [ Host, one.ex ]
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 200
+
+urtest:
+  description: Verify duplicated fields and tuple extractors render inside interpolated strings
+  requires:
+    plugins:
+    - txn_box.so
+  server:
+    name: txn-box-dup-field-origin
+  client:
+    name: txn-box-dup-field-client
+  ats:
+    name: txn-box-dup-field-ts
+    records_config:
+      proxy.config.diags.debug.enabled: 1
+      proxy.config.diags.debug.tags: txn_box
+    copy_to_config_dir:
+    - dup-field.test.yaml
+    - dup-field.txt
+    - dup-field.csv
+    remap_config:
+    - map / http://127.0.0.1:{SERVER_HTTP_PORT}
+    plugin_config:
+    - txn_box.so
+    - txn_box.so --key meta.txn_box.global {CONFIG_DIR}/dup-field.test.yaml
+    log_validation:
+      traffic_out:
+        excludes:
+        - expression: "Recursive use of transient buffer"
+          description: "Interpolating a duplicated field must not throw."
+      diags_log:
+        excludes:
+        - expression: "Recursive use of transient buffer"
+          description: "Interpolating a duplicated field must not throw."
+        - expression: "Failing transaction after exception"
+          description: "No directive may throw."

@@ -2574,14 +2574,18 @@ Do_upstream_rsp_body::invoke(Context &ctx)
       // Consume all input data.
       auto in_todo   = TSVIONTodoGet(in_vio);
       auto in_reader = TSVIOReaderGet(in_vio);
-      if (in_reader && in_todo) {
+      // An empty input, such as from an upstream transform that wrote nothing, must still complete.
+      if (in_reader) {
         auto avail = TSIOBufferReaderAvail(in_reader);
         in_todo    = std::min(in_todo, avail);
         if (in_todo > 0) {
           TSIOBufferReaderConsume(in_reader, in_todo);
           TSVIONDoneSet(in_vio, TSVIONDoneGet(in_vio) + in_todo);
-          TSContCall(TSVIOContGet(in_vio),
-                     (TSVIONTodoGet(in_vio) <= 0) ? TS_EVENT_VCONN_WRITE_COMPLETE : TS_EVENT_VCONN_WRITE_READY, in_vio);
+        }
+        if (TSVIONTodoGet(in_vio) <= 0) {
+          TSContCall(TSVIOContGet(in_vio), TS_EVENT_VCONN_WRITE_COMPLETE, in_vio);
+        } else if (in_todo > 0) {
+          TSContCall(TSVIOContGet(in_vio), TS_EVENT_VCONN_WRITE_READY, in_vio);
         }
         // If the buffer isn't already there, create it and write out the view.
         if (auto state = static_cast<State *>(TSContDataGet(contp)); state && !state->_tsio_buff) {
@@ -2623,7 +2627,8 @@ Do_upstream_rsp_body::invoke(Context &ctx)
     ctx.mark_for_cleanup(state);
     auto cont    = TSTransformCreate(transform, ctx._txn);
     state->_cont = cont;
-    state->_view = *content;
+    // TSIOBufferWrite release-asserts on a null pointer, which an empty view can carry.
+    state->_view = content->empty() ? TextView{"", 0} : *content;
     TSContDataSet(cont, state);
     TSHttpTxnHookAdd(ctx._txn, TS_HTTP_RESPONSE_TRANSFORM_HOOK, cont);
     ctx._txn.ursp_hdr().field_obtain("Content-Type"_tv).assign(content_type);
@@ -2741,8 +2746,12 @@ Do_proxy_reply::invoke(Context &ctx)
 
   // Set the body.
   if (_body_idx != FeatureGroup::INVALID_IDX) {
-    auto body{_fg.extract(ctx, _body_idx)};
-    ctx._txn.error_body_set(std::get<IndexFor(STRING)>(body), "text/html");
+    if (auto body{_fg.extract(ctx, _body_idx)}; !is_nil(body)) {
+      if (body.index() != IndexFor(STRING)) {
+        body = body.join(ctx, ", ");
+      }
+      ctx._txn.error_body_set(std::get<IndexFor(STRING)>(body), "text/html");
+    }
   }
 
   // Arrange for fixup to get invoked.
@@ -2974,8 +2983,12 @@ Do_redirect::invoke(Context &ctx)
   }
   // Set the body.
   if (_body_idx != FeatureGroup::INVALID_IDX) {
-    auto body{_fg.extract(ctx, _body_idx)};
-    ctx._txn.error_body_set(std::get<IndexFor(STRING)>(body), "text/html");
+    if (auto body{_fg.extract(ctx, _body_idx)}; !is_nil(body)) {
+      if (body.index() != IndexFor(STRING)) {
+        body = body.join(ctx, ", ");
+      }
+      ctx._txn.error_body_set(std::get<IndexFor(STRING)>(body), "text/html");
+    }
   }
   // Arrange for fixup to get invoked.
   if (need_hook_p) {

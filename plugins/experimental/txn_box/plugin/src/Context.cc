@@ -20,6 +20,10 @@
   Copyright 2019, Oath Inc.
 */
 
+#include <atomic>
+#include <chrono>
+#include <cinttypes>
+
 #include <swoc/MemSpan.h>
 #include <swoc/ArenaWriter.h>
 
@@ -123,20 +127,67 @@ Context::invoke_callbacks()
   return {};
 }
 
+namespace
+{
+// A client can trigger these once per request, so limit how often they reach the error log.
+constexpr std::chrono::steady_clock::duration INVOKE_EXCEPTION_LOG_INTERVAL = std::chrono::seconds(60);
+std::atomic<std::chrono::steady_clock::rep>   next_invoke_exception_log{0};
+std::atomic<uint64_t>                         suppressed_invoke_exceptions{0};
+} // namespace
+
+void
+Context::handle_invoke_exception(char const *what)
+{
+  auto const hook_name{HookName[_cur_hook]};
+  auto const now  = std::chrono::steady_clock::now().time_since_epoch().count();
+  auto       next = next_invoke_exception_log.load(std::memory_order_relaxed);
+
+  TS_DBG("Failing transaction after exception during %.*s hook: %s", static_cast<int>(hook_name.size()), hook_name.data(), what);
+  if (now >= next && next_invoke_exception_log.compare_exchange_strong(next, now + INVOKE_EXCEPTION_LOG_INTERVAL.count(),
+                                                                       std::memory_order_relaxed)) {
+    auto const suppressed = suppressed_invoke_exceptions.exchange(0, std::memory_order_relaxed);
+    TSError("[%s] Failing transaction after exception during %.*s hook: %s (%" PRIu64 " similar errors suppressed)",
+            Config::PLUGIN_TAG.data(), static_cast<int>(hook_name.size()), hook_name.data(), what, suppressed);
+  } else {
+    suppressed_invoke_exceptions.fetch_add(1, std::memory_order_relaxed);
+  }
+  _transient_writer.reset();
+  this->transient_discard();
+  // Directives such as "with" restore these on normal exit only.
+  _active     = NIL_FEATURE;
+  _active_ext = NIL_FEATURE;
+  if (_cur_hook == Hook::REMAP) {
+    _txn.status_set(TS_HTTP_STATUS_INTERNAL_SERVER_ERROR);
+    // Undo any earlier remap-redirect and stop later remap plugins so the 500 sticks.
+    if (_remap_info) {
+      _remap_info->redirect = 0;
+    }
+    _remap_status = TSREMAP_NO_REMAP_STOP;
+  } else if (_cur_hook != Hook::TXN_CLOSE) {
+    _global_status = TS_EVENT_HTTP_ERROR;
+  }
+}
+
 Errata
 Context::invoke_for_hook(Hook hook)
 {
   _cur_hook = hook;
   this->clear_cache();
 
-  // Run the top level directives in the config first.
-  if (_cfg) {
-    for (auto const &handle : _cfg->hook_directives(hook)) {
-      _terminal_p = false;   // reset before each top level invocation.
-      handle->invoke(*this); // need to log errors here.
+  try {
+    // Run the top level directives in the config first.
+    if (_cfg) {
+      for (auto const &handle : _cfg->hook_directives(hook)) {
+        _terminal_p = false;   // reset before each top level invocation.
+        handle->invoke(*this); // need to log errors here.
+      }
     }
+    this->invoke_callbacks();
+  } catch (std::exception const &e) {
+    this->handle_invoke_exception(e.what());
+  } catch (...) {
+    this->handle_invoke_exception("unknown exception");
   }
-  this->invoke_callbacks();
 
   _cur_hook = Hook::INVALID;
 
@@ -153,22 +204,28 @@ Context::invoke_for_remap(Config &rule_cfg, TSRemapRequestInfo *rri)
 
   // What about directive storage?
 
-  // Remap rule directives.
-  _terminal_p = false; // reset before each top level invocation.
-  for (auto const &handle : rule_cfg.hook_directives(_cur_hook)) {
-    handle->invoke(*this); // need to log errors here.
-    if (_terminal_p) {
-      break;
-    }
-  }
-  // Now the global config directives for REMAP
-  if (_cfg) {
-    for (auto const &handle : _cfg->hook_directives(_cur_hook)) {
-      _terminal_p = false;   // reset before each top level invocation.
+  try {
+    // Remap rule directives.
+    _terminal_p = false; // reset before each top level invocation.
+    for (auto const &handle : rule_cfg.hook_directives(_cur_hook)) {
       handle->invoke(*this); // need to log errors here.
+      if (_terminal_p) {
+        break;
+      }
     }
+    // Now the global config directives for REMAP
+    if (_cfg) {
+      for (auto const &handle : _cfg->hook_directives(_cur_hook)) {
+        _terminal_p = false;   // reset before each top level invocation.
+        handle->invoke(*this); // need to log errors here.
+      }
+    }
+    this->invoke_callbacks(); // Any accumulated callbacks.
+  } catch (std::exception const &e) {
+    this->handle_invoke_exception(e.what());
+  } catch (...) {
+    this->handle_invoke_exception("unknown exception");
   }
-  this->invoke_callbacks(); // Any accumulated callbacks.
 
   // Revert from remap style invocation.
   _cur_hook   = Hook::INVALID;

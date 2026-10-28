@@ -1,0 +1,313 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+
+meta:
+  version: "1.0"
+
+  txn_box:
+    global:
+    # proxy-req-host does not check the extracted type at run time, so a missing x-host field
+    # throws std::bad_variant_access. This exercises the exception handling in the hook entry point.
+    - when: proxy-req
+      do:
+      - with: ua-req-path
+        select:
+        - match: "hook"
+          do:
+          - proxy-req-host: ua-req-field<x-host>
+
+    # The proxy-reply and redirect bodies render values that are not strings rather than throw.
+    - when: ua-req
+      do:
+      - with: ua-req-path
+        select:
+        - match: "reply"
+          do:
+          - proxy-reply:
+              status: 403
+              body: ua-req-field<x-msg>
+
+    - when: pre-remap
+      do:
+      - with: ua-req-path
+        select:
+        - match: "redirect"
+          do:
+          - redirect:
+              location: "http://redirected.ex/"
+              status: 302
+              body: ua-req-field<x-msg>
+
+    remap:
+    # ua-req-scheme likewise throws for a missing x-scheme field, exercising the remap entry point.
+    - ua-req-scheme: ua-req-field<x-scheme>
+
+    # A throw after remap-redirect must still fail the transaction rather than redirect it.
+    remap-redirect:
+    - remap-redirect:
+    - ua-req-scheme: ua-req-field<x-scheme>
+
+  blocks:
+  - base-req: &base-req
+      version: "1.1"
+      method: "GET"
+
+  - base-rsp: &base-rsp
+      status: 200
+      reason: "OK"
+      headers:
+        fields:
+        - [ Content-Length, 0 ]
+
+sessions:
+- protocol:
+    stack: http
+  transactions:
+
+  # Positive control: with x-host present the hook directive succeeds.
+  - all: { headers: { fields: [[ uuid, hook-ok ]]}}
+    client-request:
+      <<: *base-req
+      url: "/hook"
+      headers:
+        fields:
+        - [ Host, one.ex ]
+        - [ x-host, two.ex ]
+    proxy-request:
+      headers:
+        fields:
+        - [ Host, { value: "two.ex", as: prefix } ]
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 200
+
+  # A directive that throws fails only this transaction.
+  - all: { headers: { fields: [[ uuid, hook-throw ]]}}
+    client-request:
+      <<: *base-req
+      url: "/hook"
+      headers:
+        fields:
+        - [ Host, one.ex ]
+    proxy-request:
+      expect: absent
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 500
+
+  # The next transaction on the same session still succeeds.
+  - all: { headers: { fields: [[ uuid, hook-after ]]}}
+    client-request:
+      <<: *base-req
+      url: "/after"
+      headers:
+        fields:
+        - [ Host, one.ex ]
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 200
+
+  - all: { headers: { fields: [[ uuid, reply-nil ]]}}
+    client-request:
+      <<: *base-req
+      url: "/reply"
+      headers:
+        fields:
+        - [ Host, one.ex ]
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 403
+
+  - all: { headers: { fields: [[ uuid, reply-dup ]]}}
+    client-request:
+      <<: *base-req
+      url: "/reply"
+      headers:
+        fields:
+        - [ Host, one.ex ]
+        - [ x-msg, alpha ]
+        - [ x-msg, bravo ]
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 403
+      content:
+        verify: { value: "alpha, bravo", as: contains }
+
+  - all: { headers: { fields: [[ uuid, redirect-nil ]]}}
+    client-request:
+      <<: *base-req
+      url: "/redirect"
+      headers:
+        fields:
+        - [ Host, one.ex ]
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 302
+      headers:
+        fields:
+        - [ Location, { value: "http://redirected.ex/", as: equal } ]
+
+  - all: { headers: { fields: [[ uuid, redirect-dup ]]}}
+    client-request:
+      <<: *base-req
+      url: "/redirect"
+      headers:
+        fields:
+        - [ Host, one.ex ]
+        - [ x-msg, alpha ]
+        - [ x-msg, bravo ]
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 302
+      content:
+        verify: { value: "alpha, bravo", as: contains }
+
+- protocol:
+    stack: http
+  transactions:
+
+  # Positive control: with x-scheme present the remap directive succeeds.
+  - all: { headers: { fields: [[ uuid, remap-ok ]]}}
+    client-request:
+      <<: *base-req
+      url: "/remap"
+      headers:
+        fields:
+        - [ Host, remap.ex ]
+        - [ x-scheme, http ]
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 200
+
+  - all: { headers: { fields: [[ uuid, remap-throw ]]}}
+    client-request:
+      <<: *base-req
+      url: "/remap"
+      headers:
+        fields:
+        - [ Host, remap.ex ]
+    proxy-request:
+      expect: absent
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 500
+
+  - all: { headers: { fields: [[ uuid, remap-after ]]}}
+    client-request:
+      <<: *base-req
+      url: "/remap"
+      headers:
+        fields:
+        - [ Host, remap.ex ]
+        - [ x-scheme, http ]
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 200
+
+- protocol:
+    stack: http
+  transactions:
+
+  - all: { headers: { fields: [[ uuid, redirect-throw ]]}}
+    client-request:
+      <<: *base-req
+      url: "/remap"
+      headers:
+        fields:
+        - [ Host, redirect-remap.ex ]
+    proxy-request:
+      expect: absent
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 500
+      headers:
+        fields:
+        - [ Location, { as: absent } ]
+
+  - all: { headers: { fields: [[ uuid, redirect-after ]]}}
+    client-request:
+      <<: *base-req
+      url: "/after"
+      headers:
+        fields:
+        - [ Host, one.ex ]
+    server-response:
+      <<: *base-rsp
+    proxy-response:
+      status: 200
+
+urtest:
+  description: Verify txn_box fails only the affected transaction when a directive throws
+  requires:
+    plugins:
+    - txn_box.so
+  server:
+    name: txn-box-invoke-exception-origin
+  client:
+    name: txn-box-invoke-exception-client
+  ats:
+    name: txn-box-invoke-exception-ts
+    process_config:
+      # The expected exceptions log ERROR lines, so the default diags.log checks are replaced below.
+      disable_log_checks: true
+    records_config:
+      proxy.config.diags.debug.enabled: 1
+      proxy.config.diags.debug.tags: txn_box
+    copy_to_config_dir:
+    - invoke-exception.test.yaml
+    remap_config:
+    - map http://remap.ex/ http://127.0.0.1:{SERVER_HTTP_PORT}/ @plugin=txn_box.so @pparam=--key=meta.txn_box.remap @pparam={CONFIG_DIR}/invoke-exception.test.yaml
+    - map http://redirect-remap.ex/ http://127.0.0.1:{SERVER_HTTP_PORT}/ @plugin=txn_box.so @pparam=--key=meta.txn_box.remap-redirect @pparam={CONFIG_DIR}/invoke-exception.test.yaml
+    - map / http://127.0.0.1:{SERVER_HTTP_PORT}
+    plugin_config:
+    - txn_box.so
+    - txn_box.so --key meta.txn_box.global {CONFIG_DIR}/invoke-exception.test.yaml
+    log_validation:
+      diags_log:
+        contains:
+        - expression: "ERROR: \\[txn_box\\] Failing transaction after exception during proxy-req hook: .*\\(0 similar errors suppressed\\)"
+          description: "The hook exception must be caught and logged."
+        excludes:
+        - expression: "ERROR:(?! \\[txn_box\\] Failing transaction after exception)"
+          description: "Only the expected exception errors may be logged."
+        - expression: "FATAL:|Unrecognized configuration value"
+          description: "No fatal or configuration errors may be logged."
+        - expression: "during remap hook"
+          description: "Only the first exception in the interval may reach the error log."
+        - expression: "Using invalid status code for redirect"
+          description: "A remap exception must clear an earlier remap-redirect."
+      traffic_out:
+        excludes:
+        # The rate limit keeps later exceptions out of diags.log, so check the debug log for these.
+        - expression: "during (ua-req|pre-remap|txn-close) hook"
+          description: "The proxy-reply and redirect bodies must not throw."
+        contains:
+        - expression: "Failing transaction after exception during proxy-req hook: "
+          description: "Every hook exception must be logged at debug level."
+        - expression: "Failing transaction after exception during remap hook: "
+          description: "The remap exception, suppressed from the error log, must still be logged at debug level."

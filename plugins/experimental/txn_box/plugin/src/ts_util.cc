@@ -391,7 +391,9 @@ bool
 ts::HttpField::assign(swoc::TextView value)
 {
   value.rtrim_if(&isspace);
-  return this->is_valid() && TS_SUCCESS == TSMimeHdrFieldValueStringSet(_buff, _hdr, _loc, -1, value.data(), value.size());
+  // An empty view may have a null data pointer, which the TS API rejects with a release assert.
+  return this->is_valid() &&
+         TS_SUCCESS == TSMimeHdrFieldValueStringSet(_buff, _hdr, _loc, -1, value.empty() ? "" : value.data(), value.size());
 }
 
 bool
@@ -680,7 +682,8 @@ ts::HttpResponse::reason() const
 bool
 ts::HttpResponse::reason_set(swoc::TextView reason)
 {
-  return this->is_valid() && TS_SUCCESS == TSHttpHdrReasonSet(_buff, _loc, reason.data(), reason.size());
+  // An empty view may have a null data pointer, which the TS API rejects with a release assert.
+  return this->is_valid() && TS_SUCCESS == TSHttpHdrReasonSet(_buff, _loc, reason.empty() ? "" : reason.data(), reason.size());
 }
 
 void

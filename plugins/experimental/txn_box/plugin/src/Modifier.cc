@@ -801,7 +801,7 @@ Rv<Feature>
 Mod_concat::Visitor::operator()(const feature_type_for<TUPLE> &t)
 {
   TextView src{std::get<IndexFor(STRING)>(_target)};
-  if (t[0].index() != IndexFor(STRING) || t[1].index() != IndexFor(STRING)) {
+  if (t.count() < 2 || t[0].index() != IndexFor(STRING) || t[1].index() != IndexFor(STRING)) {
     return _target;
   }
   TextView text{std::get<IndexFor(STRING)>(t[1])};
@@ -1270,6 +1270,10 @@ Mod_url_encode::load(Config &, YAML::Node, TextView, TextView, YAML::Node)
 Rv<Feature>
 Mod_url_encode::operator()(Context &ctx, feature_type_for<STRING> feature)
 {
+  // An empty view may have a null data pointer, which the TS API rejects with a release assert.
+  if (feature.empty()) {
+    return {FeatureView::Literal(TextView{"", size_t{0}})};
+  }
   const size_t size = feature.size() * 3; // *3 should suffice.
   size_t       length;
   auto         buff = ctx.transient_buffer(size);
@@ -1277,6 +1281,7 @@ Mod_url_encode::operator()(Context &ctx, feature_type_for<STRING> feature)
     ctx.transient_finalize(length).commit_transient();    // adjust the transient buffer length and commit it.
     return {FeatureView::Literal({buff.data(), length})}; // literal because it's committed.
   }
+  ctx.transient_discard();
   return NIL_FEATURE;
 }
 
@@ -1341,6 +1346,10 @@ Mod_url_decode::load(Config &, YAML::Node, TextView, TextView, YAML::Node)
 Rv<Feature>
 Mod_url_decode::operator()(Context &ctx, feature_type_for<STRING> feature)
 {
+  // An empty view may have a null data pointer, which the TS API rejects with a release assert.
+  if (feature.empty()) {
+    return {FeatureView::Literal(TextView{"", size_t{0}})};
+  }
   const size_t size = feature.size();
   size_t       length;
   auto         buff = ctx.transient_buffer(size);
@@ -1348,6 +1357,7 @@ Mod_url_decode::operator()(Context &ctx, feature_type_for<STRING> feature)
     ctx.transient_finalize(length).commit_transient();    // adjust the transient buffer length and commit it.
     return {FeatureView::Literal({buff.data(), length})}; // literal because it's committed.
   }
+  ctx.transient_discard();
   return NIL_FEATURE;
 }
 // --- //

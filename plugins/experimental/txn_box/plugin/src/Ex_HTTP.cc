@@ -1092,7 +1092,8 @@ class ExHttpField : public Extractor
 public:
   Rv<ActiveType> validate(Config &cfg, Spec &spec, TextView const &arg) override;
   using Extractor::extract; // declare hidden member function
-  Feature extract(Context &ctx, Spec const &spec) override;
+  Feature       extract(Context &ctx, Spec const &spec) override;
+  BufferWriter &format(BufferWriter &w, Spec const &spec, Context &ctx) override;
 
 protected:
   struct Data {
@@ -1162,6 +1163,27 @@ ExHttpField::extract(Context &ctx, const Spec &spec)
   }
   return NIL_FEATURE;
 };
+
+BufferWriter &
+ExHttpField::format(BufferWriter &w, Spec const &spec, Context &ctx)
+{
+  // Duplicate fields are written directly because extracting them as a tuple allocates, which is
+  // not allowed while the transient buffer is in use for rendering.
+  Data &data = spec._data.span.rebind<Data>()[0];
+  if (!data.opt.f.by_field && !data.opt.f.by_value) {
+    if (ts::HttpHeader hdr{this->hdr(ctx)}; hdr.is_valid()) {
+      if (auto field{hdr.field(data._arg)}; field.is_valid() && field.next_dup().is_valid()) {
+        bwformat(w, spec, field.value());
+        for (field = field.next_dup(); field.is_valid(); field = field.next_dup()) {
+          w.write(", ");
+          bwformat(w, spec, field.value());
+        }
+        return w;
+      }
+    }
+  }
+  return Extractor::format(w, spec, ctx);
+}
 
 // -----
 class Ex_ua_req_field : public ExHttpField

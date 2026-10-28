@@ -402,7 +402,27 @@ Ex_text_block::extract(Context &ctx, const Spec &spec)
 BufferWriter &
 Ex_text_block::format(BufferWriter &w, Spec const &spec, Context &ctx)
 {
-  return bwformat(w, spec, this->extract(ctx, spec));
+  // File content is written directly rather than persisted in the context, as allocating is not
+  // allowed while the transient buffer is in use for rendering. The local copy of the shared
+  // pointer keeps the content alive until it has been written.
+  auto tag = spec._data.span.rebind<TextView>()[0];
+  if (auto info = ctx.cfg().named_object<Do_text_block_define::CfgInfo>(Do_text_block_define::KEY); info) {
+    if (auto spot = info->_map->find(tag); spot != info->_map->end()) {
+      auto                         block = spot->second;
+      std::shared_ptr<std::string> content;
+      {
+        std::shared_lock lock(block->_content_mutex);
+        content = block->_content;
+      }
+      if (content) {
+        return bwformat(w, spec, TextView{*content});
+      }
+      if (block->_text.has_value()) {
+        return bwformat(w, spec, block->_text.value());
+      }
+    }
+  }
+  return bwformat(w, spec, NIL_FEATURE);
 }
 
 // ------------------

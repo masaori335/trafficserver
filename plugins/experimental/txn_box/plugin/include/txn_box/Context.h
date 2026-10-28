@@ -669,6 +669,16 @@ protected:
   /// Invoke the callbacks for the current hook.
   swoc::Errata invoke_callbacks();
 
+  /** Log an exception from directive invocation and fail the transaction.
+   *
+   * @param what Description of the exception.
+   *
+   * This keeps an exception from escaping to TS and terminating the process. During the
+   * @c TXN_CLOSE hook the transaction is already complete, so the exception is only logged.
+   * Error log messages are rate limited, with every occurrence available as a debug message.
+   */
+  void handle_invoke_exception(char const *what);
+
   swoc::MemSpan<void> overflow_storage_for(ReservedSpan const &span);
 
   /// Used for generating transient feature expression values.
