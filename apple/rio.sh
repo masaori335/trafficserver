@@ -156,5 +156,5 @@ fi
 
 if [ $TEST -eq 1 ]; then
   update-crypto-policies --set DEFAULT:SHA1
-  ./apple/run_autest.sh "$TEST_FILTER"
+  ./apple/run_urtest.sh "$TEST_FILTER"
 fi

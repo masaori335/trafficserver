@@ -86,7 +86,7 @@ builds:
       template: freestyle:v4:publish
       buildParameters:
         - parameter: test_filter
-          description: Tests to run
+          description: Tests to run (pytest -k expression, "*" for all)
           defaultValue: "*"
       steps:
         - ./apple/rio.sh --test --branch 10.2.x -f "${BUILD_PARAM_test_filter}"

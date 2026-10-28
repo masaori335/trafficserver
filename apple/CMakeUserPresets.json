@@ -90,17 +90,17 @@
       }
     },
     {
-      "name": "bazinga-autest",
+      "name": "bazinga-urtest",
       "inherits": [
         "clang",
         "bazinga_release"
       ],
       "generator": "Ninja",
-      "binaryDir": "build-autest",
+      "binaryDir": "build-urtest",
       "cacheVariables": {
         "BUILD_TESTING": false,
-        "ENABLE_AUTEST": true,
-        "AUTEST_SANDBOX": "/workspace/_sandbox",
+        "ENABLE_URTEST": true,
+        "URTEST_SANDBOX": "/tmp/_sandbox",
         "ENABLE_EXAMPLE": true
       }
     }
