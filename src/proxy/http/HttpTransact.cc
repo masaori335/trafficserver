@@ -5807,8 +5807,8 @@ HttpTransact::check_request_validity(State *s, HTTPHdr *incoming_hdr)
     return RequestError_t::NON_EXISTANT_REQUEST_HEADER;
   }
 
-  // RFC 9112: If chunked is present in Transfer-Encoding, it must be the
-  // final encoding. Reject the request if chunked appears before other values.
+  // RFC 9112 6.1: chunked must be the final transfer coding and appear only once.
+  // The outer loop follows duplicate field lines, so the inner iterator must not.
   if (incoming_hdr->presence(MIME_PRESENCE_TRANSFER_ENCODING)) {
     MIMEField *field         = incoming_hdr->field_find(static_cast<std::string_view>(MIME_FIELD_TRANSFER_ENCODING));
     bool       found_chunked = false;
@@ -5816,13 +5816,18 @@ HttpTransact::check_request_validity(State *s, HTTPHdr *incoming_hdr)
     while (field) {
       HdrCsvIter  enc_val_iter;
       int         enc_val_len;
-      const char *enc_value = enc_val_iter.get_first(field, &enc_val_len);
+      const char *enc_value = enc_val_iter.get_first(field, &enc_val_len, false);
 
       while (enc_value) {
         const char *wks_value = hdrtoken_string_to_wks(enc_value, enc_val_len);
         if (wks_value == HTTP_VALUE_CHUNKED.c_str()) {
+          if (found_chunked) {
+            // chunked repeated
+            return RequestError_t::BAD_HTTP_HEADER_SYNTAX;
+          }
           found_chunked = true;
         } else if (found_chunked) {
+          // a coding after chunked, i.e. chunked not final
           return RequestError_t::BAD_HTTP_HEADER_SYNTAX;
         }
         enc_value = enc_val_iter.get_next(&enc_val_len);

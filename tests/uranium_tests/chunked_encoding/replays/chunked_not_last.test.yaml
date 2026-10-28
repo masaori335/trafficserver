@@ -14,15 +14,15 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# RFC 9112 requires chunked to be the final transfer coding. Verify that ATS
-# rejects requests where chunked is not the last Transfer-Encoding value, and
-# handles responses correctly.
+# RFC 9112 requires chunked to be the final transfer coding and to appear only
+# once. Verify that ATS rejects requests where chunked is not the last
+# Transfer-Encoding value or is repeated, and handles responses correctly.
 
 meta:
   version: "1.0"
 
 urtest:
-  description: 'Verify chunked must be the last Transfer-Encoding value'
+  description: 'Verify chunked must be the last Transfer-Encoding value and appear only once'
 
   server:
     name: 'server'
@@ -204,3 +204,31 @@ sessions:
 
     proxy-response:
       status: 502
+
+# Test 7: chunked repeated across separate request Transfer-Encoding fields. RFC
+# 9112 6.1 allows chunked only once; leaving the request neither chunked nor
+# rejected would frame it as bodyless and desync the connection (request
+# smuggling). ATS must reject with 400.
+- transactions:
+  - client-request:
+      method: POST
+      version: '1.1'
+      url: /req/chunked-dup-repeated
+      headers:
+        fields:
+        - [Host, example.com]
+        - [Transfer-Encoding, chunked]
+        - [Transfer-Encoding, chunked]
+        - [uuid, req-chunked-dup-repeated]
+      content:
+        size: 0
+
+    server-response:
+      status: 200
+      reason: OK
+      headers:
+        fields:
+        - [Content-Length, "0"]
+
+    proxy-response:
+      status: 400
