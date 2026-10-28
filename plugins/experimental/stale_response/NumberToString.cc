@@ -56,19 +56,20 @@ base16_encode(char *dst, unsigned char const *src, size_t len)
 }
 
 /*-----------------------------------------------------------------------------------------------*/
-unsigned char *
-base16_decode(unsigned char *dst, char const *src, size_t len)
+size_t
+base16_decode(unsigned char *dst, size_t dst_len, char const *src, size_t src_len)
 {
-  unsigned char *p = dst;
-  for (size_t i = 0; i + 1 < len; i += 2) {
+  size_t written = 0;
+
+  for (size_t i = 0; written < dst_len && i + 1 < src_len; i += 2) {
     int msn = base16_digit(src[i + 0]);
     int lsn = base16_digit(src[i + 1]);
     if (msn < 0 || lsn < 0) {
       break;
     }
-    *p++ = static_cast<unsigned char>((msn << 4) | lsn);
+    dst[written++] = static_cast<unsigned char>((msn << 4) | lsn);
   }
-  return dst;
+  return written;
 }
 
 /*-----------------------------------------------------------------------------------------------*/

@@ -1,0 +1,155 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+# This replay file verifies that a client-supplied X-CCExtensions-Intercept
+# header cannot reach the stale_response plugin's internal intercept path.
+# The plugin clones the client headers and re-injects them as an internal
+# stale-while-revalidate refetch; an oversized base16 value in that header used
+# to be decoded into a 4 byte stack variable without any destination bound.
+
+urtest:
+  description: "Verify a client-supplied X-CCExtensions-Intercept header cannot reach the stale_response intercept path"
+  requires:
+    plugins: ["stale_response.so"]
+  server:
+    name: "stale-response-origin"
+  client:
+    name: "stale-response-client"
+  ats:
+    name: "stale-response-ts"
+    records_config:
+      proxy.config.diags.debug.enabled: 1
+      proxy.config.diags.debug.tags: "http|stale_response"
+      proxy.config.http.server_session_sharing.pool: "global"
+      proxy.config.http.negative_revalidating_enabled: 0
+      proxy.config.log.rolling_enabled: 0
+      proxy.config.log.max_secs_per_buffer: 1
+      proxy.config.log.periodic_tasks_interval: 1
+    log_validation:
+      traffic_out:
+        contains:
+          - {expression: "removing client-supplied X-CCExtensions-Intercept header", description: "Verify the client's copy of the internal intercept header is removed"}
+        excludes:
+          - {expression: "received signal", description: "Verify the oversized header did not crash traffic_server"}
+    file_checks:
+      - {path: "{LOG_DIR}/stale_responses.log", contains: "stale-while-revalidate:.*attack.jpeg"}
+  variants:
+    - name: "global"
+      ats:
+        plugin_config: ["stale_response.so --log-all --log-filename stale_responses --force-stale-while-revalidate 30"]
+        remap_config: ["map / http://127.0.0.1:{SERVER_HTTP_PORT}/"]
+    - name: "remap"
+      ats:
+        remap_config: ["map / http://127.0.0.1:{SERVER_HTTP_PORT}/ @plugin=stale_response.so @pparam=--log-all @pparam=--log-filename @pparam=stale_responses @pparam=--force-stale-while-revalidate @pparam=30"]
+
+sessions:
+
+- transactions:
+
+  # Populate the cache with a nearly expired object.
+  - client-request:
+      method: GET
+      url: /pictures/attack.jpeg
+      version: '1.1'
+      headers:
+        fields:
+        - [ Host, www.example.com ]
+        - [ Content-Type, image/jpeg ]
+        - [ uuid, fill-request ]
+
+    server-response:
+      status: 200
+      reason: OK
+      headers:
+        fields:
+        - [ Content-Type, image/jpeg ]
+        - [ Content-Length, 100 ]
+        - [ Connection, keep-alive ]
+        - [ Cache-Control, max-age=1 ]
+        - [ X-Response, first-response ]
+
+    proxy-response:
+      status: 200
+      headers:
+        fields:
+        - [ X-Response, { value: first-response, as: equal } ]
+
+  # The object is now stale. --force-stale-while-revalidate makes ATS serve the
+  # stale copy and refetch in the background. The oversized intercept header
+  # rides along on the cloned, re-injected request.
+  - client-request:
+
+      delay: 3s
+
+      method: GET
+      url: /pictures/attack.jpeg
+      version: '1.1'
+      headers:
+        fields:
+        - [ Host, www.example.com ]
+        - [ Content-Type, image/jpeg ]
+        - [ uuid, attack-request ]
+        - [ X-CCExtensions-Intercept, "4141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141" ]
+
+    server-response:
+      status: 200
+      reason: OK
+      headers:
+        fields:
+        - [ Content-Type, image/jpeg ]
+        - [ Content-Length, 100 ]
+        - [ Connection, keep-alive ]
+        - [ Cache-Control, max-age=300 ]
+        - [ X-Response, second-response ]
+
+    # The stale copy is served while the refetch happens in the background.
+    proxy-response:
+      status: 200
+      headers:
+        fields:
+        - [ X-Response, { value: first-response, as: equal } ]
+
+  # ATS survived the attack request and the background refetch populated the
+  # cache with the new object.
+  - client-request:
+
+      delay: 3s
+
+      method: GET
+      url: /pictures/attack.jpeg
+      version: '1.1'
+      headers:
+        fields:
+        - [ Host, www.example.com ]
+        - [ Content-Type, image/jpeg ]
+        - [ uuid, verify-request ]
+
+    server-response:
+      status: 200
+      reason: OK
+      headers:
+        fields:
+        - [ Content-Type, image/jpeg ]
+        - [ Content-Length, 100 ]
+        - [ Connection, keep-alive ]
+        - [ Cache-Control, max-age=300 ]
+        - [ X-Response, third-response ]
+
+    proxy-response:
+      status: 200
+      headers:
+        fields:
+        - [ X-Response, { value: second-response, as: equal } ]

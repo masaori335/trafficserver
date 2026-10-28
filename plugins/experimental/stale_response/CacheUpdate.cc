@@ -119,6 +119,22 @@ convert_mime_hdr_to_string(TSMLoc hdr_loc)
 }
 
 /*-----------------------------------------------------------------------------------------------*/
+void
+strip_intercept_header(TSMBuffer hdr_buf, TSMLoc hdr_loc)
+{
+  TSMLoc field_loc = TSMimeHdrFieldFind(hdr_buf, hdr_loc, SERVER_INTERCEPT_HEADER, SERVER_INTERCEPT_HEADER_LEN);
+
+  while (field_loc != TS_NULL_MLOC) {
+    TSMLoc next_field_loc = TSMimeHdrFieldNextDup(hdr_buf, hdr_loc, field_loc);
+
+    SRDBG(TAG, "[%s] removing client-supplied %s header", __FUNCTION__, SERVER_INTERCEPT_HEADER);
+    TSMimeHdrFieldDestroy(hdr_buf, hdr_loc, field_loc);
+    TSHandleMLocRelease(hdr_buf, hdr_loc, field_loc);
+    field_loc = next_field_loc;
+  }
+}
+
+/*-----------------------------------------------------------------------------------------------*/
 bool
 has_trailing_parameter(TSMBuffer hdr_url_buf, TSMLoc hdr_url_loc)
 {
@@ -297,13 +313,22 @@ intercept_check_request(StateInfo *state)
   if (valid_request) {
     string headerKey;
     if (intercept_get_key(bufp, hdr_loc, SERVER_INTERCEPT_HEADER, SERVER_INTERCEPT_HEADER_LEN, headerKey)) {
-      base16_decode(reinterpret_cast<unsigned char *>(&newKey), headerKey.c_str(), headerKey.length());
-      pBodyFound = async_check_active(newKey, state->plugin_config);
-      if (pBodyFound) {
-        // header key can be differnt because of ATS port wierdness, so make state the same
-        state->req_info->key_hash = newKey;
+      // We always emit exactly two hexadecimal digits per key byte, so anything
+      // of a different length did not come from us and is not decoded at all.
+      if (headerKey.length() != sizeof(newKey) * 2) {
+        SRDBG(TAG_BAD, "[%s] ignoring %s header of length %zu", __FUNCTION__, SERVER_INTERCEPT_HEADER, headerKey.length());
+      } else if (base16_decode(reinterpret_cast<unsigned char *>(&newKey), sizeof(newKey), headerKey.c_str(), headerKey.length()) !=
+                 sizeof(newKey)) {
+        SRDBG(TAG_BAD, "[%s] ignoring malformed %s header", __FUNCTION__, SERVER_INTERCEPT_HEADER);
+        newKey = 0;
       } else {
-        SRDBG(TAG_BAD, "[%s] key miss %u this should not happen!", __FUNCTION__, newKey);
+        pBodyFound = async_check_active(newKey, state->plugin_config);
+        if (pBodyFound) {
+          // header key can be differnt because of ATS port wierdness, so make state the same
+          state->req_info->key_hash = newKey;
+        } else {
+          SRDBG(TAG_BAD, "[%s] key miss %u this should not happen!", __FUNCTION__, newKey);
+        }
       }
     }
   }

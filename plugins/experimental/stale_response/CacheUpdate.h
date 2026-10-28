@@ -28,6 +28,8 @@
 struct StateInfo;
 struct BodyData;
 
+void strip_intercept_header(TSMBuffer buf, TSMLoc http_hdr_loc);
+
 bool has_trailing_parameter(TSMBuffer buf, TSMLoc http_hdr_loc);
 void add_trailing_parameter(TSMBuffer buf, TSMLoc http_hdr_loc);
 bool strip_trailing_parameter(TSMBuffer buf, TSMLoc http_hdr_loc);

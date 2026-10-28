@@ -106,6 +106,10 @@ create_request_info(TSHttpTxn txnp)
   // release the client request
   TSHandleMLocRelease(hdr_url_buf, TS_NULL_MLOC, hdr_url_loc);
 
+  // This clone is re-injected as an internal request, where the intercept
+  // header is trusted as our own. A client must not be able to smuggle one in.
+  strip_intercept_header(req_info->http_hdr_buf, req_info->http_hdr_loc);
+
   // It turns out that the client_addr field isn't used if the request
   // is internal.  Cannot fetch a real client address in that case anyway
   if (!TSHttpTxnIsInternal(txnp)) {

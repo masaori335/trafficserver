@@ -15,7 +15,10 @@
 #
 #######################
 
-add_executable(test_stale_response test_DirectiveParser.cc test_BodyData.cc ${PROJECT_SOURCE_DIR}/DirectiveParser.cc)
+add_executable(
+  test_stale_response test_DirectiveParser.cc test_BodyData.cc test_NumberToString.cc
+                      ${PROJECT_SOURCE_DIR}/DirectiveParser.cc ${PROJECT_SOURCE_DIR}/NumberToString.cc
+)
 
 target_include_directories(test_stale_response PRIVATE "${PROJECT_SOURCE_DIR}")
 target_link_libraries(test_stale_response PRIVATE ts::tsutil libswoc::libswoc Catch2::Catch2WithMain)

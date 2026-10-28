@@ -46,16 +46,20 @@ int base16_digit(char ch);
 char *base16_encode(char *dst, unsigned char const *src, size_t len);
 
 /**
- *  Convert <TT>len</TT> hexadecimal digits in <TT>src</TT> into
- *  <TT>len / 2</TT> bytes of binary data stored in <TT>dst</TT>.
+ *  Convert up to <TT>src_len</TT> hexadecimal digits in <TT>src</TT>
+ *  into at most <TT>dst_len</TT> bytes of binary data stored in
+ *  <TT>dst</TT>.  Decoding stops at whichever of the two limits is
+ *  reached first, so an over long <TT>src</TT> is truncated rather
+ *  than written past the end of <TT>dst</TT>.
  *
- *  @param dst          a buffer of length <TT>len / 2</TT>.
+ *  @param dst          the destination buffer.
+ *  @param dst_len      the capacity of dst in bytes.
  *  @param src          the source hexadecimal digits to convert.
- *  @param len          the number of bytes hexadecimal digits in
- *                      src to convert into binary data.  If this
- *                      value is odd then the last digit is ignored.
- *  @return             the dst pointer.
+ *  @param src_len      the number of hexadecimal digits in src to
+ *                      convert into binary data.  If this value is
+ *                      odd then the last digit is ignored.
+ *  @return             the number of bytes written into dst.
  **/
-unsigned char *base16_decode(unsigned char *dst, char const *src, size_t len);
+size_t base16_decode(unsigned char *dst, size_t dst_len, char const *src, size_t src_len);
 
 /*-----------------------------------------------------------------------------------------------*/
