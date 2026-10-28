@@ -24,6 +24,7 @@
 #include "proxy/http/HttpConfig.h"
 #include "tscore/ink_inet.h"
 #include "tsutil/ts_bw_format.h"
+#include "tsutil/LocalBuffer.h"
 
 #include "tscore/ink_platform.h"
 
@@ -1553,7 +1554,9 @@ HttpTransact::ModifyRequest(State *s)
   }
   // Copy out buf to a hostname just in case its heap header memory is freed during coalescing
   // due to later HdrHeap operations
-  char *hostname = static_cast<char *>(alloca(hostname_len + PORT_PADDING));
+  ts::LocalBuffer<char, 256> hostname_buf(hostname_len + PORT_PADDING);
+  char                      *hostname = hostname_buf.data();
+
   memcpy(hostname, buf.data(), hostname_len);
 
   // Make clang analyzer happy. hostname is non-null iff request.is_target_in_url().
@@ -8323,8 +8326,10 @@ HttpTransact::build_request(State *s, HTTPHdr *base_request, HTTPHdr *outgoing_r
     // to the default port.
     int port = url->port_get();
     if (port != url_canonicalize_port(URLType::HTTP, 0)) {
-      auto  host_len{static_cast<int>(host.length())};
-      char *buf = static_cast<char *>(alloca(host_len + 15));
+      auto                       host_len{static_cast<int>(host.length())};
+      ts::LocalBuffer<char, 256> host_buf(host_len + 15);
+      char                      *buf = host_buf.data();
+
       memcpy(buf, host.data(), host_len);
       host_len += snprintf(buf + host_len, 15, ":%d", port);
       outgoing_request->value_set(static_cast<std::string_view>(MIME_FIELD_HOST),

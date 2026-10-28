@@ -32,6 +32,7 @@
 #include "tscore/ParseRules.h"
 #include "tscore/CryptoHash.h"
 #include "tscore/ink_assert.h"
+#include "tsutil/LocalBuffer.h"
 #include "ts/apidefs.h"
 #include "tscore/ink_inet.h"
 
@@ -189,13 +190,12 @@ ats_ip_pton(const std::string_view &src, sockaddr *ip)
 
   ats_ip_invalidate(ip);
   if (0 == ats_ip_parse(src, &addr, &port)) {
-    // Copy if not terminated.
-    if (0 != addr[addr.size() - 1]) {
-      char *tmp = static_cast<char *>(alloca(addr.size() + 1));
-      memcpy(tmp, addr.data(), addr.size());
-      tmp[addr.size()] = 0;
-      addr             = std::string_view(tmp, addr.size());
-    }
+    ts::LocalBuffer<char, 64> tmp(addr.size() + 1);
+
+    memcpy(tmp.data(), addr.data(), addr.size());
+    tmp.data()[addr.size()] = 0;
+    addr                    = std::string_view(tmp.data(), addr.size());
+
     if (addr.find(':') != std::string_view::npos) { // colon -> IPv6
       in6_addr addr6;
       if (inet_pton(AF_INET6, addr.data(), &addr6)) {
@@ -211,7 +211,8 @@ ats_ip_pton(const std::string_view &src, sockaddr *ip)
     }
     // If we had a successful conversion, set the port.
     if (ats_is_ip(ip)) {
-      ats_ip_port_cast(ip) = port.empty() ? 0 : htons(atoi(port.data()));
+      // port is a view into src and is not NUL terminated.
+      ats_ip_port_cast(ip) = port.empty() ? 0 : htons(static_cast<in_port_t>(swoc::svtou(port, nullptr, 10)));
     }
   }
 
@@ -513,13 +514,12 @@ ats_ip_getbestaddrinfo(const char *host, IpEndpoint *ip4, IpEndpoint *ip6)
   }
 
   if (0 == ats_ip_parse(src, &addr_text, &port_text)) {
-    // Copy if not terminated.
-    if (0 != addr_text[addr_text.size() - 1]) {
-      char *tmp = static_cast<char *>(alloca(addr_text.size() + 1));
-      memcpy(tmp, addr_text.data(), addr_text.size());
-      tmp[addr_text.size()] = 0;
-      addr_text             = std::string_view(tmp, addr_text.size());
-    }
+    ts::LocalBuffer<char, 256> tmp(addr_text.size() + 1);
+
+    memcpy(tmp.data(), addr_text.data(), addr_text.size());
+    tmp.data()[addr_text.size()] = 0;
+    addr_text                    = std::string_view(tmp.data(), addr_text.size());
+
     ink_zero(ai_hints);
     ai_hints.ai_family = AF_UNSPEC;
     ai_hints.ai_flags  = AI_ADDRCONFIG;

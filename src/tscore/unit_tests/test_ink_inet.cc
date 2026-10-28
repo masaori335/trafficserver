@@ -152,6 +152,22 @@ TEST_CASE("ats_ip_pton", "[libts][inet][ink_inet]")
   REQUIRE(addr == upper);
 }
 
+TEST_CASE("ats_ip_pton unterminated input", "[libts][inet][ink_inet]")
+{
+  IpEndpoint ep;
+
+  // The view ends before the '9', which the port must not include.
+  std::string const port_src{"1.2.3.4:809"};
+
+  REQUIRE(0 == ats_ip_pton(std::string_view{port_src.data(), port_src.size() - 1}, &ep.sa));
+  REQUIRE(80 == ats_ip_port_host_order(&ep.sa));
+
+  // Larger than a thread stack, and not numeric so inet_aton() rejects it.
+  std::string const huge(16 * 1024 * 1024, 'z');
+
+  REQUIRE(-1 == ats_ip_pton(std::string_view{huge}, &ep.sa));
+}
+
 TEST_CASE("inet formatting", "[libts][ink_inet][bwformat]")
 {
   IpEndpoint                    ep;

@@ -25,6 +25,7 @@
 #include <netdb.h>
 
 #include "tsutil/ts_ip.h"
+#include "tsutil/LocalBuffer.h"
 
 namespace ts
 {
@@ -54,10 +55,11 @@ getbestaddrinfo(swoc::TextView name)
   }
 
   // Presume it is a host name, make a copy to guarantee C string.
-  char *tmp = static_cast<char *>(alloca(name.size() + 1));
-  memcpy(tmp, name.data(), name.size());
-  tmp[name.size()] = 0;
-  name.assign(tmp, name.size());
+  ts::LocalBuffer<char, 256> tmp(name.size() + 1);
+
+  memcpy(tmp.data(), name.data(), name.size());
+  tmp.data()[name.size()] = 0;
+  name.assign(tmp.data(), name.size());
 
   // List of address types, in order of worst to best.
   enum {
