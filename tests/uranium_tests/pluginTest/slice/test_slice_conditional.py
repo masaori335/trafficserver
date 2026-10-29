@@ -90,13 +90,34 @@ def configure_ats(ats_factory: ATSFactory, *, _origin: OriginServer) -> ATS:
     return ats
 
 
-def request(path: str, *, byte_range: str | None = None, _ats: ATS, _curl: Curl) -> str:
+def configure_global_ats(ats_factory: ATSFactory, *, _origin: OriginServer) -> ATS:
+    """Configure conditional slicing with slice loaded as a global plugin.
+
+    Global slicing looks up object sizes by the URL before remap, so the remap leaves the URL unchanged.
+
+    :param _origin: Test-local origin configured by the test.
+    :param ats_factory: Factory for isolated Traffic Server instances.
+    """
+
+    ats = ats_factory.create("ts")
+    required = ("slice.so", "cache_range_requests.so")
+    missing = [plugin for plugin in required if not ats.plugin_exists(plugin)]
+    if missing:
+        pytest.skip("Missing plugins: " + ", ".join(missing))
+    ats.plugin_config.add_line(f"slice.so --blockbytes-test={SLICE_BLOCK_SIZE} --minimum-size=8 --metadata-cache-size=4")
+    origin = f"http://127.0.0.1:{_origin.port}"
+    ats.remap_config.add_line(f"map {origin}/ {origin}/ @plugin=cache_range_requests.so")
+    return ats
+
+
+def request(path: str, *, byte_range: str | None = None, host: str = "slice", _ats: ATS, _curl: Curl) -> str:
     """Request one object and include response headers in the result.
 
     :param _ats: Test-local ats configured by the test.
     :param _curl: Test-local curl configured by the test.
     :param path: Resource or file path used by this operation.
     :param byte_range: Byte range to request, or whether to send the test range.
+    :param host: Host, and optionally port, of the requested URL.
     """
 
     arguments = [
@@ -109,7 +130,7 @@ def request(path: str, *, byte_range: str | None = None, _ats: ATS, _curl: Curl)
     ]
     if byte_range is not None:
         arguments.extend(("--range", byte_range))
-    arguments.append(f"http://slice/{path}")
+    arguments.append(f"http://{host}/{path}")
     result = _curl.run_for(
         _ats,
         shlex.join(arguments),
@@ -142,3 +163,23 @@ def test_slice_conditional(ats_factory: ATSFactory, services: ServiceFactory, cu
     assert LARGE_BODY in large_sliced and "X-Cache: miss" in large_sliced
     large_hit = request("large", _ats=_ats, _curl=curl)
     assert LARGE_BODY in large_hit and "X-Cache: hit-fresh" in large_hit
+
+
+def test_slice_conditional_global(ats_factory: ATSFactory, services: ServiceFactory, curl: Curl) -> None:
+    """A global slice records an object's size, then slices the object once it exceeds the minimum size.
+
+    :param ats_factory: Factory for isolated Traffic Server instances.
+    :param services: Factory owning support services and their cleanup.
+    :param curl: Transport-aware curl command runner.
+    """
+    _origin = configure_origin(services)
+    _ats = configure_global_ats(ats_factory, _origin=_origin)
+
+    _origin.start()
+    _ats.start()
+    host = f"127.0.0.1:{_origin.port}"
+    large_unsliced = request("large", host=host, _ats=_ats, _curl=curl)
+    assert "unsliced large object!" in large_unsliced
+    large_sliced = request("large", host=host, _ats=_ats, _curl=curl)
+    assert LARGE_BODY in large_sliced
+    assert _ats.is_running

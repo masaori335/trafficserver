@@ -240,8 +240,8 @@ read_request(TSHttpTxn txnp, Config *const config, TSCont read_resp_hdr_contp)
 static int
 read_resp_hdr(TSCont contp, TSEvent event, void *edata)
 {
-  TSHttpTxn   txnp = static_cast<TSHttpTxn>(edata);
-  PluginInfo *info = static_cast<PluginInfo *>(TSContDataGet(contp));
+  TSHttpTxn     txnp   = static_cast<TSHttpTxn>(edata);
+  Config *const config = static_cast<Config *>(TSContDataGet(contp));
 
   // This function does the following things:
   // 1. Parse the object size from Content-Length
@@ -263,27 +263,27 @@ read_resp_hdr(TSCont contp, TSEvent event, void *edata)
 
       [[maybe_unused]] auto [ptr, ec] = std::from_chars(constr, constr + conlen, content_length);
       if (ec == std::errc()) {
-        if (content_length >= info->config.m_min_size_to_slice) {
+        if (content_length >= config->m_min_size_to_slice) {
           // Remember that this object is big
-          info->config.sizeCacheAdd({urlstr, static_cast<size_t>(urllen)}, content_length);
+          config->sizeCacheAdd({urlstr, static_cast<size_t>(urllen)}, content_length);
           // This object will be sliced in future requests.  Don't cache it for now.
           TSHttpTxnServerRespNoStoreSet(txnp, 1);
-          TSStatIntIncrement(info->config.stat_FN, 1);
+          TSStatIntIncrement(config->stat_FN, 1);
         } else {
-          TSStatIntIncrement(info->config.stat_TN, 1);
+          TSStatIntIncrement(config->stat_TN, 1);
         }
       } else {
         ERROR_LOG("Could not parse content-length: %.*s", conlen, constr);
-        TSStatIntIncrement(info->config.stat_bad_cl, 1);
+        TSStatIntIncrement(config->stat_bad_cl, 1);
       }
     } else {
       DEBUG_LOG("Could not get a content length for updating object size");
-      TSStatIntIncrement(info->config.stat_no_cl, 1);
+      TSStatIntIncrement(config->stat_no_cl, 1);
     }
     TSfree(urlstr);
   } else {
     ERROR_LOG("Could not get URL for obj size.");
-    TSStatIntIncrement(info->config.stat_no_url, 1);
+    TSStatIntIncrement(config->stat_no_url, 1);
   }
 
   // Reenable and continue with the state machine.
@@ -377,7 +377,7 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char * /* errbuf */, int /
   info->config.fromArgs(argc - 2, argv + 2);
 
   TSCont read_resp_hdr_contp = TSContCreate(read_resp_hdr, nullptr);
-  TSContDataSet(read_resp_hdr_contp, static_cast<void *>(info));
+  TSContDataSet(read_resp_hdr_contp, &info->config);
   info->read_resp_hdr_contp = read_resp_hdr_contp;
 
   if (!info->config.stat_prefix.empty()) {
@@ -425,6 +425,7 @@ TSPluginInit(int argc, char const *argv[])
 
   TSCont const global_read_request_contp(TSContCreate(global_read_request_hook, nullptr));
   global_read_resp_hdr_contp = TSContCreate(read_resp_hdr, nullptr);
+  TSContDataSet(global_read_resp_hdr_contp, &globalConfig);
 
   // Called immediately after the request header is read from the client
   TSHttpHookAdd(TS_HTTP_READ_REQUEST_HDR_HOOK, global_read_request_contp);
