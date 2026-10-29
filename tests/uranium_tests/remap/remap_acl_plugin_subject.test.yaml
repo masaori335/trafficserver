@@ -1,0 +1,134 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+meta:
+  version: "1.0"
+
+  blocks:
+  - ok_response: &ok_response
+      status: 200
+      reason: OK
+      headers:
+        fields:
+        - [Content-Length, "3"]
+      content:
+        data: "xxx"
+
+urtest:
+  description: 'A remap ACL using the PLUGIN subject evaluates the address the plugin verified for the current request, or the peer address if there is none'
+
+  requires:
+    plugins: [realip.so]
+
+  server:
+    name: 'server-plugin-subject'
+
+  client:
+    name: 'client-plugin-subject'
+
+  ats:
+    name: 'ts-plugin-subject'
+
+    process_config:
+      enable_cache: false
+
+    records_config:
+      proxy.config.acl.subjects: 'PLUGIN'
+
+    inline_config_files:
+      realip.yaml: |
+        simple:
+          header: "Client-IP"
+          trustedAddress:
+            - "127.0.0.1"
+
+    plugin_config:
+      - "realip.so {CONFIG_DIR}/realip.yaml"
+
+    remap_config:
+      - from: "http://verified.example.com/"
+        to: "http://127.0.0.1:{SERVER_HTTP_PORT}/"
+        options:
+          - "@action=allow @src_ip=10.0.0.0/8"
+      - from: "http://peer.example.com/"
+        to: "http://127.0.0.1:{SERVER_HTTP_PORT}/"
+        options:
+          - "@action=allow @src_ip=127.0.0.1"
+
+sessions:
+
+# A verified address must not carry over to the next request on the same connection.
+- transactions:
+
+  - client-request:
+      method: GET
+      url: /verified
+      version: '1.1'
+      headers:
+        fields:
+        - [Host, verified.example.com]
+        - [Client-IP, 10.1.2.3]
+        - [uuid, verified-address]
+
+    server-response: *ok_response
+
+    proxy-response:
+      status: 200
+
+  - client-request:
+      method: GET
+      url: /stale
+      version: '1.1'
+      headers:
+        fields:
+        - [Host, verified.example.com]
+        - [uuid, previous-verified-address]
+
+    server-response: *ok_response
+
+    proxy-response:
+      status: 403
+
+# Without a verified address, the ACL is evaluated against the peer address.
+- transactions:
+
+  - client-request:
+      method: GET
+      url: /peer
+      version: '1.1'
+      headers:
+        fields:
+        - [Host, peer.example.com]
+        - [uuid, unverified-peer-allowed]
+
+    server-response: *ok_response
+
+    proxy-response:
+      status: 200
+
+  - client-request:
+      method: GET
+      url: /unverified
+      version: '1.1'
+      headers:
+        fields:
+        - [Host, verified.example.com]
+        - [uuid, unverified-peer-denied]
+
+    server-response: *ok_response
+
+    proxy-response:
+      status: 403

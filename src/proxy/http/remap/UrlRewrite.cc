@@ -449,20 +449,26 @@ UrlRewrite::PerformACLFiltering(HttpTransact::State *s, const url_mapping *const
 
     const IpEndpoint    *src_addr   = nullptr;
     const IpEndpoint    *local_addr = nullptr;
-    const ProxyProtocol &pp_info    = s->state_machine->get_ua_txn()->get_netvc()->get_proxy_protocol_info();
+    NetVConnection      *netvc      = s->state_machine->get_ua_txn()->get_netvc();
+    const ProxyProtocol &pp_info    = netvc->get_proxy_protocol_info();
     for (int i = 0; i < IpAllow::Subject::MAX_SUBJECTS; ++i) {
       if (IpAllow::Subject::PEER == IpAllow::subjects[i]) {
         src_addr   = &s->client_info.src_addr;
         local_addr = &s->client_info.dst_addr;
         break;
-      } else if (IpAllow::Subject::PROXY == IpAllow::subjects[i] && pp_info.version != ProxyProtocolVersion::UNDEFINED) {
+      } else if (IpAllow::Subject::PROXY == IpAllow::subjects[i] && pp_info.version != ProxyProtocolVersion::UNDEFINED &&
+                 netvc->get_proxy_protocol_src_addr() != nullptr) {
         src_addr   = &pp_info.src_addr;
         local_addr = &pp_info.dst_addr;
         break;
       } else if (IpAllow::Subject::PLUGIN == IpAllow::subjects[i]) {
-        src_addr   = reinterpret_cast<const IpEndpoint *>(s->state_machine->get_ua_txn()->get_verified_client_addr());
-        local_addr = &s->client_info.dst_addr;
-        break;
+        const sockaddr *verified_addr = s->state_machine->get_ua_txn()->get_verified_client_addr();
+
+        if (ats_is_ip(verified_addr)) {
+          src_addr   = reinterpret_cast<const IpEndpoint *>(verified_addr);
+          local_addr = &s->client_info.dst_addr;
+          break;
+        }
       }
     }
 

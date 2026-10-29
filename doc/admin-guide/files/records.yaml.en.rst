@@ -2563,8 +2563,11 @@ IP Allow
 
    Specifies the list of data sources for getting client's IP address for ACL.
    The value is a comma separated string, and the first available data source
-   will be used. If you configure a port to enable PROXY protocol, you probably
-   need to adjust this setting to have ``PROXY`` in the list.
+   will be used. A data source is available only when it has an IP address for
+   the current transaction. If none of the listed data sources is available,
+   the IP address of the peer is used. If you configure a port to enable PROXY
+   protocol, you probably need to adjust this setting to have ``PROXY`` in the
+   list.
 
    ============= ======================================================================
    Value         Description

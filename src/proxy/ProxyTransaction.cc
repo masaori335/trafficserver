@@ -58,6 +58,7 @@ ProxyTransaction::new_transaction(bool from_early_data)
 
   // Defensive programming, make sure nothing persists across
   // connection re-use
+  _verified_addr = {};
 
   ink_release_assert(_proxy_ssn != nullptr);
   if (_proxy_ssn->acceptor != nullptr) {

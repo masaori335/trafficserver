@@ -1,0 +1,118 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+meta:
+  version: "1.0"
+
+  blocks:
+  - ok_response: &ok_response
+      status: 200
+      reason: OK
+      headers:
+        fields:
+        - [Content-Length, "3"]
+      content:
+        data: "xxx"
+
+urtest:
+  description: 'A remap ACL using PLUGIN,PROXY uses the PROXY address only when no plugin verified an address for the request'
+
+  requires:
+    plugins: [realip.so]
+
+  server:
+    name: 'server-plugin-proxy-subject'
+
+  client:
+    name: 'client-plugin-proxy-subject'
+    process_config:
+      http_ports: ["{ATS_PROXY_PROTOCOL_PORT}"]
+
+  ats:
+    name: 'ts-plugin-proxy-subject'
+
+    process_config:
+      enable_cache: false
+      enable_proxy_protocol: true
+
+    records_config:
+      proxy.config.acl.subjects: 'PLUGIN,PROXY'
+      proxy.config.http.proxy_protocol_allowlist: 127.0.0.1
+
+    inline_config_files:
+      realip.yaml: |
+        simple:
+          header: "Client-IP"
+          trustedAddress:
+            - "127.0.0.1"
+
+    plugin_config:
+      - "realip.so {CONFIG_DIR}/realip.yaml"
+
+    remap_config:
+      - from: "http://verified.example.com/"
+        to: "http://127.0.0.1:{SERVER_HTTP_PORT}/"
+        options:
+          - "@action=allow @src_ip=10.0.0.0/8"
+
+sessions:
+
+# Without a verified address, the next subject, PROXY, supplies the address.
+- protocol:
+    stack: http
+    proxy-protocol:
+      version: 2
+      src-addr: "10.1.2.3:1111"
+      dst-addr: "127.0.0.1:2222"
+  transactions:
+
+  - client-request:
+      method: GET
+      url: /proxy
+      version: '1.1'
+      headers:
+        fields:
+        - [Host, verified.example.com]
+        - [uuid, unverified-proxy-allowed]
+
+    server-response: *ok_response
+
+    proxy-response:
+      status: 200
+
+# A verified address takes precedence over the PROXY address.
+- protocol:
+    stack: http
+    proxy-protocol:
+      version: 2
+      src-addr: "10.1.2.3:1111"
+      dst-addr: "127.0.0.1:2222"
+  transactions:
+
+  - client-request:
+      method: GET
+      url: /verified-over-proxy
+      version: '1.1'
+      headers:
+        fields:
+        - [Host, verified.example.com]
+        - [Client-IP, 192.0.2.1]
+        - [uuid, verified-over-proxy-denied]
+
+    server-response: *ok_response
+
+    proxy-response:
+      status: 403
