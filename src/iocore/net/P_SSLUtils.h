@@ -88,6 +88,14 @@ SSLNetVConnection *SSLNetVCAccess(const SSL *ssl);
 void setClientCertLevel(SSL *ssl, uint8_t certLevel);
 void setClientCertCACerts(SSL *ssl, const char *file, const char *dir);
 
+/** Apply the sni.yaml client CA and session ticket settings once the TS_EVENT_SSL_CERT hooks finish.
+
+    Certificate selection and the hooks can switch the SSL_CTX, which discards the client CA store.
+
+    @return false if the handshake must fail.
+ */
+bool applySNISettingsAfterCertHooks(SSL *ssl, SSLNetVConnection *sslnetvc);
+
 /** Digest the client CA scope named by @a file and @a dir, for the session id context.
 
     @return The digest, or no value when neither location is set. A set location that cannot be read

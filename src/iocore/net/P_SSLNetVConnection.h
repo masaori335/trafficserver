@@ -401,6 +401,7 @@ private:
   enum SSLHandshakeStatus sslHandshakeStatus          = SSLHandshakeStatus::SSL_HANDSHAKE_ONGOING;
   bool                    sslClientRenegotiationAbort = false;
   bool                    first_ssl_connect           = true;
+  bool                    _cert_selection_paused      = false;
 
   /** The buffer storing the initial CLIENT_HELLO bytes. */
   MIOBuffer *handShakeBuffer = nullptr;

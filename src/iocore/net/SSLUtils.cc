@@ -415,6 +415,29 @@ ssl_client_hello_callback(const SSL_CLIENT_HELLO *client_hello)
   return CLIENT_HELLO_SUCCESS;
 }
 
+bool
+applySNISettingsAfterCertHooks(SSL *ssl, SSLNetVConnection *sslnetvc)
+{
+#if TS_HAS_TLS_SESSION_TICKET
+  // After replacing the SSL_CTX, make sure the overridden ca_cert_file is still set
+  if (sslnetvc) {
+    setClientCertCACerts(ssl, sslnetvc->get_ca_cert_file(), sslnetvc->get_ca_cert_dir());
+  }
+
+  if (!ssl_apply_sni_session_ticket_properties(ssl)) {
+    return false;
+  }
+#endif
+
+#if HAVE_SSL_CTX_SET_SELECT_CERTIFICATE_CB
+  // BoringSSL keeps the session id context with the certificate, so the SSL_CTX switch discards it
+  // too. This still runs ahead of BoringSSL's session lookup.
+  return bind_session_id_context_to_verify_scope(ssl);
+#else
+  return true;
+#endif
+}
+
 /**
  * Called before either the server or the client certificate is used
  * Return 1 on success, 0 on error, or -1 to pause, -2 to retry
@@ -489,18 +512,9 @@ ssl_cert_callback(SSL *ssl, [[maybe_unused]] void *arg)
     }
   }
 
-#if TS_HAS_TLS_SESSION_TICKET
-  if (retval == 1) {
-    // After replacing the SSL_CTX, make sure the overridden ca_cert_file is still set
-    if (sslnetvc) {
-      setClientCertCACerts(ssl, sslnetvc->get_ca_cert_file(), sslnetvc->get_ca_cert_dir());
-    }
-
-    if (!ssl_apply_sni_session_ticket_properties(ssl)) {
-      retval = 0;
-    }
+  if (retval == 1 && !applySNISettingsAfterCertHooks(ssl, sslnetvc)) {
+    retval = 0;
   }
-#endif
 
   // Return 1 for success, 0 for error, or -1 to pause
   return retval;
@@ -1227,12 +1241,6 @@ SSLMultiCertConfigLoader::_set_handshake_callbacks(SSL_CTX *ctx)
       break;
     default:
       ink_assert(!"unhandled cert result");
-    }
-
-    // After ssl_cert_callback(), so this survives the SSL_CTX switch certificate selection performs,
-    // and still ahead of BoringSSL's session lookup.
-    if (res == ssl_select_cert_success && !bind_session_id_context_to_verify_scope(client_hello->ssl)) {
-      res = ssl_select_cert_error;
     }
 
     return res;

@@ -1046,6 +1046,7 @@ SSLNetVConnection::clear()
   sslLastWriteTime            = 0;
   sslTotalBytesSent           = 0;
   sslClientRenegotiationAbort = false;
+  _cert_selection_paused      = false;
   hookOpRequested             = SslVConnOp::SSL_HOOK_OP_DEFAULT;
 
   free_handshake_buffers();
@@ -1381,6 +1382,15 @@ SSLNetVConnection::sslServerHandShakeEvent(int &err)
     } // Still data in the BIO. Let OpenSSL consume that first before doing anything else.
   }
 
+  // The TLS library resumes a paused certificate selection through the SSL_CTX now in place, and only
+  // the default context has ATS's callbacks, so ssl_cert_callback() may not run again to do this.
+  if (this->_cert_selection_paused) {
+    this->_cert_selection_paused = false;
+    if (this->finished_cert_hooks() && !applySNISettingsAfterCertHooks(this->ssl, this)) {
+      return EVENT_ERROR;
+    }
+  }
+
   ssl_error_t ssl_error = this->_ssl_accept();
 #if TS_USE_TLS_ASYNC
   if (ssl_error == SSL_ERROR_WANT_ASYNC) {
@@ -1584,6 +1594,7 @@ SSLNetVConnection::sslServerHandShakeEvent(int &err)
       return EVENT_CONT;
     } else {
       //  Stopping for some other reason, perhaps loading certificate
+      this->_cert_selection_paused = true;
       return SSL_WAIT_FOR_HOOK;
     }
 #endif
