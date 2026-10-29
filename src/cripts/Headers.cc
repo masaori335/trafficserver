@@ -135,9 +135,9 @@ Header::String::operator=(const cripts::string_view str)
         tmp = TSMimeHdrFieldNextDup(_owner->_bufp, _owner->_hdr_loc, _field_loc);
         if (first) {
           first = false;
-          if (TS_SUCCESS == TSMimeHdrFieldValueStringSet(_owner->_bufp, _owner->_hdr_loc, _field_loc, -1, str.data(), str.size())) {
-            _owner->_state->context->p_instance.debug("Replacing header {} = {}", _name, str);
-          }
+          // A coalesce while setting the value can free the heap that str points into.
+          _owner->_state->context->p_instance.debug("Replacing header {} = {}", _name, str);
+          TSMimeHdrFieldValueStringSet(_owner->_bufp, _owner->_hdr_loc, _field_loc, -1, str.data(), str.size());
         } else {
           TSMimeHdrFieldDestroy(_owner->_bufp, _owner->_hdr_loc, _field_loc);
         }
@@ -147,11 +147,14 @@ Header::String::operator=(const cripts::string_view str)
     }
   } else {
     if (str.size() > 0) {
-      // Create a new header
+      // Naming the new field can coalesce the string heaps and free the one str points into.
+      std::string const value{str};
+
       _owner->_state->context->p_instance.debug("Adding header {} = {} ", _name, str);
 
       if (TS_SUCCESS == TSMimeHdrFieldCreateNamed(_owner->_bufp, _owner->_hdr_loc, _name.data(), _name.size(), &_field_loc)) {
-        if (TS_SUCCESS == TSMimeHdrFieldValueStringSet(_owner->_bufp, _owner->_hdr_loc, _field_loc, -1, str.data(), str.size())) {
+        if (TS_SUCCESS ==
+            TSMimeHdrFieldValueStringSet(_owner->_bufp, _owner->_hdr_loc, _field_loc, -1, value.data(), value.size())) {
           TSMimeHdrFieldAppend(_owner->_bufp, _owner->_hdr_loc, _field_loc);
         }
       }
@@ -205,13 +208,17 @@ Header::String::operator+=(const cripts::string_view str)
   _ensure_initialized(_owner);
   if (_field_loc) {
     if (!str.empty()) {
+      // Naming the new field can coalesce the string heaps and free the one str points into.
+      std::string const value{str};
+
       // Drop the old field loc for now ... ToDo: Oh well, we need to figure out how to handle multi-value headers better
       TSHandleMLocRelease(_owner->_bufp, _owner->_hdr_loc, _field_loc);
 
-      if (TS_SUCCESS == TSMimeHdrFieldCreateNamed(_owner->_bufp, _owner->_hdr_loc, _name.data(), _name.size(), &_field_loc)) {
-        if (TS_SUCCESS == TSMimeHdrFieldValueStringSet(_owner->_bufp, _owner->_hdr_loc, _field_loc, -1, str.data(), str.size())) {
-          _owner->_state->context->p_instance.debug("Appending header {} = {} ", _name, str);
+      _owner->_state->context->p_instance.debug("Appending header {} = {} ", _name, str);
 
+      if (TS_SUCCESS == TSMimeHdrFieldCreateNamed(_owner->_bufp, _owner->_hdr_loc, _name.data(), _name.size(), &_field_loc)) {
+        if (TS_SUCCESS ==
+            TSMimeHdrFieldValueStringSet(_owner->_bufp, _owner->_hdr_loc, _field_loc, -1, value.data(), value.size())) {
           TSMimeHdrFieldAppend(_owner->_bufp, _owner->_hdr_loc, _field_loc);
         }
       } // Nothing to append with an empty header, we don't allow that

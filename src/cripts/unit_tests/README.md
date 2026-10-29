@@ -57,6 +57,8 @@ the configure if that ever changes, because a static Catch2 would silently run n
 
 `main()` sets up the core, as `traffic_server` does before it loads plugins, and only then loads the cases:
 - There are no event threads, so `cmd_disable_pfreelist` keeps the allocators off the thread local free lists.
+  `ink_freelist_init_ops()` then puts the global allocators on malloc, as `traffic_server` does with that flag, so an
+  ASan build reports a read of a freed header heap.
 - The main thread is registered as an `EThread`, so `this_thread()` gives the cripts Context and continuation
   allocations a thread, as on a net thread.
 - `Diags` writes to stderr, so `TSWarning()`, `TSError()` and `TSFatal()` from the code under test print their

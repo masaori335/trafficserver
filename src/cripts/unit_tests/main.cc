@@ -26,6 +26,7 @@
 #include "proxy/hdrs/HTTP.h"
 #include "tscore/BaseLogFile.h"
 #include "tscore/Diags.h"
+#include "tscore/ink_queue.h"
 
 #include <catch2/catch_session.hpp>
 
@@ -37,10 +38,12 @@ extern int cmd_disable_pfreelist;
 int
 main(int argc, char *argv[])
 {
-  // No event threads, so keep the allocators off the thread local free lists. THREAD_ALLOC() and TSContCreate() still
-  // need a current thread.
+  // No event threads, so keep the allocators off the thread local free lists. As in traffic_server, that also puts the
+  // global allocators on malloc, so ASan sees a freed object.
   cmd_disable_pfreelist = true;
-  Thread *main_thread   = new EThread();
+  ink_freelist_init_ops(0, cmd_disable_pfreelist);
+  // THREAD_ALLOC() and TSContCreate() still need a current thread.
+  Thread *main_thread = new EThread();
   main_thread->set_specific();
   DiagsPtr::set(new Diags("test_cripts", "" /* tags */, "" /* actions */, new BaseLogFile("stderr")));
   http_init();

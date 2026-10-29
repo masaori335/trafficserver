@@ -148,6 +148,17 @@ public:
     using self_type  = String;
 
   public:
+    String() = default;
+
+    // Each String releases its field handle, so a copy would release it twice. Header::operator[] returns by moving.
+    String(const self_type &) = delete;
+
+    String(self_type &&other) noexcept
+      : super_type(other.GetSV()), _owner(other._owner), _field_loc(other._field_loc), _name(other._name)
+    {
+      other._field_loc = nullptr;
+    }
+
     ~String()
     {
       if (_field_loc) {
@@ -172,6 +183,13 @@ public:
     //}
 
     self_type &operator=(std::nullptr_t) = delete;
+
+    // The implicit copy-assign would alias the other field's TSMLoc, which both destructors then release.
+    self_type &
+    operator=(const self_type &other)
+    {
+      return operator=(other.GetSV());
+    }
 
     self_type &
     operator=(char const *str)

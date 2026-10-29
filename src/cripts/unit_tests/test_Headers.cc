@@ -19,6 +19,8 @@
 #include "CriptsTestTxn.h"
 
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 using cripts_test::str;
@@ -27,6 +29,19 @@ using cripts_test::Txn;
 namespace
 {
 constexpr std::string_view REQUEST = "GET /a HTTP/1.1\r\nHost: example.com\r\nX-Foo: bar\r\nX-Dup: 1\r\nX-Dup: 2\r\n\r\n";
+
+// HdrHeap.cc's limit on dead string space, which is file local there.
+constexpr int MAX_LOST_STR_SPACE = 1024;
+
+// Leaves more dead string space than MAX_LOST_STR_SPACE, so the next string allocation coalesces the string heaps and
+// frees the ones the fields were read from. Reading those afterwards is only caught by ASan.
+void
+lose_string_space(Txn &txn, auto &req)
+{
+  req["X-Junk"] = std::string(MAX_LOST_STR_SPACE + 1, 'x');
+  req["X-Junk"] = "";
+  REQUIRE(txn.sm().t_state.hdr_info.client_request.m_heap->m_lost_string_space > MAX_LOST_STR_SPACE);
+}
 } // namespace
 
 TEST_CASE("Header: read fields", "[cripts][Headers]")
@@ -113,6 +128,110 @@ TEST_CASE("Header: += adds another field line", "[cripts][Headers]")
 
   req["X-Other"] += "first";
   CHECK(txn.client_request_field("X-Other") == "first");
+}
+
+TEST_CASE("Header: assigning another field copies its value", "[cripts][Headers]")
+{
+  Txn  txn{REQUEST};
+  auto context = txn.context();
+
+  borrow req = cripts::Client::Request::Get();
+
+  req["X-New"] = req["X-Foo"];
+  CHECK(txn.client_request_field("X-New") == "bar");
+
+  req["X-Foo"] = req["Host"];
+  CHECK(txn.client_request_field("X-Foo") == "example.com");
+  CHECK(txn.client_request_field("Host") == "example.com");
+
+  req["X-New"] = req["X-Missing"];
+  CHECK(txn.client_request_field_count("X-New") == 0);
+}
+
+TEST_CASE("Header: assigning a field of another header copies its value", "[cripts][Headers]")
+{
+  Txn txn{REQUEST};
+
+  txn.set_server_response("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+
+  auto context = txn.context();
+
+  context->state.hook = TS_HTTP_READ_RESPONSE_HDR_HOOK;
+
+  borrow req  = cripts::Client::Request::Get();
+  borrow resp = cripts::Server::Response::Get();
+
+  resp["X-Copy"] = req["X-Foo"];
+
+  auto const *field = txn.sm().t_state.hdr_info.server_response.field_find("X-Copy"sv);
+
+  REQUIRE(field != nullptr);
+  CHECK(field->value_get() == "bar");
+  CHECK(txn.client_request_field("X-Foo") == "bar");
+}
+
+TEST_CASE("Header: assigning another field to a new one survives a heap coalesce", "[cripts][Headers]")
+{
+  Txn  txn{REQUEST};
+  auto context = txn.context();
+
+  borrow req = cripts::Client::Request::Get();
+
+  lose_string_space(txn, req);
+
+  req["X-New"] = req["X-Foo"];
+  CHECK(txn.client_request_field("X-New") == "bar");
+}
+
+TEST_CASE("Header: += another field survives a heap coalesce", "[cripts][Headers]")
+{
+  Txn  txn{REQUEST};
+  auto context = txn.context();
+
+  borrow req = cripts::Client::Request::Get();
+
+  lose_string_space(txn, req);
+
+  req["X-Dup"] += req["X-Foo"];
+
+  std::vector<std::string> values;
+
+  for (auto const *f = txn.sm().t_state.hdr_info.client_request.field_find("X-Dup"sv); f != nullptr; f = f->m_next_dup) {
+    values.emplace_back(f->value_get());
+  }
+  CHECK(values == std::vector<std::string>{"1", "2", "bar"});
+}
+
+// The set keeps its source heap alive while it copies, so replacing a field needs no copy of the value.
+TEST_CASE("Header: replacing a field with itself survives a heap coalesce", "[cripts][Headers]")
+{
+  Txn  txn{REQUEST};
+  auto context = txn.context();
+
+  borrow req = cripts::Client::Request::Get();
+
+  lose_string_space(txn, req);
+
+  req["X-Foo"] = req["X-Foo"];
+  CHECK(txn.client_request_field("X-Foo") == "bar");
+}
+
+static_assert(!std::is_copy_constructible_v<cripts::Header::String>);
+
+TEST_CASE("Header: a moved field releases its handle once", "[cripts][Headers]")
+{
+  Txn  txn{REQUEST};
+  auto context = txn.context();
+
+  borrow req = cripts::Client::Request::Get();
+
+  {
+    auto from = req["X-Foo"];
+    auto to   = std::move(from);
+
+    to = "baz";
+  }
+  CHECK(txn.client_request_field("X-Foo") == "baz");
 }
 
 TEST_CASE("Header: iterate over the field names", "[cripts][Headers]")
