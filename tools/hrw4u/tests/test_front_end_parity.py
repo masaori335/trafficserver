@@ -78,6 +78,10 @@ class CstBug(Enum):
     MISATTRIBUTES = auto()
     # Crashes with an internal exception where Sema reports the case's `sema_error`.
     CRASHES = auto()
+    # Rejects what Sema accepts and compiles to the case's `sema_conf`.
+    REJECTS = auto()
+    # Rejects it, as Sema does, but with another diagnostic than the case's `sema_error`.
+    MISREPORTS = auto()
 
 
 CST_BUGS = {"procedures/wrong-arity": CstBug.RAISES}
@@ -148,7 +152,14 @@ def test_front_ends_agree(input_file: Path, collect: bool) -> None:
     _assert_outcomes(old, new, collect=collect, cst_bug=CST_BUGS.get(_case_id(input_file)))
 
 
-def _assert_outcomes(old: Outcome, new: Outcome, *, collect: bool, cst_bug: CstBug | None, sema_error: str | None = None) -> None:
+def _assert_outcomes(
+        old: Outcome,
+        new: Outcome,
+        *,
+        collect: bool,
+        cst_bug: CstBug | None,
+        sema_error: str | None = None,
+        sema_conf: str | None = None) -> None:
     match cst_bug:
         case CstBug.RAISES if collect:
             _assert_collects_what_cst_raises(old, new)
@@ -158,6 +169,10 @@ def _assert_outcomes(old: Outcome, new: Outcome, *, collect: bool, cst_bug: CstB
             _assert_cst_misattributes(old, new)
         case CstBug.CRASHES:
             _assert_sema_reports_what_cst_crashes_on(old, new, sema_error)
+        case CstBug.REJECTS:
+            _assert_sema_accepts_what_cst_rejects(old, new, sema_conf)
+        case CstBug.MISREPORTS:
+            _assert_cst_misreports(old, new, sema_error)
         case _:
             _assert_agree(old, new, collect=collect)
 
@@ -206,6 +221,24 @@ def _assert_sema_reports_what_cst_crashes_on(old: Outcome, new: Outcome, message
     assert [e[3] for e in reported] == [message]
 
 
+def _assert_sema_accepts_what_cst_rejects(old: Outcome, new: Outcome, conf: str | None) -> None:
+    assert old.raised is not None or old.errors, "the CST emitter accepts it too; drop its CstBug"
+    assert (new.raised, new.errors) == (None, ())
+    assert _conf(new.lines) == conf
+
+
+def _assert_cst_misreports(old: Outcome, new: Outcome, message: str | None) -> None:
+    cst = old.errors[:1]
+    if old.raised is not None:
+        cst = (old.raised,)
+    sema = new.errors[:1]
+    if new.raised is not None:
+        sema = (new.raised,)
+    assert cst, "the CST emitter accepts it; this is not a MISREPORTS case"
+    assert [e[3] for e in sema] == [message]
+    assert [e[3] for e in cst] != [message], "the CST emitter reports it the same way; drop its CstBug"
+
+
 def _conf(lines: list[str] | None) -> str:
     # Stripped as the golden comparisons in utils.py strip it: a trailing blank line is not a difference.
     return "\n".join(lines or []).strip()
@@ -250,7 +283,8 @@ class Case:
     comments: bool = True
     procedure: str | None = None  # written to <tmp>/procs/syn/p.hrw4u, reachable as `use syn::p`
     cst_bug: CstBug | None = None
-    sema_error: str | None = None  # with CstBug.ACCEPTS or CstBug.CRASHES
+    sema_error: str | None = None  # with CstBug.ACCEPTS, CstBug.CRASHES or CstBug.MISREPORTS
+    sema_conf: str | None = None  # with CstBug.REJECTS
 
 
 SYNTHETIC = [
@@ -276,7 +310,10 @@ SYNTHETIC = [
         id="conflicting-substring-modifiers"),
     pytest.param(Case('REMAP {\n    if access("") {\n        set-debug();\n    }\n}\n'), id="function-with-an-empty-argument"),
     pytest.param(Case('REMAP {\n    inbound.req.X-A = 007;\n}\n'), id="number-with-a-leading-zero"),
-    pytest.param(Case('REMAP {\n    counter($nope);\n}\n'), id="param-ref-outside-a-procedure"),
+    # The CST emitter hands `$nope` to counter's validator, which calls it unquoted.
+    pytest.param(
+        Case('REMAP {\n    counter($nope);\n}\n', cst_bug=CstBug.MISREPORTS, sema_error="'$nope' used outside procedure context"),
+        id="param-ref-outside-a-procedure"),
     pytest.param(
         Case(
             'REMAP {\n    if inbound.req.Host == "a" && inbound.req.Host == "b" {\n        set-debug();\n    }\n}\n',
@@ -356,9 +393,42 @@ SYNTHETIC = [
             'use syn::p\nREMAP {\n    syn::p();\n}\n',
             procedure='procedure syn::p($a = "{inbound.req.Host}") {\n    inbound.req.X-A = $a;\n}\n'),
         id="string-default-is-not-interpolated"),
+    # The CST emitter substitutes a `$param` in a string only, so a bare one reaches the operator's validator.
     pytest.param(
-        Case('use syn::p\nREMAP {\n    syn::p("5");\n}\n', procedure='procedure syn::p($a) {\n    counter($a);\n}\n'),
+        Case(
+            'use syn::p\nREMAP {\n    syn::p("5");\n}\n',
+            procedure='procedure syn::p($a) {\n    counter($a);\n}\n',
+            cst_bug=CstBug.REJECTS,
+            sema_conf='cond %{REMAP_PSEUDO_HOOK} [AND]\n    counter "5"'),
         id="param-ref-as-an-operator-argument-in-a-procedure"),
+    pytest.param(
+        Case(
+            'use syn::p\nREMAP {\n    syn::p("b,d");\n}\n',
+            procedure='procedure syn::p($k) {\n    remove_query($k);\n}\n',
+            cst_bug=CstBug.REJECTS,
+            sema_conf='cond %{REMAP_PSEUDO_HOOK} [AND]\n    rm-destination QUERY "b,d"'),
+        id="param-ref-as-a-string-operator-argument-in-a-procedure"),
+    pytest.param(
+        Case(
+            'use syn::p\nREMAP {\n    syn::p(8);\n}\n',
+            procedure='procedure syn::p($a) {\n    if cidr($a, 64) == "10.0.0.0" {\n        inbound.req.X-A = "1";\n    }\n}\n',
+            cst_bug=CstBug.REJECTS,
+            sema_conf='cond %{REMAP_PSEUDO_HOOK} [AND]\ncond %{CIDR:8,64} ="10.0.0.0"\n    set-header X-A "1"'),
+        id="param-ref-as-a-condition-function-argument-in-a-procedure"),
+    pytest.param(Case('REMAP {\n    keep_query("{inbound.req.Host}");\n}\n'), id="braces-in-a-query-key-list"),
+    # A quoted argument stays quoted, so a validator that refuses quotes refuses it, as it would written in place.
+    pytest.param(
+        Case(
+            'use syn::p\nREMAP {\n    syn::p("8");\n}\n',
+            procedure='procedure syn::p($a) {\n    if cidr($a, 64) == "10.0.0.0" {\n        break;\n    }\n}\n'),
+        id="quoted-param-into-an-integer-argument"),
+    # http_header_name() takes `$` as a token character, so the CST emitter writes the name as `$typo`.
+    pytest.param(
+        Case(
+            'REMAP {\n    add-header($typo, "x");\n}\n',
+            cst_bug=CstBug.ACCEPTS,
+            sema_error="'$typo' used outside procedure context"),
+        id="unbound-param-ref-as-a-header-name"),
     pytest.param(
         Case('use syn::p\nREMAP {\n    # hi\n    syn::p();\n}\n', procedure='procedure syn::p() {\n    no-op();\n}\n'),
         id="leading-comment-before-a-procedure-call"),
@@ -449,4 +519,4 @@ def test_front_ends_agree_on_uncovered_constructs(case: Case, collect: bool, tmp
     old = _run("cst", tree, "<synthetic>", case.source, collect=collect, **kwargs)
     new = _run("sema", tree, "<synthetic>", case.source, collect=collect, **kwargs)
 
-    _assert_outcomes(old, new, collect=collect, cst_bug=case.cst_bug, sema_error=case.sema_error)
+    _assert_outcomes(old, new, collect=collect, cst_bug=case.cst_bug, sema_error=case.sema_error, sema_conf=case.sema_conf)

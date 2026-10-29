@@ -63,6 +63,9 @@ class ValidatorChain:
     def quoted_or_simple(self) -> 'ValidatorChain':
         return self._add(self._wrap_args(Validator.quoted_or_simple()))
 
+    def not_expanded(self) -> 'ValidatorChain':
+        return self._add(self._wrap_args(Validator.not_expanded()))
+
     def http_token(self) -> 'ValidatorChain':
         return self._add(self._wrap_args(Validator.http_token()))
 
@@ -154,6 +157,16 @@ class Validator:
                 return
             raise SymbolResolutionError(
                 value, "Value must be quoted unless it is a simple token (letters, digits, underscore, dash)")
+
+        return validator
+
+    @staticmethod
+    def not_expanded() -> Callable[[str], None]:
+        """Refuse a value interpolation reached: the operator takes its argument as written, so a `{...}` would be text."""
+
+        def validator(value: str) -> None:
+            if Validator._PERCENT_PATTERN.search(value):
+                raise SymbolResolutionError(value, "Value is taken as written, so it cannot interpolate '{...}' or hold '%{...}'")
 
         return validator
 

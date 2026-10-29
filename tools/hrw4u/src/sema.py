@@ -43,6 +43,13 @@ _VAR_SECTIONS = {
 _PARAM_REF = re.compile(r'\$([a-zA-Z_][a-zA-Z0-9_-]*)')
 
 
+def _quoted_params(sig: ProcEntry, call: ast.FunctionCall) -> frozenset[str]:
+    """The parameters a call binds to a string: a quoted argument, or a string default it leaves in place."""
+    quoted = {p.name for p, a in zip(sig.params, call.args) if isinstance(a, ast.LiteralStringValue)}
+    quoted |= {p.name for p in sig.params[len(call.args):] if isinstance(p.default, ast.LiteralStringValue)}
+    return frozenset(quoted)
+
+
 def _strip_quotes(text: str) -> str:
     if text.startswith('"') and text.endswith('"'):
         return text[1:-1]
@@ -414,7 +421,8 @@ class Sema:
         with self.trap(node.span):
             if '::' in node.name:
                 raise self.source_map.error_at(node.span, f"unknown procedure '{node.name}': not loaded via 'use'")
-            args = [self._value(a, node.span) for a in node.args]
+            # _operand: a `$param` still here is unbound, and validators such as a header name's would take its text.
+            args = [self._operand(a, node.span) for a in node.args]
             arg_texts = [ir.value_text(a) for a in args]
             key, entry = self.symbol_resolver.lookup_statement_function(node.name, arg_texts, self._section)
             self._drain_resolver_warnings(node.span)
@@ -441,7 +449,7 @@ class Sema:
             yield None
             return
 
-        body = tuple(self._substitute(node, bindings) for node in sig.body)
+        body = tuple(self._substitute(node, bindings, _quoted_params(sig, call)) for node in sig.body)
         self._proc_stack.append(call.name)
         try:
             yield body
@@ -479,7 +487,7 @@ class Sema:
             raise self._unbound_param(value.raw, value.span or span)
         return ir.value_text(self._value(value, span))
 
-    def _substitute(self, node: ast.BodyNode, bindings: dict[str, str]) -> ast.BodyNode:
+    def _substitute(self, node: ast.BodyNode, bindings: dict[str, str], quoted: frozenset[str]) -> ast.BodyNode:
 
         def sub_text(text: str) -> str:
             return _PARAM_REF.sub(lambda m: bindings.get(m.group(1), m.group(0)), text)
@@ -496,41 +504,53 @@ class Sema:
             # An unbound `$param` stays a ParamRef so the statement using it reports the error, in source order.
             return sub_string(value)
 
+        def sub_arg(value):
+            # A bare `$param` in a function argument stands for the argument as the caller wrote it: a string, as
+            # `"$param"` makes it, when the caller quoted it, and as it is otherwise.
+            if isinstance(value, ast.ParamRef) and value.raw in bindings:
+                if value.raw in quoted:
+                    return ast.LiteralStringValue(raw=bindings[value.raw], written=f"${value.raw}")
+                return ast.IdentValue(raw=bindings[value.raw])
+            return sub_string(value)
+
         # replace(), not a rebuild: a rebuilt node silently drops any field it does not name,
         # such as `else_span` or `modifier_span`, and the inlined copy then diagnoses differently.
         match node:
             case ast.Assignment():
                 return replace(node, value=sub_value(node.value))
-            case ast.FunctionCall() if self.procs.get(node.name) is not None:
-                return replace(node, args=tuple(sub_value(a) for a in node.args))
             case ast.FunctionCall():
-                # An operator argument keeps its raw `$name` for the validator to reject; only a
-                # string argument is substituted.
-                return replace(node, args=tuple(map(sub_string, node.args)))
+                return replace(node, args=tuple(map(sub_arg, node.args)))
             case ast.IfBlock():
                 return replace(
                     node,
-                    condition=self._substitute_cond(node.condition, sub_value),
-                    body=tuple(self._substitute(b, bindings) for b in node.body),
+                    condition=self._substitute_cond(node.condition, sub_value, sub_arg),
+                    body=tuple(self._substitute(b, bindings, quoted) for b in node.body),
                     elif_branches=tuple(
                         replace(
                             arm,
-                            condition=self._substitute_cond(arm.condition, sub_value),
-                            body=tuple(self._substitute(b, bindings) for b in arm.body)) for arm in node.elif_branches),
-                    else_body=tuple(self._substitute(b, bindings) for b in node.else_body))
+                            condition=self._substitute_cond(arm.condition, sub_value, sub_arg),
+                            body=tuple(self._substitute(b, bindings, quoted) for b in arm.body)) for arm in node.elif_branches),
+                    else_body=tuple(self._substitute(b, bindings, quoted) for b in node.else_body))
         return node
 
-    def _substitute_cond(self, node: ast.ConditionExpr, sub_value: Callable) -> ast.ConditionExpr:
+    def _substitute_cond(self, node: ast.ConditionExpr, sub_value: Callable, sub_arg: Callable) -> ast.ConditionExpr:
         match node:
             case ast.Comparison():
-                return replace(node, right=sub_value(node.right))
+                left = node.left
+                if isinstance(left, ast.FunctionCall):
+                    left = replace(left, args=tuple(map(sub_arg, left.args)))
+                return replace(node, left=left, right=sub_value(node.right))
+            case ast.FunctionCall():
+                return replace(node, args=tuple(map(sub_arg, node.args)))
             case ast.LogicalOp():
                 return replace(
-                    node, left=self._substitute_cond(node.left, sub_value), right=self._substitute_cond(node.right, sub_value))
+                    node,
+                    left=self._substitute_cond(node.left, sub_value, sub_arg),
+                    right=self._substitute_cond(node.right, sub_value, sub_arg))
             case ast.NotOp():
-                return replace(node, operand=self._substitute_cond(node.operand, sub_value))
+                return replace(node, operand=self._substitute_cond(node.operand, sub_value, sub_arg))
             case ast.Group():
-                return replace(node, inner=self._substitute_cond(node.inner, sub_value))
+                return replace(node, inner=self._substitute_cond(node.inner, sub_value, sub_arg))
         return node
 
     def _value(self, node, span: ast.Span) -> ir.RValue:
@@ -559,7 +579,7 @@ class Sema:
     def _source_text(self, node, span: ast.Span) -> str:
         if isinstance(node, ast.LiteralStringValue):
             return f'"{node.raw}"'
-        return ir.value_text(self._value(node, span))
+        return ir.value_text(self._operand(node, span))
 
     def _template(self, literal: ast.LiteralStringValue, span: ast.Span) -> ir.StrTemplate:
         inner = literal.raw
