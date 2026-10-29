@@ -97,12 +97,12 @@ if [ ! -z "$VARIATION" ]; then
     export GIT_TAG=bazinga/$VERSION/${VARIATION}.$BUILD_VERSION
 fi
 
-LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-boringssl-devel-${BORINGSSL_VERSION}
-LD_LIBRARY_PATH=/lib64 yum erase -d1 -y bazinga-openssl-devel
-
-# Temp remove fmt and install bazinga-fmt until build image updates
-yum remove -y fmt fmt-devel
-LD_LIBRARY_PATH=/lib64 yum install -d1 -y --disablerepo=\* --enablerepo=artifactory-ci bazinga-liburing-devel-${LIBURING_VERSION} bazinga-fmt-devel
+if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+    echo "Running on arm64"
+    ./apple/install_arm64_deps.sh
+else
+    BORINGSSL_VERSION=$BORINGSSL_VERSION LIBURING_VERSION=$LIBURING_VERSION ./apple/install_x86_deps.sh
+fi
 
 # copy user presets
 cp apple/CMakeUserPresets.json .

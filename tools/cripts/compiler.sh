@@ -31,11 +31,9 @@ if [[ "$(uname)" == "Darwin" ]]; then
     : ${CXXFLAGS:="-x c++ -std=c++20 -I/opt/homebrew/include -undefined dynamic_lookup"}
 else
     CXX="/opt/bazinga/bin/clang++ -fuse-ld=lld --ld-path=/opt/bazinga/bin/ld.lld"
-    # -Wno-deprecated-literal-operator: fmt/format.h (pulled in transitively via
-    # cripts/Preamble.hpp) declares its own deprecated UDL operators (operator"" _a,
-    # operator"" _format); clang 20 warns on that third-party header, and -Werror
-    # would otherwise turn it into a hard error for every Cript.
-    CXXFLAGS="-DNDEBUG -L/opt/bazinga/lib64 -x c++ -std=c++20 -O3 -shared -fPIE -fstack-protector -fno-omit-frame-pointer -flto=thin -stdlib=libc++ -fPIC -Wall -Werror -Wno-deprecated-literal-operator -g -gdwarf-4 -I${ATS_ROOT}/include -I/opt/bazinga/boringssl/include -L${ATS_ROOT}/lib/trafficserver -lcripts"
+    # Installed headers, fmt among them, are system headers so that -Werror
+    # applies to the script and not to warnings newer compilers find in them.
+    CXXFLAGS="-DNDEBUG -L/opt/bazinga/lib64 -x c++ -std=c++20 -O3 -shared -fPIE -fstack-protector -fno-omit-frame-pointer -flto=thin -stdlib=libc++ -fPIC -Wall -Werror -g -gdwarf-4 -isystem ${ATS_ROOT}/include -isystem /opt/bazinga/boringssl/include -L${ATS_ROOT}/lib/trafficserver -lcripts"
     LDFLAGS="-Wl,-z,relro -Wl,-z,now -L/opt/bazinga/lib64 -Wl,-rpath,/opt/bazinga/boringssl/lib64 -Wl,-rpath,/opt/bazinga/lib64 -stdlib=libc++ -L/opt/bazinga/lib/trafficserver -Wl,-rpath,/opt/bazinga/lib/trafficserver -Wl,--build-id=sha1"
 fi
 

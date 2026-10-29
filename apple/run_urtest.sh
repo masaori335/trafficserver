@@ -41,9 +41,15 @@ cd build-urtest/tests
 rm -rf $URTEST_SANDBOX
 mkdir -p $URTEST_SANDBOX $UV_CACHE_DIR
 chown bazinga:bazinga $URTEST_SANDBOX $UV_CACHE_DIR
-chmod a+rx /workspace
+# bazinga must be able to traverse the workspace to reach the build tree. A
+# bind-mounted local workspace cannot be chmod'ed.
+if [ "$RIO_BUILD_NUMBER" != "" ]; then
+    chmod a+rx /workspace
+fi
 chmod a+rx /workspace/build-urtest
 chmod a+rwx .
+# The relock below rewrites the root-owned copy of uv.lock as bazinga.
+chmod a+rw uv.lock
 
 # Some tests write generated data into the test directory
 chmod -R a+rwx /workspace/tests/uranium_tests
