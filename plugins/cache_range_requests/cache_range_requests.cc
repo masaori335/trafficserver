@@ -707,15 +707,15 @@ handle_cache_lookup_complete(TSHttpTxn txnp, txndata *const txn_state)
     // pull the identifier from the request header
     std::string_view rident(ristr, rilen);
     std::string_view rtag;
-    if (rident.substr(0, Etag.length()) == Etag) {
+    if (rident.size() > Etag.length() && rident.starts_with(Etag)) {
       DEBUG_LOG("Etag identifier provided in '%.*s'", rilen, ristr);
       rtag   = Etag;
       rident = rident.substr(Etag.length() + 1);
-    } else if (rident.substr(0, LastModified.length()) == LastModified) {
+    } else if (rident.size() > LastModified.length() && rident.starts_with(LastModified)) {
       DEBUG_LOG("Last-Modified indentifier provided in '%.*s'", rilen, ristr);
       rtag   = LastModified;
       rident = rident.substr(LastModified.length() + 1);
-    } else if (rident.substr(0, Stale.length()) == Stale) {
+    } else if (rident.starts_with(Stale)) {
       // note tag isn't set here
       if (TS_CACHE_LOOKUP_HIT_FRESH == cachestat) {
         TSHttpTxnCacheLookupStatusSet(txnp, TS_CACHE_LOOKUP_HIT_STALE);

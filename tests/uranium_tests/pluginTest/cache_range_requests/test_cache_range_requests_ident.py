@@ -173,3 +173,6 @@ def test_cache_range_requests_ident(ats_factory: ATSFactory, services: ServiceFa
     request("ident", "fresh", "hit-stale", "Stale", _ats=_ats, _curl=_curl)
     request("identheader", "custom", "miss", _ats=_ats, _curl=_curl)
     request("identheader", "custom", "hit-fresh", "Etag foo", _ats=_ats, _curl=_curl)
+    # A tag with no identifier after it is ignored.
+    request("ident", "fresh", "hit-fresh", "Etag", _ats=_ats, _curl=_curl)
+    request("ident", "fresh", "hit-fresh", "Last-Modified", _ats=_ats, _curl=_curl)
