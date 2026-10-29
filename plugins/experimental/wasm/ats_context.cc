@@ -901,20 +901,18 @@ Context::getProperty(std::string_view path, std::string *result)
       return WasmResult::Ok;
     }
     const char *ssl_protocol = "-";
-    TSHttpSsn   ssnp         = TSHttpTxnSsnGet(txnp_);
-    TSVConn     server_conn  = TSHttpSsnServerVConnGet(ssnp);
+    TSVConn     server_conn  = TSHttpTxnServerVConnGet(txnp_);
 
-    if (TSVConnIsSsl(server_conn) != 0) {
+    if (server_conn != nullptr && TSVConnIsSsl(server_conn) != 0) {
       ssl_protocol = TSVConnSslProtocolGet(server_conn);
     }
 
     result->assign(ssl_protocol);
     return WasmResult::Ok;
   } else if (path.substr(0, p_upstream_subject_local_certificate.size()) == p_upstream_subject_local_certificate) {
-    TSHttpSsn ssnp        = txnp_ != nullptr ? TSHttpTxnSsnGet(txnp_) : nullptr;
-    TSVConn   client_conn = ssnp != nullptr ? TSHttpSsnServerVConnGet(ssnp) : nullptr;
-    SSL      *ssl         = client_conn != nullptr ? reinterpret_cast<SSL *>(TSVConnSslConnectionGet(client_conn)) : nullptr;
-    X509     *cert        = ssl != nullptr ? SSL_get_certificate(ssl) : nullptr;
+    TSVConn server_conn = txnp_ != nullptr ? TSHttpTxnServerVConnGet(txnp_) : nullptr;
+    SSL    *ssl         = server_conn != nullptr ? reinterpret_cast<SSL *>(TSVConnSslConnectionGet(server_conn)) : nullptr;
+    X509   *cert        = ssl != nullptr ? SSL_get_certificate(ssl) : nullptr;
 
     if (cert != nullptr) {
       print_certificate(result, X509_get_subject_name(cert));
@@ -923,10 +921,9 @@ Context::getProperty(std::string_view path, std::string *result)
     }
     return WasmResult::Ok;
   } else if (path.substr(0, p_upstream_subject_peer_certificate.size()) == p_upstream_subject_peer_certificate) {
-    TSHttpSsn ssnp        = txnp_ != nullptr ? TSHttpTxnSsnGet(txnp_) : nullptr;
-    TSVConn   client_conn = ssnp != nullptr ? TSHttpSsnServerVConnGet(ssnp) : nullptr;
-    SSL      *ssl         = client_conn != nullptr ? reinterpret_cast<SSL *>(TSVConnSslConnectionGet(client_conn)) : nullptr;
-    X509     *cert        = nullptr;
+    TSVConn server_conn = txnp_ != nullptr ? TSHttpTxnServerVConnGet(txnp_) : nullptr;
+    SSL    *ssl         = server_conn != nullptr ? reinterpret_cast<SSL *>(TSVConnSslConnectionGet(server_conn)) : nullptr;
+    X509   *cert        = nullptr;
 
     if (ssl != nullptr) {
 #ifdef OPENSSL_IS_AT_LEAST_OPENSSL3
@@ -943,10 +940,9 @@ Context::getProperty(std::string_view path, std::string *result)
     }
     return WasmResult::Ok;
   } else if (path.substr(0, p_upstream_dns_san_local_certificate.size()) == p_upstream_dns_san_local_certificate) {
-    TSHttpSsn ssnp        = txnp_ != nullptr ? TSHttpTxnSsnGet(txnp_) : nullptr;
-    TSVConn   client_conn = ssnp != nullptr ? TSHttpSsnServerVConnGet(ssnp) : nullptr;
-    SSL      *ssl         = client_conn != nullptr ? reinterpret_cast<SSL *>(TSVConnSslConnectionGet(client_conn)) : nullptr;
-    X509     *cert        = ssl != nullptr ? SSL_get_certificate(ssl) : nullptr;
+    TSVConn server_conn = txnp_ != nullptr ? TSHttpTxnServerVConnGet(txnp_) : nullptr;
+    SSL    *ssl         = server_conn != nullptr ? reinterpret_cast<SSL *>(TSVConnSslConnectionGet(server_conn)) : nullptr;
+    X509   *cert        = ssl != nullptr ? SSL_get_certificate(ssl) : nullptr;
 
     if (cert != nullptr) {
       print_san_certificate(result, cert, GEN_DNS);
@@ -955,10 +951,9 @@ Context::getProperty(std::string_view path, std::string *result)
     }
     return WasmResult::Ok;
   } else if (path.substr(0, p_upstream_dns_san_peer_certificate.size()) == p_upstream_dns_san_peer_certificate) {
-    TSHttpSsn ssnp        = txnp_ != nullptr ? TSHttpTxnSsnGet(txnp_) : nullptr;
-    TSVConn   client_conn = ssnp != nullptr ? TSHttpSsnServerVConnGet(ssnp) : nullptr;
-    SSL      *ssl         = client_conn != nullptr ? reinterpret_cast<SSL *>(TSVConnSslConnectionGet(client_conn)) : nullptr;
-    X509     *cert        = nullptr;
+    TSVConn server_conn = txnp_ != nullptr ? TSHttpTxnServerVConnGet(txnp_) : nullptr;
+    SSL    *ssl         = server_conn != nullptr ? reinterpret_cast<SSL *>(TSVConnSslConnectionGet(server_conn)) : nullptr;
+    X509   *cert        = nullptr;
 
     if (ssl != nullptr) {
 #ifdef OPENSSL_IS_AT_LEAST_OPENSSL3
@@ -975,10 +970,9 @@ Context::getProperty(std::string_view path, std::string *result)
     }
     return WasmResult::Ok;
   } else if (path.substr(0, p_upstream_uri_san_local_certificate.size()) == p_upstream_uri_san_local_certificate) {
-    TSHttpSsn ssnp        = txnp_ != nullptr ? TSHttpTxnSsnGet(txnp_) : nullptr;
-    TSVConn   client_conn = ssnp != nullptr ? TSHttpSsnServerVConnGet(ssnp) : nullptr;
-    SSL      *ssl         = client_conn != nullptr ? reinterpret_cast<SSL *>(TSVConnSslConnectionGet(client_conn)) : nullptr;
-    X509     *cert        = ssl != nullptr ? SSL_get_certificate(ssl) : nullptr;
+    TSVConn server_conn = txnp_ != nullptr ? TSHttpTxnServerVConnGet(txnp_) : nullptr;
+    SSL    *ssl         = server_conn != nullptr ? reinterpret_cast<SSL *>(TSVConnSslConnectionGet(server_conn)) : nullptr;
+    X509   *cert        = ssl != nullptr ? SSL_get_certificate(ssl) : nullptr;
 
     if (cert != nullptr) {
       print_san_certificate(result, cert, GEN_URI);
@@ -987,10 +981,9 @@ Context::getProperty(std::string_view path, std::string *result)
     }
     return WasmResult::Ok;
   } else if (path.substr(0, p_upstream_uri_san_peer_certificate.size()) == p_upstream_uri_san_peer_certificate) {
-    TSHttpSsn ssnp        = txnp_ != nullptr ? TSHttpTxnSsnGet(txnp_) : nullptr;
-    TSVConn   client_conn = ssnp != nullptr ? TSHttpSsnServerVConnGet(ssnp) : nullptr;
-    SSL      *ssl         = client_conn != nullptr ? reinterpret_cast<SSL *>(TSVConnSslConnectionGet(client_conn)) : nullptr;
-    X509     *cert        = nullptr;
+    TSVConn server_conn = txnp_ != nullptr ? TSHttpTxnServerVConnGet(txnp_) : nullptr;
+    SSL    *ssl         = server_conn != nullptr ? reinterpret_cast<SSL *>(TSVConnSslConnectionGet(server_conn)) : nullptr;
+    X509   *cert        = nullptr;
 
     if (ssl != nullptr) {
 #ifdef OPENSSL_IS_AT_LEAST_OPENSSL3
