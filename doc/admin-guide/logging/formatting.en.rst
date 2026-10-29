@@ -44,7 +44,7 @@ information). It may also contain an optional ``escape`` attribute defining the
 escape of log fields. Possible values for ``escape`` are ``json``, ``hex``, or
 ``none``. ``hex`` writes the bytes below ``0x20``, ``"``, ``\`` and the bytes
 ``0x7f`` and above as ``\xHH``. When ``escape`` is not specified, the fields
-whose values are supplied by a peer (``ppa``, ``pptc``, ``pptv`` and ``pptg``)
+whose values are supplied by a peer (``cssn``, ``ppa``, ``pptc``, ``pptv`` and ``pptg``)
 are escaped as if ``hex`` were specified, and the other fields are written as
 they are. Specify ``escape: none`` to write these fields as they are. ``escape``
 applies when a log is written as text, so a binary log keeps the original bytes,

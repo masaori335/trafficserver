@@ -462,7 +462,7 @@ Log::init_fields()
     new LogField("cache_key_hash", "ckh", LogField::Type::STRING, &LogAccess::marshal_cache_key_hash, &LogAccess::unmarshal_str));
 
   register_field(new LogField("client_sni_server_name", "cssn", LogField::Type::STRING, &LogAccess::marshal_client_sni_server_name,
-                              &LogAccess::unmarshal_str));
+                              &LogAccess::unmarshal_str_untrusted));
 
   register_field(new LogField("client_ssl_cert_provided", "cscert", LogField::Type::sINT, &LogAccess::marshal_client_provided_cert,
                               &LogAccess::unmarshal_int_to_str));
