@@ -141,6 +141,31 @@ on the right hand side during evaluation ::
     matched by the regular expression, not to the entire string that
     the regular expression was matched against.
 
+.. important::
+
+    Always place a ``/`` before a capture substitution that follows the host
+    or port in the rewritten URL. Write ``http://backend:8080/$1``, not
+    ``http://backend:8080$1``. In the second form the captured text is joined
+    directly to the authority, so a request whose capture begins with ``@``
+    (for example ``/api@evil.example/path`` matched by ``^/api(.*)``) would
+    re-parse as ``http://backend:8080@evil.example/path``, making the
+    operator's origin the userinfo and the client's text the origin host.
+
+    The plugin refuses a substituted URL whose authority contains more ``@``
+    characters than the rule's own substitution writes there, and returns
+    ``403`` for that request. A substituted URL that cannot be parsed returns
+    ``500`` instead. That is what happens when a capture adds an ``@`` to a
+    rule that already writes a user name, such as
+    ``http://user:pass@backend$1``.
+
+    A rule that places a substitution before an ``@`` in the authority, such
+    as ``http://user$1@backend/``, writes request text into the userinfo and
+    fails to load with a ``Regex compile failed`` error.
+
+    This check covers only the ``@`` delimiter. A capture joined directly to
+    the authority can still change the destination host or port in other
+    ways, so the leading ``/`` is the only safe way to write such a rule.
+
 You can also provide options, similar to how you configure your
 remap.config. The following options are available ::
 
@@ -182,6 +207,23 @@ as a redirect (Location:).
 You can also combine multiple options, including overridable configs ::
 
     ^/(.*)?$            https://example.com/sitemaps/$1 @proxy.config.url_remap.pristine_host_hdr=0 @status=301
+
+Metrics
+~~~~~~~
+
+The plugin creates one counter, shared by every remap rule that loads it.
+
+=========================================== ==================================================
+Metric                                      Description
+=========================================== ==================================================
+``plugin.regex_remap.userinfo_refused``     Requests refused with ``403`` because a
+                                            substitution added an ``@`` to the authority of
+                                            the rewritten URL.
+=========================================== ==================================================
+
+View it with ``traffic_ctl metric get plugin.regex_remap.userinfo_refused``.
+The error logged for these refusals is throttled, so the counter is the
+reliable way to see how often they happen.
 
 Examples
 ~~~~~~~~

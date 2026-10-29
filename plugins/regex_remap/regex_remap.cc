@@ -37,6 +37,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <cctype>
 #include <memory>
 #include <mutex>
@@ -45,6 +46,7 @@
 #include <vector>
 
 // Get some specific stuff from libts, yes, we can do that now that we build inside the core.
+#include "tscore/Diags.h"
 #include "tscore/ink_platform.h"
 #include "tscore/ink_atomic.h"
 #include "tscore/ink_time.h"
@@ -73,6 +75,47 @@ enum ExtraSubstitutions {
 };
 
 static DbgCtl dbg_ctl{PLUGIN_NAME};
+
+static constexpr char USERINFO_REFUSED_STAT[] = "plugin.regex_remap.userinfo_refused";
+static int            userinfo_refused_stat   = -1;
+
+// Locates the authority the same way url_parse() does.
+static std::string_view
+authority_of(std::string_view url)
+{
+  auto const first = url.find_first_not_of(' ');
+
+  if (first == std::string_view::npos || url[first] == '/') {
+    return {};
+  }
+  url.remove_prefix(first);
+
+  if (auto const colon = url.find(':'); colon != std::string_view::npos && url.substr(colon, 3) == "://") {
+    url.remove_prefix(colon + 3);
+  }
+
+  return url.substr(0, url.find_first_of("/?#"));
+}
+
+static size_t
+authority_at_count(std::string_view url)
+{
+  auto const authority = authority_of(url);
+
+  return std::count(authority.begin(), authority.end(), '@');
+}
+
+static bool
+url_has_userinfo(TSMBuffer bufp, TSMLoc url)
+{
+  int user_len     = 0;
+  int password_len = 0;
+
+  TSUrlUserGet(bufp, url, &user_len);
+  TSUrlPasswordGet(bufp, url, &password_len);
+
+  return user_len > 0 || password_len > 0;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // Class holding one request URL's component, to simplify the code and
@@ -214,6 +257,11 @@ public:
   {
     return _lowercase_substitutions;
   }
+  inline size_t
+  subst_at_count() const
+  {
+    return _subst_at_count;
+  }
   inline bool
   has_strategy() const
   {
@@ -241,12 +289,13 @@ public:
   }
 
 private:
-  char *_rex_string              = nullptr;
-  char *_subst                   = nullptr;
-  int   _subst_len               = 0;
-  int   _num_subs                = -1;
-  int   _options                 = 0;
-  bool  _lowercase_substitutions = false;
+  char  *_rex_string              = nullptr;
+  char  *_subst                   = nullptr;
+  int    _subst_len               = 0;
+  int    _num_subs                = -1;
+  int    _options                 = 0;
+  bool   _lowercase_substitutions = false;
+  size_t _subst_at_count          = 0;
 
   Regex        _rex;
   TSHttpStatus _status = static_cast<TSHttpStatus>(0);
@@ -448,6 +497,27 @@ RemapRegex::compile(std::string &error, int &erroffset)
       ++str;
     }
   }
+
+  // A capture in the userinfo can end the authority early with '/', '?' or '#', which the '@' count can't detect.
+  if (_subst != nullptr) {
+    std::string_view const subst{_subst, static_cast<size_t>(_subst_len)};
+    auto const             authority = authority_of(subst);
+
+    if (auto const last_at = authority.rfind('@'); last_at != std::string_view::npos) {
+      auto const start = static_cast<int>(authority.data() - subst.data());
+      auto const at    = start + static_cast<int>(last_at);
+
+      for (int i = 0; i < _num_subs; ++i) {
+        if (_sub_pos[i] >= start && _sub_pos[i] < at) {
+          error = "substitution before '@' in the authority lets a request choose the origin";
+          return -1;
+        }
+      }
+    }
+  }
+
+  _subst_at_count = _subst != nullptr ? authority_at_count({_subst, static_cast<size_t>(_subst_len)}) : 0;
+
   return 0;
 }
 
@@ -826,6 +896,11 @@ TSReturnCode
 TSRemapInit(TSRemapInterface *api_info, char *errbuf, int errbuf_size)
 {
   CHECK_REMAP_API_COMPATIBILITY(api_info, errbuf, errbuf_size);
+
+  if (TSStatFindName(USERINFO_REFUSED_STAT, &userinfo_refused_stat) == TS_ERROR) {
+    userinfo_refused_stat = TSStatCreate(USERINFO_REFUSED_STAT, TS_RECORDDATATYPE_INT, TS_STAT_NON_PERSISTENT, TS_STAT_SYNC_SUM);
+  }
+
   Dbg(dbg_ctl, "Plugin is successfully initialized");
   return TS_SUCCESS;
 }
@@ -1154,14 +1229,38 @@ TSRemapDoRemap(void *ih, TSHttpTxn txnp, TSRemapRequestInfo *rri)
           rri->redirect = 1;
         }
 
-        // Now parse the new URL, which can also be the redirect URL
+        // Parse into a scratch URL so a refused target never reaches the request URL.
         if (dest_len > 0) {
-          const char *start = dest.data();
+          const char *start   = dest.data();
+          TSMLoc      new_url = TS_NULL_MLOC;
 
-          // Setup the new URL
-          if (TS_PARSE_ERROR == TSUrlParse(rri->requestBufp, rri->requestUrl, &start, start + dest_len)) {
+          if (TS_SUCCESS != TSUrlCreate(rri->requestBufp, &new_url) ||
+              TS_PARSE_ERROR == TSUrlParse(rri->requestBufp, new_url, &start, start + dest_len)) {
+            rri->redirect = 0;
+            retval        = TSREMAP_NO_REMAP_STOP;
             TSHttpTxnStatusSet(txnp, TS_HTTP_STATUS_INTERNAL_SERVER_ERROR, PLUGIN_NAME);
-            TSError("[%s] can't parse substituted URL string", PLUGIN_NAME);
+            SiteThrottledError("[%s] can't parse substituted URL string", PLUGIN_NAME);
+          } else if (authority_at_count({dest.data(), static_cast<size_t>(dest_len)}) > re->subst_at_count() ||
+                     (re->subst_at_count() == 0 && url_has_userinfo(rri->requestBufp, new_url))) {
+            // A capture added an '@', letting the client pick the host. The string count also catches an '@' after an
+            // empty userinfo, which the parser accepts. Stop the chain so no later plugin can override the refusal.
+            rri->redirect = 0;
+            retval        = TSREMAP_NO_REMAP_STOP;
+            if (userinfo_refused_stat >= 0) {
+              TSStatIntIncrement(userinfo_refused_stat, 1);
+            }
+            TSHttpTxnStatusSet(txnp, TS_HTTP_STATUS_FORBIDDEN, PLUGIN_NAME);
+            SiteThrottledError("[%s] refusing substituted URL: capture injected userinfo into the authority", PLUGIN_NAME);
+            Dbg(dbg_ctl, "Blocked userinfo injection, substituted URL was `%.*s'", dest_len, dest.data());
+          } else if (TS_SUCCESS != TSUrlCopy(rri->requestBufp, rri->requestUrl, rri->requestBufp, new_url)) {
+            rri->redirect = 0;
+            retval        = TSREMAP_NO_REMAP_STOP;
+            TSHttpTxnStatusSet(txnp, TS_HTTP_STATUS_INTERNAL_SERVER_ERROR, PLUGIN_NAME);
+            TSError("[%s] can't set substituted URL", PLUGIN_NAME);
+          }
+
+          if (new_url != TS_NULL_MLOC) {
+            TSHandleMLocRelease(rri->requestBufp, TS_NULL_MLOC, new_url);
           }
         }
         break;
@@ -1169,8 +1268,9 @@ TSRemapDoRemap(void *ih, TSHttpTxn txnp, TSRemapRequestInfo *rri)
     } else if (match_result != -1) {
       ink_atomic_increment(&(ri->failures), 1);
       std::string const errmsg = Regex::get_error_string(match_result);
-      TSError(R"([%s] Bad regular expression result %d ("%s") from "%s" in file "%s".)", PLUGIN_NAME, match_result, errmsg.c_str(),
-              re->regex(), ri->filename.c_str());
+      SiteThrottledError(R"([%s] Bad regular expression result %d ("%s") from "%s" in file "%s".)", PLUGIN_NAME, match_result,
+                         errmsg.c_str(), re->regex(), ri->filename.c_str());
+      Dbg(dbg_ctl, R"(Regex match error %d ("%s") from "%s")", match_result, errmsg.c_str(), re->regex());
     }
   }
 

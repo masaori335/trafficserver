@@ -169,7 +169,8 @@ def run_matching_checks(*, _ats: ATS, _curl: Curl, _transactions: list[dict[str,
         output = _request(
             transaction["client-request"]["url"], transaction["client-request"]["headers"]["fields"][1][1], _ats=_ats, _curl=_curl)
         assert "HTTP/1.1 200 OK" in output and "uuid: 180" in output
-    wait_for_file_lines(_ats.diags_log, r"ERROR: .regex_remap. Bad regular expression result -47", 1)
+    wait_for_file_lines(_ats.diags_log, r"ERROR: .regex_remap. Bad regular expression result", 1)
+    wait_for_file_lines(_ats.traffic_out, r"\(regex_remap\) Regex match error -47", 1)
 
 
 def reload_rules(*, _ats: ATS) -> None:
