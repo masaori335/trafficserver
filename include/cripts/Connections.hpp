@@ -403,13 +403,6 @@ public:
     return _vc ? TSNetVConnRemoteAddrGet(_vc) : nullptr;
   }
 
-  [[nodiscard]] cripts::IP
-  IP()
-  {
-    _ensure_initialized(this);
-    return cripts::IP{Socket()};
-  }
-
   [[nodiscard]] bool
   Initialized() const
   {
@@ -429,6 +422,7 @@ public:
     return TSVConnIsSsl(_vc);
   }
 
+  [[nodiscard]] virtual cripts::IP IP()                   = 0;
   [[nodiscard]] virtual cripts::IP LocalIP() const        = 0;
   [[nodiscard]] virtual int        Count() const          = 0;
   virtual void                     SetDscp(int val) const = 0;
@@ -446,7 +440,6 @@ public:
   Reset()
   {
     _vc            = nullptr;
-    _socket        = nullptr;
     _initialized   = false;
     tls._tls       = nullptr;
     tls._not_tls   = false;
@@ -477,10 +470,9 @@ protected:
 
   void virtual _initialize() { _initialized = true; }
 
-  cripts::Transaction   *_state       = nullptr;
-  struct sockaddr const *_socket      = nullptr;
-  TSVConn                _vc          = nullptr;
-  bool                   _initialized = false;
+  cripts::Transaction *_state       = nullptr;
+  TSVConn              _vc          = nullptr;
+  bool                 _initialized = false;
 
 }; // End class ConnBase
 
@@ -516,6 +508,14 @@ namespace Client
     SetMark(int val) const override
     {
       TSHttpTxnClientPacketMarkSet(_state->txnp, val);
+    }
+
+    // The client address as the core reports it (%<chi>, ACLs): the PROXY protocol source on a port with pp-clnt.
+    // Read on each call: the session may have dropped its connection by TXN_CLOSE, and then this is not an address.
+    [[nodiscard]] cripts::IP
+    IP() override
+    {
+      return cripts::IP{TSHttpTxnClientAddrGet(_state->txnp)};
     }
 
     [[nodiscard]] cripts::IP
@@ -554,6 +554,13 @@ namespace Server
     SetMark(int val) const override
     {
       TSHttpTxnServerPacketMarkSet(_state->txnp, val);
+    }
+
+    [[nodiscard]] cripts::IP
+    IP() override
+    {
+      _ensure_initialized(this);
+      return cripts::IP{Socket()};
     }
 
     [[nodiscard]] cripts::IP

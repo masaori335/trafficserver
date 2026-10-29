@@ -142,10 +142,16 @@ IP::GetSV(unsigned ipv4_cidr, unsigned ipv6_cidr)
   return "";
 }
 
+// Starts from an empty endpoint: constructing one from an invalid address leaves its family unset.
 swoc::IPEndpoint
 IP::Socket() const
 {
-  return swoc::IPEndpoint{*this};
+  swoc::IPEndpoint ep;
+
+  if (is_valid()) {
+    ep.assign(*this);
+  }
+  return ep;
 }
 
 uint64_t
@@ -237,8 +243,7 @@ Client::Connection::_initialize()
   TSAssert(_state->ssnp);
   TSAssert(_state->txnp);
 
-  _vc     = TSHttpSsnClientVConnGet(_state->ssnp);
-  _socket = TSHttpTxnClientAddrGet(_state->txnp);
+  _vc = TSHttpSsnClientVConnGet(_state->ssnp);
   super_type::_initialize();
 }
 
@@ -272,8 +277,7 @@ Server::Connection::_initialize()
 {
   TSAssert(_state->txnp);
 
-  _vc     = TSHttpTxnServerVConnGet(_state->txnp);
-  _socket = TSHttpTxnServerAddrGet(_state->txnp);
+  _vc = TSHttpTxnServerVConnGet(_state->txnp);
   super_type::_initialize();
 }
 

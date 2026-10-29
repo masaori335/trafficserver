@@ -92,6 +92,11 @@ get_geo_string(const sockaddr *addr, Qualifiers q)
 cripts::string
 get_geo_string_from_ip(const cripts::IP &ip, Qualifiers q)
 {
+  // A client IP is not an address once the session has dropped its connection (TXN_CLOSE).
+  if (!ip.is_valid()) {
+    return "(unknown)";
+  }
+
   auto addr = ip.Socket();
   return get_geo_string(addr, q);
 }

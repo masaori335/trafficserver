@@ -224,6 +224,11 @@ Plugins
   than continuing; ``prefetch`` constrains relative paths; ``rate_limit`` no
   longer allows the queue to be bypassed.
 
+* Cripts: ``Client::Connection`` ``IP()`` returns the client address |TS| reports, the one ``%<chi>``
+  logs. On a port with ``pp-clnt`` that is the PROXY protocol source rather than the TCP peer, so a
+  cript's address checks and GEO lookups see the same client as the rest of |TS|. ``Socket()`` still
+  returns the TCP peer.
+
 * Regex rules that drive a security or routing decision can be required to match
   the whole subject. This is off by default. See
   :ts:cv:`proxy.config.regex.anchor_policy_rules` and

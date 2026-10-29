@@ -69,7 +69,8 @@ connections. These are:
 Method                    Description
 =======================   =========================================================================
 ``Count()``               The number of transactions processed on the connection so far.
-``IP()``                  The IP address of the connection.
+``IP()``                  The IP address of the peer. For the client, the address |TS| reports as the
+                          client's, as the ``%<chi>`` log field and :func:`TSHttpTxnClientAddrGet` do.
 ``LocalIP()``             The server (ATS) IP address of the connection.
 ``IsInternal()``          Returns ``true`` or ``false`` if the connection is internal to ATS.
 ``Socket()``              Returns the raw socket structure for the connection (use with care).
