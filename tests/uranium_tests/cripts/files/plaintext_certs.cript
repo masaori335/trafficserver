@@ -1,0 +1,35 @@
+/*
+  Licensed to the Apache Software Foundation (ASF) under one
+  or more contributor license agreements.  See the NOTICE file
+  distributed with this work for additional information
+  regarding copyright ownership.  The ASF licenses this file
+  to you under the Apache License, Version 2.0 (the
+  "License"); you may not use this file except in compliance
+  with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+// Reading certificates on a plaintext connection must give empty values. The
+// TLS library must never receive a NULL SSL object.
+
+#include <cripts/Preamble.hpp>
+
+do_send_response()
+{
+  borrow     conn = cripts::Client::Connection::Get();
+  borrow     resp = cripts::Client::Response::Get();
+  const auto cert = cripts::Certs::Server(conn);
+  const auto mtls = cripts::Certs::Client(conn);
+
+  resp["X-Plain-Server-Cert"] = cert.subject.GetSV().empty() ? "none" : "unexpected";
+  resp["X-Plain-Client-Cert"] = mtls.subject.GetSV().empty() ? "none" : "unexpected";
+}
+
+#include <cripts/Epilogue.hpp>

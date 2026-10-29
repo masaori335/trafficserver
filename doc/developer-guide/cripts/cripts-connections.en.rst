@@ -51,9 +51,11 @@ Connection Object                  Description
 ``cripts::Server::Connection``     The connection from ATS to parent or origin server.
 ================================   =========================================================================
 
-As usual, the ``cripts::Server::Connection`` object is only available assuming that the request
-is a forward proxy request, and you borrow it with the ``Get()`` method. On cache misses,
-there is no such connection.
+You borrow the ``cripts::Server::Connection`` object with the ``Get()`` method. It refers to a
+connection only after ATS has connected to the parent or origin server, for example in
+``do_send_request()`` and ``do_read_response()``. On a cache hit, and in hooks that run before ATS
+connects (such as ``do_remap()``), there is no such connection. Then ``IsTLS()`` returns ``false``,
+``Socket()`` returns ``nullptr``, and ``IP()`` returns an invalid address.
 
 .. _cripts-connections-methods:
 

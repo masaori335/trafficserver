@@ -350,7 +350,7 @@ class ConnBase
 
       _ensure_initialized(_owner);
       if (!_tls) {
-        _tls = TSVConnSslConnectionGet(_owner->_vc);
+        _tls = _owner->_vc ? TSVConnSslConnectionGet(_owner->_vc) : nullptr;
         if (!_tls) [[unlikely]] {
           _not_tls = true;
         }
@@ -363,6 +363,10 @@ class ConnBase
     GetX509(bool mTLS = false)
     {
       auto conn = Connection();
+
+      if (!conn) {
+        return nullptr;
+      }
 
       if (mTLS) {
 #ifdef OPENSSL_IS_AT_LEAST_OPENSSL3
@@ -396,7 +400,7 @@ public:
   Socket()
   {
     _ensure_initialized(this);
-    return TSNetVConnRemoteAddrGet(_vc);
+    return _vc ? TSNetVConnRemoteAddrGet(_vc) : nullptr;
   }
 
   [[nodiscard]] cripts::IP
@@ -435,6 +439,18 @@ public:
   set_state(cripts::Transaction *state)
   {
     _state = state;
+  }
+
+  // Drop the cached connection, so that the next access looks it up again.
+  void
+  Reset()
+  {
+    _vc            = nullptr;
+    _socket        = nullptr;
+    _initialized   = false;
+    tls._tls       = nullptr;
+    tls._not_tls   = false;
+    tcpinfo._ready = false;
   }
 
   Dscp        dscp;

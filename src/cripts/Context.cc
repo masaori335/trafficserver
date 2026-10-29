@@ -61,6 +61,11 @@ Context::reset()
   if (_cache.url.Initialized()) {
     _cache.url.Reset();
   }
+
+  // The server connection can change between hooks, for example on a connect retry.
+  if (_server.connection.Initialized()) {
+    _server.connection.Reset();
+  }
 }
 
 Context *

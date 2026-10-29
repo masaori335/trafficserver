@@ -270,9 +270,9 @@ Server::Connection::_get(cripts::Context *context)
 void
 Server::Connection::_initialize()
 {
-  TSAssert(_state->ssnp);
+  TSAssert(_state->txnp);
 
-  _vc     = TSHttpSsnServerVConnGet(_state->ssnp);
+  _vc     = TSHttpTxnServerVConnGet(_state->txnp);
   _socket = TSHttpTxnServerAddrGet(_state->txnp);
   super_type::_initialize();
 }

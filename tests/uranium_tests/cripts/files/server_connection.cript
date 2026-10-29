@@ -1,0 +1,65 @@
+/*
+  Licensed to the Apache Software Foundation (ASF) under one
+  or more contributor license agreements.  See the NOTICE file
+  distributed with this work for additional information
+  regarding copyright ownership.  The ASF licenses this file
+  to you under the Apache License, Version 2.0 (the
+  "License"); you may not use this file except in compliance
+  with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+// cripts::Server::Connection must refer to the connection to the origin, not the client
+// connection. Reading it in do_remap(), before ATS connects, must not pin "no connection"
+// for the later hooks.
+
+#include <cripts/Preamble.hpp>
+
+static int
+remote_port(sockaddr const *addr)
+{
+  if (addr == nullptr) {
+    return -1;
+  }
+  if (addr->sa_family == AF_INET) {
+    return ntohs(reinterpret_cast<sockaddr_in const *>(addr)->sin_port);
+  }
+  if (addr->sa_family == AF_INET6) {
+    return ntohs(reinterpret_cast<sockaddr_in6 const *>(addr)->sin6_port);
+  }
+  return -1;
+}
+
+do_remap()
+{
+  borrow server = cripts::Server::Connection::Get();
+  borrow req    = cripts::Client::Request::Get();
+
+  req["X-Remap-Server-Conn"] = (server.Socket() == nullptr && !server.IsTLS()) ? "none" : "unexpected";
+}
+
+do_read_response()
+{
+  borrow server = cripts::Server::Connection::Get();
+  borrow client = cripts::Client::Connection::Get();
+  borrow resp   = cripts::Server::Response::Get();
+
+  auto const server_port = remote_port(server.Socket());
+
+  if (server_port < 0) {
+    resp["X-Server-Conn"] = "none";
+  } else if (server_port == remote_port(client.Socket())) {
+    resp["X-Server-Conn"] = "client";
+  } else {
+    resp["X-Server-Conn"] = "origin";
+  }
+}
+
+#include <cripts/Epilogue.hpp>
