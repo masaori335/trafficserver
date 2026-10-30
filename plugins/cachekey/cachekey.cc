@@ -371,7 +371,16 @@ CacheKey::appendPrefix(const String &prefix, Pattern &prefixCapture, Pattern &pr
       StringVector captures;
       if (prefixCaptureUri.process(uri, captures)) {
         for (auto &capture : captures) {
-          append(capture, /* useSeparator */ !canonicalPrefix);
+          if (canonicalPrefix) {
+            /* Captures here come from the raw URI (getUri -> TSUrlStringGet), whose host bytes are
+             * not encoded, unlike the host:port source used above. Appended verbatim a host '%2f'
+             * would decode back to '/' in the hashed key and collide with a different host. Encode
+             * the capture; the escape table leaves '://' and '/' intact so the authority structure
+             * survives. */
+            ::appendEncoded(_key, capture.data(), capture.size());
+          } else {
+            append(capture, /* useSeparator */ true);
+          }
         }
         CacheKeyDebug("added URI capture prefix, key: '%s'", _key.c_str());
       }
