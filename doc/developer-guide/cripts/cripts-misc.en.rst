@@ -95,13 +95,13 @@ When disabling a callback, use the following names:
 ========================================   =========================================================
 Callback                                   Description
 ========================================   =========================================================
-``cripts::Callback::DO_REMAP``             The ``do_remap()`` hook.
-``cripts::Callback::DO_POST_REMAP``        The ``do_post_remap()`` hook.
-``cripts::Callback::DO_SEND_RESPONSE``     The ``do_send_response()`` hook.
-``cripts::Callback::DO_CACHE_LOOKUP``      The ``do_cache_lookup()`` hook.
-``cripts::Callback::DO_SEND_REQUEST``      The ``do_send_request()`` hook.
-``cripts::Callback::DO_READ_RESPONSE``     The ``do_read_response()`` hook.
-``cripts::Callback::DO_TXN_CLOSE``         The ``do_txn_close()`` hook.
+``cripts::Callbacks::DO_REMAP``            The ``do_remap()`` hook.
+``cripts::Callbacks::DO_POST_REMAP``       The ``do_post_remap()`` hook.
+``cripts::Callbacks::DO_SEND_RESPONSE``    The ``do_send_response()`` hook.
+``cripts::Callbacks::DO_CACHE_LOOKUP``     The ``do_cache_lookup()`` hook.
+``cripts::Callbacks::DO_SEND_REQUEST``     The ``do_send_request()`` hook.
+``cripts::Callbacks::DO_READ_RESPONSE``    The ``do_read_response()`` hook.
+``cripts::Callbacks::DO_TXN_CLOSE``        The ``do_txn_close()`` hook.
 ========================================   =========================================================
 
 Finally, the ``transaction`` object also provides access to these ATS objects, which can be used
@@ -121,16 +121,17 @@ Example usage to turn off a particular hook conditionally:
 
    do_remap()
    {
-     static borrow req = cripts::Client::Request::Get();
+     borrow req = cripts::Client::Request::Get();
 
      if (req["X-Header"] == "yes") {
-       transaction.DisableCallback(cripts::Callback::DO_READ_RESPONSE);
+       transaction.DisableCallback(cripts::Callbacks::DO_READ_RESPONSE);
      }
    }
 
 .. note::
-    Disabling callbacks like this is an optimization, avoiding for the hook to be called at all.
-    It can be particularly useful when the decision to run the hook is made early in the Cript.
+    Disabling callbacks like this is an optimization. Disabled in ``do_remap()``, the hook is never
+    added to the transaction. Disabled in a later hook, the hook is already added, so ATS still calls
+    into the Cript, which only skips the disabled callback.
 
 .. _cripts-misc-txn-data:
 

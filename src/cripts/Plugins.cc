@@ -83,7 +83,15 @@ Plugin::Remap::Cleanup()
 void
 Plugin::Remap::_runRemap(cripts::Context *context)
 {
+  // Pending edits go in first, so the plugin sees them and the end-of-remap flush can't undo its changes.
+  if (context->_urls.request.Modified()) {
+    context->_urls.request._update();
+  }
+  if (context->_cache.url.Modified()) {
+    context->_cache.url._update();
+  }
   _plugin->doRemap(context->state.txnp, context->rri);
+  ++context->state.heap_writes; // The plugin may have rewritten the request, moving its heap
 }
 
 } // namespace cripts

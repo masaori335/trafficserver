@@ -18,6 +18,8 @@
 
 set -u
 
+export OPENSSL_INCLUDE_DIR="@OPENSSL_INCLUDE_DIR@" # For tools/cripts/compiler.sh
+
 configured_curl_uds="@CURL_UDS_FLAG@"
 curl_uds_argument=()
 if [ -n "${configured_curl_uds}" ]; then

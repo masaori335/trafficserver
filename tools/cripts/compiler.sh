@@ -37,6 +37,10 @@ else
     LDFLAGS="-Wl,-z,relro -Wl,-z,now -L/opt/bazinga/lib64 -Wl,-rpath,/opt/bazinga/boringssl/lib64 -Wl,-rpath,/opt/bazinga/lib64 -stdlib=libc++ -L/opt/bazinga/lib/trafficserver -Wl,-rpath,/opt/bazinga/lib/trafficserver -Wl,--build-id=sha1"
 fi
 
+# Cripts must compile against the OpenSSL headers ATS was built with, since some libcripts
+# signatures follow them. Searched before CXXFLAGS, which may hold another OpenSSL.
+: ${OPENSSL_INCLUDE_DIR:=""}
+
 # Probably don't need to change these ?
 STDFLAGS="-shared -fPIC -Wall -Werror -I${ATS_ROOT}/include -L${ATS_ROOT}/lib -lcripts"
 
@@ -90,7 +94,7 @@ if [ -d "$CACHE_DIR" ]; then
 fi
 
 # Compile the plugin
-${CXX} -v ${CXXFLAGS} ${LDFLAGS} -o "$DEST" "$SOURCE"
+${CXX} -v ${OPENSSL_INCLUDE_DIR:+"-I${OPENSSL_INCLUDE_DIR}"} ${CXXFLAGS} ${LDFLAGS} -o "$DEST" "$SOURCE"
 exit_code=$?
 
 if [ "$exit_code" -ne 0 ]; then

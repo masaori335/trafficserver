@@ -46,6 +46,7 @@ Header::Status &
 Header::Status::operator=(int status)
 {
   _ensure_initialized(_owner);
+  ++_owner->_state->heap_writes;
   _status = static_cast<TSHttpStatus>(status);
 
   switch (_owner->_state->hook) {
@@ -77,6 +78,7 @@ Header::Reason &
 Header::Reason::operator=(cripts::string_view reason)
 {
   _ensure_initialized(_owner);
+  ++_owner->_state->heap_writes;
   TSHttpHdrReasonSet(_owner->_bufp, _owner->_hdr_loc, reason.data(), reason.size());
   _owner->_state->context->p_instance.debug("Setting reason = {}", reason);
 
@@ -86,11 +88,15 @@ Header::Reason::operator=(cripts::string_view reason)
 Header::Body &
 Header::Body::operator=(cripts::string_view body)
 {
-  auto b = static_cast<char *>(TSmalloc(body.size() + 1));
+  char *b = nullptr;
 
   _ensure_initialized(_owner);
-  memcpy(b, body.data(), body.size());
-  b[body.size()] = '\0';
+  // HttpSM requires a non-null error body to be non-empty; nullptr means an empty body.
+  if (!body.empty()) {
+    b = static_cast<char *>(TSmalloc(body.size() + 1));
+    memcpy(b, body.data(), body.size());
+    b[body.size()] = '\0';
+  }
   TSHttpTxnErrorBodySet(_owner->_state->txnp, b, body.size(), nullptr);
 
   return *this;
@@ -114,6 +120,7 @@ Header::String &
 Header::String::operator=(const cripts::string_view str)
 {
   _ensure_initialized(_owner);
+  ++_owner->_state->heap_writes;
   if (_field_loc) {
     if (str.empty()) {
       TSMLoc tmp;
@@ -170,6 +177,7 @@ Header::String &
 Header::String::operator=(integer val)
 {
   _ensure_initialized(_owner);
+  ++_owner->_state->heap_writes;
   if (_field_loc) {
     TSMLoc tmp   = nullptr;
     bool   first = true;
@@ -206,6 +214,7 @@ Header::String &
 Header::String::operator+=(const cripts::string_view str)
 {
   _ensure_initialized(_owner);
+  ++_owner->_state->heap_writes;
   if (_field_loc) {
     if (!str.empty()) {
       // Naming the new field can coalesce the string heaps and free the one str points into.

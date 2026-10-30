@@ -100,7 +100,7 @@ if(BUILD_TESTING)
   # Only the core's headers: linking its libraries would give the module private copies of the core's globals.
   add_library(
     test_cripts_cases MODULE unit_tests/test_CacheGroup.cc unit_tests/test_Certs.cc unit_tests/test_Headers.cc
-                             unit_tests/test_Urls.cc
+                             unit_tests/test_Transaction.cc unit_tests/test_Urls.cc
   )
   target_include_directories(test_cripts_cases PRIVATE ${PROJECT_SOURCE_DIR}/include ${PROJECT_BINARY_DIR}/include)
   target_link_libraries(test_cripts_cases PRIVATE Catch2::Catch2 ts::cripts)

@@ -67,6 +67,10 @@ public:
   TSHttpHookID hook          = TS_HTTP_LAST_HOOK;
   uint32_t     enabled_hooks = 0; // Which hooks are enabled, other than the mandatory ones
 
+  // Bumped by every Cripts write or allocation in a header heap. Either can make the heap move its
+  // strings, so views cached before it are reloaded.
+  uint64_t heap_writes = 0;
+
   [[nodiscard]] bool
   Aborted() const
   {

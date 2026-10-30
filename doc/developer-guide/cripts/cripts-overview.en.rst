@@ -144,6 +144,11 @@ cache for the shared object files. This is useful for large setups with many Cri
 In fact, moving the compilation details to be separate from the ATS process is a good
 idea with a lot of flexibility for the user.
 
+.. note::
+
+   Compile Cripts against the same OpenSSL headers as ATS. :file:`tools/cripts/compiler.sh`
+   takes them from ``OPENSSL_INCLUDE_DIR``.
+
 .. _cripts-overview-names:
 
 Names

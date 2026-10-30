@@ -901,13 +901,15 @@ TSRemapDoRemap(void *ih, TSHttpTxn txnp, TSRemapRequestInfo *rri)
     }
   }
 
+  // A redirect's Location is the request URL, so its pending edits are flushed even on failure.
+  if (context->_urls.request.Modified()) {
+    context->_urls.request._update(); // Make sure any changes to the request URL is updated
+  }
+
   // Don't do the callbacks when we are in a failure state.
   if (!context->state.error.Failed()) {
     if (context->_cache.url.Modified()) {
       context->_cache.url._update(); // Make sure the cache-key gets updated, if modified
-    }
-    if (context->_urls.request.Modified()) {
-      context->_urls.request._update(); // Make sure any changes to the request URL is updated
     }
 
     if (context->state.enabled_hooks >= cripts::Callbacks::DO_POST_REMAP) {
@@ -949,6 +951,10 @@ TSRemapDoRemap(void *ih, TSHttpTxn txnp, TSRemapRequestInfo *rri)
   context->state.error.Execute(context);
 
   bool url_modified = context->_urls.request.Modified();
+
+  // The core's RRI is on its stack, but the headers and URLs it points at live for the transaction.
+  context->_rri_copy = *rri;
+  context->rri       = &context->_rri_copy;
 
   // For now, we always allocate the context, but a possible future optimization
   // could be to use stack allocation when there is only a do_remap() callback.

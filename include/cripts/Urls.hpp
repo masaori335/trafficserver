@@ -18,10 +18,10 @@
 #pragma once
 
 #include <algorithm>
+#include <deque>
 #include <memory>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 #include <concepts>
 
@@ -68,6 +68,7 @@ class Url
     Reset()
     {
       _data.clear();
+      _loaded = false;
     }
 
     cripts::string_view::const_pointer
@@ -108,100 +109,124 @@ class Url
 
     // This is not ideal, but best way I can think of for now to mixin the cripts::string_view mixin class
     // Remember to add things here when added to the Lulu.hpp file for the mixin class... :/
-    [[nodiscard]] constexpr cripts::string_view
-    substr(cripts::string_view::size_type pos = 0, cripts::string_view::size_type count = cripts::string_view::npos) const
+    // GetSV() first, since _data is only loaded on demand.
+    [[nodiscard]] cripts::string_view
+    substr(cripts::string_view::size_type pos = 0, cripts::string_view::size_type count = cripts::string_view::npos)
     {
+      GetSV();
       return _data.substr(pos, count);
     }
 
     void
     remove_prefix(cripts::string_view::size_type n)
     {
+      GetSV();
       _data.remove_prefix(n);
     }
 
     void
     remove_suffix(cripts::string_view::size_type n)
     {
+      GetSV();
       _data.remove_suffix(n);
     }
 
     cripts::string_view &
     ltrim(char c)
     {
+      GetSV();
       return _data.ltrim(c);
     }
 
     cripts::string_view &
     rtrim(char c)
     {
+      GetSV();
       return _data.rtrim(c);
     }
 
     cripts::string_view &
     trim(char c)
     {
+      GetSV();
       return _data.trim(c);
     }
 
     cripts::string_view &
     ltrim(const char *chars = " \t\r\n")
     {
+      GetSV();
       return _data.ltrim(chars);
     }
 
     cripts::string_view &
     rtrim(const char *chars = " \t\r\n")
     {
+      GetSV();
       return _data.rtrim(chars);
     }
 
     cripts::string_view &
     trim(const char *chars = " \t")
     {
+      GetSV();
       return _data.trim(chars);
     }
 
-    [[nodiscard]] constexpr char const *
-    data_end() const noexcept
+    [[nodiscard]] char const *
+    data_end()
     {
+      GetSV();
       return _data.data_end();
     }
 
     [[nodiscard]] bool
-    ends_with(cripts::string_view suffix) const
+    ends_with(cripts::string_view suffix)
     {
+      GetSV();
       return _data.ends_with(suffix);
     }
 
     [[nodiscard]] bool
-    starts_with(cripts::string_view const prefix) const
+    starts_with(cripts::string_view const prefix)
     {
+      GetSV();
       return _data.starts_with(prefix);
     }
 
-    [[nodiscard]] constexpr cripts::string_view::size_type
-    find(cripts::string_view const substr, cripts::string_view::size_type pos = 0) const
+    [[nodiscard]] cripts::string_view::size_type
+    find(cripts::string_view const substr, cripts::string_view::size_type pos = 0)
     {
+      GetSV();
       return _data.find(substr, pos);
     }
 
-    [[nodiscard]] constexpr cripts::string_view::size_type
-    rfind(cripts::string_view const substr, cripts::string_view::size_type pos = 0) const
+    [[nodiscard]] cripts::string_view::size_type
+    rfind(cripts::string_view const substr, cripts::string_view::size_type pos = 0)
     {
+      GetSV();
       return _data.rfind(substr, pos);
     }
 
-    [[nodiscard]] constexpr bool
-    contains(cripts::string_view const substr) const
+    [[nodiscard]] bool
+    contains(cripts::string_view const substr)
     {
+      GetSV();
       return (_data.find(substr) != _data.npos);
     }
 
   protected:
+    // A Cripts write since _data was loaded may have moved the header heap under it.
+    [[nodiscard]] bool
+    _moved() const
+    {
+      return _owner && _loaded && _generation != _owner->_heap_writes();
+    }
+
     mutable cripts::string_view _data;
-    Url                        *_owner  = nullptr;
-    bool                        _loaded = false;
+    Url                        *_owner      = nullptr;
+    uint64_t                    _generation = 0; // Transaction::heap_writes when _data was loaded
+    bool                        _loaded     = false;
 
   }; // End class Url::Component
 
@@ -256,7 +281,7 @@ public:
       uint32_t port   = 80;
       auto     result = std::from_chars(str.data(), str.data() + str.size(), port);
 
-      if (result.ec != std::errc::invalid_argument) {
+      if (result.ec != std::errc{} || result.ptr != str.data() + str.size() || port > 65535) {
         return *this;
       } else {
         return operator=(port);
@@ -335,10 +360,10 @@ public:
 
     using Component::Component;
 
-    // _state is deep-copied, but the segment `string_view`s (and Component::_owner) still
-    // reference the source URL. The copy's views dangle if the source URL's path is rewritten,
+    // _state is deep-copied, edits included, but unedited segment `string_view`s (and Component::_owner)
+    // still reference the source URL. The copy's views dangle if the source URL's path is rewritten,
     // and Flush()/operator= on the copy write back to the source URL via TSUrlPathSet.
-    Path(const self_type &o) : Component(o), _state(o._state ? std::make_unique<State>(*o._state) : nullptr) {}
+    Path(const self_type &o) : Component(o), _state(o._state ? std::make_unique<State>(*o._state) : nullptr) { _own_copy(); }
 
     self_type &
     operator=(const self_type &o)
@@ -347,6 +372,7 @@ public:
         auto new_state = o._state ? std::make_unique<State>(*o._state) : nullptr;
         Component::operator=(o);
         _state = std::move(new_state);
+        _own_copy();
       }
       return *this;
     }
@@ -364,11 +390,11 @@ public:
     void
     Erase(Segments::size_type ix)
     {
-      auto p = operator[](ix);
-
-      if (_state && ix < _state->segments.size()) {
-        _state->size -= p.size();
-        p.operator=("");
+      _parser();
+      CAssert(!_owner->ReadOnly()); // This can not be a read-only URL
+      if (ix < _state->segments.size()) {
+        _state->segments.erase(_state->segments.begin() + ix);
+        _detach();
       }
     }
 
@@ -395,14 +421,24 @@ public:
       }
     }
 
+    [[nodiscard]] bool
+    Modified() const
+    {
+      return _state && _state->modified;
+    }
+
   private:
-    void _parser();
+    void                _parser();
+    void                _detach();
+    void                _own_copy();
+    cripts::string_view _own(cripts::string_view str);
 
     struct State {
-      bool                      modified = false;
-      Segments                  segments; // Ordered list of path segments
-      cripts::string            storage;  // Used when recombining the segments into a full path
-      cripts::string::size_type size = 0; // Mostly a guestimate for managing storage
+      bool                       modified = false;
+      Segments                   segments; // Ordered list of path segments, empty ones included
+      std::deque<cripts::string> owned;    // Edited segments, so none points into a caller's string
+      cripts::string             storage;  // Used when recombining the segments into a full path
+      cripts::string::size_type  size = 0; // Mostly a guestimate for managing storage
     };
 
     State &
@@ -423,8 +459,12 @@ public:
     using super_type = Component;
     using self_type  = Query;
 
-    using OrderedParams = std::vector<cripts::string_view>;                             // Ordered parameter nmes
-    using HashParams    = std::unordered_map<cripts::string_view, cripts::string_view>; // Hash lookups
+    struct Param {
+      cripts::string_view key;
+      cripts::string_view value;
+      bool                has_value = false; // "k=v" or "k=", as opposed to a bare "k"
+    };
+    using Params = std::vector<Param>;
 
     class Parameter : public cripts::StringViewMixin<Parameter>
     {
@@ -486,8 +526,8 @@ public:
         _owner = owner;
       }
 
-      Query              *_owner = nullptr;
-      cripts::string_view _name;
+      Query         *_owner = nullptr;
+      cripts::string _name; // Owned, since a Parameter can outlive both the caller's key and the URL heap's
 
     }; // End class Url::Query::Parameter
 
@@ -504,10 +544,10 @@ public:
       _state->standalone = true;
     }
 
-    // _state is deep-copied, but the parameter `string_view`s (and Component::_owner) still
-    // reference the source URL. The copy's views dangle if the source URL's query is rewritten,
+    // _state is deep-copied, edits included, but unedited parameter `string_view`s (and Component::_owner)
+    // still reference the source URL. The copy's views dangle if the source URL's query is rewritten,
     // and Flush()/operator= on the copy write back to the source URL via TSUrlHttpQuerySet.
-    Query(const self_type &o) : Component(o), _state(o._state ? std::make_unique<State>(*o._state) : nullptr) {}
+    Query(const self_type &o) : Component(o), _state(o._state ? std::make_unique<State>(*o._state) : nullptr) { _own_copy(); }
 
     self_type &
     operator=(const self_type &o)
@@ -516,6 +556,7 @@ public:
         auto new_state = o._state ? std::make_unique<State>(*o._state) : nullptr;
         Component::operator=(o);
         _state = std::move(new_state);
+        _own_copy();
       }
       return *this;
     }
@@ -556,11 +597,10 @@ public:
     void
     Sort()
     {
-      // Make sure the hash and vector are populated
       _parser();
 
-      std::ranges::sort(_state->ordered);
-      _state->modified = true;
+      _detach();
+      std::stable_sort(_state->params.begin(), _state->params.end(), [](const Param &a, const Param &b) { return a.key < b.key; });
     }
 
     void
@@ -571,16 +611,25 @@ public:
       }
     }
 
+    [[nodiscard]] bool
+    Modified() const
+    {
+      return _state && _state->modified;
+    }
+
   private:
-    void _parser();
+    void                _parser();
+    void                _detach();
+    void                _own_copy();
+    cripts::string_view _own(cripts::string_view str);
 
     struct State {
-      bool                      modified   = false;
-      bool                      standalone = false; // This component is used outside of a URL owner, not common
-      OrderedParams             ordered;            // Ordered vector of all parameters, can be sorted etc.
-      HashParams                hashed;             // Unordered map to go from "name" to the query parameter
-      cripts::string            storage;            // Used when recombining the query params into a full query string
-      cripts::string::size_type size = 0;           // Mostly a guesttimate
+      bool                       modified   = false;
+      bool                       standalone = false; // This component is used outside of a URL owner, not common
+      Params                     params;             // In query order, repeated keys included; can be sorted etc.
+      std::deque<cripts::string> owned;              // Edited keys and values, so none points into a caller's string
+      cripts::string             storage;            // Used when recombining the query params into a full query string
+      cripts::string::size_type  size = 0;           // Mostly a guesttimate
     };
 
     State &
@@ -610,8 +659,7 @@ public:
       _urlp = nullptr;
       _bufp = nullptr;
 
-      query.Reset();
-      path.Reset();
+      _reset_components();
     }
     _initialized = false;
     _modified    = false;
@@ -626,7 +674,7 @@ public:
   [[nodiscard]] bool
   Modified() const
   {
-    return _modified;
+    return _modified || path.Modified() || query.Modified();
   }
 
   [[nodiscard]] TSMLoc
@@ -671,6 +719,20 @@ protected:
   {
     _initialized = true;
     _modified    = false;
+  }
+
+  [[nodiscard]] uint64_t _heap_writes() const;
+  void                   _wrote();
+
+  // The components cache views into the URL's heap, which can change or move between hooks.
+  void
+  _reset_components()
+  {
+    scheme.Reset();
+    host.Reset();
+    port.Reset();
+    path.Reset();
+    query.Reset();
   }
 
   TSMBuffer            _bufp        = nullptr; // These two gets setup via initializing, to appropriate headers
@@ -723,7 +785,7 @@ namespace Client
     URL(const self_type &)            = delete;
     void operator=(const self_type &) = delete;
 
-    // Release/re-init only when we own _urlp: a borrowed remap handle isn't ours, and re-init would deref a dangling RRI.
+    // Release/re-init only when we own _urlp: a borrowed remap handle isn't ours to release.
     void
     Reset() override
     {
@@ -735,8 +797,7 @@ namespace Client
         _owns_urlp   = false;
         _initialized = false;
       }
-      path.Reset();
-      query.Reset();
+      _reset_components();
       _modified = false;
     }
 

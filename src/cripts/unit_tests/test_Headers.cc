@@ -314,3 +314,43 @@ TEST_CASE("Header: server response status", "[cripts][Headers]")
   resp.status = 200;
   CHECK(static_cast<int>(txn.sm().t_state.hdr_info.server_response.status_get()) == 200);
 }
+
+TEST_CASE("Header: the next hook reads the status and method again", "[cripts][Headers]")
+{
+  Txn txn{REQUEST};
+
+  txn.set_server_response("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+
+  auto context = txn.context();
+
+  context->state.hook = TS_HTTP_READ_RESPONSE_HDR_HOOK;
+  CHECK(integer(cripts::Server::Response::Get().status) == 404);
+  CHECK(str(cripts::Client::Request::Get().method) == "GET");
+
+  context->reset();
+  txn.sm().t_state.hdr_info.server_response.status_set(HTTPStatus::OK);
+  txn.sm().t_state.hdr_info.client_request.method_set("POST"sv);
+
+  CHECK(integer(cripts::Server::Response::Get().status) == 200);
+  CHECK(str(cripts::Client::Request::Get().method) == "POST");
+}
+
+TEST_CASE("Header: an empty body", "[cripts][Headers]")
+{
+  Txn txn{REQUEST};
+
+  txn.set_server_response("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n");
+
+  auto  context = txn.context();
+  auto &state   = txn.sm().t_state;
+
+  context->state.hook = TS_HTTP_READ_RESPONSE_HDR_HOOK;
+
+  borrow resp = cripts::Server::Response::Get();
+
+  resp.body = "gone";
+  CHECK(std::string_view(state.internal_msg_buffer, state.internal_msg_buffer_size) == "gone");
+  resp.body = "";
+  CHECK(state.internal_msg_buffer == nullptr);
+  CHECK(state.internal_msg_buffer_size == 0);
+}

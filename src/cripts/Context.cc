@@ -51,6 +51,9 @@ Context::reset()
   if (_server.request.Initialized()) {
     _server.request.Reset();
   }
+  if (_cache.response.Initialized()) {
+    _cache.response.Reset();
+  }
 
   // Release lazy URLs entirely — they get recreated on demand for the next txn.
   _urls.pristine.reset();

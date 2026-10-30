@@ -101,6 +101,9 @@ indexed in a list. To get the value of a specific query parameter, you can use t
 
   auto value = url.query["key"]; // This is the value of the key
 
+A key can appear more than once in a query, as in ``a=1&a=2``. Reading ``url.query["a"]`` gives
+the last value, ``2``, and assigning to it replaces every ``a`` with the one new value.
+
 You can retrieve the size of the ``path`` or ``query`` using the ``Size()`` method, and you can clear
 the path or query using the ``Erase()`` method. To summarize the ``path`` and ``query`` components
 have the following methods available to them:

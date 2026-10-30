@@ -33,13 +33,15 @@ Url::Component::Split(const char delim)
 cripts::string_view
 Url::Scheme::GetSV()
 {
-  if (_owner && _data.empty()) {
+  if (_owner && (!_loaded || _moved())) {
     const char *value = nullptr;
     int         len   = 0;
 
     _ensure_initialized(_owner);
-    value = TSUrlSchemeGet(_owner->_bufp, _owner->_urlp, &len);
-    _data = cripts::string_view(value, len);
+    value       = TSUrlSchemeGet(_owner->_bufp, _owner->_urlp, &len);
+    _data       = cripts::string_view(value, len);
+    _loaded     = true;
+    _generation = _owner->_heap_writes();
   }
 
   return _data;
@@ -51,9 +53,9 @@ Url::Scheme::operator=(cripts::string_view scheme)
   CAssert(!_owner->ReadOnly()); // This can not be a read-only URL
   _ensure_initialized(_owner);
   TSUrlSchemeSet(_owner->_bufp, _owner->_urlp, scheme.data(), scheme.size());
+  _owner->_wrote();
   _owner->_modified = true;
   Reset();
-  _loaded = false;
 
   return *this;
 }
@@ -61,14 +63,15 @@ Url::Scheme::operator=(cripts::string_view scheme)
 cripts::string_view
 Url::Host::GetSV()
 {
-  if (_owner && _data.empty()) {
+  if (_owner && (!_loaded || _moved())) {
     const char *value = nullptr;
     int         len   = 0;
 
     _ensure_initialized(_owner);
-    value   = TSUrlHostGet(_owner->_bufp, _owner->_urlp, &len);
-    _data   = cripts::string_view(value, len);
-    _loaded = true;
+    value       = TSUrlHostGet(_owner->_bufp, _owner->_urlp, &len);
+    _data       = cripts::string_view(value, len);
+    _loaded     = true;
+    _generation = _owner->_heap_writes();
   }
 
   return _data;
@@ -80,9 +83,9 @@ Url::Host::operator=(cripts::string_view host)
   _ensure_initialized(_owner);
   CAssert(!_owner->ReadOnly()); // This can not be a read-only URL
   TSUrlHostSet(_owner->_bufp, _owner->_urlp, host.data(), host.size());
+  _owner->_wrote();
   _owner->_modified = true;
   Reset();
-  _loaded = false;
 
   return *this;
 }
@@ -103,6 +106,7 @@ Url::Port::operator=(int port)
   _ensure_initialized(_owner);
   CAssert(!_owner->ReadOnly()); // This can not be a read-only URL
   TSUrlPortSet(_owner->_bufp, _owner->_urlp, port);
+  _owner->_wrote();
   _owner->_modified = true;
   Reset();
 
@@ -112,7 +116,7 @@ Url::Port::operator=(int port)
 cripts::string_view
 Url::Path::GetSV()
 {
-  if (_state && _state->segments.size() > 0) {
+  if (_state && _state->modified) {
     std::ostringstream path;
 
     std::ranges::copy(_state->segments, std::ostream_iterator<cripts::string_view>(path, "/"));
@@ -122,8 +126,15 @@ Url::Path::GetSV()
       _state->storage.pop_back(); // Removes the trailing /
     }
 
-    return {_state->storage};
-  } else if (_owner && _data.empty()) {
+    _data = _state->storage; // The string helpers work on _data
+
+    return _data;
+  }
+
+  if (_moved()) {
+    Reset(); // The parsed segments point into the old heap too
+  }
+  if (_owner && !_loaded) {
     const char *value = nullptr;
     int         len   = 0;
 
@@ -133,7 +144,8 @@ Url::Path::GetSV()
     if (_state) {
       _state->size = len;
     }
-    _loaded = true;
+    _loaded     = true;
+    _generation = _owner->_heap_writes();
   }
 
   return _data;
@@ -146,9 +158,7 @@ Url::Path::operator[](Segments::size_type ix)
 
   _ensure_initialized(_owner);
   _parser(); // Make sure the segments are loaded
-  if (_state && ix < _state->segments.size()) {
-    ret._initialize(_state->segments[ix], this, ix);
-  }
+  ret._initialize(ix < _state->segments.size() ? _state->segments[ix] : cripts::string_view{}, this, ix);
 
   return ret; // RVO
 }
@@ -159,9 +169,9 @@ Url::Path::operator=(cripts::string_view path)
   _ensure_initialized(_owner);
   CAssert(!_owner->ReadOnly()); // This can not be a read-only URL
   TSUrlPathSet(_owner->_bufp, _owner->_urlp, path.data(), path.size());
+  _owner->_wrote();
   _owner->_modified = true;
   Reset();
-  _loaded = false;
 
   return *this;
 }
@@ -185,11 +195,11 @@ Url::Path::String::operator=(const cripts::string_view str)
 {
   _ensure_initialized(_owner->_owner);
   CAssert(!_owner->_owner->ReadOnly()); // This can not be a read-only URL
-  CAssert(_owner->_state);              // Should have been allocated by operator[]/_parser()
-  _owner->_state->size          -= _owner->_state->segments[_ix].size();
-  _owner->_state->segments[_ix]  = str;
-  _owner->_state->size          += str.size();
-  _owner->_state->modified       = true;
+  _owner->_parser();                    // A header write since operator[] may have reset the segments
+  if (_ix < _owner->_state->segments.size()) {
+    _owner->_detach();
+    _owner->_state->segments[_ix] = _owner->_own(str);
+  }
 
   return *this;
 }
@@ -206,27 +216,79 @@ void
 Url::Path::Push(cripts::string_view val)
 {
   _parser();
-  auto &s    = _ensure_state();
-  s.modified = true;
-  s.segments.push_back(val);
+  _detach();
+  auto &s   = *_state;
+  auto  seg = _own(val);
+
+  // A trailing slash leaves an empty last segment, which the pushed one takes over.
+  if (!s.segments.empty() && s.segments.back().empty()) {
+    s.segments.back() = seg;
+  } else {
+    s.segments.push_back(seg);
+  }
 }
 
 void
 Url::Path::Insert(Segments::size_type ix, cripts::string_view val)
 {
   _parser();
-  auto &s    = _ensure_state();
-  s.modified = true;
-  s.segments.insert(s.segments.begin() + ix, val);
+  _detach();
+  _state->segments.insert(_state->segments.begin() + std::min(ix, _state->segments.size()), _own(val));
 }
 
 void
 Url::Path::_parser()
 {
+  if (!Modified() && _moved()) {
+    Reset(); // The parsed segments point into the old heap
+  }
+  if (!_state || _state->segments.empty()) {
+    auto  path = GetSV();
+    auto &s    = _ensure_state();
+
+    // Empty segments are kept, so a trailing slash or "a//b" survives a rebuild.
+    if (!path.empty()) {
+      for (cripts::string_view::size_type first = 0;;) {
+        auto next = path.find('/', first);
+
+        s.segments.push_back(path.substr(first, next - first));
+        if (next == cripts::string_view::npos) {
+          break;
+        }
+        first = next + 1;
+      }
+    }
+  }
+}
+
+// The first edit copies every segment, so an edited path no longer points into the header heap.
+void
+Url::Path::_detach()
+{
   auto &s = _ensure_state();
 
-  if (s.segments.size() == 0) {
-    s.segments = Split('/');
+  if (!s.modified) {
+    for (auto &segment : s.segments) {
+      segment = _own(segment);
+    }
+    s.modified = true;
+  }
+}
+
+cripts::string_view
+Url::Path::_own(cripts::string_view str)
+{
+  return _ensure_state().owned.emplace_back(str);
+}
+
+// A copy's edits still point into the source's owned strings, which the source frees on Flush() or Reset().
+void
+Url::Path::_own_copy()
+{
+  if (_state && _state->modified) {
+    _state->owned.clear();
+    _state->modified = false;
+    _detach();
   }
 }
 
@@ -236,16 +298,24 @@ Url::Query::Parameter::operator=(const cripts::string_view str)
   CAssert(!_owner->_state || !_owner->_state->standalone);
   _ensure_initialized(_owner->_owner);
   CAssert(!_owner->_owner->ReadOnly()); // This can not be a read-only URL
-  auto &s    = _owner->_ensure_state();
-  auto  iter = s.hashed.find(_name);
+  _owner->_parser();
+  _owner->_detach();
 
-  if (iter != s.hashed.end()) {
-    iter->second = str; // Can be an empty string here!
+  auto &s     = *_owner->_state;
+  auto  value = _owner->_own(str);
+  auto  is_us = [this](const Param &p) { return p.key == _name; };
+  auto  first = std::find_if(s.params.begin(), s.params.end(), is_us);
+
+  if (first != s.params.end()) {
+    first->value     = value;
+    first->has_value = !str.empty();
+    // Like setting a header, this replaces every occurrence of the key.
+    s.params.erase(std::remove_if(std::next(first), s.params.end(), is_us), s.params.end());
   } else {
-    s.ordered.push_back(_name);
-    s.hashed[_name] = str;
+    s.params.push_back({_owner->_own(_name), value, !str.empty()});
+    s.size += _name.size() + str.size() + 2;
   }
-  s.modified = true;
+  _setSV(value);
 
   return *this;
 }
@@ -256,33 +326,29 @@ Url::Query::GetSV()
   if (!_state || !_state->standalone) {
     _ensure_initialized(_owner);
   }
-  if (_state && _state->ordered.size() > 0) {
+  if (_state && _state->modified) {
     _state->storage.clear();
     _state->storage.reserve(_state->size);
 
-    // ToDo: This is wonky, has to be a better std:: iteration to do here
-    for (const auto key : _state->ordered) {
-      auto iter = _state->hashed.find(key);
-
-      if (_state->storage.size() > 0) {
-        _state->storage += "&";
+    for (const auto &param : _state->params) {
+      if (!_state->storage.empty()) {
+        _state->storage += '&';
       }
-
-      if (iter != _state->hashed.end()) {
-        _state->storage += iter->first;
-        if (iter->second.size() > 0) {
-          _state->storage += '=';
-          _state->storage += iter->second;
-        }
+      _state->storage += param.key;
+      if (param.has_value) {
+        _state->storage += '=';
+        _state->storage += param.value;
       }
     }
 
-    return {_state->storage};
+    _data = _state->storage; // The string helpers work on _data
+
+    return _data;
   }
 
-  // This gets weird when we modify the query parameter components, and can possibly empty
-  // the entire query parameter. At which point, we don't want to reload the string_view
-  // from the URL object inside of ATS...
+  if (_moved()) {
+    Reset(); // The parsed parameters point into the old heap too
+  }
   if (_owner && !_loaded) {
     const char *value = nullptr;
     int         len   = 0;
@@ -292,7 +358,8 @@ Url::Query::GetSV()
     if (_state) {
       _state->size = len;
     }
-    _loaded = true;
+    _loaded     = true;
+    _generation = _owner->_heap_writes();
   }
 
   return _data;
@@ -305,9 +372,9 @@ Url::Query::operator=(cripts::string_view query)
   _ensure_initialized(_owner);
   CAssert(!_owner->ReadOnly()); // This can not be a read-only URL
   TSUrlHttpQuerySet(_owner->_bufp, _owner->_urlp, query.data(), query.size());
+  _owner->_wrote();
   _owner->_modified = true;
   Reset();
-  _loaded = false;
 
   return *this;
 }
@@ -329,20 +396,17 @@ Url::Query::operator+=(cripts::string_view add)
 Url::Query::Parameter
 Url::Query::operator[](cripts::string_view param)
 {
-  // Make sure the hash and vector are populated, but only if we have an owner
+  // A standalone query has no URL to initialize.
   if (!_state || !_state->standalone) {
     _ensure_initialized(_owner);
   }
   _parser();
 
   Parameter ret;
-  auto      iter = _state->hashed.find(param);
+  auto      is_param = [param](const Param &p) { return p.key == param; };
+  auto      iter     = std::find_if(_state->params.rbegin(), _state->params.rend(), is_param); // The last one wins
 
-  if (iter != _state->hashed.end()) {
-    ret._initialize(iter->first, iter->second, this);
-  } else {
-    ret._initialize(param, "", this);
-  }
+  ret._initialize(param, iter != _state->params.rend() ? iter->value : cripts::string_view{}, this);
 
   return ret;
 }
@@ -350,28 +414,14 @@ Url::Query::operator[](cripts::string_view param)
 void
 Url::Query::Erase(cripts::string_view param)
 {
-  // Make sure the hash and vector are populated
   _parser();
 
-  auto &s     = *_state;
-  auto  iter  = s.hashed.find(param);
-  auto  viter = std::ranges::find(s.ordered, param);
+  auto &s    = *_state;
+  auto  last = std::remove_if(s.params.begin(), s.params.end(), [param](const Param &p) { return p.key == param; });
 
-  if (iter != s.hashed.end()) {
-    s.size -= iter->second.size(); // Size of the erased value
-    s.hashed.erase(iter);
-
-    CAssert(viter != s.ordered.end());
-    s.size -= viter->size(); // Length of the erased key
-    s.ordered.erase(viter);
-
-    if (s.ordered.size() == 0) {
-      Reset();
-      // After Reset() the state is gone; re-create it just so _modified can be tracked.
-      _ensure_state().modified = true;
-    } else {
-      s.modified = true;
-    }
+  if (last != s.params.end()) {
+    s.params.erase(last, s.params.end());
+    _detach();
   }
 }
 
@@ -379,28 +429,15 @@ void
 Url::Query::Erase(std::initializer_list<cripts::string_view> list, bool keep)
 {
   if (keep) {
-    // Make sure the hash and vector are populated
     _parser();
 
-    auto &s = *_state;
+    auto &s       = *_state;
+    auto  dropped = [list](const Param &p) { return list.end() == std::find(list.begin(), list.end(), p.key); };
+    auto  last    = std::remove_if(s.params.begin(), s.params.end(), dropped);
 
-    for (auto viter = s.ordered.begin(); viter != s.ordered.end();) {
-      if (list.end() == std::ranges::find(list, *viter)) {
-        // Duplicate keys (?a=1&a=2) share one hashed entry, so a later occurrence may
-        // already be gone -- guard the lookup; attacker input must not abort.
-        if (auto iter = s.hashed.find(*viter); iter != s.hashed.end()) {
-          s.size -= iter->second.size(); // Size of the erased value
-          s.hashed.erase(iter);
-        }
-        s.size     -= viter->size(); // Length of the erased key
-        viter       = s.ordered.erase(viter);
-        s.modified  = true;
-      } else {
-        ++viter;
-      }
-    }
-    if (s.ordered.size() == 0) {
-      Reset();
+    if (last != s.params.end()) {
+      s.params.erase(last, s.params.end());
+      _detach();
     }
   } else {
     for (auto &it : list) {
@@ -420,21 +457,68 @@ Url::Query::Reset()
 void
 Url::Query::_parser()
 {
+  if (!Modified() && _moved()) {
+    Reset(); // The parsed parameters point into the old heap
+  }
+  if (!_state || _state->params.empty()) {
+    auto  params = Split('&');
+    auto &s      = _ensure_state();
+
+    for (const auto sv : params) {
+      const auto eq = sv.find_first_of('=');
+
+      if (eq == cripts::string_view::npos) {
+        s.params.push_back({sv, {}, false});
+      } else {
+        s.params.push_back({sv.substr(0, eq), sv.substr(eq + 1), true});
+      }
+    }
+  }
+}
+
+// The first edit copies every parameter, so an edited query no longer points into the header heap.
+void
+Url::Query::_detach()
+{
   auto &s = _ensure_state();
 
-  if (s.ordered.size() == 0) {
-    for (const auto sv : Split('&')) {
-      const auto          eq  = sv.find_first_of('=');
-      cripts::string_view key = sv.substr(0, eq);
-      cripts::string_view val;
-
-      if (eq != cripts::string_view::npos) {
-        val = sv.substr(eq + 1);
-      }
-
-      s.ordered.push_back(key); // Keep the order
-      s.hashed[key] = val;
+  if (!s.modified) {
+    for (auto &param : s.params) {
+      param.key   = _own(param.key);
+      param.value = _own(param.value);
     }
+    s.modified = true;
+  }
+}
+
+cripts::string_view
+Url::Query::_own(cripts::string_view str)
+{
+  return _ensure_state().owned.emplace_back(str);
+}
+
+// A copy's edits still point into the source's owned strings, which the source frees on Flush() or Reset().
+void
+Url::Query::_own_copy()
+{
+  if (_state && _state->modified) {
+    _state->owned.clear();
+    _state->modified = false;
+    _detach();
+  }
+}
+
+uint64_t
+Url::_heap_writes() const
+{
+  return _context ? _context->state.heap_writes : 0;
+}
+
+void
+Url::_wrote()
+{
+  if (_context) {
+    ++_context->state.heap_writes;
   }
 }
 
@@ -618,6 +702,7 @@ Cache::URL::_initialize()
   super_type::_initialize();
   _bufp    = req.BufP();
   _hdr_loc = req.MLoc();
+  ++_context->state.heap_writes; // Allocated in the client request's heap, which can move its strings
 }
 
 // This has to be implemented here, since the cripts::Context is not complete yet
@@ -683,6 +768,7 @@ Parent::URL::_initialize()
   super_type::_initialize();
   _bufp    = req.BufP();
   _hdr_loc = req.MLoc();
+  ++_context->state.heap_writes; // Allocated in the client request's heap, which can move its strings
 }
 
 } // namespace cripts

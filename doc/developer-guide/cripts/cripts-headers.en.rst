@@ -71,6 +71,11 @@ A header can also be removed by using the ``Erase`` method, which is a little mo
 
   req.Erase("X-Foo");
 
+.. note::
+
+   A value read from a header, such as ``auto foo = req["X-Foo"]``, is valid until those headers
+   are modified. Copy it into a ``cripts::string`` to keep it across changes.
+
 Header names beginning with ``@`` are reserved for internal Traffic Server
 metadata. They remain in ATS's in-memory header objects, but they are not
 sent on the wire. This makes them useful for trusted in-process

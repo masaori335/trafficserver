@@ -1,0 +1,68 @@
+/*
+  Licensed to the Apache Software Foundation (ASF) under one
+  or more contributor license agreements.  See the NOTICE file
+  distributed with this work for additional information
+  regarding copyright ownership.  The ASF licenses this file
+  to you under the Apache License, Version 2.0 (the
+  "License"); you may not use this file except in compliance
+  with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+// Cripts URL and connection cases that need a live transaction: the server connection around the
+// origin connect, edits that Cripts flushes when do_remap() returns, and the remap rule's URLs in later hooks.
+
+#include <cripts/Preamble.hpp>
+
+do_remap()
+{
+  borrow url = cripts::Client::URL::Get();
+  borrow req = cripts::Client::Request::Get();
+
+  if (url.path.starts_with("server/")) {
+    borrow sconn = cripts::Server::Connection::Get();
+    auto   cert  = cripts::Certs::Server(sconn);
+
+    // No origin connection yet
+    req["X-Remap-Server-IP"]   = sconn.IP().string();
+    req["X-Remap-Server-Cert"] = cert.subject;
+  }
+
+  // Component edits, left for Cripts to flush.
+  if (url.path.starts_with("edit/")) {
+    url.query.Erase("utm_source");
+    url.path[1] = "edited";
+  }
+  // The redirect's Location is the request URL, so it carries the pending edit.
+  if (url.path.starts_with("redirect/")) {
+    url.path[0] = "moved";
+    cripts::Error::Status::Set(301);
+  }
+}
+
+do_send_response()
+{
+  borrow url = cripts::Client::URL::Get();
+
+  if (url.path.starts_with("server/")) {
+    borrow sconn = cripts::Server::Connection::Get();
+    borrow resp  = cripts::Client::Response::Get();
+
+    resp["X-Server-IP"] = sconn.IP().string();
+  }
+  if (url.path.starts_with("fromto/")) {
+    borrow resp = cripts::Client::Response::Get();
+
+    resp["X-From-Host"] = cripts::Remap::From::URL::Get().host;
+    resp["X-To-Host"]   = cripts::Remap::To::URL::Get().host;
+  }
+}
+
+#include <cripts/Epilogue.hpp>

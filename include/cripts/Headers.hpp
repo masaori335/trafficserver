@@ -45,6 +45,12 @@ public:
     operator integer(); // This should not be explicit, nor const
     self_type &operator=(int status);
 
+    void
+    _reset()
+    {
+      _status = TS_HTTP_STATUS_NONE;
+    }
+
   private:
     Header      *_owner  = nullptr;
     TSHttpStatus _status = TS_HTTP_STATUS_NONE;
@@ -94,6 +100,12 @@ public:
     Method(Header *owner) : _owner(owner) {}
 
     cripts::string_view GetSV();
+
+    void
+    _reset()
+    {
+      _method.clear();
+    }
 
     operator cripts::string_view() { return GetSV(); }
 
@@ -324,6 +336,7 @@ public:
       _hdr_loc = nullptr;
       _bufp    = nullptr;
     }
+    status._reset();
     _initialized = false;
   }
 
@@ -404,6 +417,13 @@ class RequestHeader : public Header
 
 public:
   RequestHeader() : method(this) {} // Special case since only this header has a method
+
+  void
+  Reset()
+  {
+    super_type::Reset();
+    method._reset();
+  }
 
   Method method;
 }; // End class RequestHeader

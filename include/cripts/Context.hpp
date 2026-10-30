@@ -66,6 +66,9 @@ public:
   TSRemapRequestInfo                      *rri   = nullptr; // This may be nullptr, if not a remap
   cripts::Instance                        &p_instance;      // p_ == public_, since we can't use "instance"
 
+  // What rri points at after do_remap(), whose RRI lives on the core's stack.
+  TSRemapRequestInfo _rri_copy = {};
+
   bool
   rriValid() const
   {
@@ -150,14 +153,13 @@ public:
 } // namespace cripts
 
 // This may be weird, but oh well for now.
-#define Get()               _get(context)
-#define Set(_value, ...)    _set(context, _value __VA_OPT__(, ) __VA_ARGS__)
-#define Update()            _update(context)
-#define RunRemap()          _runRemap(context)
-#define Activate()          _activate(context->p_instance)
-#define CDebug(...)         context->p_instance.debug(__VA_ARGS__)
-#define CDebugOn()          context->p_instance.debugOn()
-#define DisableCallback(cb) context->state.disableCallback(cb)
-#define transaction         context->state
-#define txn_data            context->data
-#define instance            context->p_instance
+#define Get()            _get(context)
+#define Set(_value, ...) _set(context, _value __VA_OPT__(, ) __VA_ARGS__)
+#define Update()         _update(context)
+#define RunRemap()       _runRemap(context)
+#define Activate()       _activate(context->p_instance)
+#define CDebug(...)      context->p_instance.debug(__VA_ARGS__)
+#define CDebugOn()       context->p_instance.debugOn()
+#define transaction      context->state
+#define txn_data         context->data
+#define instance         context->p_instance

@@ -17,6 +17,15 @@
 meta:
   version: "1.0"
 
+  blocks:
+  - origin_ok: &origin_ok
+      server-response:
+        status: 200
+        reason: "OK"
+        headers:
+          fields:
+          - [ Content-Length, 0 ]
+
 # Configuration for the Uranium test runner. This replay file is the harness for
 # a bundle of cripts tests — bundle_headers.cript exercising cripts::Bundle::Headers
 # and direct_headers.cript exercising the equivalent direct Cripts API, with room
@@ -63,6 +72,10 @@ urtest:
         destination: 'plaintext_certs.cript'
       - source: 'files/server_connection.cript'
         destination: 'server_connection.cript'
+      - source: 'files/urls.cript'
+        destination: 'urls.cript'
+      - source: 'files/status.cript'
+        destination: 'status.cript'
 
     records_config:
       proxy.config.diags.debug.enabled: 1
@@ -99,6 +112,18 @@ urtest:
         to: "http://backend.ex:{SERVER_HTTP_PORT}/"
         plugins:
           - name: "server_connection.cript"
+            args: []
+      - from: "http://urls.example.com/"
+        to: "http://backend.ex:{SERVER_HTTP_PORT}/"
+        plugins:
+          - name: "urls.cript"
+            args: []
+      # Port 1 refuses connections, so ATS answers with its own 502 and status.cript replaces its
+      # body. One origin per case, since a failed origin is marked down.
+      - from: "http://body-empty.example.com/"
+        to: "http://dead-empty.ex:1/"
+        plugins:
+          - name: "status.cript"
             args: []
 
     log_validation:
@@ -438,3 +463,97 @@ sessions:
       headers:
         fields:
         - [ X-Server-Conn, { value: "origin", as: equal } ]
+
+# The server connection, before and after ATS connects to the origin.
+- transactions:
+  - client-request:
+      method: "GET"
+      version: "1.1"
+      url: /server/test
+      headers:
+        fields:
+        - [ Host, urls.example.com ]
+        - [ uuid, urls-server ]
+    proxy-request:
+      headers:
+        fields:
+        - [ X-Remap-Server-IP, { as: absent } ]
+        - [ X-Remap-Server-Cert, { as: absent } ]
+    <<: *origin_ok
+    proxy-response:
+      status: 200
+      headers:
+        fields:
+        - [ X-Server-IP, { value: "127.0.0.1", as: equal } ]
+
+# Query and path segment edits in do_remap() reach the origin without a Flush().
+- transactions:
+  - client-request:
+      method: "GET"
+      version: "1.1"
+      url: /edit/me?utm_source=x&keep=1
+      headers:
+        fields:
+        - [ Host, urls.example.com ]
+        - [ uuid, urls-edit ]
+    proxy-request:
+      url:
+      - [ path, { value: /edit/edited, as: equal } ]
+      - [ query, { value: keep=1, as: equal } ]
+    <<: *origin_ok
+    proxy-response:
+      status: 200
+
+# A redirect from do_remap() carries the path edit made before it.
+- transactions:
+  - client-request:
+      method: "GET"
+      version: "1.1"
+      url: /redirect/x
+      headers:
+        fields:
+        - [ Host, urls.example.com ]
+        - [ uuid, urls-redirect ]
+    proxy-request:
+      expect: absent
+    proxy-response:
+      status: 301
+      headers:
+        fields:
+        - [ Location, { value: "/moved/x", as: contains } ]
+
+# The remap rule's URLs, read in a hook after do_remap() returned.
+- transactions:
+  - client-request:
+      method: "GET"
+      version: "1.1"
+      url: /fromto/x
+      headers:
+        fields:
+        - [ Host, urls.example.com ]
+        - [ uuid, urls-fromto ]
+    <<: *origin_ok
+    proxy-response:
+      status: 200
+      headers:
+        fields:
+        - [ X-From-Host, { value: "urls.example.com", as: equal } ]
+        - [ X-To-Host, { value: "backend.ex", as: equal } ]
+
+# rule_empty_body.conf: an empty body.
+- transactions:
+  - client-request:
+      method: "GET"
+      version: "1.1"
+      url: /body/empty
+      headers:
+        fields:
+        - [ Host, body-empty.example.com ]
+        - [ uuid, status-body-empty ]
+    proxy-request:
+      expect: absent
+    proxy-response:
+      status: 502
+      headers:
+        fields:
+        - [ Content-Length, { value: "0", as: equal } ]
