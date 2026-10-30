@@ -1,0 +1,76 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+#
+# A field name that is forged to share Transfer-Encoding's FNV-1a hash and
+# length (X-CLASH-ABAZ0E7DR) must be treated as the ordinary unknown header it
+# is, not as Transfer-Encoding. If the WKS lookup confirmed only hash and
+# length, ATS would believe Transfer-Encoding is present, delete the real
+# Content-Length, reframe the body as chunked, and strip the collider as a
+# hop-by-hop header. The origin must instead see the Content-Length and the
+# collider header forwarded intact.
+#
+
+meta:
+  version: "1.0"
+
+urtest:
+  description: "Verify a Transfer-Encoding hash collider is not mistaken for the WKS header"
+
+  server:
+    name: 'hdrtoken-collision-server'
+
+  client:
+    name: 'hdrtoken-collision-client'
+
+  ats:
+    name: 'ts-hdrtoken-collision'
+    remap_config:
+      - from: "http://www.example.com/"
+        to: "http://127.0.0.1:{SERVER_HTTP_PORT}/"
+
+sessions:
+  - transactions:
+      - client-request:
+          method: POST
+          version: "1.1"
+          url: /collision
+          headers:
+            fields:
+              - [Host, www.example.com]
+              - [Content-Length, "11"]
+              - [X-CLASH-ABAZ0E7DR, chunked]
+              - [uuid, hdrtoken-collision-1]
+          content:
+            encoding: plain
+            data: "hello world"
+
+        proxy-request:
+          headers:
+            fields:
+              - [Content-Length, { value: "11", as: equal }]
+              - [X-CLASH-ABAZ0E7DR, { value: chunked, as: equal }]
+              - [Transfer-Encoding, { as: absent }]
+
+        server-response:
+          status: 200
+          reason: OK
+          headers:
+            fields:
+              - [Content-Length, 0]
+
+        proxy-response:
+          status: 200

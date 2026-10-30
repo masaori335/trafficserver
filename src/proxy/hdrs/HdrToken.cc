@@ -696,9 +696,11 @@ hdrtoken_method_tokenize(const char *string, int string_len)
   -------------------------------------------------------------------------*/
 
 // WKS lookup for a name whose FNV-1a hash the caller has already computed
-// (e.g. fused into the field-name scan). Matches by slot, hash, and length like
-// hdrtoken_tokenize, but skips the interned-pointer test, so it is only valid
-// for a non-interned `string`.
+// (e.g. fused into the field-name scan). Matches by slot, hash, length, and an
+// ASCII case-insensitive byte compare like hdrtoken_tokenize, but skips the interned-
+// pointer test, so it is only valid for a non-interned `string`. The byte
+// compare is required: FNV-1a is not collision-free, and a name forged to share
+// a WKS's hash and length would otherwise be mistaken for that header.
 int
 hdrtoken_tokenize_prehashed(const char *string, int string_len, uint32_t hash, const char **wks_string_out)
 {
@@ -711,7 +713,9 @@ hdrtoken_tokenize_prehashed(const char *string, int string_len, uint32_t hash, c
     int const               wks_idx = static_cast<int>(bucket.wks_idx_plus_one - 1);
     HdrTokenWksEntry const &entry   = hdrtoken_wks_table[wks_idx];
 
-    if (entry.prefix.wks_length == string_len) {
+    if ((entry.prefix.wks_length == string_len) &&
+        hdrtoken_literals_equal_nocase({string, static_cast<size_t>(string_len)},
+                                       {entry.str, static_cast<size_t>(entry.prefix.wks_length)})) {
       if (wks_string_out) {
         *wks_string_out = entry.str;
       }

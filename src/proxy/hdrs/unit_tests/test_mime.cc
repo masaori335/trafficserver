@@ -330,6 +330,41 @@ TEST_CASE("HdrTokenFusedNameScanParity", "[proxy][hdrtoken]")
   }
 }
 
+TEST_CASE("HdrTokenHashCollisionRejected", "[proxy][hdrtoken]")
+{
+  // A WKS lookup confirms the match with a byte compare, not just the FNV hash
+  // and length. This name is forged to share Transfer-Encoding's hash and
+  // length; it must not be mistaken for the WKS.
+  struct Case {
+    const char *collider;
+    const char *target;
+  };
+  static const std::vector<Case> cases = {
+    {"X-CLASH-ABAZ0E7DR", "Transfer-Encoding"},
+  };
+
+  for (auto const &c : cases) {
+    int const collider_len = static_cast<int>(strlen(c.collider));
+    int const target_len   = static_cast<int>(strlen(c.target));
+    CAPTURE(c.collider, c.target);
+
+    // The collision precondition: equal length and equal FNV-1a name hash.
+    REQUIRE(collider_len == target_len);
+    uint32_t collider_hash = 0, target_hash = 0;
+    bool     valid = false;
+    hdrtoken_field_name_scan((std::string(c.collider) + ":v").data(), collider_len + 2, &collider_hash, &valid);
+    hdrtoken_field_name_scan((std::string(c.target) + ":v").data(), target_len + 2, &target_hash, &valid);
+    REQUIRE(collider_hash == target_hash);
+
+    int const target_idx = hdrtoken_tokenize(c.target, target_len);
+    REQUIRE(target_idx >= 0);
+
+    // The forged name must not resolve to the target WKS.
+    CHECK(hdrtoken_tokenize(c.collider, collider_len) == -1);
+    CHECK(hdrtoken_tokenize_prehashed(c.collider, collider_len, collider_hash) == -1);
+  }
+}
+
 TEST_CASE("MimeGetHostPortValues", "[proxy][mimeport]")
 {
   MIMEHdr hdr;
