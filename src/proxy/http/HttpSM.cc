@@ -5341,18 +5341,28 @@ HttpSM::do_range_setup_if_necessary()
 //
 // hdr_info.client_request's URL always names the *current* request:
 // redirect_request() rewrites it in place, so after a redirect follow it is the
-// Location target. cache_info.lookup_url is set once, before the first lookup
-// (HttpTransact::DecideCacheLookup), and names the *original* request. Whether
-// it also moves with a redirect is an accident of how it was set: with
-// pristine_host_hdr off it aliases client_request's URL and follows it, with
-// pristine_host_hdr on it is a private copy and stays put. It is therefore not
-// a reliable way to reach the redirected URL, which is why the redirect case
-// below reads client_request instead.
+// Location target. What cache_info.lookup_url names depends on who set it:
+//  - DecideCacheLookup, before the first lookup: with pristine_host_hdr on, a private
+//    copy of the request URL that takes its host and port from the Host header; with
+//    it off, an alias of client_request's URL, which follows every redirect.
+//  - do_cache_lookup_and_read, on a redirect hop that has none yet: the same alias.
+//  - TSCacheUrlSet: a private copy, and only when no lookup_url exists yet.
+//  - TSHttpTxnCacheLookupUrlSet: a private copy when no lookup_url exists yet;
+//    otherwise it writes into whatever lookup_url points at, which can be
+//    client_request's URL.
+//  - TSHttpTxnRedoCacheLookup: it writes into whatever lookup_url points at.
+// It is therefore not a reliable way to reach the redirected URL, which is why the
+// redirect case below reads client_request instead.
 URL *
 HttpSM::cache_lookup_url()
 {
-  // Follow the redirect unless configured to keep the original cache key.
-  if (t_state.redirect_info.redirect_in_process && !t_state.txn_conf->redirect_use_orig_cache_key) {
+  // Follow the redirect unless configured to keep the original cache key. Keeping
+  // it needs one to exist: a request that is not cache-lookupable (for example a
+  // POST to a dynamic-looking URL when caching of such URLs is disabled) never
+  // establishes a lookup URL, so fall back to the current request URL rather than
+  // hand callers null.
+  if (t_state.redirect_info.redirect_in_process &&
+      (!t_state.txn_conf->redirect_use_orig_cache_key || t_state.cache_info.lookup_url == nullptr)) {
     return t_state.hdr_info.client_request.url_get();
   }
   return t_state.cache_info.lookup_url;
@@ -5379,6 +5389,22 @@ HttpSM::do_cache_lookup_and_read()
   }
   t_state.cache_lookup_result = HttpTransact::CacheLookupResult_t::NONE;
   URL *c_url                  = cache_lookup_url();
+
+  // cache_info.lookup_url can still be null here. DecideCacheLookup takes the NO_ACTION
+  // path whenever a redirect is in process, so it never establishes one on a redirect
+  // hop, and a request that was not cache-lookupable to begin with never had one.
+  // Later hops under redirect_use_orig_cache_key, and the cache deletes and cache
+  // write once a buffered request body has cleared redirect_in_process, address
+  // lookup_url, so point it at the URL this lookup used. An existing lookup_url is
+  // kept: whoever set it (DecideCacheLookup, a plugin, or an earlier hop) already chose
+  // what those later lookups, deletes and writes address.
+  if (t_state.cache_info.lookup_url == nullptr) {
+    // Alias, as DecideCacheLookup does with pristine_host_hdr off. c_url is the client
+    // request URL, which redirect_request rewrites in place, so lookup_url names the URL
+    // each later hop looks up. lookup_url_storage stays unset so that the cache lookup
+    // URL log field falls back to the request URL.
+    t_state.cache_info.lookup_url = c_url;
+  }
 
   SMDbg(dbg_ctl_http_seq, "Issuing cache lookup for URL %s", c_url->string_get(&t_state.arena));
 
@@ -5412,9 +5438,17 @@ HttpSM::do_cache_delete_all_alts()
   ink_assert(t_state.cache_info.object_read);
 
   // Address the object that was looked up. A redirect follow can look up a
-  // different URL than cache_info.lookup_url, which is set once and does not
-  // track the redirect when the pristine host header is maintained.
+  // different URL than cache_info.lookup_url: a private copy, such as the one
+  // DecideCacheLookup makes when the pristine host header is kept, does not
+  // track the redirect.
   URL *url = cache_lookup_url();
+
+  // Without a lookup URL there is no key to delete. Returning is safe because nothing
+  // is pending here, unlike in do_cache_prepare_action.
+  if (url == nullptr) {
+    SMDbg(dbg_ctl_http_seq, "Skipping cache delete: no cache lookup URL was recorded");
+    return;
+  }
 
   SMDbg(dbg_ctl_http_seq, "Issuing cache delete for %s", url->string_get_ref());
 
@@ -5440,12 +5474,13 @@ HttpSM::do_cache_delete_all_alts()
 void
 HttpSM::do_cache_delete_compat_alts()
 {
-  // Same URL the lookup used; see do_cache_delete_all_alts().
+  // Same URL the lookup used; see do_cache_delete_all_alts(), including why a
+  // missing one skips the delete.
   URL *url = cache_lookup_url();
 
   // A path that carries its own ";params" segment hashes to the same key
   // under both schemes, so the canonical delete already reached it.
-  if (!t_state.http_config_param->cache_try_compat_key_read || url->has_path_params()) {
+  if (url == nullptr || !t_state.http_config_param->cache_try_compat_key_read || url->has_path_params()) {
     return;
   }
   SMDbg(dbg_ctl_http_seq, "Issuing compatibility cache delete for %s", url->string_get_ref());
@@ -5533,7 +5568,11 @@ HttpSM::do_cache_prepare_action(HttpCacheSM *c_sm, CacheHTTPInfo *object_read_in
     s_url->copy(c_url);
   }
 
-  ink_assert(s_url != nullptr && s_url->valid());
+  // An early return here would leave the state machine with nothing pending, since this
+  // function ends by setting pending_action from open_write, and risk a hung transaction.
+  // A release assert turns a null or invalid URL into a diagnosable crash in every build
+  // rather than a bad dereference below.
+  ink_release_assert(s_url != nullptr && s_url->valid());
   SMDbg(dbg_ctl_http_cache_write, "writing to cache with URL %s", s_url->string_get(&t_state.arena));
 
   HttpCacheKey key;
