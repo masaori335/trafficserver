@@ -354,3 +354,51 @@ TEST_CASE("Header: an empty body", "[cripts][Headers]")
   CHECK(state.internal_msg_buffer == nullptr);
   CHECK(state.internal_msg_buffer_size == 0);
 }
+
+TEST_CASE("Server::Request: read after the request is sent", "[cripts][Headers]")
+{
+  Txn txn{REQUEST};
+
+  txn.set_server_request("GET /o HTTP/1.1\r\nHost: origin.example\r\n\r\n");
+
+  auto context = txn.context();
+
+  context->state.hook = TS_HTTP_READ_RESPONSE_HDR_HOOK;
+
+  borrow sent = cripts::Server::Request::Get();
+
+  CHECK(str(sent["Host"]) == "origin.example");
+  CHECK_FALSE(context->state.error.Failed());
+}
+
+TEST_CASE("Server::Request: Present() tells there is no request without failing", "[cripts][Headers]")
+{
+  Txn  txn{REQUEST};
+  auto context = txn.context();
+
+  context->state.hook = TS_HTTP_SEND_RESPONSE_HDR_HOOK;
+
+  {
+    borrow sent = cripts::Server::Request::Get();
+
+    CHECK_FALSE(sent.Present());
+    CHECK_FALSE(context->state.error.Failed());
+  }
+
+  SECTION("using it fails the transaction, as before")
+  {
+    borrow sent = cripts::Server::Request::Get();
+
+    CHECK(sent.BufP() == nullptr);
+    CHECK(context->state.error.Failed());
+  }
+  SECTION("a request made since is found")
+  {
+    txn.set_server_request("GET /o HTTP/1.1\r\nHost: origin.example\r\n\r\n");
+
+    borrow sent = cripts::Server::Request::Get();
+
+    CHECK(sent.Present());
+    CHECK(str(sent["Host"]) == "origin.example");
+  }
+}

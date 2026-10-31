@@ -54,6 +54,20 @@ Header Object                   Description
    The ``cripts::Cache::Response`` header is also immutable, and can only be used after a successful
    cache lookup.
 
+Reading or writing ``cripts::Server::Request`` where there is no request to the origin, as on a
+cache hit, is an error. ``Present()`` tells whether there is one:
+
+.. code-block:: cpp
+
+  do_send_response() {
+    borrow sent = cripts::Server::Request::Get();
+    borrow resp = cripts::Client::Response::Get();
+
+    if (sent.Present()) {
+      resp["X-Sent-Host"] = sent["Host"];
+    }
+  }
+
 Assigning the empty value (``""``) to a header will remove it from the header list. For example:
 
 .. code-block:: cpp

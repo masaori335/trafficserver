@@ -492,6 +492,10 @@ namespace Server
     static self_type &_get(cripts::Context *context);
     void              _initialize() override;
 
+    // The other members need a request to the origin, which there is not on a cache hit; this tells, without failing the
+    // transaction.
+    [[nodiscard]] bool Present();
+
   }; // End class Server::Request
 
   class Response : public ResponseHeader

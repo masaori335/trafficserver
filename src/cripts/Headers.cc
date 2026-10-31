@@ -369,7 +369,7 @@ Client::Response::_initialize()
 Server::Request &
 Server::Request::_get(cripts::Context *context)
 {
-  _ensure_initialized(&context->_server.request);
+  // Initialized on first use rather than here, so that Present() can tell before anything fails the transaction.
   return context->_server.request;
 }
 
@@ -379,16 +379,22 @@ Server::Request::_initialize()
   CAssert(_state->hook != TS_HTTP_READ_REQUEST_HDR_HOOK);
   CAssert(_state->hook != TS_HTTP_POST_REMAP_HOOK);
   CAssert(_state->hook != TS_HTTP_CACHE_LOOKUP_COMPLETE_HOOK);
-  CAssert(_state->hook != TS_HTTP_READ_RESPONSE_HDR_HOOK);
 
+  if (!Present()) {
+    _state->error.Fail();
+  }
+}
+
+bool
+Server::Request::Present()
+{
   if (!Initialized()) {
     TSAssert(_state->txnp);
-    if (TSHttpTxnServerReqGet(_state->txnp, &_bufp, &_hdr_loc) != TS_SUCCESS) {
-      _state->error.Fail();
-    } else {
+    if (TSHttpTxnServerReqGet(_state->txnp, &_bufp, &_hdr_loc) == TS_SUCCESS) {
       super_type::_initialize(); // Don't initialize unless properly setup
     }
   }
+  return Initialized();
 }
 
 Server::Response &
