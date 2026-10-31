@@ -58,6 +58,7 @@ Context::reset()
   // Release lazy URLs entirely — they get recreated on demand for the next txn.
   _urls.pristine.reset();
   _urls.parent.reset();
+  _urls.server.reset();
   _urls.remap.from.reset();
   _urls.remap.to.reset();
 

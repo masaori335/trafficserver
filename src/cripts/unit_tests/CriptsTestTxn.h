@@ -104,6 +104,12 @@ public:
     parse_into(_sm.t_state.hdr_info.server_response, HTTPType::RESPONSE, msg);
   }
 
+  void
+  set_server_request(std::string_view msg)
+  {
+    parse_into(_sm.t_state.hdr_info.server_request, HTTPType::REQUEST, msg);
+  }
+
   // Raw MIME value of the client request, bypassing cripts, to check what cripts actually wrote.
   std::string
   client_request_field(std::string_view name) const

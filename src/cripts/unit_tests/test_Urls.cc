@@ -323,3 +323,55 @@ TEST_CASE("Url: the port set from a string", "[cripts][Urls]")
   CHECK(integer(url.port) == 8081);
   CHECK(txn.client_url().port_get() == 8081);
 }
+
+TEST_CASE("Url: the request to the origin, read empty before there is one", "[cripts][Urls]")
+{
+  Txn  txn{ABSOLUTE_REQUEST};
+  auto context = txn.context();
+
+  {
+    borrow url = cripts::Server::URL::Get();
+
+    CHECK(str(url.host).empty());
+    CHECK(str(url.path).empty());
+    CHECK(str(url.query["x"]).empty());
+    CHECK(url.ReadOnly());
+    CHECK_FALSE(url.Present());
+  }
+
+  SECTION("a Reset() reads the request the core has made since")
+  {
+    borrow url = cripts::Server::URL::Get();
+
+    CHECK(integer(url.port) == 0);
+
+    txn.set_server_request("GET http://origin.example:8082/o HTTP/1.1\r\nHost: origin.example\r\n\r\n");
+    url.Reset();
+
+    CHECK(str(url.scheme) == "http");
+    CHECK(str(url.host) == "origin.example");
+    CHECK(integer(url.port) == 8082);
+    CHECK(str(url.path) == "o");
+    CHECK(url.Present());
+
+    // Reset() first: replacing the request frees the heap the URL points into.
+    url.Reset();
+    txn.set_server_request("GET https://other.example/p HTTP/1.1\r\nHost: other.example\r\n\r\n");
+
+    CHECK(str(url.scheme) == "https");
+    CHECK(str(url.host) == "other.example");
+    CHECK(integer(url.port) == 443);
+  }
+
+  // The next hook reads the request the core has made since.
+  txn.set_server_request("GET http://origin.example:8081/o/p?x=9 HTTP/1.1\r\nHost: origin.example\r\n\r\n");
+  context->reset();
+
+  borrow url = cripts::Server::URL::Get();
+
+  CHECK(url.Present());
+  CHECK(str(url.host) == "origin.example");
+  CHECK(integer(url.port) == 8081);
+  CHECK(str(url.path) == "o/p");
+  CHECK(str(url.query["x"]) == "9");
+}

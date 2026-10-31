@@ -86,7 +86,7 @@ public:
   friend class Server::Request;
   friend class Server::Response;
   friend class Server::Connection;
-  friend class Server::Response;
+  friend class Server::URL;
   friend class Cache::Response;
   friend class Cache::URL;
   friend class Pristine::URL;
@@ -139,6 +139,7 @@ public:
     cripts::Client::URL                   &request;
     std::unique_ptr<cripts::Pristine::URL> pristine;
     std::unique_ptr<cripts::Parent::URL>   parent;
+    std::unique_ptr<cripts::Server::URL>   server;
 
     struct {
       std::unique_ptr<cripts::Remap::From::URL> from;

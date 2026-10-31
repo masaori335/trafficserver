@@ -771,4 +771,43 @@ Parent::URL::_initialize()
   ++_context->state.heap_writes; // Allocated in the client request's heap, which can move its strings
 }
 
+Server::URL::~URL()
+{
+  if (_empty != nullptr) {
+    TSMBufferDestroy(_empty);
+  }
+}
+
+Server::URL &
+Server::URL::_get(cripts::Context *context)
+{
+  auto &slot = context->_urls.server;
+
+  if (!slot) {
+    slot = std::make_unique<Server::URL>();
+    slot->set_context(context);
+  }
+  _ensure_initialized(slot.get());
+  return *slot;
+}
+
+void
+Server::URL::_initialize()
+{
+  TSMBuffer bufp;
+  TSMLoc    hdr_loc;
+
+  TSAssert(_context->state.txnp);
+  if (TSHttpTxnServerReqGet(_context->state.txnp, &bufp, &hdr_loc) == TS_SUCCESS &&
+      TSHttpHdrUrlGet(bufp, hdr_loc, &_urlp) == TS_SUCCESS) {
+    _bufp    = bufp;
+    _hdr_loc = hdr_loc;
+  } else {
+    _empty = TSMBufferCreate();
+    TSUrlCreate(_empty, &_urlp);
+    _bufp = _empty;
+  }
+  super_type::_initialize();
+}
+
 } // namespace cripts

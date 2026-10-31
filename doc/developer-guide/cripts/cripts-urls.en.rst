@@ -34,7 +34,7 @@ must always be borrowed. The pattern for this is as follows:
 
   auto path = url.path;
 
-There are four types of URLs that can be borrowed:
+These are the URLs that can be borrowed:
 
 ==============================   =============================================================================
 URL Object                       Description
@@ -45,6 +45,7 @@ URL Object                       Description
 ``cripts::Cache::URL``           The cache URL, which will be used for the cache lookups.
 ``cripts::Remap::From::URL``     The remap ``from`` URL, from :file:`remap.config`.
 ``cripts::Remap::To::URL``       The remap ``to`` URL, from :file:`remap.config`.
+``cripts::Server::URL``          The URL of the request to the origin or parent.
 ==============================   =============================================================================
 
 These URLs all have the same methods and properties, but they are used in different

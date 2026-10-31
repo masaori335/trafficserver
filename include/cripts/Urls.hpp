@@ -930,6 +930,58 @@ namespace Parent
 
 } // namespace Parent
 
+namespace Server
+{
+  // The URL of the request to the origin or the parent, read only. A transaction that has no such request, before
+  // SEND_REQUEST or on a cache hit, reads it as an empty URL rather than failing, as header_rewrite's %{SERVER-URL}
+  // reads empty there.
+  class URL : public cripts::Url
+  {
+    using super_type = cripts::Url;
+    using self_type  = URL;
+
+  public:
+    URL()                             = default;
+    URL(const self_type &)            = delete;
+    void operator=(const self_type &) = delete;
+    ~URL() override;
+
+    static self_type &_get(cripts::Context *context);
+
+    // Whether there is a request to read; without one, the URL reads empty, but its port reads 0.
+    [[nodiscard]] bool
+    Present() const
+    {
+      return Initialized() && _empty == nullptr;
+    }
+
+    // The request may have come since, so the next read looks for it again.
+    void
+    Reset() override
+    {
+      super_type::Reset();
+      if (_empty != nullptr) {
+        TSMBufferDestroy(_empty);
+        _empty = nullptr;
+      }
+    }
+
+    [[nodiscard]] bool
+    ReadOnly() const override
+    {
+      return true;
+    }
+
+  protected:
+    void _initialize() override;
+
+  private:
+    TSMBuffer _empty = nullptr; // Holds the empty URL, when there is no request to read.
+
+  }; // End class Server::URL
+
+} // namespace Server
+
 } // namespace cripts
 
 // Formatters for {fmt}
