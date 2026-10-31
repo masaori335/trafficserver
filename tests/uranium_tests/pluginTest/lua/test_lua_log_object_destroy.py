@@ -45,6 +45,7 @@ def configure_ats(ats_factory: ATSFactory, services: ServiceFactory, script: str
         },
     )
     ats = ats_factory.create("ts")
+    ats.allow_errors(r"ERROR: \[ts_lua\]\[ts_lua_log_object_(?:destroy|write)\] log object does not exist for (?:destroy|write)")
     if not ats.plugin_exists("tslua.so"):
         pytest.skip("tslua.so is required")
     ats.copy_to_config(script)

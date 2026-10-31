@@ -66,6 +66,9 @@ def configure_ats(ats_factory: ATSFactory, *, _dns: DNSServer, _primary: OriginS
         pytest.skip("regex_remap.so is not installed")
     if not ats.plugin_exists("header_rewrite.so"):
         pytest.skip("header_rewrite.so is not installed")
+    ats.allow_errors(r"ERROR: \[regex_remap\] Regex compile failed in .*/rr_userpos\.conf")
+    ats.allow_errors(r"ERROR: \[regex_remap\] refusing substituted URL")
+    ats.allow_errors(r"ERROR: \[regex_remap\] can't parse substituted URL string")
 
     origin = f"127.0.0.1:{_primary.port}"
     ats.write_config_file("rr_noslash.conf", f"^/api(.*)$ http://{origin}$1\n")

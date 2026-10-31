@@ -126,6 +126,7 @@ def shrinking_window_configure_ats(ats_factory: ATSFactory, *, _server: OriginSe
     """
 
     ats = ats_factory.create("shrinking-window-ats", enable_tls=True, enable_cache=False)
+    ats.allow_errors(r"ERROR: HTTP/2 connection error code=0x03.*recv data this->local_rwnd < payload_length")
     ats.add_default_ssl_files()
     ats.records.update(
         {
