@@ -107,7 +107,7 @@ INIT_HRW4U=$(PKG_DIR_HRW4U)/__init__.py
 INIT_U4WRH=$(PKG_DIR_U4WRH)/__init__.py
 INIT_LSP=$(PKG_DIR_LSP)/__init__.py
 
-.PHONY: all gen gen-fwd gen-inv copy-src check-antlr test clean build package env setup-deps activate update coverage coverage-open
+.PHONY: all gen gen-fwd gen-inv copy-src copy-grammar check-antlr test clean build package env setup-deps activate update coverage coverage-open
 
 all: gen
 
@@ -123,7 +123,7 @@ check-antlr:
 	}
 
 # Orchestrate generation then copy sources and drop __main__.py in each package
-gen: gen-fwd gen-inv copy-src $(MAIN_HRW4U) $(MAIN_U4WRH) $(MAIN_LSP) $(INIT_HRW4U) $(INIT_U4WRH) $(INIT_LSP)
+gen: gen-fwd gen-inv copy-src copy-grammar $(MAIN_HRW4U) $(MAIN_U4WRH) $(MAIN_LSP) $(INIT_HRW4U) $(INIT_U4WRH) $(INIT_LSP)
 
 # Create __main__.py files only when scripts change
 $(MAIN_HRW4U): $(SCRIPT_HRW4U)
@@ -166,6 +166,19 @@ $(ANTLR_FILES_INV): $(GRAMMAR_INV)
 
 # Copy Python sources into their respective package dirs
 copy-src: $(COPIED_FILES_HRW4U) $(COPIED_FILES_U4WRH) $(COPIED_FILES_LSP)
+
+# Copy grammar sources into each package so the wheel ships the authoritative
+# .g4 alongside the ANTLR-generated parser. Downstream consumers that re-vendor
+# the grammar can then pin it to the wheel version instead of a separate tag.
+copy-grammar: $(PKG_DIR_HRW4U)/hrw4u.g4 $(PKG_DIR_U4WRH)/u4wrh.g4
+
+$(PKG_DIR_HRW4U)/hrw4u.g4: $(GRAMMAR_FWD)
+	@mkdir -p $(PKG_DIR_HRW4U)
+	cp $< $@
+
+$(PKG_DIR_U4WRH)/u4wrh.g4: $(GRAMMAR_INV)
+	@mkdir -p $(PKG_DIR_U4WRH)
+	cp $< $@
 
 # Pattern rules for copying files - create subdirectories as needed
 $(PKG_DIR_HRW4U)/%: src/%

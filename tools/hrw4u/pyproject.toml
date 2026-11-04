@@ -67,6 +67,10 @@ where = ["build"]
 [tool.setuptools.package-dir]
 "" = "build"
 
+[tool.setuptools.package-data]
+hrw4u = ["*.g4"]
+u4wrh = ["*.g4"]
+
 [tool.pytest.ini_options]
 markers = [
     "invalid: marks tests expected to fail input parsing",
