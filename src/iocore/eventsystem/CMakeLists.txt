@@ -72,6 +72,9 @@ if(BUILD_TESTING)
   target_link_libraries(test_Action ts::inkevent configmanager Catch2::Catch2WithMain)
   add_catch2_test(NAME test_Action COMMAND test_Action)
 
+  add_executable(test_WatchdogPolicy unit_tests/test_WatchdogPolicy.cc)
+  target_link_libraries(test_WatchdogPolicy ts::inkevent configmanager Catch2::Catch2WithMain)
+  add_catch2_test(NAME test_WatchdogPolicy COMMAND test_WatchdogPolicy)
 endif()
 
 clang_tidy_check(inkevent)
