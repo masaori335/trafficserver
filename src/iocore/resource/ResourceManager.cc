@@ -30,7 +30,32 @@ ResourceManager resourceManager;
 namespace
 {
 DbgCtl dbg_ctl_rm{"resource"};
-}
+
+/** Builds, starts and configures the ResourceLocalManager of the ET_NET thread it runs on, then deletes itself. */
+class LocalManagerStarter : public Continuation
+{
+public:
+  LocalManagerStarter() : Continuation(nullptr) { SET_HANDLER(&LocalManagerStarter::start); }
+
+private:
+  int
+  start(int /* event */, void * /* data */)
+  {
+    EThread    *ethread = this_ethread();
+    NetHandler *nh      = get_NetHandler(ethread);
+
+    new (&nh->resource_local_manager) ResourceLocalManager();
+    nh->resource_local_manager.start(ethread);
+    {
+      SCOPED_MUTEX_LOCK(lock, nh->resource_local_manager.mutex, ethread);
+      nh->resource_local_manager.reconfigure();
+    }
+
+    delete this;
+    return EVENT_DONE;
+  }
+};
+} // namespace
 
 ////
 // ResourceManager
@@ -45,18 +70,18 @@ ResourceManager::start()
 
   mutex = new_ProxyMutex();
 
+  this->reconfigure(true);
+
   // start ResourceLocalManager on each ET_NET thread
   EventProcessor::ThreadGroupDescriptor *tg = &(eventProcessor.thread_group[0]);
   ink_release_assert(memcmp(tg->_name.data(), "ET_NET", 6) == 0);
 
+  // This runs on the main thread, which does not wait for the net threads to finish initialize_thread_for_net(). That
+  // reconstructs the NetHandler, so a manager built here could be replaced while its periodic event still holds the old
+  // mutex. An event queued to a thread runs only after the thread's spawn initialization, so start each manager there.
   for (int i = 0; i < tg->_count; ++i) {
-    EThread    *ethread = tg->_thread[i];
-    NetHandler *nh      = get_NetHandler(ethread);
-    new (&nh->resource_local_manager) ResourceLocalManager();
-    nh->resource_local_manager.start(ethread);
+    tg->_thread[i]->schedule_imm(new LocalManagerStarter());
   }
-
-  this->reconfigure(true);
 }
 
 /**
@@ -120,15 +145,14 @@ ResourceManager::reconfigure(bool startup)
   for (int i = 0; i < tg->_count; ++i) {
     EThread    *ethread = tg->_thread[i];
     NetHandler *nh      = get_NetHandler(ethread);
+    // At startup each LocalManagerStarter configures its own thread's manager.
     if (startup) {
-      SCOPED_MUTEX_LOCK(lock2, nh->resource_local_manager.mutex, this_ethread());
-      nh->resource_local_manager.reconfigure();
+      continue;
+    }
+    if (nh->resource_local_manager.handler == &ResourceLocalManager::state_running) {
+      ethread->schedule_imm(&nh->resource_local_manager);
     } else {
-      if (nh->resource_local_manager.handler == &ResourceLocalManager::state_running) {
-        ethread->schedule_imm(&nh->resource_local_manager);
-      } else {
-        Warning("Resource Local Manager is not running yet. Retry later");
-      }
+      Warning("Resource Local Manager is not running yet. Retry later");
     }
   }
 }
