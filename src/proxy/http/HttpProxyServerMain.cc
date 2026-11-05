@@ -494,7 +494,6 @@ start_HttpProxyServer()
 void
 stop_HttpProxyServer()
 {
-  resourceManager.stop();
   sslNetProcessor.stop_accept();
   netProcessor.stop_accept();
 

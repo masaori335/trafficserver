@@ -47,6 +47,7 @@ struct ResourceConfigParams : public ConfigInfo {
   // Config Params
   uint64_t stats_size = 0;
   uint64_t top_n      = 0;
+  uint64_t freq       = 1; // in seconds
 
   Params sni;
   Params active_q;

@@ -44,7 +44,6 @@ public:
   ResourceManager &operator=(ResourceManager &&)      = delete;
 
   void start();
-  void stop();
   void reconfigure(bool startup = false);
 
   void set_sum(ResourceType stats_type, uint64_t tag_id, ResourceStatsType index, uint64_t value);

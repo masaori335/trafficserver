@@ -201,27 +201,7 @@ public:
       // bucket would also delay examining every tick behind it.
       this_ethread()->schedule_in(this, TIMEOUT_CONTINUE_DELAY);
     }
-
-    // reserve() refills the per-window tokens, so it must only run on the
-    // periodic event and not on a budget continuation pass.
-    if (e->period != 0) {
-      reserve_resources();
-    }
     return 0;
-  }
-
-  // Temporally hack for Resource Constraints
-  void
-  reserve_resources()
-  {
-    NetHandler &nh = _nh;
-
-    // InactivityCop might start earlier than ResourceManager
-    if (nh.resource_local_manager.mutex && nh.resource_local_manager.running()) {
-      // Guard for the race with reconfigure
-      SCOPED_MUTEX_LOCK(lock, nh.resource_local_manager.mutex, this_ethread());
-      nh.resource_local_manager.reserve();
-    }
   }
 
   /** One timeout pass, with @a now supplied by the caller.

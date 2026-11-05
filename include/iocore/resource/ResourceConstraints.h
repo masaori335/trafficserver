@@ -119,8 +119,7 @@ public:
   int state_init(int event, void *data);
   int state_running(int event, void *data);
 
-  void start();
-  void stop();
+  void start(EThread *ethread);
   void reconfigure();
   bool running();
 

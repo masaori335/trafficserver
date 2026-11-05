@@ -22,6 +22,8 @@
  */
 
 #include "iocore/resource/ResourceConstraints.h"
+#include "iocore/eventsystem/Continuation.h"
+#include "iocore/resource/ResourceConfig.h"
 #include "iocore/resource/ResourceManager.h"
 
 #include "iocore/net/SSLSNIConfig.h"
@@ -141,6 +143,10 @@ ResourceLocalManager::state_running(int event, void * /* data */)
     reconfigure();
     break;
   }
+  case EVENT_INTERVAL: {
+    reserve();
+    break;
+  }
   default:
     ink_abort("unsupported event=%s (%d)", get_vc_event_name(event), event);
     break;
@@ -149,7 +155,7 @@ ResourceLocalManager::state_running(int event, void * /* data */)
 }
 
 void
-ResourceLocalManager::start()
+ResourceLocalManager::start(EThread *ethread)
 {
   _limiters.emplace_back(TLSHandshakeLimiterV1{});
 
@@ -166,12 +172,10 @@ ResourceLocalManager::start()
   for (auto &limiter : _limiters) {
     std::visit([&](auto &l) { l.add(UNKNOWN_TID); }, limiter);
   }
-}
 
-void
-ResourceLocalManager::stop()
-{
-  mutex->free();
+  // schedule self periodical event
+  ResourceConfig::scoped_config config;
+  ethread->schedule_every(this, HRTIME_SECONDS(config->freq));
 }
 
 /**
@@ -383,6 +387,8 @@ ResourceLocalManager::reserve()
     // Do nothing until ResourceManager is ready
     return;
   }
+
+  ink_assert(this->mutex->thread_holding == this_ethread());
 
   for (auto &limiter : _limiters) {
     std::visit([&](auto &l) { l.filter(); }, limiter);

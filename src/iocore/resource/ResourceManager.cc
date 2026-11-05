@@ -53,26 +53,10 @@ ResourceManager::start()
     EThread    *ethread = tg->_thread[i];
     NetHandler *nh      = get_NetHandler(ethread);
     new (&nh->resource_local_manager) ResourceLocalManager();
-    nh->resource_local_manager.start();
+    nh->resource_local_manager.start(ethread);
   }
 
   this->reconfigure(true);
-}
-
-void
-ResourceManager::stop()
-{
-  // stop ResourceLocalManager on each ET_NET thread
-  EventProcessor::ThreadGroupDescriptor *tg = &(eventProcessor.thread_group[0]);
-  ink_release_assert(memcmp(tg->_name.data(), "ET_NET", 6) == 0);
-
-  for (int i = 0; i < tg->_count; ++i) {
-    EThread    *ethread = tg->_thread[i];
-    NetHandler *nh      = get_NetHandler(ethread);
-    nh->resource_local_manager.stop();
-  }
-
-  mutex->free();
 }
 
 /**
