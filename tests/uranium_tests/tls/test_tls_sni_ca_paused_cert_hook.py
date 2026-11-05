@@ -132,8 +132,9 @@ def test_tls_sni_ca_paused_cert_hook(
                 if trusted:
                     passed = result.returncode == 0 and "status=200" in result.stdout
                 else:
-                    # A TLS 1.3 client learns of the rejection after its Finished, so its next write can fail first (55).
-                    passed = result.returncode in (35, 55, 56) and "status=000" in result.stdout
+                    # A TLS 1.3 client learns of the rejection after its Finished, so its next write can fail first (55),
+                    # which curl reports as an HTTP/2 error (16) once h2 has been negotiated.
+                    passed = result.returncode in (16, 35, 55, 56) and "status=000" in result.stdout
                 if not passed:
                     cert_desc = f"{client} certificate" if client else "no certificate"
                     outcome = "accepted" if trusted else "rejected"
