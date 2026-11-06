@@ -1,0 +1,57 @@
+hrw4u-ir 1.1
+
+Instance:
+  ivars  = [i0:sview, i1:sview]
+  consts = [K0:"g2o_secret.hex", K1:"my-nonce", K2:"X-Akamai-G2O-Auth-Data", K3:"", K4:"X-Akamai-G2O-Auth-Sign"]
+  ints   = [I0:7, I1:2147483648, I2:4, I3:3]
+  fmt    = [F0:"5, {inbound.server}, {inbound.ip}, {now}, {random(2147483648)}, {g2o_nonce}" arity=5 lits=["5, ", ", ", ", ", ", ", ", ", ""], F1:"{outbound.req.X-Akamai-G2O-Auth-Data}/{outbound.url.path}?{outbound.url.query}" arity=3 lits=["", "/", "?", ""], F2:"{outbound.req.X-Akamai-G2O-Auth-Data}/{outbound.url.path}" arity=2 lits=["", "/", ""]]
+  IR:
+    %1:sview = const.s K0 @4:4
+    %2:sview = call.load EXT"cripts::File::Line::Read", %1 @4:4
+    %3:sview = call.pure EXT"cripts::Crypto::Hex::Decode", %2 @4:4
+    store.i i0, %3 @4:4
+    %4:sview = const.s K1 @5:4
+    store.i i1, %4 @5:4
+    ret @5:4
+
+Section[SEND_REQUEST]:
+  IR:
+    %1:sview = const.s K2 @9:4
+    %2:addr = call.pure BI_IP_INBOUND @9:4
+    %3:addr = call.pure BI_IP_CLIENT @9:4
+    %4:i64 = const.i I0 @9:4
+    %5:i64 = call.pure BI_NOW, %4 @9:4
+    %6:i64 = const.i I1 @9:4
+    %7:i64 = call.pure BI_RANDOM, %6 @9:4
+    %8:sview = load.i i1 @9:4
+    %9:sview = fmt F0, %2, %3, %5, %7, %8 @9:4
+    call.eff BI_SET_SERVER_HEADER, %1, %9 @9:4
+    %10:i64 = const.i I2 @9:4
+    %11:sview = call.pure BI_SERVER_URL, %10 @9:4
+    %12:sview = const.s K3 @9:4
+    %13:bool = cmp.s.ne %11, %12 @9:4
+    br.f %13, .L28 @9:4
+    %14:sview = const.s K4 @9:4
+    %15:sview = load.i i0 @9:4
+    %16:sview = const.s K2 @9:4
+    %17:sview = call.pure BI_SERVER_HEADER, %16 @9:4
+    %18:i64 = const.i I3 @9:4
+    %19:sview = call.pure BI_SERVER_URL, %18 @9:4
+    %20:i64 = const.i I2 @9:4
+    %21:sview = call.pure BI_SERVER_URL, %20 @9:4
+    %22:sview = fmt F1, %17, %19, %21 @9:4
+    %23:sview = call.pure EXT"cripts::Crypto::HMAC::SHA256::Sign", %15, %22 @9:4
+    %24:sview = call.pure EXT"cripts::Crypto::Base64::Encode", %23 @9:4
+    call.eff BI_SET_SERVER_HEADER, %14, %24 @9:4
+    br .L38 @9:4
+    .L28: %25:sview = const.s K4 @9:4
+    %26:sview = load.i i0 @9:4
+    %27:sview = const.s K2 @9:4
+    %28:sview = call.pure BI_SERVER_HEADER, %27 @9:4
+    %29:i64 = const.i I3 @9:4
+    %30:sview = call.pure BI_SERVER_URL, %29 @9:4
+    %31:sview = fmt F2, %28, %30 @9:4
+    %32:sview = call.pure EXT"cripts::Crypto::HMAC::SHA256::Sign", %26, %31 @9:4
+    %33:sview = call.pure EXT"cripts::Crypto::Base64::Encode", %32 @9:4
+    call.eff BI_SET_SERVER_HEADER, %25, %33 @9:4
+    .L38: ret @9:4

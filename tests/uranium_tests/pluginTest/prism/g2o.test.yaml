@@ -1,0 +1,153 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+meta:
+  version: "1.0"
+
+# The .ir files are the compiler's output for the .hrw4u files next to them, with the Apple::G2O procedures; this
+# branch's tools/hrw4u does not write IR yet. g2o_kat sets the auth data from "{inbound.req.X-Test-Auth-Data}" before
+# Apple::G2O::SignAuthData, so a fixed value gives a known signature.
+urtest:
+  description: 'prism.so signs origin requests with Akamai G2O through the Apple::G2O procedures'
+  requires:
+    ats_features: [TS_HAS_CRIPTS]
+    plugins: [prism.so]
+
+  dns:
+    name: 'dns'
+
+  server:
+    name: 'server'
+
+  client:
+    name: 'client'
+
+  ats:
+    name: 'ts'
+
+    copy_to_config_dir:
+      - 'g2o.ir'
+      - 'g2o_kat.ir'
+      - 'g2o_secret.hex'
+
+    records_config:
+      proxy.config.diags.debug.enabled: 1
+      proxy.config.diags.debug.tags: 'prism|cript'
+
+    log_validation:
+      diags_log:
+        excludes:
+          - expression: 'fault in'
+          - expression: '00112233445566778899aabbccddeeff'
+      traffic_out:
+        excludes:
+          - expression: '00112233445566778899aabbccddeeff'
+
+    # prism.so refuses a relative .ir path; the key's path in the .ir is read from the config directory.
+    remap_config:
+      - from: "http://g2o.test/"
+        to: "http://backend.ex:{SERVER_HTTP_PORT}/"
+        plugins:
+          - {name: "prism.so", args: ["{CONFIG_DIR}/g2o.ir"]}
+      - from: "http://g2o-kat.test/"
+        to: "http://backend.ex:{SERVER_HTTP_PORT}/"
+        plugins:
+          - {name: "prism.so", args: ["{CONFIG_DIR}/g2o_kat.ir"]}
+
+sessions:
+- transactions:
+
+  # The forged headers are replaced.
+  - client-request:
+      method: "GET"
+      version: "1.1"
+      url: /logo.png?a=1
+      headers:
+        fields:
+        - [ Host, g2o.test ]
+        - [ X-Akamai-G2O-Auth-Data, forged ]
+        - [ X-Akamai-G2O-Auth-Sign, forged ]
+        - [ uuid, g2o-signed ]
+
+    proxy-request:
+      headers:
+        fields:
+        - [ X-Akamai-G2O-Auth-Data, { value: "5, 127.0.0.1, 127.0.0.1, ", as: prefix } ]
+        - [ X-Akamai-G2O-Auth-Data, { value: ", my-nonce", as: suffix } ]
+        - [ X-Akamai-G2O-Auth-Sign, { value: "=", as: suffix } ]
+        - [ X-Akamai-G2O-Auth-Sign, { value: "forged", not: equal } ]
+
+    server-response:
+      status: 200
+      reason: OK
+      headers:
+        fields:
+        - [ Content-Length, "0" ]
+
+    proxy-response:
+      status: 200
+
+  # The known answers: HMAC-SHA256 under g2o_secret.hex over the auth data, the path and, when there is one, the query.
+  # The auth data is read back from the request header set earlier in the same hook.
+  - client-request:
+      method: "GET"
+      version: "1.1"
+      url: /logo.png
+      headers:
+        fields:
+        - [ Host, g2o-kat.test ]
+        - [ X-Test-Auth-Data, "5, 0.0.0.0, 0.0.0.0, 1756598400, 1284719033, my-nonce" ]
+        - [ uuid, g2o-kat-path ]
+
+    proxy-request:
+      headers:
+        fields:
+        - [ X-Akamai-G2O-Auth-Sign, { value: "75nunWwn7OGwCr0pzzqvHtrAYmDZiNCiNySXMd1+VPY=", as: equal } ]
+
+    server-response:
+      status: 200
+      reason: OK
+      headers:
+        fields:
+        - [ Content-Length, "0" ]
+
+    proxy-response:
+      status: 200
+
+  - client-request:
+      method: "GET"
+      version: "1.1"
+      url: /logo.png?a=1
+      headers:
+        fields:
+        - [ Host, g2o-kat.test ]
+        - [ X-Test-Auth-Data, "5, 0.0.0.0, 0.0.0.0, 1756598400, 1284719033, my-nonce" ]
+        - [ uuid, g2o-kat-query ]
+
+    proxy-request:
+      headers:
+        fields:
+        - [ X-Akamai-G2O-Auth-Sign, { value: "NR898pzPurq1K+H9KT11U7To4eRmOlabIpwZDa6Qj/0=", as: equal } ]
+
+    server-response:
+      status: 200
+      reason: OK
+      headers:
+        fields:
+        - [ Content-Length, "0" ]
+
+    proxy-response:
+      status: 200

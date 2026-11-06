@@ -1,0 +1,10 @@
+use Apple::G2O
+
+INSTANCE_VARS {
+    g2o_secret: string = cripts::Crypto::Hex::Decode(cripts::File::Line::Read("g2o_secret.hex"));
+}
+
+SEND_REQUEST {
+    outbound.req.X-Akamai-G2O-Auth-Data = "{inbound.req.X-Test-Auth-Data}";
+    Apple::G2O::SignAuthData(g2o_secret);
+}
