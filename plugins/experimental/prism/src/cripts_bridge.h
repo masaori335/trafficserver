@@ -23,6 +23,7 @@
 
 #include "ir.h"
 
+#include "swoc/IPAddr.h"
 #include "swoc/MemSpan.h"
 
 #include <cstddef>
@@ -53,6 +54,9 @@ public:
   /// Add a field line to @a msg after any of the same name, as header_rewrite's add-header. An empty value adds nothing.
   void add_header(Message msg, std::string_view name, std::string_view value);
 
+  /// The client's address; not valid when there is none.
+  swoc::IPAddr client_addr();
+
   /// The value of a header in the client's request, or empty when absent. A copy: a later write can move the header's
   /// strings, and registers hold views.
   std::string client_header(std::string_view name);
@@ -63,6 +67,9 @@ public:
   /// The value of a header in @a msg, or empty when absent or when the transaction has no such message. A copy, as
   /// client_header().
   std::string get_header(Message msg, std::string_view name);
+
+  /// The address the client connected to, as header_rewrite's %{IP:INBOUND} reads it; not valid when there is none.
+  swoc::IPAddr inbound_addr();
 
   /// Remove every field line of a header from @a msg, as header_rewrite's rm-header.
   void rm_header(Message msg, std::string_view name);

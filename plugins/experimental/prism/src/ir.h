@@ -94,6 +94,8 @@ enum class Builtin {
   ClientRespStatus,
   ClientUrl,
   ClientUrlParam,
+  IpClient,
+  IpInbound,
   RmClientHeader,
   RmClientRespHeader,
   RmServerHeader,

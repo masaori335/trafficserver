@@ -255,6 +255,16 @@ namespace
     return strings->emplace_back(std::move(s));
   }
 
+  // Addresses registers point to; a deque never moves them. Created on first use, as keep() makes its deque.
+  const swoc::IPAddr &
+  keep_addr(std::optional<std::deque<swoc::IPAddr>> &addrs, swoc::IPAddr addr)
+  {
+    if (!addrs) {
+      addrs.emplace();
+    }
+    return addrs->emplace_back(addr);
+  }
+
   bool
   call_ext(const Section &sec, const Inst &inst, hrw4u_rule_ctx *ctx, Registers &regs,
            std::optional<std::deque<std::string>> &strings, std::string &fault)
@@ -322,11 +332,12 @@ execute(const Program &prog, const Section &sec, CriptsBridge *ops, std::string 
   // Only the section's: a read the reader misses gets a null string or address, as an unset one, not the stack's bytes.
   std::fill_n(regs.begin(), sec.num_regs, Value{});
 
-  std::optional<std::deque<std::string>> strings;
-  std::string                            subject;
-  std::optional<RegexMatches>            matches; // Created on first use: it allocates the match data.
-  size_t                                 pc  = 0;
-  hrw4u_rule_ctx                        *ctx = nullptr;
+  std::optional<std::deque<std::string>>  strings;
+  std::optional<std::deque<swoc::IPAddr>> addrs; // Addresses registers point to; a deque never moves them.
+  std::string                             subject;
+  std::optional<RegexMatches>             matches; // Created on first use: it allocates the match data.
+  size_t                                  pc  = 0;
+  hrw4u_rule_ctx                         *ctx = nullptr;
 
   if (ops != nullptr) {
     ctx = rule_ctx(*ops);
@@ -355,6 +366,8 @@ execute(const Program &prog, const Section &sec, CriptsBridge *ops, std::string 
       case Builtin::ClientUrlParam:
       case Builtin::ServerHeader:
       case Builtin::ServerUrl:
+      case Builtin::IpClient:
+      case Builtin::IpInbound:
         break;
       case Builtin::SetClientHeader:
         ops->set_header(Message::ClientRequest, as_sview(regs[inst.args[0]]), as_sview(regs[inst.args[1]]));
@@ -434,6 +447,12 @@ execute(const Program &prog, const Section &sec, CriptsBridge *ops, std::string 
       }
       case Builtin::ServerHeader:
         regs[inst.dest] = sview_value(keep(strings, ops->get_header(Message::ServerRequest, as_sview(regs[inst.args[0]]))));
+        break;
+      case Builtin::IpClient:
+        regs[inst.dest].w[0] = reinterpret_cast<uint64_t>(&keep_addr(addrs, ops->client_addr()));
+        break;
+      case Builtin::IpInbound:
+        regs[inst.dest].w[0] = reinterpret_cast<uint64_t>(&keep_addr(addrs, ops->inbound_addr()));
         break;
       case Builtin::ServerUrl: {
         auto field = url_field(regs[inst.args[0]]);

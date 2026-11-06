@@ -1306,6 +1306,8 @@ namespace
         {"BI_CLIENT_URL_PARAM",       Builtin::ClientUrlParam,      Type::Sview,  {S},    1, MESSAGE_HOOKS               },
         {"BI_SERVER_HEADER",          Builtin::ServerHeader,        Type::Sview,  {S},    1, SENT_REQUEST_HOOKS          },
         {"BI_SERVER_URL",             Builtin::ServerUrl,           Type::Sview,  {I},    1, ALL_HOOKS                   },
+        {"BI_IP_CLIENT",              Builtin::IpClient,            Type::Addr,   {},     0, ALL_HOOKS                   },
+        {"BI_IP_INBOUND",             Builtin::IpInbound,           Type::Addr,   {},     0, ALL_HOOKS                   },
       };
 
       std::string_view name = c.s.substr(0, c.s.find(','));

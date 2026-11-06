@@ -1754,3 +1754,46 @@ Section[SEND_RESPONSE]:
                      7);
   }
 }
+
+TEST_CASE("BI_IP_CLIENT reads an address in every hook")
+{
+  auto program = [](std::string_view hook, std::string_view type) {
+    return replace_line(5, "    %1:" + std::string(type) + " = call.pure BI_IP_CLIENT @2:4", in_hook(hook, R"(hrw4u-ir 1.0
+
+Section[REMAP]:
+  IR:
+    %1:addr = call.pure BI_IP_CLIENT @2:4
+    ret @2:4
+)"));
+  };
+
+  for (auto hook : EVERY_HOOK) {
+    std::string error;
+    auto        prog = parse_ir(program(hook, "addr"), error);
+
+    INFO(hook << ": " << error);
+    REQUIRE(prog.has_value());
+    CHECK(prog->sections[0].insts[0].builtin == Builtin::IpClient);
+    CHECK(prog->sections[0].reg_types[1] == Type::Addr);
+  }
+  require_error_at(program("REMAP", "sview"), 5);
+}
+
+TEST_CASE("BI_IP_INBOUND returns an address in every hook")
+{
+  for (auto hook : EVERY_HOOK) {
+    std::string error;
+    auto        prog = parse_ir(in_hook(hook, R"(hrw4u-ir 1.0
+
+Section[REMAP]:
+  IR:
+    %1:addr = call.pure BI_IP_INBOUND @2:4
+    ret @2:4
+)"),
+                                error);
+
+    INFO(hook << ": " << error);
+    REQUIRE(prog.has_value());
+    CHECK(prog->sections[0].insts[0].builtin == Builtin::IpInbound);
+  }
+}

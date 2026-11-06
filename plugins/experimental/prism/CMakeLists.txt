@@ -56,7 +56,7 @@ install(TARGETS prism_ext_example_ua DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})
 
 # prism.cc is a cript, so the plugin exists only where Cripts is built.
 if(ENABLE_CRIPTS)
-  add_atsplugin(prism src/prism.cc src/interp.cc src/cripts_bridge.cc)
+  add_atsplugin(prism src/prism.cc src/interp.cc src/cripts_bridge.cc src/cripts_bridge_addr.cc)
   target_link_libraries(prism PRIVATE prism_ext_loader prism_config ts::cripts)
   verify_remap_plugin(prism)
 else()
@@ -111,8 +111,9 @@ if(BUILD_TESTING)
   if(ENABLE_CRIPTS)
     # As src/cripts/unit_tests: the cases are a module that resolves the TS API against an executable carrying the core.
     add_library(
-      test_prism_cripts_bridge_cases MODULE unit_tests/test_interp.cc unit_tests/test_bind_interp.cc
-                                            unit_tests/test_cripts_bridge.cc src/interp.cc src/cripts_bridge.cc
+      test_prism_cripts_bridge_cases MODULE
+      unit_tests/test_interp.cc unit_tests/test_bind_interp.cc unit_tests/test_cripts_bridge.cc
+      unit_tests/test_addresses.cc src/interp.cc src/cripts_bridge.cc
     )
     target_include_directories(test_prism_cripts_bridge_cases PRIVATE ${CMAKE_SOURCE_DIR}/src/cripts/unit_tests)
     # Through prism_ir, the module has its own tsutil globals, such as the DbgCtl registry, as prism.so has.

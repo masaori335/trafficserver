@@ -22,6 +22,7 @@
 #include "hrw4u/extension.hpp"
 #include "ir_reader.h"
 #include "registry.h"
+#include "test_addresses.h"
 #include "test_txn.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -800,4 +801,103 @@ Section[SEND_RESPONSE]:
 
   CHECK_FALSE(run_on(txn, prog, Hook::SendResponse, fault));
   CHECK(fault.find("BI_SERVER_URL") != std::string::npos);
+}
+
+TEST_CASE("BI_IP_CLIENT reads the client address, and fmt renders it as inet_ntop does")
+{
+  Program prog = parse(R"(hrw4u-ir 1.1
+
+Section[SEND_RESPONSE]:
+  consts = [K0:"X-Ip"]
+  fmt    = [F0:"{inbound.ip}" arity=1 lits=["", ""]]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:addr = call.pure BI_IP_CLIENT @2:4
+    %3:sview = fmt F0, %2 @2:4
+    %4:bool = call.pure EXT"T::SetHeader", %1, %3 @2:4
+    ret @2:4
+)");
+
+  auto run_with = [&prog](swoc::IPAddr addr) {
+    Txn         txn{REQUEST};
+    std::string fault;
+
+    test_addresses() = {addr, {}};
+    CHECK(run_on(txn, prog, Hook::SendResponse, fault));
+    return recorded_calls();
+  };
+
+  CHECK(run_with(swoc::IPAddr("192.0.2.7")) == Calls{
+                                                 {"X-Ip", "192.0.2.7"}
+  });
+  CHECK(run_with(swoc::IPAddr("2001:db8::1")) == Calls{
+                                                   {"X-Ip", "2001:db8::1"}
+  });
+  CHECK(run_with(swoc::IPAddr()) == Calls{
+                                      {"X-Ip", ""}
+  });
+}
+
+TEST_CASE("an addr register run() never wrote reads as no address")
+{
+  Program prog = parse(R"(hrw4u-ir 1.1
+
+Section[SEND_RESPONSE]:
+  consts = [K0:"X-Ip", K1:"X-In"]
+  fmt    = [F0:"{inbound.ip}" arity=1 lits=["", ""], F1:"{in}" arity=1 lits=["", ""]]
+  sets   = [S0:ip("0.0.0.0/0", "::/0")]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:addr = call.pure BI_IP_CLIENT @2:4
+    %3:sview = fmt F0, %2 @2:4
+    %4:bool = call.pure EXT"T::SetHeader", %1, %3 @2:4
+    %5:bool = in.set %2, S0 @3:4
+    %6:sview = const.s K1 @3:4
+    %7:sview = fmt F1, %5 @3:4
+    %8:bool = call.pure EXT"T::SetHeader", %6, %7 @3:4
+    ret @3:4
+)");
+  // The reader refuses IR that skips a write, so the program is changed after it is read.
+  Inst     skip;
+  Section &sec = prog.sections[0];
+
+  skip.op      = Op::Br;
+  skip.target  = 2;
+  sec.insts[1] = skip;
+
+  Txn         txn{REQUEST};
+  std::string fault;
+
+  test_addresses() = {swoc::IPAddr("192.0.2.7"), {}};
+  CHECK(run_on(txn, prog, Hook::SendResponse, fault));
+  CHECK(recorded_calls() == Calls{
+                              {"X-Ip", ""     },
+                              {"X-In", "FALSE"}
+  });
+}
+
+TEST_CASE("BI_IP_INBOUND reads the address the client connected to")
+{
+  Program prog = parse(R"(hrw4u-ir 1.1
+
+Section[SEND_RESPONSE]:
+  consts = [K0:"X-Ip"]
+  fmt    = [F0:"{a}/{b}" arity=2 lits=["", "/", ""]]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:addr = call.pure BI_IP_INBOUND @2:4
+    %3:addr = call.pure BI_IP_CLIENT @2:4
+    %4:sview = fmt F0, %2, %3 @2:4
+    %5:bool = call.pure EXT"T::SetHeader", %1, %4 @2:4
+    ret @2:4
+)");
+
+  Txn         txn{REQUEST};
+  std::string fault;
+
+  test_addresses() = {swoc::IPAddr("198.51.100.7"), swoc::IPAddr("192.0.2.1")};
+  CHECK(run_on(txn, prog, Hook::SendResponse, fault));
+  CHECK(recorded_calls() == Calls{
+                              {"X-Ip", "192.0.2.1/198.51.100.7"}
+  });
 }

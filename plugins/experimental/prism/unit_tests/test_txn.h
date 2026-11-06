@@ -23,6 +23,7 @@
 // Before the Cripts headers, which define instance as a macro.
 #include "cripts_bridge.h"
 #include "interp.h"
+#include "test_addresses.h"
 
 #include "CriptsTestTxn.h"
 
@@ -81,6 +82,10 @@ run_on(cripts_test::Txn &txn, const hrw4u::Program &prog, hrw4u::Hook hook, std:
 {
   cripts::Context      *ctx = txn.context();
   const hrw4u::Section *sec = prog.find(hook);
+
+  struct ForgetAddresses {
+    ~ForgetAddresses() { test_addresses() = {}; }
+  } forget;
 
   REQUIRE(sec != nullptr);
   recorded_calls().clear();
