@@ -71,6 +71,10 @@ public:
   /// The address the client connected to, as header_rewrite's %{IP:INBOUND} reads it; not valid when there is none.
   swoc::IPAddr inbound_addr();
 
+  /// A part of the local time, numbered as header_rewrite's %{NOW} numbers it: the month, the weekday and the day of
+  /// the year count from 0.
+  int64_t now(NowField field);
+
   /// Remove every field line of a header from @a msg, as header_rewrite's rm-header.
   void rm_header(Message msg, std::string_view name);
 

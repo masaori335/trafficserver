@@ -21,6 +21,7 @@
 #include "ir_reader.h"
 #include "test_txn.h"
 
+#include <ctime>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -465,6 +466,33 @@ Section[REMAP]:
   CHECK(txn.client_request_field("X-4") == "x=1&y=2");
   CHECK(txn.client_request_field("X-5") == "http://example.com:8080/a/b?x=1&y=2");
   CHECK(txn.client_request_field("X-Y") == "2");
+}
+
+TEST_CASE("BI_NOW of the epoch reads the current time", "[prism][bridge]")
+{
+  Txn     txn{REQUEST};
+  int64_t before = std::time(nullptr);
+
+  run_section(txn, Hook::Remap, R"(hrw4u-ir 1.0
+
+Section[REMAP]:
+  consts = [K0:"X-Now"]
+  ints   = [I0:7]
+  fmt    = [F0:"{now}" arity=1 lits=["", ""]]
+  IR:
+    %1:i64 = const.i I0 @1:1
+    %2:i64 = call.pure BI_NOW, %1 @1:1
+    %3:sview = fmt F0, %2 @1:1
+    %4:sview = const.s K0 @1:1
+    call.eff BI_SET_CLIENT_HEADER, %4, %3 @1:1
+    ret @1:1
+)");
+
+  int64_t after = std::time(nullptr);
+  int64_t now   = std::stoll(txn.client_request_field("X-Now"));
+
+  CHECK(before <= now);
+  CHECK(now <= after);
 }
 
 TEST_CASE("A transaction's variables last from begin_txn() to end_txn(), across hooks", "[prism][bridge]")

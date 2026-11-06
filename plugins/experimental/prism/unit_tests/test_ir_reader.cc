@@ -1797,3 +1797,45 @@ Section[REMAP]:
     CHECK(prog->sections[0].insts[0].builtin == Builtin::IpInbound);
   }
 }
+
+TEST_CASE("BI_NOW takes and returns an integer in every hook")
+{
+  for (auto hook : EVERY_HOOK) {
+    std::string error;
+    auto        prog = parse_ir(in_hook(hook, R"(hrw4u-ir 1.0
+
+Section[REMAP]:
+  ints   = [I0:0]
+  IR:
+    %1:i64 = const.i I0 @2:4
+    %2:i64 = call.pure BI_NOW, %1 @2:4
+    ret @2:4
+)"),
+                                error);
+
+    INFO(hook << ": " << error);
+    REQUIRE(prog.has_value());
+    CHECK(prog->sections[0].insts[1].builtin == Builtin::Now);
+  }
+}
+
+TEST_CASE("BI_RANDOM takes and returns an integer in every hook")
+{
+  for (auto hook : EVERY_HOOK) {
+    std::string error;
+    auto        prog = parse_ir(in_hook(hook, R"(hrw4u-ir 1.0
+
+Section[REMAP]:
+  ints   = [I0:1000]
+  IR:
+    %1:i64 = const.i I0 @2:4
+    %2:i64 = call.pure BI_RANDOM, %1 @2:4
+    ret @2:4
+)"),
+                                error);
+
+    INFO(hook << ": " << error);
+    REQUIRE(prog.has_value());
+    CHECK(prog->sections[0].insts[1].builtin == Builtin::Random);
+  }
+}

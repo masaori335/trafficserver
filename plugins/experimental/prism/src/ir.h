@@ -96,6 +96,8 @@ enum class Builtin {
   ClientUrlParam,
   IpClient,
   IpInbound,
+  Now,
+  Random,
   RmClientHeader,
   RmClientRespHeader,
   RmServerHeader,
@@ -108,6 +110,18 @@ enum class Builtin {
   SetClientRespHeader,
   SetServerHeader,
   SetServerRespHeader,
+};
+
+/// The part of the time BI_NOW's integer argument names, in the order the IR numbers them.
+enum class NowField {
+  Year    = 0,
+  Month   = 1,
+  Day     = 2,
+  Hour    = 3,
+  Minute  = 4,
+  Weekday = 5,
+  Yearday = 6,
+  Epoch   = 7,
 };
 
 /// The URL field a URL builtin's integer argument names, in the order the IR numbers them.

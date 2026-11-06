@@ -23,6 +23,7 @@
 #include "txn_memory.h"
 
 #include "cripts/Headers.hpp"
+#include "cripts/Time.hpp"
 #include "cripts/Urls.hpp"
 // Last: it defines Get()/Set()-style macros.
 #include "cripts/Context.hpp"
@@ -52,6 +53,31 @@ namespace
     }
     return url.String();
   }
+  // Cripts counts the month, the weekday and the day of the year from 1; header_rewrite from 0, as struct tm does.
+  int64_t
+  time_part(const detail::BaseTime &now, NowField field)
+  {
+    switch (field) {
+    case NowField::Year:
+      return now.Year();
+    case NowField::Month:
+      return now.Month() - 1;
+    case NowField::Day:
+      return now.Day();
+    case NowField::Hour:
+      return now.Hour();
+    case NowField::Minute:
+      return now.Minute();
+    case NowField::Weekday:
+      return now.WeekDay() - 1;
+    case NowField::Epoch:
+      return now.Epoch();
+    case NowField::Yearday:
+      break;
+    }
+    return now.YearDay() - 1;
+  }
+
   // Null for a transaction whose program keeps nothing: a new Context holds a default integer in every slot.
   TxnMemory *
   memory_of(cripts::Context *ctx)
@@ -119,6 +145,16 @@ CriptsBridge::get_header(Message msg, std::string_view name)
     return {};
   }
   return std::string((*hdr)[name].GetSV());
+}
+
+int64_t
+CriptsBridge::now(NowField field)
+{
+  // The epoch is the same in either, and gmtime_r takes no time zone lock, unlike localtime_r.
+  if (field == NowField::Epoch) {
+    return time_part(cripts::Time::UTC::Now(), field);
+  }
+  return time_part(cripts::Time::Local::Now(), field);
 }
 
 void

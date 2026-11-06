@@ -27,6 +27,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <ctime>
+#include <set>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -900,4 +902,125 @@ Section[SEND_RESPONSE]:
   CHECK(recorded_calls() == Calls{
                               {"X-Ip", "192.0.2.1/198.51.100.7"}
   });
+}
+
+TEST_CASE("BI_NOW reads the part of the time its argument numbers")
+{
+  auto now = [](int64_t field) {
+    Program prog = parse(R"(hrw4u-ir 1.1
+
+Section[REMAP]:
+  consts = [K0:"X-Now"]
+  ints   = [I0:)" + std::to_string(field) +
+                         R"(]
+  fmt    = [F0:"{now}" arity=1 lits=["", ""]]
+  IR:
+    %1:i64 = const.i I0 @2:4
+    %2:i64 = call.pure BI_NOW, %1 @2:4
+    %3:sview = const.s K0 @2:4
+    %4:sview = fmt F0, %2 @2:4
+    %5:bool = call.pure EXT"T::SetHeader", %3, %4 @2:4
+    ret @2:4
+)");
+
+    Txn         txn{REQUEST};
+    std::string fault;
+    bool        ok = run_on(txn, prog, Hook::Remap, fault);
+
+    return std::make_tuple(ok, fault, recorded_calls());
+  };
+
+  auto local_year = []() {
+    std::time_t t = std::time(nullptr);
+    std::tm     tm;
+
+    localtime_r(&t, &tm);
+    return tm.tm_year + 1900;
+  };
+
+  int before              = local_year();
+  auto [ok, fault, calls] = now(static_cast<int64_t>(NowField::Year));
+  int after               = local_year();
+
+  CHECK(ok);
+  REQUIRE(calls.size() == 1);
+  CHECK(calls[0].first == "X-Now");
+
+  int64_t year = std::stoll(calls[0].second);
+
+  CHECK(before <= year);
+  CHECK(year <= after);
+
+  SECTION("a part that is not one faults")
+  {
+    for (int64_t field : {-1, 8}) {
+      auto [bad_ok, bad_fault, bad_calls] = now(field);
+
+      INFO(field);
+      CHECK_FALSE(bad_ok);
+      CHECK(bad_fault.find("BI_NOW") != std::string::npos);
+      CHECK(bad_calls.empty());
+    }
+  }
+}
+
+TEST_CASE("BI_RANDOM returns an integer below its bound")
+{
+  auto draw = [](int64_t bound) {
+    Program prog = parse(R"(hrw4u-ir 1.1
+
+Section[REMAP]:
+  consts = [K0:"X-R"]
+  ints   = [I0:)" + std::to_string(bound) +
+                         R"(]
+  fmt    = [F0:"{random}" arity=1 lits=["", ""]]
+  IR:
+    %1:i64 = const.i I0 @2:4
+    %2:i64 = call.pure BI_RANDOM, %1 @2:4
+    %3:sview = const.s K0 @2:4
+    %4:sview = fmt F0, %2 @2:4
+    %5:bool = call.pure EXT"T::SetHeader", %3, %4 @2:4
+    ret @2:4
+)");
+
+    Txn         txn{REQUEST};
+    std::string fault;
+    bool        ok = run_on(txn, prog, Hook::Remap, fault);
+
+    return std::make_tuple(ok, fault, recorded_calls());
+  };
+
+  std::set<int64_t> seen;
+
+  for (int i = 0; i < 200; ++i) {
+    auto [ok, fault, calls] = draw(10);
+
+    REQUIRE(ok);
+    REQUIRE(calls.size() == 1);
+
+    int64_t value = std::stoll(calls[0].second);
+
+    CHECK(value >= 0);
+    CHECK(value < 10);
+    seen.insert(value);
+  }
+  CHECK(seen.size() > 1);
+
+  auto [one_ok, one_fault, one_calls] = draw(1);
+
+  CHECK(one_calls == Calls{
+                       {"X-R", "0"}
+  });
+
+  SECTION("a bound that is not positive faults")
+  {
+    for (int64_t bound : {0, -5}) {
+      auto [ok, fault, calls] = draw(bound);
+
+      INFO(bound);
+      CHECK_FALSE(ok);
+      CHECK(fault.find("BI_RANDOM") != std::string::npos);
+      CHECK(calls.empty());
+    }
+  }
 }

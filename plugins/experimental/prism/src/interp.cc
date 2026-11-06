@@ -30,9 +30,11 @@
 #include <array>
 #include <cctype>
 #include <charconv>
+#include <chrono>
 #include <deque>
 #include <cstdint>
 #include <optional>
+#include <random>
 #include <utility>
 #include <vector>
 
@@ -255,6 +257,22 @@ namespace
     return strings->emplace_back(std::move(s));
   }
 
+  // Uniform in [0, bound), as header_rewrite's rand_r() % bound but without its seed shared across threads. Seeded from
+  // the clock, not std::random_device, which opens /dev/urandom on a thread that must not block.
+  int64_t
+  random_below(int64_t bound)
+  {
+    // Folded to 32 bits before the engine narrows it, so the clock's and the address's high bits count too.
+    thread_local std::minstd_rand engine([] {
+      uint64_t seed =
+        static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) ^ reinterpret_cast<uintptr_t>(&engine);
+
+      return static_cast<std::minstd_rand::result_type>(seed ^ (seed >> 32));
+    }());
+
+    return std::uniform_int_distribution<int64_t>(0, bound - 1)(engine);
+  }
+
   // Addresses registers point to; a deque never moves them. Created on first use, as keep() makes its deque.
   const swoc::IPAddr &
   keep_addr(std::optional<std::deque<swoc::IPAddr>> &addrs, swoc::IPAddr addr)
@@ -368,6 +386,8 @@ execute(const Program &prog, const Section &sec, CriptsBridge *ops, std::string 
       case Builtin::ServerUrl:
       case Builtin::IpClient:
       case Builtin::IpInbound:
+      case Builtin::Now:
+      case Builtin::Random:
         break;
       case Builtin::SetClientHeader:
         ops->set_header(Message::ClientRequest, as_sview(regs[inst.args[0]]), as_sview(regs[inst.args[1]]));
@@ -454,6 +474,26 @@ execute(const Program &prog, const Section &sec, CriptsBridge *ops, std::string 
       case Builtin::IpInbound:
         regs[inst.dest].w[0] = reinterpret_cast<uint64_t>(&keep_addr(addrs, ops->inbound_addr()));
         break;
+      case Builtin::Now: {
+        int64_t field = as_int(regs[inst.args[0]]);
+
+        if (field < 0 || field > static_cast<int64_t>(NowField::Epoch)) {
+          fault = fault_in(inst, "BI_NOW", "no part " + std::to_string(field));
+          return false;
+        }
+        regs[inst.dest].w[0] = static_cast<uint64_t>(ops->now(static_cast<NowField>(field)));
+        break;
+      }
+      case Builtin::Random: {
+        int64_t bound = as_int(regs[inst.args[0]]);
+
+        if (bound <= 0) {
+          fault = fault_in(inst, "BI_RANDOM", "the bound " + std::to_string(bound) + " is not positive");
+          return false;
+        }
+        regs[inst.dest].w[0] = static_cast<uint64_t>(random_below(bound));
+        break;
+      }
       case Builtin::ServerUrl: {
         auto field = url_field(regs[inst.args[0]]);
 

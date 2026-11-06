@@ -1308,6 +1308,8 @@ namespace
         {"BI_SERVER_URL",             Builtin::ServerUrl,           Type::Sview,  {I},    1, ALL_HOOKS                   },
         {"BI_IP_CLIENT",              Builtin::IpClient,            Type::Addr,   {},     0, ALL_HOOKS                   },
         {"BI_IP_INBOUND",             Builtin::IpInbound,           Type::Addr,   {},     0, ALL_HOOKS                   },
+        {"BI_NOW",                    Builtin::Now,                 Type::I64,    {I},    1, ALL_HOOKS                   },
+        {"BI_RANDOM",                 Builtin::Random,              Type::I64,    {I},    1, ALL_HOOKS                   },
       };
 
       std::string_view name = c.s.substr(0, c.s.find(','));
