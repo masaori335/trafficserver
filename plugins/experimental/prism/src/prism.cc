@@ -24,6 +24,7 @@
 // Before Preamble.hpp: it defines macros (instance, transaction, Get(), Set()) that would rewrite these headers.
 #include "bind.h"
 #include "config.h"
+#include "cripts_bindings.h"
 #include "cripts_bridge.h"
 #include "ext_loader.h"
 #include "interp.h"
@@ -65,8 +66,7 @@ state_of(cripts::Instance &inst)
   return static_cast<InstanceState *>(*slot);
 }
 
-// Until libcripts has File::ConfigDir and PluginDir, a relative path would be relative to the prefix traffic_server runs
-// in, and would name another file once they come.
+// A relative path would name a file in the prefix traffic_server runs in, not in the config directory.
 bool
 absolute(const std::string &path, std::string &error)
 {
@@ -82,6 +82,12 @@ build_state(const std::string &ir_path, const std::vector<std::string> &ext_path
             std::string &error)
 {
   auto state = std::make_unique<InstanceState>();
+
+  // The registry has already logged which name it refused.
+  if (!hrw4u::def_cripts_bindings(state->registry.host_api())) {
+    error = "could not register the Cripts bindings";
+    return nullptr;
+  }
 
   for (const auto &path : ext_paths) {
     auto ext = hrw4u::LoadedExtension::load(path, state->registry.host_api(), error);
