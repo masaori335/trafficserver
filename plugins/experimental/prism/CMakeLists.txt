@@ -28,6 +28,15 @@ add_library(prism_ext_loader STATIC src/ext_loader.cc)
 set_target_properties(prism_ext_loader PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 target_link_libraries(prism_ext_loader PUBLIC prism_ir ${CMAKE_DL_LIBS})
 
+# An instance's YAML settings, read without a traffic_server so the unit tests run them.
+add_library(prism_config STATIC src/config.cc)
+set_target_properties(prism_config PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+target_link_libraries(
+  prism_config
+  PUBLIC prism_ir
+  PRIVATE yaml-cpp::yaml-cpp
+)
+
 # Reads a .so's manifest section from the file, so it builds and runs without a traffic_server.
 add_library(prism_manifest STATIC src/manifest.cc)
 target_include_directories(prism_manifest PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -45,10 +54,23 @@ target_include_directories(prism_ext_example_ua PRIVATE ${CMAKE_CURRENT_SOURCE_D
 set_target_properties(prism_ext_example_ua PROPERTIES PREFIX "" SUFFIX ".so")
 install(TARGETS prism_ext_example_ua DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})
 
+# prism.cc is a cript, so the plugin exists only where Cripts is built.
+if(ENABLE_CRIPTS)
+  add_atsplugin(prism src/prism.cc src/interp.cc src/cripts_bridge.cc)
+  target_link_libraries(prism PRIVATE prism_ext_loader prism_config ts::cripts)
+  verify_remap_plugin(prism)
+else()
+  message(STATUS "prism: skipping prism.so - ENABLE_CRIPTS is OFF")
+endif()
+
 if(BUILD_TESTING)
   add_executable(test_prism_ir_reader unit_tests/test_ir_reader.cc)
   target_link_libraries(test_prism_ir_reader PRIVATE prism_ir Catch2::Catch2WithMain)
   add_catch2_test(NAME test_prism_ir_reader COMMAND test_prism_ir_reader)
+
+  add_executable(test_prism_config unit_tests/test_config.cc)
+  target_link_libraries(test_prism_config PRIVATE prism_config Catch2::Catch2WithMain)
+  add_catch2_test(NAME test_prism_config COMMAND test_prism_config)
 
   add_executable(test_prism_txn_memory unit_tests/test_txn_memory.cc)
   target_link_libraries(test_prism_txn_memory PRIVATE prism_ir Catch2::Catch2WithMain)
@@ -89,7 +111,8 @@ if(BUILD_TESTING)
   if(ENABLE_CRIPTS)
     # As src/cripts/unit_tests: the cases are a module that resolves the TS API against an executable carrying the core.
     add_library(
-      test_prism_cripts_bridge_cases MODULE unit_tests/test_interp.cc unit_tests/test_bind_interp.cc src/interp.cc
+      test_prism_cripts_bridge_cases MODULE unit_tests/test_interp.cc unit_tests/test_bind_interp.cc
+                                            unit_tests/test_cripts_bridge.cc src/interp.cc src/cripts_bridge.cc
     )
     target_include_directories(test_prism_cripts_bridge_cases PRIVATE ${CMAKE_SOURCE_DIR}/src/cripts/unit_tests)
     # Through prism_ir, the module has its own tsutil globals, such as the DbgCtl registry, as prism.so has.

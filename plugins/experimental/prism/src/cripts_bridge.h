@@ -21,9 +21,32 @@
 
 #pragma once
 
+#include "ir.h"
+
+#include "swoc/MemSpan.h"
+
+#include <cstddef>
+#include <cstdint>
+
+namespace cripts
+{
+class Context;
+} // namespace cripts
+
 namespace hrw4u
 {
 class CriptsBridge
 {
+public:
+  /// The Cripts transaction data slot that points at the transaction's memory.
+  static constexpr size_t MEMORY_SLOT = 0;
+
+  /// Make the transaction's memory at its first hook, when @a prog keeps anything across hooks.
+  static void begin_txn(cripts::Context *ctx, const Program &prog);
+  /// Free the transaction's memory, once: at TXN_CLOSE after the section there ran, or, from a remap rule, at REMAP when
+  /// the context failed, as Cripts then runs no later hook.
+  static void end_txn(cripts::Context *ctx);
+  /// The transaction's variables, for run(); empty when its program keeps none.
+  static swoc::MemSpan<uint64_t> vars(cripts::Context *ctx);
 };
 } // namespace hrw4u
