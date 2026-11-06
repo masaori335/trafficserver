@@ -72,7 +72,8 @@ The cripts header and URL objects reach the request through calls such as `TSHtt
 only check that `txnp` is a live `HttpSM` and return one of its `t_state.hdr_info` headers. `cripts_test::Txn`
 provides exactly that, without running the state machine:
 - an `HttpSM` marked alive, with the HTTP configuration attached;
-- a client request parsed by the real parser, and optionally a server response (`set_server_response()`);
+- a client request parsed by the real parser, and optionally the request to the origin (`set_server_request()`) and
+  the responses (`set_server_response()`, `set_client_response()`);
 - a `cripts::Context` for that transaction.
 
 A test case declares `context` the same way a cript has it, so the cripts macros work unchanged:
