@@ -85,4 +85,60 @@ if(BUILD_TESTING)
   set_tests_properties(
     test_prism_extern PROPERTIES PASS_REGULAR_EXPRESSION "extern Example::UA::IsBot\\(string\\) -> bool pure;"
   )
+
+  if(ENABLE_CRIPTS)
+    # As src/cripts/unit_tests: the cases are a module that resolves the TS API against an executable carrying the core.
+    add_library(
+      test_prism_cripts_bridge_cases MODULE unit_tests/test_interp.cc unit_tests/test_bind_interp.cc src/interp.cc
+    )
+    target_include_directories(test_prism_cripts_bridge_cases PRIVATE ${CMAKE_SOURCE_DIR}/src/cripts/unit_tests)
+    # Through prism_ir, the module has its own tsutil globals, such as the DbgCtl registry, as prism.so has.
+    target_link_libraries(test_prism_cripts_bridge_cases PRIVATE prism_ir Catch2::Catch2 ts::cripts)
+    set_target_properties(
+      test_prism_cripts_bridge_cases
+      PROPERTIES PREFIX ""
+                 SUFFIX ".so"
+                 LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    )
+    if(APPLE)
+      target_link_options(test_prism_cripts_bridge_cases PRIVATE -undefined dynamic_lookup)
+    endif()
+
+    add_executable(test_prism_cripts_bridge unit_tests/cripts_bridge_main.cc)
+    add_dependencies(test_prism_cripts_bridge test_prism_cripts_bridge_cases)
+    target_compile_definitions(
+      test_prism_cripts_bridge PRIVATE PRISM_TEST_CASES_PATH="$<TARGET_FILE:test_prism_cripts_bridge_cases>"
+    )
+    set_target_properties(test_prism_cripts_bridge PROPERTIES ENABLE_EXPORTS ON)
+    target_link_libraries(
+      test_prism_cripts_bridge
+      PRIVATE ${CMAKE_DL_LIBS}
+              Catch2::Catch2
+              tsapi_objects
+              ts::tscore
+              ts::overridable_txn_vars
+              ts::tsutil
+              ts::http
+              ts::http_remap
+              ts::http2
+              ts::logging
+              ts::hdrs
+              ts::diagsconfig
+              ts::inkutils
+              ts::inkdns
+              ts::inkhostdb
+              ts::inkcache
+              ts::aio
+              ts::proxy
+              ts::inknet
+              ts::records
+              ts::inkevent
+              libswoc::libswoc
+              ts::jsonrpc_protocol
+              ts::jsonrpc_server
+              ts::rpcpublichandlers
+              ts::configmanager
+    )
+    add_catch2_test(NAME test_prism_cripts_bridge COMMAND test_prism_cripts_bridge)
+  endif()
 endif()
