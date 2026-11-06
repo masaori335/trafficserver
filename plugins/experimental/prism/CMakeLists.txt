@@ -18,7 +18,7 @@
 project(prism)
 
 # No TSAPI or Cripts here, so the unit tests run it without a traffic_server.
-add_library(prism_ir STATIC src/ir.cc src/txn_memory.cc)
+add_library(prism_ir STATIC src/ir.cc src/ir_reader.cc src/txn_memory.cc)
 set_target_properties(prism_ir PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 target_include_directories(prism_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(prism_ir PUBLIC ts::tsutil)
@@ -27,6 +27,10 @@ target_link_libraries(prism_ir PUBLIC ts::tsutil)
 install(FILES include/hrw4u/extension.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/hrw4u)
 
 if(BUILD_TESTING)
+  add_executable(test_prism_ir_reader unit_tests/test_ir_reader.cc)
+  target_link_libraries(test_prism_ir_reader PRIVATE prism_ir Catch2::Catch2WithMain)
+  add_catch2_test(NAME test_prism_ir_reader COMMAND test_prism_ir_reader)
+
   add_executable(test_prism_txn_memory unit_tests/test_txn_memory.cc)
   target_link_libraries(test_prism_txn_memory PRIVATE prism_ir Catch2::Catch2WithMain)
   add_catch2_test(NAME test_prism_txn_memory COMMAND test_prism_txn_memory)
