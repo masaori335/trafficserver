@@ -34,7 +34,8 @@ namespace
 constexpr std::string_view REQUEST = "GET /a HTTP/1.1\r\nHost: example.com\r\nX-Foo: bar\r\nX-Dup: 1\r\nX-Dup: 2\r\n\r\n";
 constexpr std::string_view SERVER_REQUEST =
   "GET http://origin.example:8081/o?x=9&z=1 HTTP/1.1\r\nHost: origin.example\r\nX-Foo: bar\r\nX-Dup: 1\r\nX-Dup: 2\r\n\r\n";
-constexpr std::string_view RESPONSE = "HTTP/1.1 200 OK\r\nX-Foo: bar\r\nX-Dup: 1\r\nX-Dup: 2\r\nContent-Length: 0\r\n\r\n";
+constexpr std::string_view ABSOLUTE_REQUEST = "GET http://example.com:8080/a/b?x=1&y=2 HTTP/1.1\r\nHost: example.com\r\n\r\n";
+constexpr std::string_view RESPONSE         = "HTTP/1.1 200 OK\r\nX-Foo: bar\r\nX-Dup: 1\r\nX-Dup: 2\r\nContent-Length: 0\r\n\r\n";
 
 Program
 parse(std::string_view ir)
@@ -314,6 +315,63 @@ Section[SEND_RESPONSE]:
     CHECK(status() == 0);
   }
   CriptsBridge::end_txn(txn.context());
+}
+
+TEST_CASE("BI_CLIENT_URL and BI_CLIENT_URL_PARAM read the URL from before remap, as %{CLIENT-URL} does", "[prism][bridge]")
+{
+  Txn   txn{ABSOLUTE_REQUEST};
+  auto &st = txn.sm().t_state;
+
+  // As HttpTransact keeps it once it has read the request.
+  st.unmapped_url.create(txn.client_url().m_heap);
+  st.unmapped_url.copy(&txn.client_url());
+  txn.client_url().path_set("mapped");
+  txn.client_url().query_set("y=mapped");
+
+  run_section(txn, Hook::Remap, R"(hrw4u-ir 1.0
+
+Section[REMAP]:
+  consts = [K0:"X-0", K1:"X-1", K2:"X-2", K3:"X-3", K4:"X-4", K5:"X-5", K6:"y", K7:"X-Y"]
+  ints   = [I0:0, I1:1, I2:2, I3:3, I4:4, I5:5]
+  IR:
+    %1:i64 = const.i I0 @1:1
+    %2:sview = call.pure BI_CLIENT_URL, %1 @1:1
+    %3:sview = const.s K0 @1:1
+    call.eff BI_SET_CLIENT_HEADER, %3, %2 @1:1
+    %4:i64 = const.i I1 @2:1
+    %5:sview = call.pure BI_CLIENT_URL, %4 @2:1
+    %6:sview = const.s K1 @2:1
+    call.eff BI_SET_CLIENT_HEADER, %6, %5 @2:1
+    %7:i64 = const.i I2 @3:1
+    %8:sview = call.pure BI_CLIENT_URL, %7 @3:1
+    %9:sview = const.s K2 @3:1
+    call.eff BI_SET_CLIENT_HEADER, %9, %8 @3:1
+    %10:i64 = const.i I3 @4:1
+    %11:sview = call.pure BI_CLIENT_URL, %10 @4:1
+    %12:sview = const.s K3 @4:1
+    call.eff BI_SET_CLIENT_HEADER, %12, %11 @4:1
+    %13:i64 = const.i I4 @5:1
+    %14:sview = call.pure BI_CLIENT_URL, %13 @5:1
+    %15:sview = const.s K4 @5:1
+    call.eff BI_SET_CLIENT_HEADER, %15, %14 @5:1
+    %16:i64 = const.i I5 @6:1
+    %17:sview = call.pure BI_CLIENT_URL, %16 @6:1
+    %18:sview = const.s K5 @6:1
+    call.eff BI_SET_CLIENT_HEADER, %18, %17 @6:1
+    %19:sview = const.s K6 @7:1
+    %20:sview = call.pure BI_CLIENT_URL_PARAM, %19 @7:1
+    %21:sview = const.s K7 @7:1
+    call.eff BI_SET_CLIENT_HEADER, %21, %20 @7:1
+    ret @7:1
+)");
+
+  CHECK(txn.client_request_field("X-0") == "http");
+  CHECK(txn.client_request_field("X-1") == "example.com");
+  CHECK(txn.client_request_field("X-2") == "8080");
+  CHECK(txn.client_request_field("X-3") == "a/b");
+  CHECK(txn.client_request_field("X-4") == "x=1&y=2");
+  CHECK(txn.client_request_field("X-5") == "http://example.com:8080/a/b?x=1&y=2");
+  CHECK(txn.client_request_field("X-Y") == "2");
 }
 
 TEST_CASE("A transaction's variables last from begin_txn() to end_txn(), across hooks", "[prism][bridge]")

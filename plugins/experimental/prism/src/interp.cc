@@ -88,6 +88,45 @@ namespace
     return static_cast<int64_t>(v.w[0]);
   }
 
+  std::optional<UrlField>
+  url_field(const Value &v)
+  {
+    int64_t field = as_int(v);
+
+    if (field < 0 || field > static_cast<int64_t>(UrlField::Url)) {
+      return std::nullopt;
+    }
+    return static_cast<UrlField>(field);
+  }
+
+  // As header_rewrite's Resources::get_query_param(): pairs split at '&' then '=', names and values as written (no
+  // decoding), and a name given twice keeps its last value.
+  std::string_view
+  query_param(std::string_view query, std::string_view name)
+  {
+    std::string_view found;
+
+    while (!query.empty()) {
+      size_t           amp   = query.find('&');
+      std::string_view pair  = query.substr(0, amp);
+      size_t           eq    = pair.find('=');
+      std::string_view key   = pair.substr(0, eq);
+      std::string_view value = {};
+
+      if (eq != std::string_view::npos) {
+        value = pair.substr(eq + 1);
+      }
+      if (!key.empty() && key == name) {
+        found = value;
+      }
+      if (amp == std::string_view::npos) {
+        break;
+      }
+      query.remove_prefix(amp + 1);
+    }
+    return found;
+  }
+
   // Null in a register never written. The reader refuses such a read; one it misses reads no address, not a crash.
   const swoc::IPAddr &
   as_addr(const Value &v)
@@ -312,6 +351,8 @@ execute(const Program &prog, const Section &sec, CriptsBridge *ops, std::string 
       case Builtin::ServerRespHeader:
       case Builtin::ServerRespStatus:
       case Builtin::ClientRespStatus:
+      case Builtin::ClientUrl:
+      case Builtin::ClientUrlParam:
         break;
       case Builtin::SetClientHeader:
         ops->set_header(Message::ClientRequest, as_sview(regs[inst.args[0]]), as_sview(regs[inst.args[1]]));
@@ -373,6 +414,22 @@ execute(const Program &prog, const Section &sec, CriptsBridge *ops, std::string 
       case Builtin::ClientRespStatus:
         regs[inst.dest].w[0] = static_cast<uint64_t>(ops->status(Message::ClientResponse));
         break;
+      case Builtin::ClientUrl: {
+        auto field = url_field(regs[inst.args[0]]);
+
+        if (!field) {
+          fault = fault_in(inst, "BI_CLIENT_URL", "no URL field " + std::to_string(as_int(regs[inst.args[0]])));
+          return false;
+        }
+        regs[inst.dest] = sview_value(keep(strings, ops->client_url_field(*field)));
+        break;
+      }
+      case Builtin::ClientUrlParam: {
+        std::string query = ops->client_url_field(UrlField::Query);
+
+        regs[inst.dest] = sview_value(keep(strings, std::string(query_param(query, as_sview(regs[inst.args[0]])))));
+        break;
+      }
       case Builtin::SetClientHeader:
       case Builtin::SetServerHeader:
       case Builtin::SetServerRespHeader:

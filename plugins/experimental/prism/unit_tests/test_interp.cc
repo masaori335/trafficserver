@@ -689,3 +689,67 @@ Section[SEND_RESPONSE]:
                    {"X-R", "FALSE"}
   });
 }
+
+TEST_CASE("BI_CLIENT_URL faults on a field number it has no field for, and stops the section")
+{
+  for (int64_t field : {-1, 6}) {
+    Program prog = parse(R"(hrw4u-ir 1.1
+
+Section[SEND_RESPONSE]:
+  consts = [K0:"X-Field"]
+  ints   = [I0:)" + std::to_string(field) +
+                         R"(]
+  IR:
+    %1:i64 = const.i I0 @2:7
+    %2:sview = call.pure BI_CLIENT_URL, %1 @2:7
+    %3:sview = const.s K0 @2:7
+    %4:bool = call.pure EXT"T::SetHeader", %3, %2 @2:7
+    ret @2:7
+)");
+
+    Txn         txn{REQUEST};
+    std::string fault;
+
+    INFO(field);
+    CHECK_FALSE(run_on(txn, prog, Hook::SendResponse, fault));
+    CHECK(fault.find("BI_CLIENT_URL") != std::string::npos);
+    CHECK(recorded_calls().empty());
+  }
+}
+
+TEST_CASE("BI_CLIENT_URL_PARAM finds a query parameter as header_rewrite does")
+{
+  auto param = [](std::string_view query, std::string_view name) {
+    Program prog = parse(R"(hrw4u-ir 1.1
+
+Section[REMAP]:
+  consts = [K0:")" + std::string(name) +
+                         R"(", K1:"X-P"]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:sview = call.pure BI_CLIENT_URL_PARAM, %1 @2:4
+    %3:sview = const.s K1 @2:4
+    %4:bool = call.pure EXT"T::SetHeader", %3, %2 @2:4
+    ret @2:4
+)");
+
+    Txn         txn{"GET http://example.com/?" + std::string(query) + " HTTP/1.1\r\nHost: example.com\r\n\r\n"};
+    auto       &st = txn.sm().t_state;
+    std::string fault;
+
+    // As HttpTransact keeps it once it has read the request.
+    st.unmapped_url.create(txn.client_url().m_heap);
+    st.unmapped_url.copy(&txn.client_url());
+    CHECK(run_on(txn, prog, Hook::Remap, fault));
+    REQUIRE(recorded_calls().size() == 1);
+    return recorded_calls()[0].second;
+  };
+
+  CHECK(param("r=usw2&pbr=true", "pbr") == "true");
+  CHECK(param("r=usw2&pbr=true", "r") == "usw2");
+  CHECK(param("r=1&r=2", "r") == "2");
+  CHECK(param("flag&x=1", "flag").empty());
+  CHECK(param("my%20param=1", "my param").empty());
+  CHECK(param("R=1", "r").empty());
+  CHECK(param("", "r").empty());
+}

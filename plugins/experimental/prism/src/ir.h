@@ -92,6 +92,8 @@ enum class Builtin {
   ClientHeader,
   ClientRespHeader,
   ClientRespStatus,
+  ClientUrl,
+  ClientUrlParam,
   RmClientHeader,
   RmClientRespHeader,
   RmServerHeader,
@@ -102,6 +104,16 @@ enum class Builtin {
   SetClientRespHeader,
   SetServerHeader,
   SetServerRespHeader,
+};
+
+/// The URL field a URL builtin's integer argument names, in the order the IR numbers them.
+enum class UrlField {
+  Scheme = 0,
+  Host   = 1,
+  Port   = 2,
+  Path   = 3,
+  Query  = 4,
+  Url    = 5,
 };
 
 /// A transaction variable's type. load.v gives a bool register for Bool and an i64 one for the integers, which keep

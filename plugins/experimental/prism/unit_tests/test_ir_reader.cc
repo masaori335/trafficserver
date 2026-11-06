@@ -1614,3 +1614,66 @@ Section[REMAP]:
     require_error_at(program(name, hook, "sview"), 5);
   }
 }
+
+TEST_CASE("BI_CLIENT_URL reads a URL field named by an integer")
+{
+  const std::string text = R"(hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  ints   = [I0:3]
+  IR:
+    %1:i64 = const.i I0 @2:7
+    %2:sview = call.pure BI_CLIENT_URL, %1 @2:7
+    ret @2:7
+)";
+
+  std::string error;
+  auto        prog = parse_ir(text, error);
+
+  INFO(error);
+  REQUIRE(prog.has_value());
+  CHECK(prog->sections[0].insts[1].builtin == Builtin::ClientUrl);
+
+  SECTION("not at TXN_START")
+  {
+    require_error_at(in_hook("TXN_START", text), 7);
+  }
+  SECTION("without a field is refused")
+  {
+    require_error_at(R"(hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  IR:
+    %1:sview = call.pure BI_CLIENT_URL @2:7
+    ret @2:7
+)",
+                     5);
+  }
+  SECTION("a string field is refused")
+  {
+    require_error_at(R"(hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  consts = [K0:"PATH"]
+  IR:
+    %1:sview = const.s K0 @2:7
+    %2:sview = call.pure BI_CLIENT_URL, %1 @2:7
+    ret @2:7
+)",
+                     7);
+  }
+}
+
+TEST_CASE("BI_CLIENT_URL_PARAM reads a query parameter by name in every hook with a message")
+{
+  for (auto hook : MESSAGE_HOOKS) {
+    std::string error;
+    auto        prog =
+      parse_ir(replace_line(7, "    %2:sview = call.pure BI_CLIENT_URL_PARAM, %1 @2:4", in_hook(hook, COMPARE_IR)), error);
+
+    INFO(hook << ": " << error);
+    REQUIRE(prog.has_value());
+    CHECK(prog->sections[0].insts[1].builtin == Builtin::ClientUrlParam);
+  }
+  require_error_at(replace_line(7, "    %2:sview = call.pure BI_CLIENT_URL_PARAM, %1 @2:4", in_hook("TXN_START", COMPARE_IR)), 7);
+}

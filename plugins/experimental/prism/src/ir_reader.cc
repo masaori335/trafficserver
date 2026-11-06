@@ -1278,6 +1278,7 @@ namespace
         size_t              consts = 0; ///< How many leading arguments must be constants, which prism.so resolves at load.
       };
       constexpr Type             S          = Type::Sview;
+      constexpr Type             I          = Type::I64;
       static constexpr Signature BUILTINS[] = {
         {"BI_SET_CLIENT_HEADER",      Builtin::SetClientHeader,     std::nullopt, {S, S}, 2, CLIENT_REQUEST_HOOKS        },
         {"BI_ADD_CLIENT_HEADER",      Builtin::AddClientHeader,     std::nullopt, {S, S}, 2, CLIENT_REQUEST_HOOKS        },
@@ -1296,6 +1297,8 @@ namespace
         {"BI_CLIENT_HEADER",          Builtin::ClientHeader,        Type::Sview,  {S},    1, MESSAGE_HOOKS               },
         {"BI_SERVER_RESP_STATUS",     Builtin::ServerRespStatus,    Type::I64,    {},     0, SERVER_RESPONSE_HOOKS       },
         {"BI_CLIENT_RESP_STATUS",     Builtin::ClientRespStatus,    Type::I64,    {},     0, hook_bit(Hook::SendResponse)},
+        {"BI_CLIENT_URL",             Builtin::ClientUrl,           Type::Sview,  {I},    1, MESSAGE_HOOKS               },
+        {"BI_CLIENT_URL_PARAM",       Builtin::ClientUrlParam,      Type::Sview,  {S},    1, MESSAGE_HOOKS               },
       };
 
       std::string_view name = c.s.substr(0, c.s.find(','));

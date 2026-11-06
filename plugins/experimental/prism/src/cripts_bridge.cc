@@ -23,13 +23,35 @@
 #include "txn_memory.h"
 
 #include "cripts/Headers.hpp"
+#include "cripts/Urls.hpp"
 // Last: it defines Get()/Set()-style macros.
 #include "cripts/Context.hpp"
+
+#include <string>
 
 namespace hrw4u
 {
 namespace
 {
+  std::string
+  field_text(cripts::Url &url, UrlField field)
+  {
+    switch (field) {
+    case UrlField::Scheme:
+      return std::string(url.scheme.GetSV());
+    case UrlField::Host:
+      return std::string(url.host.GetSV());
+    case UrlField::Port:
+      return std::to_string(static_cast<integer>(url.port));
+    case UrlField::Path:
+      return std::string(url.path.GetSV());
+    case UrlField::Query:
+      return std::string(url.query.GetSV());
+    case UrlField::Url:
+      break;
+    }
+    return url.String();
+  }
   // Null for a transaction whose program keeps nothing: a new Context holds a default integer in every slot.
   TxnMemory *
   memory_of(cripts::Context *ctx)
@@ -79,6 +101,13 @@ std::string
 CriptsBridge::client_header(std::string_view name)
 {
   return std::string(cripts::Client::Request::_get(_ctx)[name].GetSV());
+}
+
+// The pristine URL, as header_rewrite's %{CLIENT-URL} reads it.
+std::string
+CriptsBridge::client_url_field(UrlField field)
+{
+  return field_text(cripts::Pristine::URL::_get(_ctx), field);
 }
 
 std::string

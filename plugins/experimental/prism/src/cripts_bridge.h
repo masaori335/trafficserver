@@ -57,6 +57,9 @@ public:
   /// strings, and registers hold views.
   std::string client_header(std::string_view name);
 
+  /// A field of the client's URL as it arrived, before remap. A copy, as client_header().
+  std::string client_url_field(UrlField field);
+
   /// The value of a header in @a msg, or empty when absent or when the transaction has no such message. A copy, as
   /// client_header().
   std::string get_header(Message msg, std::string_view name);
