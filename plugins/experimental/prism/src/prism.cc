@@ -224,7 +224,7 @@ run_hook(cripts::Context *context, hrw4u::Hook hook)
   const hrw4u::Section *sec  = prog.find(hook);
 
   if (sec != nullptr) {
-    hrw4u::CriptsBridge ops;
+    hrw4u::CriptsBridge ops(context);
     std::string         fault;
 
     if (!hrw4u::run(prog, *sec, ops, fault, hrw4u::CriptsBridge::vars(context))) {

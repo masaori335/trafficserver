@@ -85,6 +85,21 @@ enum class Op {
 
 enum class Builtin {
   None,
+  AddClientHeader,
+  AddClientRespHeader,
+  AddServerHeader,
+  AddServerRespHeader,
+  ClientHeader,
+  ClientRespHeader,
+  RmClientHeader,
+  RmClientRespHeader,
+  RmServerHeader,
+  RmServerRespHeader,
+  ServerRespHeader,
+  SetClientHeader,
+  SetClientRespHeader,
+  SetServerHeader,
+  SetServerRespHeader,
 };
 
 /// A transaction variable's type. load.v gives a bool register for Bool and an i64 one for the integers, which keep

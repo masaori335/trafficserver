@@ -87,7 +87,19 @@ run_on(cripts_test::Txn &txn, const hrw4u::Program &prog, hrw4u::Hook hook, std:
   ctx->reset();
   ctx->state.hook = cripts_hook(hook);
 
-  hrw4u::CriptsBridge ops;
+  hrw4u::CriptsBridge ops(ctx);
 
   return hrw4u::run(prog, *sec, ops, fault, vars);
+}
+
+/// Each value of @a hdr's @a name field, in order, as the core holds them.
+inline std::vector<std::string>
+field_values(const HTTPHdr &hdr, std::string_view name)
+{
+  std::vector<std::string> values;
+
+  for (auto const *f = hdr.field_find(name); f != nullptr; f = f->m_next_dup) {
+    values.emplace_back(f->value_get());
+  }
+  return values;
 }

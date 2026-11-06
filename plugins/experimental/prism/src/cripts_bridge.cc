@@ -22,6 +22,7 @@
 #include "cripts_bridge.h"
 #include "txn_memory.h"
 
+#include "cripts/Headers.hpp"
 // Last: it defines Get()/Set()-style macros.
 #include "cripts/Context.hpp"
 
@@ -64,5 +65,83 @@ CriptsBridge::vars(cripts::Context *ctx)
     return mem->vars();
   }
   return {};
+}
+
+void
+CriptsBridge::add_header(Message msg, std::string_view name, std::string_view value)
+{
+  if (auto *hdr = message(msg); hdr != nullptr) {
+    (*hdr)[name] += value;
+  }
+}
+
+std::string
+CriptsBridge::client_header(std::string_view name)
+{
+  return std::string(cripts::Client::Request::_get(_ctx)[name].GetSV());
+}
+
+std::string
+CriptsBridge::get_header(Message msg, std::string_view name)
+{
+  auto *hdr = message(msg);
+
+  if (hdr == nullptr) {
+    return {};
+  }
+  return std::string((*hdr)[name].GetSV());
+}
+
+void
+CriptsBridge::rm_header(Message msg, std::string_view name)
+{
+  if (auto *hdr = message(msg); hdr != nullptr) {
+    hdr->Erase(name);
+  }
+}
+
+void
+CriptsBridge::set_header(Message msg, std::string_view name, std::string_view value)
+{
+  // As in set-header, an empty value changes nothing; Cripts' assignment would remove the header.
+  if (value.empty()) {
+    return;
+  }
+  if (auto *hdr = message(msg); hdr != nullptr) {
+    (*hdr)[name] = value;
+  }
+}
+
+// Null when the transaction has no such message, as at TXN_CLOSE of one that closed before a response: header_rewrite
+// does nothing then, and Cripts would assert on the header's first use.
+cripts::Header *
+CriptsBridge::message(Message msg)
+{
+  cripts::Header *hdr = nullptr;
+
+  switch (msg) {
+  case Message::ClientRequest:
+    hdr = &cripts::Client::Request::_get(_ctx);
+    break;
+  case Message::ServerRequest: {
+    auto &req = cripts::Server::Request::_get(_ctx);
+
+    if (!req.Present()) {
+      return nullptr;
+    }
+    hdr = &req;
+    break;
+  }
+  case Message::ServerResponse:
+    hdr = &cripts::Server::Response::_get(_ctx);
+    break;
+  case Message::ClientResponse:
+    hdr = &cripts::Client::Response::_get(_ctx);
+    break;
+  }
+  if (!hdr->Initialized()) {
+    return nullptr;
+  }
+  return hdr;
 }
 } // namespace hrw4u

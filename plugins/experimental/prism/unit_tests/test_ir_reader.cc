@@ -22,8 +22,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <set>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 using namespace hrw4u;
@@ -121,6 +123,17 @@ require_error_at(const std::string &text, size_t line)
   CHECK_FALSE(prog.has_value());
   CHECK(error.starts_with("line " + std::to_string(line) + ":"));
 }
+
+// @a ir, whose first section header is on line 3, with that section in @a hook instead.
+std::string
+in_hook(std::string_view hook, std::string_view ir)
+{
+  return replace_line(3, "Section[" + std::string(hook) + "]:", ir);
+}
+
+// Every hook but TXN_START, which comes before the client's request is read.
+constexpr std::string_view MESSAGE_HOOKS[] = {"READ_REQUEST",  "PRE_REMAP",     "REMAP",    "SEND_REQUEST",
+                                              "READ_RESPONSE", "SEND_RESPONSE", "TXN_CLOSE"};
 } // namespace
 
 TEST_CASE("parse_ir reads the compare program")
@@ -816,6 +829,161 @@ TEST_CASE("rejects what milestone 2 does not run")
   SECTION("call.eff of an extension")
   {
     require_error_at(replace_line(7, R"(    call.eff EXT"x", %1 @2:7)", UA_IR), 7);
+  }
+  SECTION("BI_SET_CLIENT_RESP_HEADER with a non-string argument")
+  {
+    require_error_at(replace_line(11, "    call.eff BI_SET_CLIENT_RESP_HEADER, %3, %2 @2:36", UA_IR), 11);
+  }
+}
+
+TEST_CASE("parse_ir reads a header builtin's call")
+{
+  std::string error;
+  auto        prog = parse_ir(replace_line(8, "    call.eff BI_SET_CLIENT_RESP_HEADER, %1, %2 @2:4"), error);
+
+  INFO(error);
+  REQUIRE(prog.has_value());
+
+  const Inst &inst = prog->sections[0].insts[2];
+
+  CHECK(inst.op == Op::CallEff);
+  CHECK(inst.dest == 0);
+  CHECK(inst.builtin == Builtin::SetClientRespHeader);
+  CHECK(inst.args == std::vector<uint32_t>{1, 2});
+}
+
+TEST_CASE("BI_RM_CLIENT_RESP_HEADER takes one string")
+{
+  std::string error;
+  auto        prog = parse_ir(replace_line(8, "    call.eff BI_RM_CLIENT_RESP_HEADER, %1 @2:4"), error);
+
+  INFO(error);
+  REQUIRE(prog.has_value());
+  CHECK(prog->sections[0].insts[2].op == Op::CallEff);
+  CHECK(prog->sections[0].insts[2].builtin == Builtin::RmClientRespHeader);
+  CHECK(prog->sections[0].insts[2].args == std::vector<uint32_t>{1});
+
+  SECTION("no argument is refused")
+  {
+    require_error_at(replace_line(8, "    call.eff BI_RM_CLIENT_RESP_HEADER @2:4"), 8);
+  }
+  SECTION("two arguments are refused")
+  {
+    require_error_at(replace_line(8, "    call.eff BI_RM_CLIENT_RESP_HEADER, %1, %2 @2:4"), 8);
+  }
+  SECTION("a non-string argument is refused")
+  {
+    require_error_at(replace_line(11, "    call.eff BI_RM_CLIENT_RESP_HEADER, %2 @2:36", UA_IR), 11);
+  }
+}
+
+TEST_CASE("BI_SERVER_RESP_HEADER reads a string by name")
+{
+  const auto resp = in_hook("READ_RESPONSE", COMPARE_IR);
+  const auto ua   = in_hook("READ_RESPONSE", UA_IR);
+
+  std::string error;
+  auto        prog = parse_ir(replace_line(7, "    %2:sview = call.pure BI_SERVER_RESP_HEADER, %1 @2:4", resp), error);
+
+  INFO(error);
+  REQUIRE(prog.has_value());
+
+  const Inst &inst = prog->sections[0].insts[1];
+
+  CHECK(inst.op == Op::CallPure);
+  CHECK(inst.builtin == Builtin::ServerRespHeader);
+  CHECK(inst.args == std::vector<uint32_t>{1});
+  CHECK(inst.ext_name.empty());
+
+  SECTION("into a bool register is refused")
+  {
+    require_error_at(replace_line(7, "    %2:bool = call.pure BI_SERVER_RESP_HEADER, %1 @2:4", resp), 7);
+  }
+  SECTION("without a name is refused")
+  {
+    require_error_at(replace_line(7, "    %2:sview = call.pure BI_SERVER_RESP_HEADER @2:4", resp), 7);
+  }
+  SECTION("with two names is refused")
+  {
+    require_error_at(replace_line(7, "    %2:sview = call.pure BI_SERVER_RESP_HEADER, %1, %1 @2:4", resp), 7);
+  }
+  SECTION("of a non-string is refused")
+  {
+    require_error_at(replace_line(8, "    %3:sview = call.pure BI_SERVER_RESP_HEADER, %2 @2:7", ua), 8);
+  }
+  SECTION("by call.eff is refused")
+  {
+    require_error_at(replace_line(8, "    call.eff BI_SERVER_RESP_HEADER, %1 @2:4", resp), 8);
+  }
+  SECTION("and call.pure of an effect is refused")
+  {
+    require_error_at(replace_line(7, "    %2:sview = call.pure BI_RM_SERVER_RESP_HEADER, %1 @2:4", resp), 7);
+  }
+}
+
+TEST_CASE("a builtin that reads the client's request is refused at TXN_START")
+{
+  std::string line = "    %3:sview = call.pure BI_CLIENT_HEADER, %1 @2:4";
+  std::string error;
+
+  CHECK(parse_ir(replace_line(8, line), error).has_value());
+  require_error_at(replace_line(8, line, in_hook("TXN_START", COMPARE_IR)), 8);
+  parse_ir(replace_line(8, line, in_hook("TXN_START", COMPARE_IR)), error);
+  CHECK(error.ends_with("does not run in this section's hook"));
+}
+
+TEST_CASE("BI_CLIENT_HEADER reads the client request in every hook with a message")
+{
+  for (auto hook : MESSAGE_HOOKS) {
+    std::string error;
+    auto prog = parse_ir(replace_line(7, "    %2:sview = call.pure BI_CLIENT_HEADER, %1 @2:4", in_hook(hook, COMPARE_IR)), error);
+
+    INFO(hook << ": " << error);
+    REQUIRE(prog.has_value());
+    CHECK(prog->sections[0].insts[1].builtin == Builtin::ClientHeader);
+  }
+}
+
+TEST_CASE("a header builtin runs only in the hooks whose message is the one it names")
+{
+  const std::set<std::string_view> client_request{"READ_REQUEST", "PRE_REMAP", "REMAP"};
+  const std::set<std::string_view> server_request{"SEND_REQUEST"};
+  const std::set<std::string_view> server_response{"READ_RESPONSE"};
+  const std::set<std::string_view> client_response{"SEND_RESPONSE", "TXN_CLOSE"};
+
+  const std::tuple<std::string_view, Builtin, const std::set<std::string_view> &> calls[] = {
+    {"call.eff BI_SET_CLIENT_HEADER, %1, %2",          Builtin::SetClientHeader,     client_request },
+    {"call.eff BI_ADD_CLIENT_HEADER, %1, %2",          Builtin::AddClientHeader,     client_request },
+    {"call.eff BI_RM_CLIENT_HEADER, %1",               Builtin::RmClientHeader,      client_request },
+    {"call.eff BI_SET_SERVER_HEADER, %1, %2",          Builtin::SetServerHeader,     server_request },
+    {"call.eff BI_ADD_SERVER_HEADER, %1, %2",          Builtin::AddServerHeader,     server_request },
+    {"call.eff BI_RM_SERVER_HEADER, %1",               Builtin::RmServerHeader,      server_request },
+    {"%3:sview = call.pure BI_SERVER_RESP_HEADER, %1", Builtin::ServerRespHeader,    server_response},
+    {"call.eff BI_SET_SERVER_RESP_HEADER, %1, %2",     Builtin::SetServerRespHeader, server_response},
+    {"call.eff BI_ADD_SERVER_RESP_HEADER, %1, %2",     Builtin::AddServerRespHeader, server_response},
+    {"call.eff BI_RM_SERVER_RESP_HEADER, %1",          Builtin::RmServerRespHeader,  server_response},
+    {"%3:sview = call.pure BI_CLIENT_RESP_HEADER, %1", Builtin::ClientRespHeader,    client_response},
+    {"call.eff BI_SET_CLIENT_RESP_HEADER, %1, %2",     Builtin::SetClientRespHeader, client_response},
+    {"call.eff BI_ADD_CLIENT_RESP_HEADER, %1, %2",     Builtin::AddClientRespHeader, client_response},
+    {"call.eff BI_RM_CLIENT_RESP_HEADER, %1",          Builtin::RmClientRespHeader,  client_response},
+  };
+
+  for (const auto &[call, builtin, hooks] : calls) {
+    std::string line = "    " + std::string(call) + " @2:4";
+
+    for (auto hook :
+         {"TXN_START", "READ_REQUEST", "PRE_REMAP", "REMAP", "SEND_REQUEST", "READ_RESPONSE", "SEND_RESPONSE", "TXN_CLOSE"}) {
+      std::string error;
+      auto        prog = parse_ir(replace_line(8, line, in_hook(hook, COMPARE_IR)), error);
+
+      INFO(call << " in " << hook << ": " << error);
+      if (hooks.contains(hook)) {
+        REQUIRE(prog.has_value());
+        CHECK(prog->sections[0].insts[2].builtin == builtin);
+      } else {
+        CHECK(error.ends_with("does not run in this section's hook"));
+      }
+    }
   }
 }
 

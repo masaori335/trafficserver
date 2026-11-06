@@ -27,6 +27,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -129,6 +130,64 @@ Section[SEND_RESPONSE]:
 )") == Calls{
          {"X-A", "one"},
          {"X-B", "two"}
+  });
+}
+
+TEST_CASE("BI_SERVER_RESP_HEADER reads the origin's response header, empty when absent")
+{
+  Program prog = parse(R"(hrw4u-ir 1.1
+
+Section[READ_RESPONSE]:
+  consts = [K0:"Cache-Control"]
+  IR:
+    %1:sview = const.s K0 @2:8
+    %2:sview = call.pure BI_SERVER_RESP_HEADER, %1 @2:8
+    %3:bool = call.pure EXT"T::SetHeader", %1, %2 @2:8
+    ret @2:8
+)");
+
+  auto run_with = [&prog](std::string_view response) {
+    Txn         txn{REQUEST};
+    std::string fault;
+
+    txn.set_server_response(response);
+    CHECK(run_on(txn, prog, Hook::ReadResponse, fault));
+    return recorded_calls();
+  };
+
+  CHECK(run_with("HTTP/1.1 200 OK\r\n\r\n") == Calls{
+                                                 {"Cache-Control", ""}
+  });
+  CHECK(run_with("HTTP/1.1 200 OK\r\nCache-Control: no-store\r\n\r\n") == Calls{
+                                                                            {"Cache-Control", "no-store"}
+  });
+}
+
+TEST_CASE("BI_CLIENT_HEADER reads the client request, empty when absent")
+{
+  Program prog = parse(R"(hrw4u-ir 1.1
+
+Section[READ_RESPONSE]:
+  consts = [K0:"X-Source", K1:"X-From-Client", K2:"X-None"]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:sview = call.pure BI_CLIENT_HEADER, %1 @2:4
+    %3:sview = const.s K1 @2:4
+    %4:bool = call.pure EXT"T::SetHeader", %3, %2 @2:4
+    %5:sview = const.s K2 @3:4
+    %6:sview = call.pure BI_CLIENT_HEADER, %5 @3:4
+    %7:bool = call.pure EXT"T::SetHeader", %5, %6 @3:4
+    ret @3:4
+)");
+
+  Txn         txn{"GET /a HTTP/1.1\r\nHost: example.com\r\nX-Source: client\r\n\r\n"};
+  std::string fault;
+
+  txn.set_server_response("HTTP/1.1 200 OK\r\nX-Source: origin\r\n\r\n");
+  CHECK(run_on(txn, prog, Hook::ReadResponse, fault));
+  CHECK(recorded_calls() == Calls{
+                              {"X-From-Client", "client"},
+                              {"X-None",        ""      }
   });
 }
 

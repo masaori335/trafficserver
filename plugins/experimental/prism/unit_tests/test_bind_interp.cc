@@ -83,6 +83,13 @@ always_throws(std::string_view)
   throw std::runtime_error("boom");
 }
 
+// Reads the transaction through the rule context, as a binding compiled into prism.so does.
+bool
+bot_from_lab(hrw4u_rule_ctx *ctx, std::string_view ua)
+{
+  return ua == "Googlebot" && ops_of(ctx).client_header("X-Lab") == "1";
+}
+
 Program
 ua_program(std::string_view ua)
 {
@@ -150,6 +157,34 @@ TEST_CASE("a bot takes the then-branch")
 {
   CHECK(run_ua("Googlebot") == Calls{
                                  {"X-Bot", "yes"}
+  });
+}
+
+TEST_CASE("a binding reads the transaction through its rule context")
+{
+  Registry           reg([](std::string_view) {});
+  hrw4u::ext::Module m(reg.host_api(), "test");
+
+  m.def<&bot_from_lab>("Example::UA::IsBot", HRW4U_EFFECT_PURE);
+  m.def<&set_header>("T::SetHeader", HRW4U_EFFECT_PURE);
+
+  Program     prog = ua_program("Googlebot");
+  std::string error;
+
+  INFO(error);
+  REQUIRE(bind_calls(prog, reg, error));
+
+  Txn         lab_txn{"GET /a HTTP/1.1\r\nHost: example.com\r\nX-Lab: 1\r\n\r\n"};
+  Txn         other_txn{REQUEST};
+  std::string fault;
+
+  CHECK(run_on(lab_txn, prog, Hook::SendResponse, fault));
+  CHECK(recorded_calls() == Calls{
+                              {"X-Bot", "yes"}
+  });
+  CHECK(run_on(other_txn, prog, Hook::SendResponse, fault));
+  CHECK(recorded_calls() == Calls{
+                              {"X-Bot", "no"}
   });
 }
 
@@ -402,6 +437,13 @@ load_fails(std::string_view)
   throw std::runtime_error("no such key");
 }
 
+// A pure binding of prism.so that reads the transaction, which the Instance section has none of.
+std::string
+needs_txn(hrw4u_rule_ctx *ctx)
+{
+  return ops_of(ctx).client_header("Host");
+}
+
 // INSTANCE_VARS { key: string = <instance_call>; } SEND_RESPONSE { inbound.resp.X-Key = key; }
 Program
 instance_program(std::string_view instance_call, std::string_view hook_call = "load.i i0")
@@ -476,6 +518,23 @@ TEST_CASE("a fault in the Instance section is the load's error")
   INFO(error);
   REQUIRE(bind_calls(prog, reg, error));
   CHECK(run_instance(prog, prog.ivars) == "fault in EXT\"T::Load\" @2:20: no such key");
+}
+
+TEST_CASE("a pure function that needs the transaction faults in the Instance section")
+{
+  Registry           reg([](std::string_view) {});
+  hrw4u::ext::Module m(reg.host_api(), "test");
+
+  m.def<&needs_txn>("T::NeedsTxn", HRW4U_EFFECT_PURE);
+  m.def<&set_header>("T::SetHeader", HRW4U_EFFECT_PURE);
+
+  Program     prog = instance_program(R"(call.pure EXT"T::NeedsTxn")");
+  std::string error;
+
+  INFO(error);
+  REQUIRE(bind_calls(prog, reg, error));
+  CHECK(run_instance(prog, prog.ivars) ==
+        "fault in EXT\"T::NeedsTxn\" @2:20: this function needs a transaction, and the Instance section runs at load");
 }
 
 TEST_CASE("bind lets only call.load call a load function, and call.load call only a load function")

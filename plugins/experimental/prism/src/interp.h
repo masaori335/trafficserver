@@ -27,6 +27,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -43,10 +44,20 @@ bool run(const Program &prog, const Section &sec, CriptsBridge &ops, std::string
 std::optional<std::string> run_instance(const Program &prog, std::vector<std::string> &ivars);
 
 /// The rule context a binding receives is the ops running the call, which live for one hook's run: a binding must not
-/// keep them. An extension cannot look through it. The Instance section passes none.
+/// keep them. An extension cannot look through it; a binding compiled into prism.so reads the transaction with ops_of().
+/// The Instance section passes none: ops_of() throws, which the binding's wrapper turns into a fault that fails the load.
 inline hrw4u_rule_ctx *
 rule_ctx(CriptsBridge &ops)
 {
   return reinterpret_cast<hrw4u_rule_ctx *>(&ops);
+}
+
+inline CriptsBridge &
+ops_of(hrw4u_rule_ctx *ctx)
+{
+  if (ctx == nullptr) {
+    throw std::logic_error("this function needs a transaction, and the Instance section runs at load");
+  }
+  return *reinterpret_cast<CriptsBridge *>(ctx);
 }
 } // namespace hrw4u

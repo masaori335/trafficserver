@@ -174,6 +174,17 @@ namespace
     return 1u << static_cast<unsigned>(hook);
   }
 
+  // The client's request is read after TXN_START, so there header_rewrite finds no message and Cripts would assert on
+  // one: a builtin that reads the client's request runs in every hook but that one.
+  constexpr unsigned MESSAGE_HOOKS = ~0u & ~hook_bit(Hook::TxnStart);
+  constexpr unsigned REQUEST_HOOKS = hook_bit(Hook::ReadRequest) | hook_bit(Hook::PreRemap);
+  // The hooks whose message header_rewrite's header operators work on is each one. A builtin that names a message runs
+  // only there, so the two plugins always act on the same message.
+  constexpr unsigned CLIENT_REQUEST_HOOKS  = REQUEST_HOOKS | hook_bit(Hook::Remap);
+  constexpr unsigned SERVER_REQUEST_HOOKS  = hook_bit(Hook::SendRequest);
+  constexpr unsigned SERVER_RESPONSE_HOOKS = hook_bit(Hook::ReadResponse);
+  constexpr unsigned CLIENT_RESPONSE_HOOKS = hook_bit(Hook::SendResponse) | hook_bit(Hook::TxnClose);
+
   enum class State { ExpectSection, BeforeIR, InIR };
 
   class Reader
@@ -1266,7 +1277,24 @@ namespace
         unsigned            hooks;      ///< hook_bit()s of the hooks it runs in.
         size_t              consts = 0; ///< How many leading arguments must be constants, which prism.so resolves at load.
       };
-      static constexpr std::array<Signature, 0> BUILTINS{};
+      constexpr Type             S          = Type::Sview;
+      static constexpr Signature BUILTINS[] = {
+        {"BI_SET_CLIENT_HEADER",      Builtin::SetClientHeader,     std::nullopt, {S, S}, 2, CLIENT_REQUEST_HOOKS },
+        {"BI_ADD_CLIENT_HEADER",      Builtin::AddClientHeader,     std::nullopt, {S, S}, 2, CLIENT_REQUEST_HOOKS },
+        {"BI_RM_CLIENT_HEADER",       Builtin::RmClientHeader,      std::nullopt, {S},    1, CLIENT_REQUEST_HOOKS },
+        {"BI_SET_SERVER_HEADER",      Builtin::SetServerHeader,     std::nullopt, {S, S}, 2, SERVER_REQUEST_HOOKS },
+        {"BI_ADD_SERVER_HEADER",      Builtin::AddServerHeader,     std::nullopt, {S, S}, 2, SERVER_REQUEST_HOOKS },
+        {"BI_RM_SERVER_HEADER",       Builtin::RmServerHeader,      std::nullopt, {S},    1, SERVER_REQUEST_HOOKS },
+        {"BI_SERVER_RESP_HEADER",     Builtin::ServerRespHeader,    Type::Sview,  {S},    1, SERVER_RESPONSE_HOOKS},
+        {"BI_SET_SERVER_RESP_HEADER", Builtin::SetServerRespHeader, std::nullopt, {S, S}, 2, SERVER_RESPONSE_HOOKS},
+        {"BI_ADD_SERVER_RESP_HEADER", Builtin::AddServerRespHeader, std::nullopt, {S, S}, 2, SERVER_RESPONSE_HOOKS},
+        {"BI_RM_SERVER_RESP_HEADER",  Builtin::RmServerRespHeader,  std::nullopt, {S},    1, SERVER_RESPONSE_HOOKS},
+        {"BI_CLIENT_RESP_HEADER",     Builtin::ClientRespHeader,    Type::Sview,  {S},    1, CLIENT_RESPONSE_HOOKS},
+        {"BI_SET_CLIENT_RESP_HEADER", Builtin::SetClientRespHeader, std::nullopt, {S, S}, 2, CLIENT_RESPONSE_HOOKS},
+        {"BI_ADD_CLIENT_RESP_HEADER", Builtin::AddClientRespHeader, std::nullopt, {S, S}, 2, CLIENT_RESPONSE_HOOKS},
+        {"BI_RM_CLIENT_RESP_HEADER",  Builtin::RmClientRespHeader,  std::nullopt, {S},    1, CLIENT_RESPONSE_HOOKS},
+        {"BI_CLIENT_HEADER",          Builtin::ClientHeader,        Type::Sview,  {S},    1, MESSAGE_HOOKS        },
+      };
 
       std::string_view name = c.s.substr(0, c.s.find(','));
       const Signature *sig  = nullptr;

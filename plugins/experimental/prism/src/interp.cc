@@ -307,6 +307,45 @@ execute(const Program &prog, const Section &sec, CriptsBridge *ops, std::string 
     case Op::CallEff:
       switch (inst.builtin) {
       case Builtin::None:
+      case Builtin::ClientHeader:
+      case Builtin::ClientRespHeader:
+      case Builtin::ServerRespHeader:
+        break;
+      case Builtin::SetClientHeader:
+        ops->set_header(Message::ClientRequest, as_sview(regs[inst.args[0]]), as_sview(regs[inst.args[1]]));
+        break;
+      case Builtin::SetServerHeader:
+        ops->set_header(Message::ServerRequest, as_sview(regs[inst.args[0]]), as_sview(regs[inst.args[1]]));
+        break;
+      case Builtin::SetServerRespHeader:
+        ops->set_header(Message::ServerResponse, as_sview(regs[inst.args[0]]), as_sview(regs[inst.args[1]]));
+        break;
+      case Builtin::SetClientRespHeader:
+        ops->set_header(Message::ClientResponse, as_sview(regs[inst.args[0]]), as_sview(regs[inst.args[1]]));
+        break;
+      case Builtin::AddClientHeader:
+        ops->add_header(Message::ClientRequest, as_sview(regs[inst.args[0]]), as_sview(regs[inst.args[1]]));
+        break;
+      case Builtin::AddServerHeader:
+        ops->add_header(Message::ServerRequest, as_sview(regs[inst.args[0]]), as_sview(regs[inst.args[1]]));
+        break;
+      case Builtin::AddServerRespHeader:
+        ops->add_header(Message::ServerResponse, as_sview(regs[inst.args[0]]), as_sview(regs[inst.args[1]]));
+        break;
+      case Builtin::AddClientRespHeader:
+        ops->add_header(Message::ClientResponse, as_sview(regs[inst.args[0]]), as_sview(regs[inst.args[1]]));
+        break;
+      case Builtin::RmClientHeader:
+        ops->rm_header(Message::ClientRequest, as_sview(regs[inst.args[0]]));
+        break;
+      case Builtin::RmServerHeader:
+        ops->rm_header(Message::ServerRequest, as_sview(regs[inst.args[0]]));
+        break;
+      case Builtin::RmServerRespHeader:
+        ops->rm_header(Message::ServerResponse, as_sview(regs[inst.args[0]]));
+        break;
+      case Builtin::RmClientRespHeader:
+        ops->rm_header(Message::ClientResponse, as_sview(regs[inst.args[0]]));
         break;
       }
       break;
@@ -316,6 +355,28 @@ execute(const Program &prog, const Section &sec, CriptsBridge *ops, std::string 
         if (!call_ext(sec, inst, ctx, regs, strings, fault)) {
           return false;
         }
+        break;
+      case Builtin::ClientRespHeader:
+        regs[inst.dest] = sview_value(keep(strings, ops->get_header(Message::ClientResponse, as_sview(regs[inst.args[0]]))));
+        break;
+      case Builtin::ServerRespHeader:
+        regs[inst.dest] = sview_value(keep(strings, ops->get_header(Message::ServerResponse, as_sview(regs[inst.args[0]]))));
+        break;
+      case Builtin::ClientHeader:
+        regs[inst.dest] = sview_value(keep(strings, ops->client_header(as_sview(regs[inst.args[0]]))));
+        break;
+      case Builtin::SetClientHeader:
+      case Builtin::SetServerHeader:
+      case Builtin::SetServerRespHeader:
+      case Builtin::SetClientRespHeader:
+      case Builtin::AddClientHeader:
+      case Builtin::AddServerHeader:
+      case Builtin::AddServerRespHeader:
+      case Builtin::AddClientRespHeader:
+      case Builtin::RmClientHeader:
+      case Builtin::RmServerHeader:
+      case Builtin::RmServerRespHeader:
+      case Builtin::RmClientRespHeader:
         break;
       }
       break;
