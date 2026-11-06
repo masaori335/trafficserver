@@ -67,6 +67,10 @@ public:
   /// Remove every field line of a header from @a msg, as header_rewrite's rm-header.
   void rm_header(Message msg, std::string_view name);
 
+  /// A field of the URL of the request to the origin, as header_rewrite's %{SERVER-URL}: empty, the port too, where
+  /// there is no such request, before SEND_REQUEST or on a cache hit. A copy, as client_header().
+  std::string server_url_field(UrlField field);
+
   /// Set a header in @a msg, replacing its field lines, as header_rewrite's set-header.
   void set_header(Message msg, std::string_view name, std::string_view value);
 

@@ -1677,3 +1677,80 @@ TEST_CASE("BI_CLIENT_URL_PARAM reads a query parameter by name in every hook wit
   }
   require_error_at(replace_line(7, "    %2:sview = call.pure BI_CLIENT_URL_PARAM, %1 @2:4", in_hook("TXN_START", COMPARE_IR)), 7);
 }
+
+TEST_CASE("BI_SERVER_HEADER reads a string by name after the request is sent")
+{
+  const auto req = in_hook("SEND_REQUEST", COMPARE_IR);
+  const auto ua  = UA_IR;
+
+  std::string error;
+  auto        prog = parse_ir(replace_line(7, "    %2:sview = call.pure BI_SERVER_HEADER, %1 @2:4", req), error);
+
+  INFO(error);
+  REQUIRE(prog.has_value());
+
+  const Inst &inst = prog->sections[0].insts[1];
+
+  CHECK(inst.op == Op::CallPure);
+  CHECK(inst.builtin == Builtin::ServerHeader);
+  CHECK(inst.args == std::vector<uint32_t>{1});
+
+  SECTION("of a non-string is refused")
+  {
+    require_error_at(replace_line(8, "    %3:sview = call.pure BI_SERVER_HEADER, %2 @2:7", ua), 8);
+  }
+  SECTION("by call.eff is refused")
+  {
+    require_error_at(replace_line(8, "    call.eff BI_SERVER_HEADER, %1 @2:4", req), 8);
+  }
+  SECTION("only in the hooks where hrw4u reads outbound.req.")
+  {
+    const std::set<std::string_view> sent{"SEND_REQUEST", "READ_RESPONSE", "SEND_RESPONSE"};
+
+    for (auto hook : EVERY_HOOK) {
+      const auto text = replace_line(7, "    %2:sview = call.pure BI_SERVER_HEADER, %1 @2:4", in_hook(hook, req));
+
+      INFO(hook);
+      if (sent.contains(hook)) {
+        std::string hook_error;
+
+        CHECK(parse_ir(text, hook_error).has_value());
+      } else {
+        require_error_at(text, 7);
+      }
+    }
+  }
+}
+
+TEST_CASE("BI_SERVER_URL reads the request to the origin in every hook")
+{
+  const std::string field = R"(hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  ints   = [I0:3]
+  IR:
+    %1:i64 = const.i I0 @2:7
+    %2:sview = call.pure BI_SERVER_URL, %1 @2:7
+    ret @2:7
+)";
+
+  for (auto hook : EVERY_HOOK) {
+    std::string error;
+
+    INFO(hook);
+    CHECK(parse_ir(in_hook(hook, field), error).has_value());
+  }
+  SECTION("a field by string is refused")
+  {
+    require_error_at(R"(hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  consts = [K0:"PATH"]
+  IR:
+    %1:sview = const.s K0 @2:7
+    %2:sview = call.pure BI_SERVER_URL, %1 @2:7
+    ret @2:7
+)",
+                     7);
+  }
+}

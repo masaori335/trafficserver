@@ -353,6 +353,8 @@ execute(const Program &prog, const Section &sec, CriptsBridge *ops, std::string 
       case Builtin::ClientRespStatus:
       case Builtin::ClientUrl:
       case Builtin::ClientUrlParam:
+      case Builtin::ServerHeader:
+      case Builtin::ServerUrl:
         break;
       case Builtin::SetClientHeader:
         ops->set_header(Message::ClientRequest, as_sview(regs[inst.args[0]]), as_sview(regs[inst.args[1]]));
@@ -428,6 +430,19 @@ execute(const Program &prog, const Section &sec, CriptsBridge *ops, std::string 
         std::string query = ops->client_url_field(UrlField::Query);
 
         regs[inst.dest] = sview_value(keep(strings, std::string(query_param(query, as_sview(regs[inst.args[0]])))));
+        break;
+      }
+      case Builtin::ServerHeader:
+        regs[inst.dest] = sview_value(keep(strings, ops->get_header(Message::ServerRequest, as_sview(regs[inst.args[0]]))));
+        break;
+      case Builtin::ServerUrl: {
+        auto field = url_field(regs[inst.args[0]]);
+
+        if (!field) {
+          fault = fault_in(inst, "BI_SERVER_URL", "no URL field " + std::to_string(as_int(regs[inst.args[0]])));
+          return false;
+        }
+        regs[inst.dest] = sview_value(keep(strings, ops->server_url_field(*field)));
         break;
       }
       case Builtin::SetClientHeader:

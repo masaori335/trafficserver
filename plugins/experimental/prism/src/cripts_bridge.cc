@@ -129,6 +129,17 @@ CriptsBridge::rm_header(Message msg, std::string_view name)
   }
 }
 
+std::string
+CriptsBridge::server_url_field(UrlField field)
+{
+  auto &url = cripts::Server::URL::_get(_ctx);
+
+  if (!url.Present()) {
+    return {};
+  }
+  return field_text(url, field);
+}
+
 void
 CriptsBridge::set_header(Message msg, std::string_view name, std::string_view value)
 {

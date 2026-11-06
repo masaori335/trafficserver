@@ -174,9 +174,10 @@ namespace
     return 1u << static_cast<unsigned>(hook);
   }
 
+  constexpr unsigned ALL_HOOKS = ~0u;
   // The client's request is read after TXN_START, so there header_rewrite finds no message and Cripts would assert on
   // one: a builtin that reads the client's request runs in every hook but that one.
-  constexpr unsigned MESSAGE_HOOKS = ~0u & ~hook_bit(Hook::TxnStart);
+  constexpr unsigned MESSAGE_HOOKS = ALL_HOOKS & ~hook_bit(Hook::TxnStart);
   constexpr unsigned REQUEST_HOOKS = hook_bit(Hook::ReadRequest) | hook_bit(Hook::PreRemap);
   // The hooks whose message header_rewrite's header operators work on is each one. A builtin that names a message runs
   // only there, so the two plugins always act on the same message.
@@ -184,6 +185,7 @@ namespace
   constexpr unsigned SERVER_REQUEST_HOOKS  = hook_bit(Hook::SendRequest);
   constexpr unsigned SERVER_RESPONSE_HOOKS = hook_bit(Hook::ReadResponse);
   constexpr unsigned CLIENT_RESPONSE_HOOKS = hook_bit(Hook::SendResponse) | hook_bit(Hook::TxnClose);
+  constexpr unsigned SENT_REQUEST_HOOKS    = SERVER_REQUEST_HOOKS | hook_bit(Hook::ReadResponse) | hook_bit(Hook::SendResponse);
 
   enum class State { ExpectSection, BeforeIR, InIR };
 
@@ -1277,8 +1279,11 @@ namespace
         unsigned            hooks;      ///< hook_bit()s of the hooks it runs in.
         size_t              consts = 0; ///< How many leading arguments must be constants, which prism.so resolves at load.
       };
-      constexpr Type             S          = Type::Sview;
-      constexpr Type             I          = Type::I64;
+      constexpr Type S = Type::Sview;
+      constexpr Type I = Type::I64;
+      // BI_SERVER_URL reads Cripts' Server::URL, which reads empty where there is no request to the origin, so it runs in
+      // every hook, as %{SERVER-URL} does. BI_SERVER_HEADER reads Server::Request, which Cripts refuses before SEND_REQUEST,
+      // so it runs only where hrw4u reads outbound.req., and reads empty there on a cache hit.
       static constexpr Signature BUILTINS[] = {
         {"BI_SET_CLIENT_HEADER",      Builtin::SetClientHeader,     std::nullopt, {S, S}, 2, CLIENT_REQUEST_HOOKS        },
         {"BI_ADD_CLIENT_HEADER",      Builtin::AddClientHeader,     std::nullopt, {S, S}, 2, CLIENT_REQUEST_HOOKS        },
@@ -1299,6 +1304,8 @@ namespace
         {"BI_CLIENT_RESP_STATUS",     Builtin::ClientRespStatus,    Type::I64,    {},     0, hook_bit(Hook::SendResponse)},
         {"BI_CLIENT_URL",             Builtin::ClientUrl,           Type::Sview,  {I},    1, MESSAGE_HOOKS               },
         {"BI_CLIENT_URL_PARAM",       Builtin::ClientUrlParam,      Type::Sview,  {S},    1, MESSAGE_HOOKS               },
+        {"BI_SERVER_HEADER",          Builtin::ServerHeader,        Type::Sview,  {S},    1, SENT_REQUEST_HOOKS          },
+        {"BI_SERVER_URL",             Builtin::ServerUrl,           Type::Sview,  {I},    1, ALL_HOOKS                   },
       };
 
       std::string_view name = c.s.substr(0, c.s.find(','));

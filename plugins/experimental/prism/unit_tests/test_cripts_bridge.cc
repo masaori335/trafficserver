@@ -213,6 +213,99 @@ Section[SEND_REQUEST]:
   CHECK(txn.client_request_field_count("X-Dup") == 2);
 }
 
+TEST_CASE("BI_SERVER_HEADER reads the request to the origin in the response hooks, and empty on a cache hit", "[prism][bridge]")
+{
+  auto prog = parse(R"(hrw4u-ir 1.0
+
+Section[READ_RESPONSE]:
+  consts = [K0:"Host", K1:"X-Sent"]
+  fmt    = [F0:"[{host}]" arity=1 lits=["[", "]"]]
+  IR:
+    %1:sview = const.s K0 @1:1
+    %2:sview = call.pure BI_SERVER_HEADER, %1 @1:1
+    %3:sview = fmt F0, %2 @1:1
+    %4:sview = const.s K1 @1:1
+    call.eff BI_SET_SERVER_RESP_HEADER, %4, %3 @1:1
+    ret @1:1
+
+Section[SEND_RESPONSE]:
+  IR:
+    %1:sview = const.s K0 @2:1
+    %2:sview = call.pure BI_SERVER_HEADER, %1 @2:1
+    %3:sview = fmt F0, %2 @2:1
+    %4:sview = const.s K1 @2:1
+    call.eff BI_SET_CLIENT_RESP_HEADER, %4, %3 @2:1
+    ret @2:1
+)");
+
+  SECTION("from the origin")
+  {
+    Txn txn{REQUEST};
+
+    txn.set_server_request(SERVER_REQUEST);
+    txn.set_server_response(RESPONSE);
+    run_hook(txn, prog, Hook::ReadResponse);
+    CHECK(field_values(txn.sm().t_state.hdr_info.server_response, "X-Sent") == std::vector<std::string>{"[origin.example]"});
+
+    txn.set_client_response(RESPONSE);
+    run_hook(txn, prog, Hook::SendResponse);
+    CHECK(field_values(txn.sm().t_state.hdr_info.client_response, "X-Sent") == std::vector<std::string>{"[origin.example]"});
+  }
+  SECTION("from the cache, without failing the transaction")
+  {
+    Txn txn{REQUEST};
+
+    txn.set_client_response(RESPONSE);
+    run_hook(txn, prog, Hook::SendResponse);
+    CHECK(field_values(txn.sm().t_state.hdr_info.client_response, "X-Sent") == std::vector<std::string>{"[]"});
+    CHECK_FALSE(txn.context()->state.error.Failed());
+  }
+}
+
+TEST_CASE("BI_SERVER_URL reads the request to the origin, not the client's, and empty before there is one", "[prism][bridge]")
+{
+  Txn  txn{ABSOLUTE_REQUEST};
+  auto prog = parse(R"(hrw4u-ir 1.0
+
+Section[REMAP]:
+  consts = [K0:"X-Sent", K1:"X-Path", K2:"X-Query"]
+  ints   = [I0:5, I1:2, I2:3, I3:4]
+  fmt    = [F0:"[{url}][{port}]" arity=2 lits=["[", "][", "]"]]
+  IR:
+    %1:i64 = const.i I0 @1:1
+    %2:sview = call.pure BI_SERVER_URL, %1 @1:1
+    %3:i64 = const.i I1 @2:1
+    %4:sview = call.pure BI_SERVER_URL, %3 @2:1
+    %5:sview = fmt F0, %2, %4 @3:1
+    %6:sview = const.s K0 @3:1
+    call.eff BI_SET_CLIENT_HEADER, %6, %5 @3:1
+    ret @3:1
+
+Section[SEND_REQUEST]:
+  IR:
+    %1:i64 = const.i I2 @4:1
+    %2:sview = call.pure BI_SERVER_URL, %1 @4:1
+    %3:sview = const.s K1 @4:1
+    call.eff BI_SET_SERVER_HEADER, %3, %2 @4:1
+    %4:i64 = const.i I3 @5:1
+    %5:sview = call.pure BI_SERVER_URL, %4 @5:1
+    %6:sview = const.s K2 @5:1
+    call.eff BI_SET_SERVER_HEADER, %6, %5 @5:1
+    ret @5:1
+)");
+
+  run_hook(txn, prog, Hook::Remap);
+  CHECK(txn.client_request_field("X-Sent") == "[][]");
+
+  txn.set_server_request(SERVER_REQUEST);
+  run_hook(txn, prog, Hook::SendRequest);
+
+  auto const &sent = txn.sm().t_state.hdr_info.server_request;
+
+  CHECK(field_values(sent, "X-Path") == std::vector<std::string>{"o"});
+  CHECK(field_values(sent, "X-Query") == std::vector<std::string>{"x=9&z=1"});
+}
+
 TEST_CASE("The server response header builtins read and write the response from the origin", "[prism][bridge]")
 {
   Txn txn{REQUEST};

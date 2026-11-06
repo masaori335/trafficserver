@@ -753,3 +753,51 @@ Section[REMAP]:
   CHECK(param("R=1", "r").empty());
   CHECK(param("", "r").empty());
 }
+
+TEST_CASE("BI_SERVER_HEADER reads the server request, empty when absent")
+{
+  Program prog = parse(R"(hrw4u-ir 1.1
+
+Section[SEND_REQUEST]:
+  consts = [K0:"X-In", K1:"X-Out", K2:"X-None", K3:"X-Out-None"]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:sview = call.pure BI_SERVER_HEADER, %1 @2:4
+    %3:sview = const.s K1 @2:4
+    %4:bool = call.pure EXT"T::SetHeader", %3, %2 @2:4
+    %5:sview = const.s K2 @3:4
+    %6:sview = call.pure BI_SERVER_HEADER, %5 @3:4
+    %7:sview = const.s K3 @3:4
+    %8:bool = call.pure EXT"T::SetHeader", %7, %6 @3:4
+    ret @3:4
+)");
+
+  Txn         txn{REQUEST};
+  std::string fault;
+
+  txn.set_server_request("GET /a HTTP/1.1\r\nHost: origin.example\r\nX-In: yes\r\n\r\n");
+  CHECK(run_on(txn, prog, Hook::SendRequest, fault));
+  CHECK(recorded_calls() == Calls{
+                              {"X-Out",      "yes"},
+                              {"X-Out-None", ""   }
+  });
+}
+
+TEST_CASE("BI_SERVER_URL faults on a field number past the last")
+{
+  Program prog = parse(R"(hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  ints   = [I0:6]
+  IR:
+    %1:i64 = const.i I0 @2:4
+    %2:sview = call.pure BI_SERVER_URL, %1 @2:4
+    ret @2:4
+)");
+
+  Txn         txn{REQUEST};
+  std::string fault;
+
+  CHECK_FALSE(run_on(txn, prog, Hook::SendResponse, fault));
+  CHECK(fault.find("BI_SERVER_URL") != std::string::npos);
+}
