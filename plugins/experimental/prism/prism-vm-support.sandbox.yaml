@@ -1,0 +1,85 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+# hrw4u --sandbox policy that rejects at compile time what prism.so on this branch would refuse at load time.
+# Which hooks an instance may use (remap vs plugin.config) is not expressible here; prism.so checks it at load.
+sandbox:
+  message: "Not supported by the Prism VM (plugins/experimental/prism) on this branch."
+
+  deny:
+    sections:
+      - SESSION_VARS
+
+    functions:
+      - access
+      - cache
+      - cidr
+      - counter
+      - internal
+      - keep_query
+      - remove_query
+      - run-plugin
+      # set-body and set-body-from-file exist only in the compiler that writes the .ir, not in this branch's tools/hrw4u.
+      - set-body
+      - set-body-from
+      - set-body-from-file
+      - set-config
+      - set-debug
+      - set-plugin-cntl
+      - set-redirect
+      - skip-remap
+      - ssn-txn-count
+      - txn-count
+
+    conditions:
+      - capture.
+      - from.url.
+      - geo.
+      - http.cntl.
+      - id.
+      # Also denies REMOTE-ADDR and LOCAL-ADDR, which prism runs: fields match case-sensitively before upper-casing,
+      # so only the prefix closes every spelling. Use inbound.ip and inbound.server instead.
+      - inbound.conn.
+      - inbound.cookie.
+      - inbound.method
+      - nexthop.
+      - outbound.conn.
+      - outbound.cookie.
+      - outbound.ip
+      - outbound.method
+      - outbound.server
+      - outbound.url.query.
+      - tcp.info
+      - to.url.
+
+    operators:
+      - http.cntl.
+      - http.status
+      - http.status.reason
+      - inbound.conn.
+      - inbound.cookie.
+      - inbound.resp.body
+      - inbound.status
+      - inbound.status.reason
+      - inbound.url.
+      - outbound.conn.
+      - outbound.cookie.
+      - outbound.status
+      - outbound.status.reason
+      - outbound.url.
+
+    modifiers:
+      - NORM
