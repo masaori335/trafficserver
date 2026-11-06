@@ -67,6 +67,9 @@ public:
   /// Set a header in @a msg, replacing its field lines, as header_rewrite's set-header.
   void set_header(Message msg, std::string_view name, std::string_view value);
 
+  /// The status of response @a msg.
+  int64_t status(Message msg);
+
   /// Make the transaction's memory at its first hook, when @a prog keeps anything across hooks.
   static void begin_txn(cripts::Context *ctx, const Program &prog);
   /// Free the transaction's memory, once: at TXN_CLOSE after the section there ran, or, from a remap rule, at REMAP when

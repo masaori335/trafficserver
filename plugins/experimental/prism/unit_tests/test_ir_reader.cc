@@ -131,6 +131,8 @@ in_hook(std::string_view hook, std::string_view ir)
   return replace_line(3, "Section[" + std::string(hook) + "]:", ir);
 }
 
+constexpr std::string_view EVERY_HOOK[] = {"TXN_START",    "READ_REQUEST",  "PRE_REMAP",     "REMAP",
+                                           "SEND_REQUEST", "READ_RESPONSE", "SEND_RESPONSE", "TXN_CLOSE"};
 // Every hook but TXN_START, which comes before the client's request is read.
 constexpr std::string_view MESSAGE_HOOKS[] = {"READ_REQUEST",  "PRE_REMAP",     "REMAP",    "SEND_REQUEST",
                                               "READ_RESPONSE", "SEND_RESPONSE", "TXN_CLOSE"};
@@ -1576,4 +1578,39 @@ TEST_CASE("rejects trailing text after the format pool")
 {
   require_error_at(
     replace_line(6, R"(  fmt    = [F0:"{a}" arity=1 lits=["", ""], F1:"x{a}-{b}y" arity=2 lits=["x", "-", "y"]] x)", FMT_IR), 6);
+}
+
+TEST_CASE("a status builtin reads its response's status as an integer, in that response's hook only")
+{
+  auto program = [](std::string_view name, std::string_view hook, std::string_view type) {
+    return replace_line(5, "    %1:" + std::string(type) + " = call.pure " + std::string(name) + " @2:7",
+                        in_hook(hook, R"(hrw4u-ir 1.0
+
+Section[REMAP]:
+  IR:
+    %1:i64 = call.pure BI_CLIENT_RESP_STATUS @2:7
+    ret @2:7
+)"));
+  };
+
+  for (auto [name, builtin, hook] : {
+         std::tuple{"BI_SERVER_RESP_STATUS", Builtin::ServerRespStatus, "READ_RESPONSE"},
+         std::tuple{"BI_CLIENT_RESP_STATUS", Builtin::ClientRespStatus, "SEND_RESPONSE"}
+  }) {
+    std::string error;
+    auto        prog = parse_ir(program(name, hook, "i64"), error);
+
+    INFO(name << " in " << hook << ": " << error);
+    REQUIRE(prog.has_value());
+    CHECK(prog->sections[0].insts[0].builtin == builtin);
+    CHECK(prog->sections[0].insts[0].args.empty());
+
+    for (auto other : EVERY_HOOK) {
+      if (other != std::string_view(hook)) {
+        INFO(name << " in " << other);
+        require_error_at(program(name, other, "i64"), 5);
+      }
+    }
+    require_error_at(program(name, hook, "sview"), 5);
+  }
 }

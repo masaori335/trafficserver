@@ -112,6 +112,17 @@ CriptsBridge::set_header(Message msg, std::string_view name, std::string_view va
   }
 }
 
+int64_t
+CriptsBridge::status(Message msg)
+{
+  auto *hdr = message(msg);
+
+  if (hdr == nullptr) {
+    return 0;
+  }
+  return hdr->status;
+}
+
 // Null when the transaction has no such message, as at TXN_CLOSE of one that closed before a response: header_rewrite
 // does nothing then, and Cripts would assert on the header's first use.
 cripts::Header *

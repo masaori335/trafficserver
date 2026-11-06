@@ -1279,21 +1279,23 @@ namespace
       };
       constexpr Type             S          = Type::Sview;
       static constexpr Signature BUILTINS[] = {
-        {"BI_SET_CLIENT_HEADER",      Builtin::SetClientHeader,     std::nullopt, {S, S}, 2, CLIENT_REQUEST_HOOKS },
-        {"BI_ADD_CLIENT_HEADER",      Builtin::AddClientHeader,     std::nullopt, {S, S}, 2, CLIENT_REQUEST_HOOKS },
-        {"BI_RM_CLIENT_HEADER",       Builtin::RmClientHeader,      std::nullopt, {S},    1, CLIENT_REQUEST_HOOKS },
-        {"BI_SET_SERVER_HEADER",      Builtin::SetServerHeader,     std::nullopt, {S, S}, 2, SERVER_REQUEST_HOOKS },
-        {"BI_ADD_SERVER_HEADER",      Builtin::AddServerHeader,     std::nullopt, {S, S}, 2, SERVER_REQUEST_HOOKS },
-        {"BI_RM_SERVER_HEADER",       Builtin::RmServerHeader,      std::nullopt, {S},    1, SERVER_REQUEST_HOOKS },
-        {"BI_SERVER_RESP_HEADER",     Builtin::ServerRespHeader,    Type::Sview,  {S},    1, SERVER_RESPONSE_HOOKS},
-        {"BI_SET_SERVER_RESP_HEADER", Builtin::SetServerRespHeader, std::nullopt, {S, S}, 2, SERVER_RESPONSE_HOOKS},
-        {"BI_ADD_SERVER_RESP_HEADER", Builtin::AddServerRespHeader, std::nullopt, {S, S}, 2, SERVER_RESPONSE_HOOKS},
-        {"BI_RM_SERVER_RESP_HEADER",  Builtin::RmServerRespHeader,  std::nullopt, {S},    1, SERVER_RESPONSE_HOOKS},
-        {"BI_CLIENT_RESP_HEADER",     Builtin::ClientRespHeader,    Type::Sview,  {S},    1, CLIENT_RESPONSE_HOOKS},
-        {"BI_SET_CLIENT_RESP_HEADER", Builtin::SetClientRespHeader, std::nullopt, {S, S}, 2, CLIENT_RESPONSE_HOOKS},
-        {"BI_ADD_CLIENT_RESP_HEADER", Builtin::AddClientRespHeader, std::nullopt, {S, S}, 2, CLIENT_RESPONSE_HOOKS},
-        {"BI_RM_CLIENT_RESP_HEADER",  Builtin::RmClientRespHeader,  std::nullopt, {S},    1, CLIENT_RESPONSE_HOOKS},
-        {"BI_CLIENT_HEADER",          Builtin::ClientHeader,        Type::Sview,  {S},    1, MESSAGE_HOOKS        },
+        {"BI_SET_CLIENT_HEADER",      Builtin::SetClientHeader,     std::nullopt, {S, S}, 2, CLIENT_REQUEST_HOOKS        },
+        {"BI_ADD_CLIENT_HEADER",      Builtin::AddClientHeader,     std::nullopt, {S, S}, 2, CLIENT_REQUEST_HOOKS        },
+        {"BI_RM_CLIENT_HEADER",       Builtin::RmClientHeader,      std::nullopt, {S},    1, CLIENT_REQUEST_HOOKS        },
+        {"BI_SET_SERVER_HEADER",      Builtin::SetServerHeader,     std::nullopt, {S, S}, 2, SERVER_REQUEST_HOOKS        },
+        {"BI_ADD_SERVER_HEADER",      Builtin::AddServerHeader,     std::nullopt, {S, S}, 2, SERVER_REQUEST_HOOKS        },
+        {"BI_RM_SERVER_HEADER",       Builtin::RmServerHeader,      std::nullopt, {S},    1, SERVER_REQUEST_HOOKS        },
+        {"BI_SERVER_RESP_HEADER",     Builtin::ServerRespHeader,    Type::Sview,  {S},    1, SERVER_RESPONSE_HOOKS       },
+        {"BI_SET_SERVER_RESP_HEADER", Builtin::SetServerRespHeader, std::nullopt, {S, S}, 2, SERVER_RESPONSE_HOOKS       },
+        {"BI_ADD_SERVER_RESP_HEADER", Builtin::AddServerRespHeader, std::nullopt, {S, S}, 2, SERVER_RESPONSE_HOOKS       },
+        {"BI_RM_SERVER_RESP_HEADER",  Builtin::RmServerRespHeader,  std::nullopt, {S},    1, SERVER_RESPONSE_HOOKS       },
+        {"BI_CLIENT_RESP_HEADER",     Builtin::ClientRespHeader,    Type::Sview,  {S},    1, CLIENT_RESPONSE_HOOKS       },
+        {"BI_SET_CLIENT_RESP_HEADER", Builtin::SetClientRespHeader, std::nullopt, {S, S}, 2, CLIENT_RESPONSE_HOOKS       },
+        {"BI_ADD_CLIENT_RESP_HEADER", Builtin::AddClientRespHeader, std::nullopt, {S, S}, 2, CLIENT_RESPONSE_HOOKS       },
+        {"BI_RM_CLIENT_RESP_HEADER",  Builtin::RmClientRespHeader,  std::nullopt, {S},    1, CLIENT_RESPONSE_HOOKS       },
+        {"BI_CLIENT_HEADER",          Builtin::ClientHeader,        Type::Sview,  {S},    1, MESSAGE_HOOKS               },
+        {"BI_SERVER_RESP_STATUS",     Builtin::ServerRespStatus,    Type::I64,    {},     0, SERVER_RESPONSE_HOOKS       },
+        {"BI_CLIENT_RESP_STATUS",     Builtin::ClientRespStatus,    Type::I64,    {},     0, hook_bit(Hook::SendResponse)},
       };
 
       std::string_view name = c.s.substr(0, c.s.find(','));

@@ -270,6 +270,52 @@ Section[SEND_RESPONSE]:
   CHECK(field_values(resp, "X-Dup").empty());
 }
 
+TEST_CASE("The status builtins read the status of the response they name, and 0 where there is none", "[prism][bridge]")
+{
+  constexpr std::string_view NOT_FOUND = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+
+  Txn  txn{REQUEST};
+  auto prog = parse(R"(hrw4u-ir 1.0
+
+Section[READ_RESPONSE]:
+  vars   = [v0:u16]
+  IR:
+    %1:i64 = call.pure BI_SERVER_RESP_STATUS @1:1
+    store.v v0:u16, %1 @1:1
+    ret @1:1
+
+Section[SEND_RESPONSE]:
+  IR:
+    %1:i64 = call.pure BI_CLIENT_RESP_STATUS @2:1
+    store.v v0:u16, %1 @2:1
+    ret @2:1
+)");
+
+  CriptsBridge::begin_txn(txn.context(), prog);
+
+  auto status = [&txn]() { return CriptsBridge::vars(txn.context())[0]; };
+
+  SECTION("of the response from the origin")
+  {
+    txn.set_server_response(RESPONSE);
+    run_hook(txn, prog, Hook::ReadResponse);
+    CHECK(status() == 200);
+  }
+  SECTION("of the response to the client")
+  {
+    txn.set_client_response(NOT_FOUND);
+    run_hook(txn, prog, Hook::SendResponse);
+    CHECK(status() == 404);
+  }
+  SECTION("of a response the transaction does not have")
+  {
+    CriptsBridge::vars(txn.context())[0] = 1;
+    run_hook(txn, prog, Hook::ReadResponse);
+    CHECK(status() == 0);
+  }
+  CriptsBridge::end_txn(txn.context());
+}
+
 TEST_CASE("A transaction's variables last from begin_txn() to end_txn(), across hooks", "[prism][bridge]")
 {
   Txn  txn{REQUEST};

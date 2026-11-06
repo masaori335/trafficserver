@@ -310,6 +310,8 @@ execute(const Program &prog, const Section &sec, CriptsBridge *ops, std::string 
       case Builtin::ClientHeader:
       case Builtin::ClientRespHeader:
       case Builtin::ServerRespHeader:
+      case Builtin::ServerRespStatus:
+      case Builtin::ClientRespStatus:
         break;
       case Builtin::SetClientHeader:
         ops->set_header(Message::ClientRequest, as_sview(regs[inst.args[0]]), as_sview(regs[inst.args[1]]));
@@ -364,6 +366,12 @@ execute(const Program &prog, const Section &sec, CriptsBridge *ops, std::string 
         break;
       case Builtin::ClientHeader:
         regs[inst.dest] = sview_value(keep(strings, ops->client_header(as_sview(regs[inst.args[0]]))));
+        break;
+      case Builtin::ServerRespStatus:
+        regs[inst.dest].w[0] = static_cast<uint64_t>(ops->status(Message::ServerResponse));
+        break;
+      case Builtin::ClientRespStatus:
+        regs[inst.dest].w[0] = static_cast<uint64_t>(ops->status(Message::ClientResponse));
         break;
       case Builtin::SetClientHeader:
       case Builtin::SetServerHeader:
