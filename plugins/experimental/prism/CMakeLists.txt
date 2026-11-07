@@ -44,6 +44,9 @@ target_include_directories(prism_manifest PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src
 # Installed so an extension can be built outside this tree.
 install(FILES include/hrw4u/extension.h include/hrw4u/extension.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/hrw4u)
 
+# The procedure libraries a script reaches with `use` and `tools/hrw4u --procedures-path`.
+install(DIRECTORY procedures/ DESTINATION ${CMAKE_INSTALL_DATADIR}/hrw4u/procedures)
+
 add_executable(hrw4u-extern tools/hrw4u-extern.cc)
 target_link_libraries(hrw4u-extern PRIVATE prism_manifest)
 install(TARGETS hrw4u-extern DESTINATION ${CMAKE_INSTALL_BINDIR})

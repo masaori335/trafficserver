@@ -1,0 +1,42 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+# Akamai G2O, version 5 (HMAC-SHA256), for origin requests; call these from SEND_REQUEST. $nonce must be a variable,
+# such as an INSTANCE_VARS string, not a string literal: it is read as "{$nonce}". It must be printable ASCII without
+# spaces or commas, which nothing checks.
+
+# The X-Akamai-G2O-Auth-Data value: the edge and client addresses, the time now and a random 31-bit id.
+procedure Apple::G2O::SetAuthData($nonce) {
+    outbound.req.X-Akamai-G2O-Auth-Data = "5, {inbound.server}, {inbound.ip}, {now}, {random(2147483648)}, {$nonce}";
+}
+
+# Signs the X-Akamai-G2O-Auth-Data the request carries, with the path and, when there is one, the query.
+procedure Apple::G2O::SignAuthData($secret) {
+    if outbound.url.query != "" {
+        outbound.req.X-Akamai-G2O-Auth-Sign = cripts::Crypto::Base64::Encode(
+            cripts::Crypto::HMAC::SHA256::Sign($secret,
+                "{outbound.req.X-Akamai-G2O-Auth-Data}/{outbound.url.path}?{outbound.url.query}"));
+    } else {
+        outbound.req.X-Akamai-G2O-Auth-Sign = cripts::Crypto::Base64::Encode(
+            cripts::Crypto::HMAC::SHA256::Sign($secret,
+                "{outbound.req.X-Akamai-G2O-Auth-Data}/{outbound.url.path}"));
+    }
+}
+
+procedure Apple::G2O::Sign($secret, $nonce) {
+    Apple::G2O::SetAuthData($nonce);
+    Apple::G2O::SignAuthData($secret);
+}
