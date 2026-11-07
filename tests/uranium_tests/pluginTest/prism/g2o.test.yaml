@@ -17,8 +17,8 @@
 meta:
   version: "1.0"
 
-# The .ir files are the compiler's output for the .hrw4u files next to them, with the Apple::G2O procedures; this
-# branch's tools/hrw4u does not write IR yet. g2o_kat sets the auth data from "{inbound.req.X-Test-Auth-Data}" before
+# The .ir files are the compiler's output for the .hrw4u files next to them, with the Apple::G2O procedures; the
+# prism README says how to rebuild them. g2o_kat sets the auth data from "{inbound.req.X-Test-Auth-Data}" before
 # Apple::G2O::SignAuthData, so a fixed value gives a known signature.
 urtest:
   description: 'prism.so signs origin requests with Akamai G2O through the Apple::G2O procedures'

@@ -32,7 +32,7 @@ sandbox:
       - keep_query
       - remove_query
       - run-plugin
-      # set-body and set-body-from-file exist only in the compiler that writes the .ir, not in this branch's tools/hrw4u.
+      # set-body and set-body-from-file are spellings only work-9's compiler (48f42b7d16) has; this branch's hrw4u refuses them.
       - set-body
       - set-body-from
       - set-body-from-file
