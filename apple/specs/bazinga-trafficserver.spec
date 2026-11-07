@@ -210,9 +210,10 @@ cp -r %{_builddir}/%{srcdir}/include/iocore $RPM_BUILD_ROOT%{_prefix}/include/in
 
 # We don't want
 #	libtool archives
-#	share
+#	share, except what tools/hrw4u reads to compile for prism.so
 rm -f $RPM_BUILD_ROOT%{_prefix}/lib/trafficserver/plugin_*
-rm -rf $RPM_BUILD_ROOT%{_prefix}/share
+find $RPM_BUILD_ROOT%{_prefix}/share -mindepth 1 -maxdepth 1 ! -name trafficserver -exec rm -rf {} +
+find $RPM_BUILD_ROOT%{_prefix}/share/trafficserver -mindepth 1 -maxdepth 1 ! -name hrw4u -exec rm -rf {} +
 rm -rf $RPM_BUILD_ROOT%{_prefix}/lib64
 #rmdir $RPM_BUILD_ROOT/var/trafficserver
 
@@ -252,6 +253,8 @@ rm -rf $RPM_BUILD_ROOT
 
 %files plugins-builtin
 %attr(0755,root,root) %{_prefix}/lib/trafficserver/plugins/*.so
+%dir %{_prefix}/share/trafficserver
+%{_prefix}/share/trafficserver/hrw4u
 
 %files internal
 %{_prefix}/include/internal
