@@ -523,6 +523,21 @@ def test_namespace_hover_documentation(shared_lsp_client, namespace, expected_co
     assert "HRW4U symbol" not in content or "Namespace" in content
 
 
+@pytest.mark.parametrize(
+    "hook, call", [
+        ("REMAP", 'inbound.resp.set-redirect(302, "x")'),
+        ("READ_RESPONSE", 'outbound.resp.set-redirect(302, "x")'),
+        ("REMAP", 'inbound.url.keep_query("a")'),
+    ])
+def test_scoped_statement_function_hover_is_its_documentation(shared_lsp_client, hook, call) -> None:
+    name = call.split("(")[0]
+    uri = _create_test_document(shared_lsp_client, f"{hook} {{\n    {call};\n}}", f"scoped_{name}")
+
+    content = _assert_hover_response(shared_lsp_client.request_hover(uri, 1, 4 + len(name) - 2), "", name)
+    assert f"{name}(" in content
+    assert "HTTP Header" not in content
+
+
 def test_now_condition_vs_namespace(shared_lsp_client) -> None:
     """Test that 'now' shows condition documentation when standalone, but namespace when used with fields."""
     # Test standalone 'now' (should show condition documentation)

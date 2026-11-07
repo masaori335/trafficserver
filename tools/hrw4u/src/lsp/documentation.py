@@ -1012,6 +1012,32 @@ LSP_FUNCTION_DOCUMENTATION: Final[dict[str, FunctionDoc]] = {
                 "set-redirect(302, \"https://example.com/new-path\");",
                 "set-redirect(301, \"https://secure.example.com{inbound.url.path}\");"
             ]),
+    "inbound.resp.set-redirect":
+        FunctionDoc(
+            name="Set Redirect Function",
+            category="Statement Function",
+            description="Makes the client's response a redirect with the specified status code and target URL, in REMAP and SEND_RESPONSE.",
+            syntax="inbound.resp.set-redirect(status_code, target_url)",
+            maps_to="set-redirect-response",
+            usage_context="Used as a statement in code blocks to redirect clients",
+            parameters=[
+                ParameterDoc("status_code", "integer", "HTTP redirect status code (301, 302, 307, 308)"),
+                ParameterDoc("target_url", "string", "Target URL for the redirect")
+            ],
+            examples=["inbound.resp.set-redirect(302, \"https://example.com/new-path\");"]),
+    "outbound.resp.set-redirect":
+        FunctionDoc(
+            name="Set Redirect Function",
+            category="Statement Function",
+            description="Makes the origin's response a redirect with the specified status code and target URL, in READ_RESPONSE.",
+            syntax="outbound.resp.set-redirect(status_code, target_url)",
+            maps_to="set-redirect-response",
+            usage_context="Used as a statement in code blocks to redirect clients",
+            parameters=[
+                ParameterDoc("status_code", "integer", "HTTP redirect status code (301, 302, 307, 308)"),
+                ParameterDoc("target_url", "string", "Target URL for the redirect")
+            ],
+            examples=["outbound.resp.set-redirect(302, \"https://example.com/new-path\");"]),
     "set-body-from":
         FunctionDoc(
             name="Set Body From URL Function",

@@ -83,6 +83,11 @@ class TestStatements:
     def test_keep_query_gets_the_invert_flag(self):
         assert _emit('REMAP {\n    keep_query("a");\n}')[1] == '    rm-destination QUERY "a" [I]'
 
+    def test_scoped_set_redirect_names_the_response_of_its_hook(self):
+        assert _emit('REMAP {\n    inbound.resp.set-redirect(302, "x");\n}')[1] == '    set-redirect 302 "x"'
+        assert _emit('READ_RESPONSE {\n    outbound.resp.set-redirect(302, "x");\n}')[1] == '    set-redirect 302 "x"'
+        assert _emit('SEND_RESPONSE {\n    inbound.resp.set-redirect(302, "x");\n}')[1] == '    set-redirect 302 "x"'
+
     def test_scoped_query_key_lists_name_the_url_of_their_hook(self):
         assert _emit('REMAP {\n    inbound.url.remove_query("a");\n}')[1] == '    rm-destination QUERY "a"'
         assert _emit('REMAP {\n    inbound.url.keep_query("a");\n}')[1] == '    rm-destination QUERY "a" [I]'

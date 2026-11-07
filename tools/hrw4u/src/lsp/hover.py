@@ -144,6 +144,10 @@ class DottedExpressionHoverProvider:
         """Parse dotted expressions and provide appropriate hover info."""
         cursor_pos = character_pos - expr_start
 
+        # A scoped statement function, such as inbound.resp.set-redirect, is hovered as a function, not a header.
+        if full_expression in STATEMENT_FUNCTION_MAP:
+            return None
+
         # Try table-driven pattern matching first
         if match := LSPPatternMatcher.match_any_pattern(full_expression):
             return DottedExpressionHoverProvider._handle_pattern_match(match, full_expression, cursor_pos, expr_start)

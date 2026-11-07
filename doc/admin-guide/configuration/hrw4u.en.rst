@@ -1056,9 +1056,14 @@ Query string when the Origin server times out or the connection is refused::
 
    READ_RESPONSE {
        if outbound.status in [502, 504] {
-           set-redirect(302, "http://different_origin.example.com/{inbound.url.path}?{inbound.url.query}");
+           outbound.resp.set-redirect(302, "http://different_origin.example.com/{inbound.url.path}?{inbound.url.query}");
        }
    }
+
+``outbound.resp.set-redirect()`` names the origin's response, at
+``READ_RESPONSE``, and ``inbound.resp.set-redirect()`` the client's, at
+``REMAP`` and ``SEND_RESPONSE``. The unscoped ``set-redirect()`` still works on
+the response the hook has.
 
 Flag Unrecognized ASNs
 ----------------------
