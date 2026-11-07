@@ -47,6 +47,9 @@ install(FILES include/hrw4u/extension.h include/hrw4u/extension.hpp DESTINATION 
 # The procedure libraries a script reaches with `use` and `tools/hrw4u --procedures-path`.
 install(DIRECTORY procedures/ DESTINATION ${CMAKE_INSTALL_DATADIR}/hrw4u/procedures)
 
+# For tools/hrw4u --sandbox, so a script that needs a builtin prism lacks fails to compile, not to load.
+install(FILES prism-vm-support.sandbox.yaml DESTINATION ${CMAKE_INSTALL_DATADIR}/hrw4u)
+
 add_executable(hrw4u-extern tools/hrw4u-extern.cc)
 target_link_libraries(hrw4u-extern PRIVATE prism_manifest)
 install(TARGETS hrw4u-extern DESTINATION ${CMAKE_INSTALL_BINDIR})
