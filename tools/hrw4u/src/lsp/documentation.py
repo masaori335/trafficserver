@@ -1069,7 +1069,47 @@ LSP_FUNCTION_DOCUMENTATION: Final[dict[str, FunctionDoc]] = {
             maps_to="remove-query-parameters",
             usage_context="Used as a statement in code blocks for URL parameter management",
             parameters=[ParameterDoc("parameter_list", "string", "Comma-separated list of query parameters to remove")],
-            examples=["remove_query(\"debug,trace\");", "remove_query(\"utm_source,utm_medium\");"])
+            examples=["remove_query(\"debug,trace\");", "remove_query(\"utm_source,utm_medium\");"]),
+    "inbound.url.remove_query":
+        FunctionDoc(
+            name="Remove Query Parameters Function",
+            category="Statement Function",
+            description="Removes the specified query parameters from the client's request URL, in READ_REQUEST, PRE_REMAP and REMAP.",
+            syntax="inbound.url.remove_query(parameter_list)",
+            maps_to="remove-query-parameters",
+            usage_context="Used as a statement in code blocks for URL parameter management",
+            parameters=[ParameterDoc("parameter_list", "string", "Comma-separated list of query parameters to remove")],
+            examples=["inbound.url.remove_query(\"debug,trace\");"]),
+    "inbound.url.keep_query":
+        FunctionDoc(
+            name="Keep Query Parameters Function",
+            category="Statement Function",
+            description="Preserves only the specified query parameters in the client's request URL, in READ_REQUEST, PRE_REMAP and REMAP.",
+            syntax="inbound.url.keep_query(parameter_list)",
+            maps_to="filter-query-parameters",
+            usage_context="Used as a statement in code blocks for URL parameter management",
+            parameters=[ParameterDoc("parameter_list", "string", "Comma-separated list of query parameters to keep")],
+            examples=["inbound.url.keep_query(\"debug,trace\");"]),
+    "outbound.url.remove_query":
+        FunctionDoc(
+            name="Remove Query Parameters Function",
+            category="Statement Function",
+            description="Removes the specified query parameters from the URL of the request to the origin, in SEND_REQUEST.",
+            syntax="outbound.url.remove_query(parameter_list)",
+            maps_to="remove-query-parameters",
+            usage_context="Used as a statement in code blocks for URL parameter management",
+            parameters=[ParameterDoc("parameter_list", "string", "Comma-separated list of query parameters to remove")],
+            examples=["outbound.url.remove_query(\"debug,trace\");"]),
+    "outbound.url.keep_query":
+        FunctionDoc(
+            name="Keep Query Parameters Function",
+            category="Statement Function",
+            description="Preserves only the specified query parameters in the URL of the request to the origin, in SEND_REQUEST.",
+            syntax="outbound.url.keep_query(parameter_list)",
+            maps_to="filter-query-parameters",
+            usage_context="Used as a statement in code blocks for URL parameter management",
+            parameters=[ParameterDoc("parameter_list", "string", "Comma-separated list of query parameters to keep")],
+            examples=["outbound.url.keep_query(\"debug,trace\");"])
 }
 
 LSP_STRING_LITERAL_INFO: Final[dict[str, str]] = {

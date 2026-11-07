@@ -353,8 +353,8 @@ rm-client-header X-Foo        inbound.req.X-Foo = ""            Remove a client 
 rm-cookie foo                 {in,out}bound.cookie.foo = ""     Remove the cookie named foo
 rm-destination <C>            inbound.url.<C> = ""              Remove an URL component, ``C`` is path, query etc.
 rm-header X-Foo               {in,out}bound.req.X-Foo = ""      Context sensitive header removal
-rm-destination QUERY ...      remove_query("foo,bar")           Remove specified query keys
-rm-destination QUERY ... [I]  keep_query("foo,bar")             Keep only specified query keys
+rm-destination QUERY ...      inbound.url.remove_query("a,b")   Remove specified query keys
+rm-destination QUERY ... [I]  inbound.url.keep_query("a,b")     Keep only specified query keys
 run-plugin foo.so "args"      run-plugin("foo.so", "arg1", ...) Run an external remap plugin
 set-body "foo"                inbound.resp.body = "foo"         Set the response body
 set-body-from "\https://..."  set-body-from("\https://...")     Set the response body from a URL
@@ -767,7 +767,9 @@ Functions
 The ``functions`` list accepts any of the function names used in HRW4U source,
 both statement functions and the functions that produce a value in an
 expression, including a call written inside a string interpolation such as
-``"{txn-count()}"``. The complete set of deniable functions is:
+``"{txn-count()}"``. A scoped spelling such as ``inbound.url.keep_query`` is
+checked as the function it spells, ``keep_query``. The complete set of
+deniable functions is:
 
 ====================== =============================================
 Function               Description
@@ -1155,14 +1157,19 @@ The following ruleset removes any query parameters set by the client.::
 Remove only a few select query parameters::
 
    REMAP {
-       remove_query("foo,bar");
+       inbound.url.remove_query("foo,bar");
    }
 
 Keep only a few select query parameters -- removing the rest::
 
    REMAP {
-       keep_query("foo,bar");
+       inbound.url.keep_query("foo,bar");
    }
+
+``inbound.url.`` names the client's request URL, before ``SEND_REQUEST``, and
+``outbound.url.`` the URL of the request to the origin, at ``SEND_REQUEST``.
+The unscoped ``remove_query()`` and ``keep_query()`` still work on the URL of
+the hook's request.
 
 Mimic X-Debug Plugin's X-Cache Header
 -------------------------------------

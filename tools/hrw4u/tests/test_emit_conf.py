@@ -83,6 +83,12 @@ class TestStatements:
     def test_keep_query_gets_the_invert_flag(self):
         assert _emit('REMAP {\n    keep_query("a");\n}')[1] == '    rm-destination QUERY "a" [I]'
 
+    def test_scoped_query_key_lists_name_the_url_of_their_hook(self):
+        assert _emit('REMAP {\n    inbound.url.remove_query("a");\n}')[1] == '    rm-destination QUERY "a"'
+        assert _emit('REMAP {\n    inbound.url.keep_query("a");\n}')[1] == '    rm-destination QUERY "a" [I]'
+        assert _emit('SEND_REQUEST {\n    outbound.url.remove_query("a");\n}')[1] == '    rm-destination QUERY "a"'
+        assert _emit('SEND_REQUEST {\n    outbound.url.keep_query("a");\n}')[1] == '    rm-destination QUERY "a" [I]'
+
     def test_interpolated_string(self):
         assert _emit('REMAP {\n    inbound.req.X-M = "m={inbound.method}";\n}')[1] == '    set-header X-M "m=%{METHOD}"'
 

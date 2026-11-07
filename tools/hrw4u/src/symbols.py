@@ -221,9 +221,16 @@ class SymbolResolver(SymbolResolverBase):
                 error.add_symbol_suggestion(suggestions)
             raise error
 
+    def _check_statement_function_policy(self, func_name: str) -> None:
+        self._collect_warning(self._sandbox.check_function(func_name))
+        # A scoped spelling, such as inbound.url.keep_query, is the function its last part names, which a policy lists.
+        base = func_name.rsplit(".", 1)[-1]
+        if base != func_name and self._lookup_statement_function_cached(func_name):
+            self._collect_warning(self._sandbox.check_function(base))
+
     def resolve_statement_func(self, func_name: str, args: list[str], section: SectionType | None = None) -> str:
         with self.debug_context("resolve_statement_func", func_name, args, section), self._warnings_on_success():
-            self._collect_warning(self._sandbox.check_function(func_name))
+            self._check_statement_function_policy(func_name)
 
             if params := self._lookup_statement_function_cached(func_name):
                 allowed_sections = params.sections if params else None
@@ -235,7 +242,7 @@ class SymbolResolver(SymbolResolverBase):
 
                 result = command if not args else f"{command} {' '.join(args)}"
                 # TODO: Move this special case to states.py module
-                if func_name == "keep_query":
+                if func_name.endswith("keep_query"):
                     result += " [I]"
                 return result
 
@@ -358,7 +365,7 @@ class SymbolResolver(SymbolResolverBase):
                                   args: list[str],
                                   section: SectionType | None = None) -> tuple[str, types.MapParams]:
         with self.debug_context("lookup_statement_function", func_name, args, section), self._warnings_on_success():
-            self._collect_warning(self._sandbox.check_function(func_name))
+            self._check_statement_function_policy(func_name)
 
             if params := self._lookup_statement_function_cached(func_name):
                 self.validate_section_access(func_name, section, params.sections)

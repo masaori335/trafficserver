@@ -162,7 +162,7 @@ class ConfEmitter:
         line = stmt.entry.target
         if args:
             line = f"{line} {' '.join(args)}"
-        if stmt.key == MagicStrings.KEEP_QUERY:
+        if stmt.key.endswith(MagicStrings.KEEP_QUERY):
             return f"{line} [I]"
         return line
 
