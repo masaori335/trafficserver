@@ -116,8 +116,14 @@ if(BUILD_TESTING)
     # As src/cripts/unit_tests: the cases are a module that resolves the TS API against an executable carrying the core.
     add_library(
       test_prism_cripts_bridge_cases MODULE
-      unit_tests/test_interp.cc unit_tests/test_bind_interp.cc unit_tests/test_cripts_bridge.cc
-      unit_tests/test_addresses.cc src/interp.cc src/cripts_bridge.cc
+      unit_tests/test_interp.cc
+      unit_tests/test_bind_interp.cc
+      unit_tests/test_cripts_bridge.cc
+      unit_tests/test_cripts_bindings.cc
+      unit_tests/test_addresses.cc
+      src/interp.cc
+      src/cripts_bridge.cc
+      src/cripts_bindings.cc
     )
     target_include_directories(test_prism_cripts_bridge_cases PRIVATE ${CMAKE_SOURCE_DIR}/src/cripts/unit_tests)
     # Through prism_ir, the module has its own tsutil globals, such as the DbgCtl registry, as prism.so has.

@@ -27,11 +27,16 @@
 #include "tscore/BaseLogFile.h"
 #include "tscore/Diags.h"
 #include "tscore/ink_queue.h"
+#include "tscore/Layout.h"
 
 #include <catch2/catch_session.hpp>
 
 #include <dlfcn.h>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <string>
+#include <unistd.h>
 
 extern int cmd_disable_pfreelist;
 
@@ -45,13 +50,30 @@ main(int argc, char *argv[])
   Thread *main_thread = new EThread();
   main_thread->set_specific();
   DiagsPtr::set(new Diags("test_prism_cripts_bridge", "" /* tags */, "" /* actions */, new BaseLogFile("stderr")));
+
+  // An empty prefix of its own, for the config directory File::Line::Read resolves a relative path against. The cases
+  // write there, so an exported config directory must not take its place.
+  unsetenv("PROXY_CONFIG_CONFIG_DIR");
+  std::error_code ec;
+  std::string     prefix = (std::filesystem::temp_directory_path(ec) / "test_prism_cripts_bridge.XXXXXX").string();
+
+  if (mkdtemp(prefix.data()) == nullptr) {
+    std::perror("mkdtemp");
+    return 1;
+  }
+  Layout::create(prefix);
+  // File::Path::Rebase() throws without a config directory, as traffic_server never runs.
+  std::filesystem::create_directories(Layout::get()->sysconfdir, ec);
   http_init();
   api_init();
 
+  int result = 1;
+
   if (dlopen(PRISM_TEST_CASES_PATH, RTLD_NOW | RTLD_GLOBAL) == nullptr) {
     std::fprintf(stderr, "dlopen(%s): %s\n", PRISM_TEST_CASES_PATH, dlerror());
-    return 1;
+  } else {
+    result = Catch::Session().run(argc, argv);
   }
-
-  return Catch::Session().run(argc, argv);
+  std::filesystem::remove_all(prefix, ec);
+  return result;
 }
