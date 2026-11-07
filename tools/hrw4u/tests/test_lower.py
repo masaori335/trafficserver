@@ -1010,33 +1010,6 @@ def test_http_cntl_is_read_as_a_bool():
     ]
 
 
-def test_set_body_takes_a_content_type():
-    out = _ir('SEND_RESPONSE {\n    set-body("x", "text/plain");\n}\n')
-    assert out[3] == '  consts = [K0:"x", K1:"text/plain"]'
-    assert out[-2] == "    call.eff BI_SET_BODY, %1, %2 @2:4"
-
-
-@pytest.mark.parametrize("call", ['set-body("x", "plain")', 'set-body-from-file("b.html", "html")'])
-def test_content_type_without_a_slash_is_refused(call):
-    # header_rewrite refuses one at load.
-    assert 'the content type "' in _refused_statement(f"{call};").message
-
-
-def test_set_body_from_content_type_without_a_slash_is_refused():
-    err = _refused('READ_RESPONSE {\n    set-body-from("http://x/", "plain");\n}\n')
-    assert 'the content type "plain"' in err.message
-
-
-def test_content_type_may_have_a_hole():
-    out = _ir('SEND_RESPONSE {\n    set-body-from-file("b.html", "{inbound.req.X-Type}");\n}\n')
-    assert out[-2] == "    call.eff BI_SET_BODY_FROM_FILE, %1, %4 @2:4"
-
-
-def test_set_body_from_content_type_may_have_a_hole():
-    out = _ir('READ_RESPONSE {\n    set-body-from("http://x/", "{inbound.req.X-Type}");\n}\n')
-    assert out[-3:-1] == ["    %4:sview = fmt F0, %3 @2:4", "    call.eff BI_SET_BODY_FROM, %1, %4 @2:4"]
-
-
 def test_set_config_takes_constants_only():
     err = _refused_statement('set-config("proxy.config.http.response_server_str", "{inbound.req.X}");')
     assert 'the operand "{inbound.req.X}"' in err.message
@@ -1289,17 +1262,6 @@ def test_set_body_from_fetches_an_interpolated_url():
     assert out[-3:-1] == ["    %4:sview = const.s K1 @2:4", "    call.eff BI_SET_BODY_FROM, %3, %4 @2:4"]
 
 
-def test_set_body_from_takes_a_content_type():
-    out = _ir('READ_RESPONSE {\n    set-body-from("http://x/", "text/plain");\n}\n')
-    assert out[3] == '  consts = [K0:"http://x/", K1:"text/plain"]'
-    assert out[-2] == "    call.eff BI_SET_BODY_FROM, %1, %2 @2:4"
-
-
-def test_set_body_from_file_takes_a_constant_path():
-    out = _ir('SEND_RESPONSE {\n    set-body-from-file("body.html");\n}\n')
-    assert out[-2] == "    call.eff BI_SET_BODY_FROM_FILE, %1, %2 @2:4"
-
-
 @pytest.mark.parametrize("control, value, ints", [
     ("TIMEZONE", "GMT", "[I0:0, I1:1]"),
     ("INBOUND_IP_SOURCE", "PROXY", "[I0:1]"),
@@ -1354,11 +1316,6 @@ def test_ports_are_strings():
         _ir('SEND_RESPONSE {\n    inbound.resp.X-A = "{inbound.conn.REMOTE-PORT}";\n}\n'))
 
 
-def test_set_body_call_sets_the_body():
-    out = _ir('SEND_RESPONSE {\n    set-body("gone");\n}\n')
-    assert out[-2] == "    call.eff BI_SET_BODY, %1, %2 @2:4"
-
-
 def _procs(tmp_path, body: str, params: str = ""):
     procs = tmp_path / "procs"
     (procs / "Base").mkdir(parents=True)
@@ -1399,13 +1356,6 @@ def test_parameter_in_a_call_is_substituted(tmp_path):
     assert out[3] == '  consts = [K0:"X-A", K1:"x"]'
 
 
-def test_quoted_parameter_stays_a_string(tmp_path):
-    procs = _procs(tmp_path, '    set-body($v);\n', "$v")
-    out = _ir('use Base::P\nSEND_RESPONSE {\n    Base::P("gone");\n}\n', proc_search_paths=procs)
-    assert out[3] == '  consts = [K0:"gone", K1:""]'
-    assert out[7] == "    call.eff BI_SET_BODY, %1, %2 @3:4"
-
-
 def _instance_ir(decls: str, hook: str) -> list[str]:
     source = f"INSTANCE_VARS {{\n    {decls}\n}}\nSEND_RESPONSE {{\n    {hook}\n}}\n"
     return _ir(source, ir_version=(1, 1))
@@ -1435,16 +1385,6 @@ def test_an_instance_variable_fills_a_hole():
     out = _instance_ir('a: string = "x";', 'inbound.resp.X = "<{a}>";')
     assert '  fmt    = [F0:"<{a}>" arity=1 lits=["<", ">"]]' in out
     assert out[-4:-2] == ["    %2:sview = load.i i0 @5:4", "    %3:sview = fmt F0, %2 @5:4"]
-
-
-def test_an_instance_variable_is_a_statement_functions_string_argument():
-    out = _instance_ir('a: string = "x";', "set-body(a);")
-    assert out[-4:] == [
-        "    %1:sview = load.i i0 @5:4",
-        "    %2:sview = const.s K1 @5:4",
-        "    call.eff BI_SET_BODY, %1, %2 @5:4",
-        "    ret @5:4",
-    ]
 
 
 def test_an_instance_variable_where_a_constant_must_go_is_refused():

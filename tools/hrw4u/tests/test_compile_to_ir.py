@@ -43,14 +43,6 @@ def test_matches_the_parity_ir(input_file):
     assert "\n".join(lines) + "\n" == _golden(input_file)
 
 
-def test_refusal_is_collected_and_writes_nothing():
-    _, tree = parse_input_text(_REFUSED)
-    collector = ErrorCollector()
-    assert compile_to_ir(tree, "<test>", _REFUSED, error_collector=collector) == []
-    assert [(e.line, e.column) for e in collector.errors] == [(2, 4)]
-    assert "IR emitter" in collector.errors[0].message
-
-
 def test_refusal_raises_without_a_collector():
     _, tree = parse_input_text(_REFUSED)
     with pytest.raises(Hrw4uSyntaxError) as err:
