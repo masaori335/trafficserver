@@ -62,6 +62,15 @@ if(ENABLE_CRIPTS)
   add_atsplugin(prism src/prism.cc src/interp.cc src/cripts_bindings.cc src/cripts_bridge.cc src/cripts_bridge_addr.cc)
   target_link_libraries(prism PRIVATE prism_ext_loader prism_config ts::cripts)
   verify_remap_plugin(prism)
+
+  # Installed so tools/hrw4u --extern can check calls against prism.so without having the .so.
+  add_custom_command(
+    OUTPUT prism.ext.hrw4u
+    COMMAND hrw4u-extern $<TARGET_FILE:prism> > prism.ext.hrw4u
+    DEPENDS prism hrw4u-extern
+  )
+  add_custom_target(prism_extern ALL DEPENDS prism.ext.hrw4u)
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/prism.ext.hrw4u DESTINATION ${CMAKE_INSTALL_DATADIR}/hrw4u/extern)
 else()
   message(STATUS "prism: skipping prism.so - ENABLE_CRIPTS is OFF")
 endif()
