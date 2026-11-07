@@ -23,6 +23,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+import utils
 
 
 @pytest.fixture
@@ -488,3 +489,149 @@ def test_cli_bulk_stop_on_error_keeps_the_pairs_before_it(tmp_path: Path) -> Non
     assert result.returncode != 0
     assert "X-Ok" in good_out.read_text()
     assert bad_out.read_text() == previous
+
+
+_IR_INPUTS = sorted(Path("tests/data/ir").glob("*.input.txt"))
+_IR_REFUSED = 'READ_RESPONSE {\n    set-body-from("http://x/", "plain");\n}\n'
+
+
+def _ir_golden(input_file: Path) -> str:
+    return input_file.with_name(input_file.name.replace(".input.txt", ".ir.txt")).read_text()
+
+
+@pytest.mark.parametrize("input_file", _IR_INPUTS, ids=lambda p: p.name.split(".")[0])
+def test_output_ir_matches_the_parity_ir(input_file: Path) -> None:
+    externs = [arg for path in utils.extern_files_for(input_file) for arg in ("--extern", str(path))]
+    result = run_hrw4u(["--output", "ir", "--ir-version", "1.1", *externs, str(input_file)])
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == _ir_golden(input_file)
+
+
+def test_output_ir_from_stdin() -> None:
+    input_file = Path("tests/data/ir/set_foo.input.txt")
+    result = run_hrw4u(["--output", "ir"], stdin=input_file.read_text())
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == _ir_golden(input_file)
+
+
+def test_output_ir_under_a_higher_target_writes_the_version_the_program_needs() -> None:
+    input_file = Path("tests/data/ir/set_foo.input.txt")
+    result = run_hrw4u(["--output", "ir", "--ir-version", "1.1", str(input_file)])
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("hrw4u-ir 1.0\n")
+    assert result.stdout == _ir_golden(input_file)
+
+
+def test_output_ir_refuses_an_unknown_target() -> None:
+    result = run_hrw4u(["--output", "ir", "--ir-version", "1.2", "tests/data/ir/set_foo.input.txt"])
+    assert result.returncode == 2
+    assert "invalid choice: '1.2'" in result.stderr
+
+
+def test_output_ir_pair_writes_the_file(tmp_path: Path) -> None:
+    input_file = Path("tests/data/ir/set_foo.input.txt")
+    out = tmp_path / "out.ir"
+    result = run_hrw4u(["--output", "ir", f"{input_file}:{out}"])
+    assert result.returncode == 0, result.stderr
+    assert out.read_text() == _ir_golden(input_file)
+
+
+def test_output_ir_of_run_plugin_writes_the_ir_and_warns(tmp_path: Path) -> None:
+    input_file = tmp_path / "run_plugin.hrw4u"
+    input_file.write_text('REMAP {\n    run-plugin("rate_limit.so");\n}\n')
+    result = run_hrw4u(["--output", "ir", str(input_file)])
+    assert result.returncode == 0, result.stderr
+    assert "call.eff BI_RUN_PLUGIN" in result.stdout
+    assert f"{input_file}:2:4: warning:" in result.stderr
+    assert "Prism VM extension" in result.stderr
+
+
+def test_conf_output_of_run_plugin_does_not_warn(tmp_path: Path) -> None:
+    input_file = tmp_path / "run_plugin.hrw4u"
+    input_file.write_text('REMAP {\n    run-plugin("rate_limit.so");\n}\n')
+    result = run_hrw4u([str(input_file)])
+    assert result.returncode == 0, result.stderr
+    assert "warning:" not in result.stderr
+
+
+def test_output_ir_refuses_several_bare_inputs() -> None:
+    result = run_hrw4u(["--output", "ir", str(_IR_INPUTS[0]), str(_IR_INPUTS[1])])
+    assert result.returncode != 0
+    assert result.stdout == ""
+    assert "--output ir writes one program" in result.stderr
+
+
+def test_output_ir_refusal_reports_the_position(tmp_path: Path) -> None:
+    input_file = tmp_path / "refused.hrw4u"
+    input_file.write_text(_IR_REFUSED)
+    result = run_hrw4u(["--output", "ir", str(input_file)])
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert f"{input_file}:2:4: error:" in result.stderr
+
+
+def test_output_ir_stop_on_error_keeps_the_position(tmp_path: Path) -> None:
+    input_file = tmp_path / "refused.hrw4u"
+    input_file.write_text(_IR_REFUSED)
+    result = run_hrw4u(["--output", "ir", "--stop-on-error", str(input_file)])
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert f"{input_file}:2:4: error:" in result.stderr
+    assert "Visitor error" not in result.stderr
+
+
+_CRIPTS_MANIFEST = "tests/data/extern/cripts.ext.hrw4u"
+
+
+def test_extern_manifest_leaves_a_script_without_calls_alone(sample_hrw4u_files: tuple[Path, Path, Path]) -> None:
+    file1, _, _ = sample_hrw4u_files
+    result = run_hrw4u(["--extern", _CRIPTS_MANIFEST, str(file1)])
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == run_hrw4u([str(file1)]).stdout
+
+
+def test_extern_manifest_error_stops_before_compiling(tmp_path: Path, sample_hrw4u_files: tuple[Path, Path, Path]) -> None:
+    file1, _, _ = sample_hrw4u_files
+    manifest = tmp_path / "bad.ext.hrw4u"
+    manifest.write_text("extern T::F() -> float pure;\n")
+    result = run_hrw4u(["--extern", _CRIPTS_MANIFEST, "--extern", str(manifest), str(file1)])
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert f"{manifest}:1:0: error: unknown type 'float' (string, int64, bool)" in result.stderr
+
+
+def test_missing_extern_manifest_is_reported(tmp_path: Path, sample_hrw4u_files: tuple[Path, Path, Path]) -> None:
+    file1, _, _ = sample_hrw4u_files
+    missing = tmp_path / "missing.ext.hrw4u"
+    result = run_hrw4u(["--extern", str(missing), str(file1)])
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert f"Error reading '{missing}'" in result.stderr
+
+
+def test_output_ir_of_a_call_at_the_default_target_errors() -> None:
+    result = run_hrw4u(["--output", "ir", "--extern", _CRIPTS_MANIFEST, "tests/data/ir/extern_call.input.txt"])
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "1:16: error: 'a call to a library function' needs IR 1.1; the target is 1.0 (--ir-version)" in result.stderr
+
+
+def test_conf_output_of_a_call_errors() -> None:
+    result = run_hrw4u(["--extern", _CRIPTS_MANIFEST, "tests/data/ir/extern_call.input.txt"])
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "1:16: error: 'a call to a library function' has no .conf spelling; compile with --output ir" in result.stderr
+
+
+def test_instance_vars_at_the_default_target_errors() -> None:
+    result = run_hrw4u(["--output", "ir", "--extern", _CRIPTS_MANIFEST, "tests/data/ir/instance_vars.input.txt"])
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "1:0: error: 'INSTANCE_VARS' needs IR 1.1; the target is 1.0 (--ir-version)" in result.stderr
+
+
+def test_conf_output_of_instance_vars_errors() -> None:
+    result = run_hrw4u(["--extern", _CRIPTS_MANIFEST, "tests/data/ir/instance_vars.input.txt"])
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "1:0: error: 'INSTANCE_VARS' has no .conf spelling; compile with --output ir" in result.stderr

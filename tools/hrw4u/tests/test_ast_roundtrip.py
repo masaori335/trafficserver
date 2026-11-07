@@ -61,7 +61,8 @@ def _case_id(input_file: Path) -> str:
 
 
 def _cases() -> list[pytest.param]:
-    files = (f for f in sorted(CORPUS.glob("*/*.input.txt")) if ".fail." not in f.name)
+    # An input calling a manifest's function has no .conf to compare.
+    files = (f for f in sorted(CORPUS.glob("*/*.input.txt")) if ".fail." not in f.name and not utils.extern_files_for(f))
     return [pytest.param(f, id=_case_id(f)) for f in files]
 
 
@@ -99,8 +100,10 @@ def test_the_corpus_reaches_every_grammar_rule() -> None:
                 if isinstance(part, Hole) and part.holds_call:
                     walk(make_parser(unescape(part.text)[0], "<hole>").interpolation())
 
-    for param in _cases():
-        _, tree = utils.parse_input_text(param.values[0].read_text())
+    # The inputs with no .conf too, and the manifests: an extern declaration is valid nowhere else.
+    inputs = [f for f in sorted(CORPUS.glob("*/*.input.txt")) if ".fail." not in f.name]
+    for source in inputs + sorted(CORPUS.glob("extern/*.ext.hrw4u")):
+        _, tree = utils.parse_input_text(source.read_text())
         walk(tree)
 
     missing = set(hrw4uParser.ruleNames) - reached

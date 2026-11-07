@@ -76,14 +76,8 @@ class ProcRegistry:
         self._sigs[decl.name] = ProcEntry(name=decl.name, params=decl.params, body=decl.body, source_file=span.file)
 
     def load(self, spec: str, span: ast.Span, search_paths: list[Path], load_stack: list[str] | None = None) -> None:
-        from antlr4 import CommonTokenStream, InputStream
-        from antlr4.error.ErrorStrategy import BailErrorStrategy
-
         import hrw4u.ast_nodes as ast
-        from hrw4u.ast_visitor import ASTVisitor
-        from hrw4u.errors import ThrowingErrorListener
-        from hrw4u.hrw4uLexer import hrw4uLexer
-        from hrw4u.hrw4uParser import hrw4uParser
+        from hrw4u.ast_visitor import parse_file
 
         if not search_paths:
             raise self.source_map.error_at(span, "use directive requires --procedures-path to be set")
@@ -101,16 +95,7 @@ class ProcRegistry:
 
         text = path.read_text(encoding='utf-8')
         self.source_map.add(str(path), text)
-        # Not create_parse_tree, which exits the process: a syntax error must raise into the caller's trap.
-        listener = ThrowingErrorListener(filename=str(path))
-        lexer = hrw4uLexer(InputStream(text))
-        lexer.removeErrorListeners()
-        lexer.addErrorListener(listener)
-        parser = hrw4uParser(CommonTokenStream(lexer))
-        parser.removeErrorListeners()
-        parser.addErrorListener(listener)
-        parser.errorHandler = BailErrorStrategy()
-        file_ast = ASTVisitor(filename=str(path)).visit(parser.program())
+        file_ast = parse_file(text, str(path))
 
         # 'use Apple::Common' requires every declaration in the file to start 'Apple::'.
         expected_ns = None

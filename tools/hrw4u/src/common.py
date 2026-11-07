@@ -29,10 +29,12 @@ from antlr4.error.ErrorStrategy import BailErrorStrategy, DefaultErrorStrategy
 from antlr4 import InputStream, CommonTokenStream
 
 from hrw4u.errors import Hrw4uSyntaxError, ThrowingErrorListener, ErrorCollector, CollectingErrorListener
+from hrw4u.features import parse_ir_version
 from hrw4u.formatters import FORMATTERS, ErrorFormatter
 from hrw4u.types import MagicStrings
 
 if TYPE_CHECKING:
+    from hrw4u.externs import ExternDecl
     from hrw4u.sandbox import SandboxConfig
 
 
@@ -262,6 +264,20 @@ def create_parse_tree(
             emit_fatal_message(error_format, f"{error_prefix} error: {e}", filename=filename)
 
 
+def _build_ast(tree: Any, filename: str, error_collector: ErrorCollector | None) -> Any:
+    """The AST, or None once its error is collected: a declaration opening with another word than `extern`, which
+    the grammar leaves to the AST to refuse."""
+    from hrw4u.ast_visitor import ASTVisitor
+
+    try:
+        return ASTVisitor(filename=filename).visit(tree)
+    except Hrw4uSyntaxError as e:
+        if error_collector is None:
+            raise
+        error_collector.add_error(e)
+        return None
+
+
 def compile_to_conf(
         tree: Any,
         filename: str,
@@ -271,7 +287,8 @@ def compile_to_conf(
         error_collector: ErrorCollector | None = None,
         preserve_comments: bool = True,
         proc_search_paths: list[Path] | None = None,
-        sandbox: SandboxConfig | None = None) -> list[str]:
+        sandbox: SandboxConfig | None = None,
+        externs: dict[str, ExternDecl] | None = None) -> list[str]:
     """Run the hrw4u front end: CST -> AST -> resolved tree -> header_rewrite lines.
 
     Not reachable from the CLI yet -- generate_output still routes through the CST
@@ -281,24 +298,75 @@ def compile_to_conf(
     includes a syntax error already in `error_collector`, which stops the run before the
     front end, because the AST cannot be built from an error-recovered tree.
     """
-    from hrw4u.ast_visitor import ASTVisitor
     from hrw4u.emit_conf import ConfEmitter
     from hrw4u.sema import Sema
 
     if error_collector is not None and error_collector.has_errors():
         return []
-    ast = ASTVisitor(filename=filename).visit(tree)
+    ast = _build_ast(tree, filename, error_collector)
+    if ast is None:
+        return []
     sema = Sema(
         debug=debug,
         error_collector=error_collector,
         preserve_comments=preserve_comments,
         proc_search_paths=proc_search_paths,
-        sandbox=sandbox)
+        sandbox=sandbox,
+        externs=externs)
     sema.source_map.add(filename, source_text)
     program = sema.analyze(ast)
     if error_collector is not None and error_collector.has_errors():
         return []
     return ConfEmitter().emit(program)
+
+
+def compile_to_ir(
+    tree: Any,
+    filename: str,
+    source_text: str,
+    *,
+    debug: bool = False,
+    error_collector: ErrorCollector | None = None,
+    proc_search_paths: list[Path] | None = None,
+    sandbox: SandboxConfig | None = None,
+    externs: dict[str, ExternDecl] | None = None,
+    ir_version: tuple[int, int] = (1, 0)) -> list[str]:
+    """Run the hrw4u front end to the Typed IR:
+
+    CST -> [ASTVisitor] -> AST -> [Sema] -> Resolved Tree -> [lower] -> IRProgram -> [write_ir] -> Typed IR (text)
+
+    The contract is compile_to_conf's: a run that reported an error returns no lines,
+    including a construct the IR emitter cannot lower yet. `ir_version` is the highest
+    version the output may need; it is written at the lowest one that has what the program uses.
+    """
+    from hrw4u.emit_ir import write_ir
+    from hrw4u.features import ir_version_for
+    from hrw4u.lower import lower
+    from hrw4u.sema import Sema
+
+    if error_collector is not None and error_collector.has_errors():
+        return []
+    ast = _build_ast(tree, filename, error_collector)
+    if ast is None:
+        return []
+    sema = Sema(
+        debug=debug,
+        error_collector=error_collector,
+        proc_search_paths=proc_search_paths,
+        sandbox=sandbox,
+        externs=externs,
+        ir_version=ir_version)
+    sema.source_map.add(filename, source_text)
+    program = sema.analyze(ast)
+    if error_collector is not None and error_collector.has_errors():
+        return []
+    try:
+        return write_ir(lower(program, sema.source_map, filename, error_collector), ir_version_for(sema.features))
+    except Hrw4uSyntaxError as e:
+        if error_collector is None:
+            raise
+        error_collector.add_error(e)
+        return []
 
 
 def generate_output(
@@ -309,7 +377,8 @@ def generate_output(
         args: Any,
         error_collector: ErrorCollector | None = None,
         extra_kwargs: dict[str, Any] | None = None,
-        out: TextIO | None = None) -> bool:
+        out: TextIO | None = None,
+        source_text: str = "") -> bool:
     """Write the compiled output to `out`, and return True when the input had errors.
 
     `out` is a parameter so the caller, which owns the destination, can still decide
@@ -336,6 +405,17 @@ def generate_output(
             try:
                 if getattr(args, 'output', None) == 'hrw4u':
                     result = visitor.flatten(tree)
+                elif getattr(args, 'output', None) == 'ir':
+                    result = compile_to_ir(
+                        tree,
+                        filename,
+                        source_text,
+                        debug=args.debug,
+                        error_collector=error_collector,
+                        proc_search_paths=kwargs.get("proc_search_paths"),
+                        sandbox=kwargs.get("sandbox"),
+                        externs=kwargs.get("externs"),
+                        ir_version=parse_ir_version(args.ir_version))
                 else:
                     result = visitor.visit(tree)
                 if result:
@@ -440,7 +520,8 @@ def run_main(
         tree, parser_obj, error_collector = create_parse_tree(
             content, filename, lexer_class, parser_class, error_prefix, not args.stop_on_error, args.max_errors, args.error_format)
         buffer = io.StringIO()
-        failed = generate_output(tree, parser_obj, visitor_class, filename, args, error_collector, extra_kwargs, out=buffer)
+        failed = generate_output(
+            tree, parser_obj, visitor_class, filename, args, error_collector, extra_kwargs, out=buffer, source_text=content)
         if not failed or (args.ast and buffer.getvalue()):
             sys.stdout.write(buffer.getvalue())
         if failed:
@@ -477,7 +558,7 @@ def run_main(
 
             buffer = io.StringIO()
             pair_failed = generate_output(
-                tree, parser_obj, visitor_class, filename, args, error_collector, extra_kwargs, out=buffer)
+                tree, parser_obj, visitor_class, filename, args, error_collector, extra_kwargs, out=buffer, source_text=content)
             failed |= pair_failed
 
             # Opened only now: 'w' truncates, and a failed compile must not empty a good file.
@@ -488,6 +569,8 @@ def run_main(
                 except Exception as e:
                     emit_fatal_message(args.error_format, f"Error writing to '{output_path}': {e}", filename=output_path)
     else:
+        if getattr(args, 'output', None) == 'ir' and len(args.files) > 1:
+            emit_fatal_message(args.error_format, "Error: --output ir writes one program; use input:output pairs for several files")
         chunks: list[str] = []
         for input_path in args.files:
             try:
@@ -510,7 +593,8 @@ def run_main(
 
             # These concatenate into one document, so a partial run is a config with a hole.
             buffer = io.StringIO()
-            failed |= generate_output(tree, parser_obj, visitor_class, filename, args, error_collector, extra_kwargs, out=buffer)
+            failed |= generate_output(
+                tree, parser_obj, visitor_class, filename, args, error_collector, extra_kwargs, out=buffer, source_text=content)
             # Empty chunks hold their place, or `# ---` stops marking file boundaries.
             chunks.append(buffer.getvalue())
 

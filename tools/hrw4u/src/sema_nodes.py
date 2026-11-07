@@ -19,12 +19,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
 from hrw4u.ast_nodes import Span
 from hrw4u.common import apply_percent_mods
 from hrw4u.states import SectionType
 from hrw4u.types import MapParams, Symbol
+
+if TYPE_CHECKING:
+    from hrw4u.externs import ExternDecl
 
 
 class CmpOp(StrEnum):
@@ -87,9 +90,19 @@ Ref = Union[BuiltinRef, VarRef]
 
 
 @dataclass(frozen=True, slots=True)
+class InstanceRef:
+    """A read of the string INSTANCE_VARS declares `index`-th, which a hook reads wherever a string goes."""
+    index: int
+    name: str
+
+    def as_value_text(self) -> str:
+        return self.name
+
+
+@dataclass(frozen=True, slots=True)
 class ModifiedRef:
     """An interpolated reference carrying value modifiers, e.g. `{inbound.url.path with NORM}`."""
-    ref: Ref
+    ref: Ref | InstanceRef | ExternCall
     mods: tuple[str, ...]
 
     def as_value_text(self) -> str:
@@ -104,8 +117,10 @@ class RawArg:
 
 @dataclass(frozen=True, slots=True)
 class StrTemplate:
-    """A string literal split into literal chunks and resolved references."""
-    parts: tuple[Union[str, BuiltinRef, VarRef, ModifiedRef], ...]
+    """A string literal split into literal chunks and resolved references. `source` is the text between the quotes
+    after procedure parameter substitution, holes unresolved and escapes kept, which the Typed IR keeps for reading."""
+    parts: tuple[Union[str, BuiltinRef, VarRef, InstanceRef, ModifiedRef, ExternCall], ...]
+    source: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,10 +138,21 @@ class IpRangeLit:
     text: str  # braces included, emitted verbatim as {...}
 
 
-RValue = Union[RawArg, StrTemplate, BuiltinRef, VarRef, RegexLit, SetLit, IpRangeLit]
+@dataclass(frozen=True, slots=True)
+class ExternCall:
+    """A call, for its value, to a function a manifest declares."""
+    decl: ExternDecl
+    args: tuple[RValue, ...]
+    span: Span
+
+    def as_value_text(self) -> str:
+        return f"{self.decl.name}({', '.join(value_text(a) for a in self.args)})"
 
 
-def _part_text(part: str | BuiltinRef | VarRef | ModifiedRef) -> str:
+RValue = Union[RawArg, StrTemplate, BuiltinRef, VarRef, InstanceRef, RegexLit, SetLit, IpRangeLit, ExternCall]
+
+
+def _part_text(part: str | BuiltinRef | VarRef | InstanceRef | ModifiedRef) -> str:
     if isinstance(part, str):
         return part
     return part.as_value_text()
@@ -306,5 +332,20 @@ class VarsBlock:
 
 
 @dataclass(frozen=True, slots=True)
+class InstanceVar:
+    """An INSTANCE_VARS declaration: the string it sets once, at load, from a literal or a call that reads no
+    transaction."""
+    index: int
+    value: StrTemplate | ExternCall
+    span: Span
+
+
+@dataclass(frozen=True, slots=True)
+class InstanceVarsBlock:
+    vars: tuple[InstanceVar, ...]
+    span: Span
+
+
+@dataclass(frozen=True, slots=True)
 class Program:
-    items: tuple[Union[ResolvedSection, VarsBlock, CommentStmt], ...]
+    items: tuple[Union[ResolvedSection, VarsBlock, InstanceVarsBlock, CommentStmt], ...]

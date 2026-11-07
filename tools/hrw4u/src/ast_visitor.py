@@ -18,13 +18,14 @@
 from __future__ import annotations
 
 from antlr4 import CommonTokenStream, InputStream
+from antlr4.error.ErrorStrategy import BailErrorStrategy
 
 from hrw4u.hrw4uLexer import hrw4uLexer
 from hrw4u.hrw4uParser import hrw4uParser
 from hrw4u.hrw4uVisitor import hrw4uVisitor
 from hrw4u.ast_nodes import *
 from hrw4u.common import SystemDefaults
-from hrw4u.errors import ThrowingErrorListener
+from hrw4u.errors import ThrowingErrorListener, hrw4u_error
 
 
 class ASTVisitor(hrw4uVisitor):
@@ -61,6 +62,8 @@ class ASTVisitor(hrw4uVisitor):
                 items.append(self._visit_use_directive(item.useDirective()))
             elif item.procedureDecl() is not None:
                 items.append(self._visit_procedure_decl(item.procedureDecl()))
+            elif item.externDecl() is not None:
+                items.append(self._visit_extern_decl(item.externDecl()))
             elif item.section() is not None:
                 items.append(self._visit_section(item.section()))
             elif item.commentLine() is not None:
@@ -80,6 +83,14 @@ class ASTVisitor(hrw4uVisitor):
         body = tuple(self._visit_body(ctx.block().blockItem()))
         return ProcedureDecl(name=name, params=params, body=body, span=self._span(ctx))
 
+    def _visit_extern_decl(self, ctx) -> ExternDecl:
+        check_extern_keyword(ctx, self.filename)
+        params = tuple(t.getText() for t in ctx.IDENT() if t.symbol not in (ctx.kw, ctx.ret, ctx.effect))
+        effect = None
+        if ctx.effect is not None:
+            effect = ctx.effect.text
+        return ExternDecl(name=ctx.name.text, params=params, result=ctx.ret.text, effect=effect, span=self._span(ctx))
+
     def _visit_proc_param(self, ctx) -> ProcParam:
         name = ctx.IDENT().getText()
         default = self._extract_value(ctx.value()) if ctx.value() else None
@@ -90,6 +101,8 @@ class ASTVisitor(hrw4uVisitor):
             return self._visit_var_section(ctx.varSection(), "txn")
         if ctx.sessionVarSection() is not None:
             return self._visit_var_section(ctx.sessionVarSection(), "session")
+        if ctx.instanceVarSection() is not None:
+            return self._visit_instance_var_section(ctx.instanceVarSection())
         name = ctx.name.text
         body = self._visit_body(ctx.sectionBody())
         return Section(type=name, body=tuple(body), span=self._span(ctx))
@@ -109,6 +122,24 @@ class ASTVisitor(hrw4uVisitor):
         return VarDecl(
             name=ctx.name.text, type_name=ctx.typeName.text, slot=int(ctx.slot.text) if ctx.slot else None, span=self._span(ctx))
 
+    def _visit_instance_var_section(self, ctx) -> VarSection:
+        items = []
+        for item in ctx.instanceVarItem():
+            if item.instanceVarDecl() is not None:
+                items.append(self._visit_instance_var_decl(item.instanceVarDecl()))
+            elif item.commentLine() is not None:
+                items.append(self._visit_comment(item.commentLine()))
+            else:
+                raise self._unhandled("instanceVarItem alternative", item)
+        return VarSection(scope="instance", items=tuple(items), span=self._span(ctx))
+
+    def _visit_instance_var_decl(self, ctx) -> InstanceVarDecl:
+        if ctx.functionCall():
+            value = self._visit_function_call(ctx.functionCall())
+        else:
+            value = LiteralStringValue(raw=ctx.STRING().getText()[1:-1])
+        return InstanceVarDecl(name=ctx.name.text, type_name=ctx.typeName.text, value=value, span=self._span(ctx))
+
     def _visit_body(self, items) -> list[BodyNode]:
         """Shared helper for sectionBody and blockItem lists."""
         result = []
@@ -126,22 +157,29 @@ class ASTVisitor(hrw4uVisitor):
     def _visit_statement(self, ctx) -> BodyNode:
         if ctx.BREAK():
             return Break(span=self._span(ctx))
+        if ctx.EQUAL():
+            return Assignment(name=ctx.lhs.text, operator="=", value=self._assigned(ctx), span=self._span(ctx))
+        if ctx.PLUSEQUAL():
+            return Assignment(name=ctx.lhs.text, operator="+=", value=self._assigned(ctx), span=self._span(ctx))
         if ctx.functionCall():
             return self._visit_function_call(ctx.functionCall())
-        if ctx.EQUAL():
-            value = self._extract_value(ctx.value())
-            return Assignment(name=ctx.lhs.text, operator="=", value=value, span=self._span(ctx))
-        if ctx.PLUSEQUAL():
-            value = self._extract_value(ctx.value())
-            return Assignment(name=ctx.lhs.text, operator="+=", value=value, span=self._span(ctx))
         raise self._unhandled("statement alternative", ctx)
+
+    def _assigned(self, ctx) -> ValueExpr | FunctionCall:
+        if ctx.functionCall():
+            return self._visit_function_call(ctx.functionCall())
+        return self._extract_value(ctx.value())
 
     def _visit_function_call(self, ctx) -> FunctionCall:
         name = ctx.funcName.text
-        args = ()
+        args = []
         if ctx.argumentList():
-            args = tuple(self._extract_value(v) for v in ctx.argumentList().value())
-        return FunctionCall(name=name, args=args, span=self._span(ctx))
+            for arg in ctx.argumentList().getChildren():
+                if isinstance(arg, hrw4uParser.FunctionCallContext):
+                    args.append(self._visit_function_call(arg))
+                elif isinstance(arg, hrw4uParser.ValueContext):
+                    args.append(self._extract_value(arg))
+        return FunctionCall(name=name, args=tuple(args), span=self._span(ctx))
 
     def _extract_value(self, ctx) -> ValueExpr:
         if ctx.number is not None:
@@ -277,6 +315,17 @@ class ASTVisitor(hrw4uVisitor):
         return ()
 
 
+def check_extern_keyword(ctx, filename: str) -> None:
+    """Refuse an externDecl whose first word is not `extern`, which the grammar leaves to an IDENT."""
+    if ctx.kw.text != "extern":
+        raise hrw4u_error(filename, ctx, ValueError(f"mismatched input '{ctx.kw.text}' expecting 'extern'"))
+
+
+def call_ast(ctx: hrw4uParser.FunctionCallContext, filename: str) -> FunctionCall:
+    """The AST of a call parsed on its own, as one in a string's hole is."""
+    return ASTVisitor(filename=filename)._visit_function_call(ctx)
+
+
 def make_parser(text: str, filename: str) -> hrw4uParser:
     """A parser that raises its first syntax error as a Hrw4uSyntaxError.
 
@@ -290,3 +339,10 @@ def make_parser(text: str, filename: str) -> hrw4uParser:
     parser.removeErrorListeners()
     parser.addErrorListener(listener)
     return parser
+
+
+def parse_file(text: str, filename: str) -> HRW4UAST:
+    """The AST of a file the compiler reads besides its input, raising the file's first syntax error."""
+    parser = make_parser(text, filename)
+    parser.errorHandler = BailErrorStrategy()
+    return ASTVisitor(filename=filename).visit(parser.program())

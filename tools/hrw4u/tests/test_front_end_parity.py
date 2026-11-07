@@ -62,6 +62,7 @@ import yaml
 
 from hrw4u.common import compile_to_conf
 from hrw4u.errors import ErrorCollector, Hrw4uSyntaxError
+from hrw4u.externs import load_manifests
 from hrw4u.sandbox import SandboxConfig
 from hrw4u.visitor import HRW4UVisitor
 
@@ -137,7 +138,8 @@ def _compile(front_end: str, tree, input_file: Path, text: str, *, collect: bool
         text,
         collect=collect,
         sandbox=_policy_for(input_file),
-        proc_search_paths=[input_file.parent / "procs"])
+        proc_search_paths=[input_file.parent / "procs"],
+        externs=load_manifests(utils.extern_files_for(input_file)))
 
 
 @pytest.mark.parametrize("collect", COLLECT_MODES)
@@ -282,6 +284,7 @@ class Case:
     warn: dict | None = None  # the sandbox `warn:` block
     comments: bool = True
     procedure: str | None = None  # written to <tmp>/procs/syn/p.hrw4u, reachable as `use syn::p`
+    externs: bool = False  # the fixture manifests under tests/data/extern
     cst_bug: CstBug | None = None
     sema_error: str | None = None  # with CstBug.ACCEPTS, CstBug.CRASHES or CstBug.MISREPORTS
     sema_conf: str | None = None  # with CstBug.REJECTS
@@ -498,6 +501,91 @@ SYNTHETIC = [
             cst_bug=CstBug.CRASHES,
             sema_error="circular procedure call: syn::p -> syn::q -> syn::p"),
         id="mutual-procedure-recursion"),
+    pytest.param(Case('extern T::F() -> string pure;\nREMAP {\n    no-op();\n}\n'), id="extern-in-a-script"),
+    pytest.param(Case('foo T::F() -> string pure;\nREMAP {\n    no-op();\n}\n'), id="declaration-spelled-with-another-word"),
+    pytest.param(
+        Case('VARS {\n    extern: bool;\n}\nREMAP {\n    if extern {\n        no-op();\n    }\n}\n'),
+        id="extern-as-a-variable-name"),
+    pytest.param(Case('REMAP {\n    inbound.req.X-A = T::F("a");\n}\n'), id="call-without-a-manifest"),
+    pytest.param(
+        Case('REMAP {\n    inbound.req.X-A = cripts::Crypto::Base64::Encode();\n}\n', externs=True),
+        id="call-with-too-few-arguments"),
+    pytest.param(
+        Case('REMAP {\n    inbound.req.X-A = cripts::Crypto::Base64::Encode("{bogus}");\n}\n', externs=True),
+        id="call-with-an-interpolation-error"),
+    pytest.param(
+        Case('REMAP {\n    inbound.req.X-A = cripts::Crypto::Hex::Decode(cripts::Crypto::Base64::Decode("x"));\n}\n', externs=True),
+        id="nested-call"),
+    pytest.param(
+        Case('REMAP {\n    inbound.req.X-A = "{cripts::Crypto::Base64::Encode(\\"x\\")}";\n}\n', externs=True),
+        id="call-inside-a-string"),
+    pytest.param(
+        Case('REMAP {\n    inbound.req.X-A = "{cripts::Crypto::Base64::Encode(\\"{inbound.req.X-In}\\")}";\n}\n', externs=True),
+        id="call-inside-a-string-reading-a-hole"),
+    pytest.param(Case('REMAP {\n    inbound.req.X-A = "{T::Nope()}";\n}\n', externs=True), id="unknown-call-inside-a-string"),
+    pytest.param(
+        Case('REMAP {\n    inbound.req.X-A = "{cripts::File::Line::Read(\\"k\\")}";\n}\n', externs=True),
+        id="load-call-inside-a-string"),
+    pytest.param(
+        Case('REMAP {\n    inbound.req.X-A = "{cripts::Crypto::Base64::Encode(\\"x\\") with NOCASE}";\n}\n', externs=True),
+        id="call-inside-a-string-with-a-condition-modifier"),
+    pytest.param(
+        Case('REMAP {\n    inbound.req.X-A = "{cripts::Crypto::Base64::Encode(a b)}";\n}\n', externs=True),
+        id="call-inside-a-string-that-does-not-parse"),
+    pytest.param(
+        Case(
+            'REMAP {\n    inbound.req.X-A = "{cripts::Crypto::Base64::Encode(\\"x\\")}";\n}\n',
+            externs=True,
+            deny={"functions": ["cripts::Crypto::Base64::Encode"]}),
+        id="denied-call-inside-a-string"),
+    pytest.param(
+        Case(
+            'REMAP {\n    inbound.req.X-A = "{cripts::Crypto::Base64::Encode(\\"x\\")}";\n}\n',
+            externs=True,
+            warn={"functions": ["cripts::Crypto::Base64::Encode"]}),
+        id="warned-call-inside-a-string"),
+    pytest.param(
+        Case('REMAP {\n    if cripts::Geo::ASN() == 1 {\n        no-op();\n    }\n}\n', externs=True), id="call-in-a-condition"),
+    pytest.param(
+        Case(
+            'REMAP {\n    inbound.req.X-A = cripts::Crypto::Base64::Encode("a");\n}\n',
+            externs=True,
+            deny={"functions": ["cripts::Crypto::Base64::Encode"]}),
+        id="denied-call"),
+    pytest.param(
+        Case(
+            'REMAP {\n    inbound.req.X-A = cripts::Crypto::Base64::Encode("a");\n}\n',
+            externs=True,
+            warn={"functions": ["cripts::Crypto::Base64::Encode"]}),
+        id="warned-call"),
+    pytest.param(Case('REMAP {\n    counter(cripts::Geo::Country());\n}\n', externs=True), id="call-as-an-operator-argument"),
+    pytest.param(
+        Case(
+            'use syn::p\nREMAP {\n    inbound.req.X-A = syn::p();\n}\n',
+            procedure='procedure syn::p() {\n    no-op();\n}\n',
+            externs=True),
+        id="procedure-called-for-a-value"),
+    pytest.param(Case('REMAP {\n    no-op();\n}\nINSTANCE_VARS {\n    a: string = "x";\n}\n'), id="instance-vars-after-a-section"),
+    pytest.param(
+        Case('INSTANCE_VARS {\n    a: string = "x";\n}\nREMAP {\n    no-op();\n}\n', deny={"sections": ["INSTANCE_VARS"]}),
+        id="denied-instance-vars"),
+    pytest.param(
+        Case('INSTANCE_VARS {\n    a: string = "x";\n}\nREMAP {\n    no-op();\n}\n', deny={"language": ["variables"]}),
+        id="instance-vars-with-variables-denied"),
+    pytest.param(
+        Case('INSTANCE_VARS {\n    # c\n    a: int8 = "x";\n}\nREMAP {\n    inbound.req.X-A = a;\n}\n'),
+        id="instance-vars-in-a-conf"),
+    pytest.param(
+        Case('INSTANCE_VARS {\n    a: string = "x";\n    a: string = "y";\n}\nREMAP {\n    no-op();\n}\n'),
+        id="instance-var-declared-twice-in-a-conf"),
+    # _section_expand_proc_call binds the arguments outside any trap, as for a wrong arity.
+    pytest.param(
+        Case(
+            'use syn::p\nREMAP {\n    syn::p(cripts::Geo::Country());\n}\n',
+            procedure='procedure syn::p($a) {\n    inbound.req.X-A = $a;\n}\n',
+            externs=True,
+            cst_bug=CstBug.RAISES),
+        id="call-as-a-procedure-argument"),
 ]
 
 
@@ -514,6 +602,8 @@ def test_front_ends_agree_on_uncovered_constructs(case: Case, collect: bool, tmp
         namespace.mkdir(parents=True)
         (namespace / "p.hrw4u").write_text(case.procedure)
         kwargs["proc_search_paths"] = [tmp_path / "procs"]
+    if case.externs:
+        kwargs["externs"] = load_manifests(sorted(Path("tests/data/extern").glob("*.ext.hrw4u")))
 
     _, tree = utils.parse_input_text(case.source)
     old = _run("cst", tree, "<synthetic>", case.source, collect=collect, **kwargs)

@@ -71,6 +71,8 @@ def _body_item(node: BodyNode, depth: int) -> str:
             return "break;"
         case FunctionCall():
             return f"{_call(node)};"
+        case Assignment() if isinstance(node.value, FunctionCall):
+            return f"{node.name} {node.operator} {_call(node.value)};"
         case Assignment():
             return f"{node.name} {node.operator} {_value(node.value)};"
         case IfBlock():
@@ -97,7 +99,8 @@ def _nested(body: tuple[BodyNode, ...], depth: int) -> list[str]:
 
 
 def _call(node: FunctionCall) -> str:
-    return f"{node.name}({', '.join(_value(a) for a in node.args)})"
+    args = (_call(a) if isinstance(a, FunctionCall) else _value(a) for a in node.args)
+    return f"{node.name}({', '.join(args)})"
 
 
 def _condition(node: ConditionExpr) -> str:

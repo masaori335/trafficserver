@@ -26,9 +26,13 @@ from typing import Callable
 import hrw4u.ast_nodes as ast
 import hrw4u.sema_nodes as ir
 import hrw4u.types as types
+from hrw4u.ast_visitor import call_ast
 from hrw4u.common import SystemDefaults, split_interpolation_mods
 from hrw4u.debugging import Dbg
 from hrw4u.errors import ErrorCollector, Hrw4uSyntaxError, SourceMap, SymbolResolutionError, Warning, hrw4u_error_at
+from hrw4u.externs import (
+    SCRIPT_DECL_ERROR, ExternDecl, check_call, lookup, refuse_bare_refs, refuse_call_args, value_call_statement)
+from hrw4u.features import CALL_VALUE, INSTANCE_VARS, Feature, check_target
 from hrw4u.interpolation import Escaped, Hole, parse_call, scan
 from hrw4u.procedures import ProcEntry, ProcRegistry
 from hrw4u.sandbox import SandboxConfig, SandboxDenialError
@@ -39,7 +43,10 @@ from hrw4u.validation import Validator
 _VAR_SECTIONS = {
     "txn": ("Variable", "VARS", types.VarScope.TXN),
     "session": ("Session variable", "SESSION_VARS", types.VarScope.SESSION),
+    "instance": ("Instance variable", "INSTANCE_VARS", None),
 }
+
+_LOAD_READS_TXN = "an INSTANCE_VARS initializer cannot read the transaction"
 
 _PARAM_REF = re.compile(r'\$([a-zA-Z_][a-zA-Z0-9_-]*)')
 
@@ -49,6 +56,10 @@ def _quoted_params(sig: ProcEntry, call: ast.FunctionCall) -> frozenset[str]:
     quoted = {p.name for p, a in zip(sig.params, call.args) if isinstance(a, ast.LiteralStringValue)}
     quoted |= {p.name for p in sig.params[len(call.args):] if isinstance(p.default, ast.LiteralStringValue)}
     return frozenset(quoted)
+
+
+def _calls(args: tuple[ast.ValueExpr | ast.FunctionCall, ...]) -> list[str]:
+    return [a.name for a in args if isinstance(a, ast.FunctionCall)]
 
 
 def _strip_quotes(text: str) -> str:
@@ -89,7 +100,10 @@ class Sema:
             error_collector: ErrorCollector | None = None,
             preserve_comments: bool = True,
             proc_search_paths: list[Path] | None = None,
-            sandbox: SandboxConfig | None = None) -> None:
+            sandbox: SandboxConfig | None = None,
+            externs: dict[str, ExternDecl] | None = None,
+            ir_version: tuple[int, int] | None = None) -> None:
+        """`ir_version` is the IR version the output may use, or None when the output is a .conf."""
         self.error_collector = error_collector
         self.preserve_comments = preserve_comments
         self.source_map = SourceMap()
@@ -100,6 +114,9 @@ class Sema:
         self._section: SectionType | None = None
         self.procs = ProcRegistry(source_map=self.source_map)
         self._proc_stack: list[str] = []
+        self._externs = externs or {}
+        self._ir_version = ir_version
+        self.features: set[Feature] = set()
 
     def _report(self, span: ast.Span, exc: Exception, *, note: str | None = None) -> None:
         error = hrw4u_error_at(span, exc, self.source_map.line_at(span))
@@ -141,7 +158,7 @@ class Sema:
             return False
 
     def analyze(self, tree: ast.HRW4UAST) -> ir.Program:
-        items: list[ir.ResolvedSection | ir.VarsBlock | ir.CommentStmt] = []
+        items: list[ir.ResolvedSection | ir.VarsBlock | ir.InstanceVarsBlock | ir.CommentStmt] = []
         seen_sections = False
 
         for node in tree.body:
@@ -164,6 +181,8 @@ class Sema:
                         continue
                     with self.trap(node.span):
                         self.procs.register(node)
+                case ast.ExternDecl():
+                    self._report(node.span, ValueError(SCRIPT_DECL_ERROR))
                 case ast.Section():
                     seen_sections = True
                     if section := self._section_of(node):
@@ -268,6 +287,10 @@ class Sema:
 
     def _func_cond(self, node: ast.FunctionCall) -> ir.Cond:
         with self.trap(node.span):
+            refuse_call_args(self._externs, node.name, _calls(node.args), in_condition=True)
+            for arg in node.args:
+                if isinstance(arg, ast.IdentValue):
+                    self._refuse_instance_var_in_condition(arg.raw)
             # Source text, not resolved values: a `{...}` in a condition function's string argument
             # is not interpolated.
             args = [self._source_text(a, node.span) for a in node.args]
@@ -334,6 +357,7 @@ class Sema:
     def _reference(self, name: str, span: ast.Span) -> tuple[ir.Ref, bool]:
         if not name:
             raise SymbolResolutionError("identifier", "Missing or empty identifier text")
+        self._refuse_instance_var_in_condition(name)
 
         try:
             found = self.symbol_resolver.lookup_condition(name, self._section)
@@ -355,10 +379,22 @@ class Sema:
             return ir.VarRef(symbol=found.symbol), False
         return ir.BuiltinRef(key=found.key, entry=found.entry, arg=found.arg), found.existence
 
+    def _refuse_instance_var_in_condition(self, name: str) -> None:
+        if self.symbol_resolver.instance_var(name) is not None:
+            raise ValueError(f"'{name}' is an instance variable, which cannot be read in a condition yet")
+
     def _assignment(self, node: ast.Assignment) -> ir.Stmt | None:
         with self.trap(node.span):
-            value = self._operand(node.value, node.span)
+            if self.symbol_resolver.instance_var(node.name) is not None:
+                raise ValueError(f"'{node.name}' is an instance variable; it is set once, at load")
+            if isinstance(node.value, ast.FunctionCall):
+                value = self._extern_call(node.value, node.span)
+            else:
+                value = self._operand(node.value, node.span)
             value_text = ir.value_text(value)
+            if isinstance(value, ir.InstanceRef) or (isinstance(value, ir.ExternCall) and value.decl.result == "string"):
+                # A validator checks a value as written, and a string only lowering has is checked as a quoted one.
+                value_text = f'"{value_text}"'
             add = node.operator == "+="
             found = self.symbol_resolver.lookup_operator(node.name, value_text, self._section, add=add)
             self._drain_resolver_warnings(node.span)
@@ -367,6 +403,9 @@ class Sema:
                 if isinstance(node.value, ast.IdentValue) and (rhs_symbol := self.symbol_resolver.symbol_for(node.value.raw)):
                     value = ir.VarRef(symbol=rhs_symbol)
                 return ir.SetVar(symbol=found.symbol, value=value, span=node.span)
+
+            if isinstance(value, ir.ExternCall) and value.decl.result != "string":
+                raise ValueError(f"'{value.decl.name}' returns {value.decl.result}; {node.name} takes a string")
 
             if add:
                 variant = ir.OpVariant.ADD
@@ -381,8 +420,11 @@ class Sema:
 
     def _statement_call(self, node: ast.FunctionCall) -> ir.Stmt | None:
         with self.trap(node.span):
+            if node.name in self._externs:
+                raise value_call_statement(node.name)
             if '::' in node.name:
                 raise self.source_map.error_at(node.span, f"unknown procedure '{node.name}': not loaded via 'use'")
+            refuse_call_args(self._externs, node.name, _calls(node.args), in_condition=False)
             # _operand: a `$param` still here is unbound, and validators such as a header name's would take its text.
             args = [self._operand(a, node.span) for a in node.args]
             arg_texts = [ir.value_text(a) for a in args]
@@ -390,6 +432,49 @@ class Sema:
             self._drain_resolver_warnings(node.span)
             return ir.CallOp(key=key, entry=entry, args=tuple(map(self._normalized_arg, args, arg_texts)), span=node.span)
         return None
+
+    def _extern_call(self, call: ast.FunctionCall, span: ast.Span, *, at_load: bool = False) -> ir.ExternCall:
+        """A call for its value, in a hook or, `at_load`, in an INSTANCE_VARS initializer."""
+        decl = lookup(self._externs, call.name)
+        if warning := self._sandbox.check_function(call.name):
+            self._warn(span, warning)
+        args = []
+        for arg in call.args:
+            if isinstance(arg, ast.FunctionCall):
+                args.append(self._extern_call(arg, span, at_load=at_load))
+            elif at_load:
+                args.append(self._load_arg(arg, span))
+            else:
+                args.append(self._operand(arg, span))
+        check_call(decl, [self._arg_type(node, arg) for node, arg in zip(call.args, args)], at_load=at_load)
+        refuse_bare_refs(decl, [self._bare_ref(node, arg) for node, arg in zip(call.args, args)])
+        self._use(CALL_VALUE)
+        return ir.ExternCall(decl=decl, args=tuple(args), span=call.span)
+
+    @staticmethod
+    def _arg_type(node: ast.ValueExpr | ast.FunctionCall, arg: ir.RValue) -> str | None:
+        if isinstance(arg, ir.InstanceRef):
+            return "string"
+        match node:
+            case ast.FunctionCall():
+                return arg.decl.result
+            case ast.LiteralStringValue():
+                return "string"
+            case ast.NumberValue():
+                return "int64"
+            case ast.BoolValue():
+                return "bool"
+        return None
+
+    @staticmethod
+    def _bare_ref(node: ast.ValueExpr | ast.FunctionCall, arg: ir.RValue) -> str | None:
+        if isinstance(node, ast.IdentValue) and not isinstance(arg, ir.InstanceRef):
+            return node.raw
+        return None
+
+    def _use(self, feature: Feature) -> None:
+        check_target(feature, self._ir_version)
+        self.features.add(feature)
 
     @staticmethod
     def _normalized_arg(arg: ir.RValue, text: str) -> ir.RValue:
@@ -420,6 +505,7 @@ class Sema:
 
     def _bind(self, sig: ProcEntry, call: ast.FunctionCall) -> dict[str, str] | None:
         with self.trap(call.span):
+            refuse_call_args(self._externs, call.name, _calls(call.args), in_condition=False)
             args = [self._binding_text(a, call.span) for a in call.args]
             required = sum(1 for p in sig.params if p.default is None)
             if not (required <= len(args) <= len(sig.params)):
@@ -459,7 +545,12 @@ class Sema:
                 return ast.LiteralStringValue(raw=sub_text(value.raw), written=value.written or value.raw)
             return value
 
+        def sub_call(call: ast.FunctionCall) -> ast.FunctionCall:
+            return replace(call, args=tuple(map(sub_arg, call.args)))
+
         def sub_value(value):
+            if isinstance(value, ast.FunctionCall):
+                return sub_call(value)
             if isinstance(value, ast.ParamRef) and value.raw in bindings:
                 # A bare `$param` takes its binding verbatim, so a string argument reaches the operator unquoted.
                 return ast.IdentValue(raw=bindings[value.raw])
@@ -469,6 +560,8 @@ class Sema:
         def sub_arg(value):
             # A bare `$param` in a function argument stands for the argument as the caller wrote it: a string, as
             # `"$param"` makes it, when the caller quoted it, and as it is otherwise.
+            if isinstance(value, ast.FunctionCall):
+                return sub_call(value)
             if isinstance(value, ast.ParamRef) and value.raw in bindings:
                 if value.raw in quoted:
                     return ast.LiteralStringValue(raw=bindings[value.raw], written=f"${value.raw}")
@@ -481,7 +574,7 @@ class Sema:
             case ast.Assignment():
                 return replace(node, value=sub_value(node.value))
             case ast.FunctionCall():
-                return replace(node, args=tuple(map(sub_arg, node.args)))
+                return sub_call(node)
             case ast.IfBlock():
                 return replace(
                     node,
@@ -517,6 +610,8 @@ class Sema:
 
     def _value(self, node, span: ast.Span) -> ir.RValue:
         match node:
+            case ast.IdentValue() if (index := self.symbol_resolver.instance_var(node.raw)) is not None:
+                return ir.InstanceRef(index=index, name=node.raw)
             case ast.NumberValue() | ast.IdentValue() | ast.BoolValue() | ast.IPValue():
                 return ir.RawArg(text=node.raw)
             case ast.LiteralStringValue():
@@ -545,15 +640,17 @@ class Sema:
 
     def _template(self, literal: ast.LiteralStringValue, span: ast.Span) -> ir.StrTemplate:
         inner = literal.raw
-        parts: list[str | ir.BuiltinRef | ir.VarRef | ir.ModifiedRef] = []
+        parts: list[str | ir.Ref | ir.InstanceRef | ir.ExternCall | ir.ModifiedRef] = []
         for part in scan(inner):
             if isinstance(part, str):
                 parts.append(part)
             else:
                 parts.append(self._template_part(part, span, literal.written or inner))
-        return ir.StrTemplate(parts=tuple(parts))
+        return ir.StrTemplate(parts=tuple(parts), source=inner)
 
-    def _template_part(self, part: Escaped | Hole, span: ast.Span, inner: str) -> str | ir.BuiltinRef | ir.VarRef | ir.ModifiedRef:
+    def _template_part(
+            self, part: Escaped | Hole, span: ast.Span,
+            inner: str) -> str | ir.Ref | ir.InstanceRef | ir.ExternCall | ir.ModifiedRef:
         try:
             return self._template_part_inner(part, span)
         except SandboxDenialError as exc:
@@ -584,15 +681,20 @@ class Sema:
         if not part.holds_call:
             name, mods = split_interpolation_mods(part.text)
             self._check_value_mods(mods, span)
+            if (index := self.symbol_resolver.instance_var(name)) is not None:
+                return self._with_mods(ir.InstanceRef(index=index, name=name), mods)
             found = self.symbol_resolver.lookup_condition(name, self._section)
             self._drain_resolver_warnings(span)
             if found.symbol is not None:
                 return self._with_mods(ir.VarRef(symbol=found.symbol), mods)
             return self._with_mods(ir.BuiltinRef(key=found.key, entry=found.entry, arg=found.arg), mods)
         hole = parse_call(part)
+        name = hole.call.funcName.text
         self._check_value_mods(hole.mods, span)
+        if "::" in name:
+            return self._with_mods(self._extern_call(call_ast(hole.call, span.file), span), hole.mods)
         args = list(hole.args)
-        key, entry = self.symbol_resolver.lookup_function(hole.call.funcName.text, args)
+        key, entry = self.symbol_resolver.lookup_function(name, args)
         self._drain_resolver_warnings(span)
         return self._with_mods(ir.BuiltinRef.from_function(key, entry, args), hole.mods)
 
@@ -604,12 +706,14 @@ class Sema:
                 self._warn(span, warning)
 
     @staticmethod
-    def _with_mods(ref: ir.Ref, mods: list[str]) -> ir.Ref | ir.ModifiedRef:
+    def _with_mods(
+            ref: ir.Ref | ir.InstanceRef | ir.ExternCall,
+            mods: list[str]) -> ir.Ref | ir.InstanceRef | ir.ExternCall | ir.ModifiedRef:
         if mods:
             return ir.ModifiedRef(ref=ref, mods=tuple(mods))
         return ref
 
-    def _declare_vars(self, node: ast.VarSection) -> ir.VarsBlock:
+    def _declare_vars(self, node: ast.VarSection) -> ir.VarsBlock | ir.InstanceVarsBlock:
         noun, label, scope = _VAR_SECTIONS[node.scope]
         if self._section is not None:
             self._report(node.span, ValueError(f"{noun} section must be first in a section"))
@@ -619,6 +723,8 @@ class Sema:
             return ir.VarsBlock(comments=(), span=node.span)
         if not self._sandbox_check(node.span, lambda: self._sandbox.check_language("variables")):
             return ir.VarsBlock(comments=(), span=node.span)
+        if node.scope == "instance":
+            return self._declare_instance_vars(node)
 
         comments: list[ir.CommentStmt] = []
         for decl in node.items:
@@ -631,6 +737,53 @@ class Sema:
                     raise SymbolResolutionError("variable", f"Variable name '{decl.name}' cannot contain '.' or ':' characters")
                 self.symbol_resolver.declare_variable(decl.name, decl.type_name, decl.slot, scope)
         return ir.VarsBlock(comments=tuple(comments), span=node.span)
+
+    def _declare_instance_vars(self, node: ast.VarSection) -> ir.VarsBlock | ir.InstanceVarsBlock:
+        with self.trap(node.span):
+            self._use(INSTANCE_VARS)
+            declared = []
+            for decl in node.items:
+                if isinstance(decl, ast.InstanceVarDecl):
+                    with self.trap(decl.span):
+                        declared.append(self._instance_var(decl))
+            return ir.InstanceVarsBlock(vars=tuple(declared), span=node.span)
+        return ir.VarsBlock(comments=(), span=node.span)
+
+    def _instance_var(self, decl: ast.InstanceVarDecl) -> ir.InstanceVar:
+        if '.' in decl.name or ':' in decl.name:
+            raise SymbolResolutionError("variable", f"Variable name '{decl.name}' cannot contain '.' or ':' characters")
+        # Declared before its initializer is resolved, so a failed one leaves no hook reading an unknown name.
+        index = self.symbol_resolver.declare_instance_variable(decl.name, decl.type_name)
+        if isinstance(decl.value, ast.FunctionCall):
+            value = self._extern_call(decl.value, decl.span, at_load=True)
+            if value.decl.result != "string":
+                raise ValueError(f"'{value.decl.name}' returns {value.decl.result}; {decl.name} takes a string")
+        else:
+            value = self._load_string(decl.value, decl.span)
+        return ir.InstanceVar(index=index, value=value, span=decl.span)
+
+    def _load_arg(self, arg: ast.ValueExpr, span: ast.Span) -> ir.RValue:
+        """An argument of a call in an INSTANCE_VARS initializer, which runs at load, with no transaction."""
+        match arg:
+            case ast.LiteralStringValue():
+                return self._load_string(arg, span)
+            case ast.IdentValue():
+                raise self._load_read(arg.raw)
+        return self._operand(arg, span)
+
+    def _load_string(self, literal: ast.LiteralStringValue, span: ast.Span) -> ir.StrTemplate:
+        for part in scan(literal.raw):
+            if not isinstance(part, Hole):
+                continue
+            if part.holds_call:
+                raise ValueError(_LOAD_READS_TXN)
+            raise self._load_read(split_interpolation_mods(part.text)[0])
+        return self._template(literal, span)
+
+    def _load_read(self, name: str) -> ValueError:
+        if self.symbol_resolver.instance_var(name) is not None:
+            return ValueError(f"'{name}' is an instance variable, which an INSTANCE_VARS initializer cannot read yet")
+        return ValueError(_LOAD_READS_TXN)
 
     @staticmethod
     def _decl_note(decl: ast.VarDecl) -> str:

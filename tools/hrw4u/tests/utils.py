@@ -45,6 +45,7 @@ __all__: Final[list[str]] = [
     "collect_sandbox_allow_test_files",
     "collect_sandbox_warn_test_files",
     "sandbox_file_for",
+    "extern_files_for",
     "run_output_test",
     "run_ast_test",
     "run_failing_test",
@@ -151,6 +152,14 @@ def sandbox_file_for(input_file: Path) -> Path | None:
     if shared_sandbox.exists():
         return shared_sandbox
     return None
+
+
+def extern_files_for(input_file: Path) -> list[Path]:
+    """The manifests a `{name}.extern.txt` lists, one per line and relative to it; none without one."""
+    listing = input_file.with_suffix("").with_suffix("").with_suffix(".extern.txt")
+    if not listing.exists():
+        return []
+    return [listing.parent / line for line in listing.read_text().split()]
 
 
 def _collect_sandbox_test_files(group: str, result_suffix: str) -> Iterator[pytest.param]:

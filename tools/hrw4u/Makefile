@@ -53,6 +53,8 @@ SRC_FILES_HRW4U=src/visitor.py \
 	src/symbols.py \
 	src/suggestions.py \
 	src/procedures.py \
+	src/externs.py \
+	src/features.py \
 	src/sandbox.py \
 	src/kg_visitor.py \
 	src/ast_nodes.py \
@@ -60,7 +62,10 @@ SRC_FILES_HRW4U=src/visitor.py \
 	src/interpolation.py \
 	src/sema_nodes.py \
 	src/sema.py \
-	src/emit_conf.py
+	src/emit_conf.py \
+	src/ir_nodes.py \
+	src/emit_ir.py \
+	src/lower.py
 
 ALL_HRW4U_FILES=$(SHARED_FILES) $(UTILS_FILES) $(SRC_FILES_HRW4U)
 

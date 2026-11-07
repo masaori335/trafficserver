@@ -346,11 +346,11 @@ class KnowledgeGraphVisitor(hrw4uVisitor, BaseHRWVisitor):
                 case _ if ctx.BREAK():
                     stmt_id = self._add_node("Statement", {**stmt_properties, "type": "break"})
 
-                case _ if ctx.functionCall():
-                    stmt_id = self._process_function_call_statement(ctx.functionCall(), stmt_properties)
-
                 case _ if ctx.EQUAL():
                     stmt_id = self._process_assignment_statement(ctx, stmt_properties)
+
+                case _ if ctx.functionCall():
+                    stmt_id = self._process_function_call_statement(ctx.functionCall(), stmt_properties)
 
                 case _:
                     stmt_id = self._add_node("Statement", {**stmt_properties, "type": "unknown"})
@@ -386,7 +386,7 @@ class KnowledgeGraphVisitor(hrw4uVisitor, BaseHRWVisitor):
             return self._add_node("Statement", {**stmt_properties, "type": "assignment", "target": "unknown"})
 
         lhs = ctx.lhs.text
-        rhs = ctx.value().getText() if ctx.value() else ""
+        rhs = (ctx.value() or ctx.functionCall()).getText()
 
         stmt_id = self._add_node("Statement", {**stmt_properties, "type": "assignment", "target": lhs, "value": rhs})
 

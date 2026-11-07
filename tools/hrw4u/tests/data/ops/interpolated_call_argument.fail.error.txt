@@ -1,4 +1,4 @@
-tests/data/ops/interpolated_call_argument.fail.input.txt:2:4: error: symbol error in {}: '{random(foo(1))}' does not parse: mismatched input '(' expecting ')'
+tests/data/ops/interpolated_call_argument.fail.input.txt:2:4: error: symbol error in {}: Expected an integer value
    2 |     inbound.resp.X-Random = "{random(foo(1))}";
      |     ^
      | String interpolation context: "{random(foo(1))}"...

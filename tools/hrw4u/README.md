@@ -93,6 +93,73 @@ hrw4u --debug input.hrw4u
 - `--ast` - Show ANTLR parse tree
 - `--debug` - Enable debug tracing
 
+### Typed IR for hrw4u.so
+
+`--output ir` compiles the same source to the Typed IR that `hrw4u.so`
+(`plugins/experimental/hrw4u`) runs, instead of `header_rewrite` rules.
+
+```bash
+# Compile HRW4U source to Typed IR
+hrw4u --output ir input.hrw4u > output.ir
+
+# Call the functions hrw4u.so and an extension bind, declared by the manifests hrw4u-extern prints
+hrw4u-extern hrw4u.so > cripts.ext.hrw4u
+hrw4u-extern hrw4u_ext_example_ua.so > example_ua.ext.hrw4u
+hrw4u --output ir --ir-version 1.1 --extern cripts.ext.hrw4u --extern example_ua.ext.hrw4u ua.hrw4u > ua.ir
+```
+
+**Options:**
+- `--output ir` - Produce Typed IR for `hrw4u.so` (experimental)
+- `--ir-version {1.0,1.1}` - The highest IR version `--output ir` may write (default: 1.0); a program is written at the
+  lowest version that has what it uses. Calls to declared functions and `INSTANCE_VARS` need 1.1
+- `--extern FILE` - A manifest `hrw4u-extern` printed, declaring the functions a script may call; repeatable, read in
+  order. A manifest holds `extern` declarations only, and a name declared twice is an error
+
+A script calls a declared function for its value. The call is either the whole right-hand
+side of an `=` or `+=` whose target takes a string, where the function returns `string`, or
+a `{...}` hole in a string, where it may return any of the three types:
+
+```
+SEND_RESPONSE {
+    inbound.resp.X-B64 = cripts::Crypto::Base64::Encode("{inbound.req.X-Raw}");
+    inbound.resp.X-Enc = "v={cripts::Crypto::Base64::Encode(\"{inbound.req.X-Raw}\")}";
+}
+```
+
+- An argument is a string, a number, `true`, `false`, an instance variable, or a call to a
+  declared function, of the type the declaration names. A bare reference is refused: write
+  `inbound.req.X-Raw` as `"{inbound.req.X-Raw}"`.
+- A call cannot be a statement of its own, a condition, or an argument of a builtin or a
+  procedure.
+- In a hole, a string argument is written with `\"` escapes, an `int64` or `bool` result is
+  written into the string as `fmt` writes any value, and `with NORM` applies to the result.
+  The hole is parsed on its own with the grammar, as [String interpolation](#string-interpolation)
+  says; ANTLR lexer modes are the follow-up. An `INSTANCE_VARS` initializer refuses every hole,
+  and a condition function's string argument, as in `access("{...}")`, is not interpolated.
+- A `pure` function runs in any hook, a `load` one only in an `INSTANCE_VARS`
+  initializer; one with an effect cannot be called yet.
+
+`INSTANCE_VARS` declares string variables that `hrw4u.so` sets once, when it loads the
+rule, from a string or a call to a declared `pure` or `load` function:
+
+```
+INSTANCE_VARS {
+    secret: string = cripts::Crypto::Hex::Decode(cripts::File::Line::Read("secret.hex"));
+}
+
+SEND_REQUEST {
+    outbound.req.X-Sign = cripts::Crypto::Base64::Encode(cripts::Crypto::HMAC::SHA256::Sign(secret, "{outbound.url.path}"));
+}
+```
+
+- The initializer cannot read the transaction or another instance variable.
+- A hook reads the variable by name, as a value or an argument, or as `"{secret}"` in a
+  string. It cannot be assigned, or read in a condition, yet.
+- A name declared twice, or in both `VARS` and `INSTANCE_VARS`, is an error.
+
+Neither calls nor `INSTANCE_VARS` have a `header_rewrite` spelling, so only `--output ir`
+compiles them.
+
 ### Reverse Compilation (u4wrh)
 
 ```bash
@@ -148,6 +215,25 @@ REMAP {
 ```
 
 Passing the output from hrw4u back into u4wrh brings back the original script again!
+
+### String interpolation
+
+A `{...}` in a string is a hole, and its value is put there. `{{...}}` is literal brace
+text, `%{...}` is passed to `header_rewrite` as written, and a `{` that closes no hole,
+`{}` among them, is text.
+
+- A hole without `(` is a name: a symbol, a variable or an instance variable, with optional
+  value modifiers, as in `"{inbound.url.path with NORM}"`.
+- A hole with `(` is a call, with optional value modifiers: a builtin such as
+  `"{random(100)}"`, or a declared function, which only `--output ir` compiles.
+
+The STRING token keeps a hole as text. A scanner finds each hole's bounds, and a hole that
+holds a call is parsed on its own with the grammar's `interpolation` rule, so its arguments
+are what a call's are anywhere else. A hole without one is not parsed: its name goes to the
+symbol lookup as written, because IDENT cannot spell every header name (`"{inbound.req.X~Foo}"`
+is one), and a hole that compiles in IR 1.0 must keep its meaning, since a minor version only
+adds. The follow-up is ANTLR lexer modes, an f-string-like STRING, which can give a hole's
+name a token of its own as wide as an HTTP header name.
 
 ## Build System
 

@@ -57,14 +57,36 @@ class SymbolResolver(SymbolResolverBase):
             self, debug: bool = SystemDefaults.DEFAULT_DEBUG, sandbox: SandboxConfig | None = None, dbg: Dbg | None = None) -> None:
         super().__init__(debug, sandbox=sandbox, dbg=dbg)
         self._symbols: dict[str, types.Symbol] = {}
+        self._instance_vars: dict[str, int] = {}
         self._var_counter = {vt: 0 for vt in types.VarType}
         self._suggestion_engine = SuggestionEngine()
 
     def symbol_for(self, name: str) -> types.Symbol | None:
         return self._symbols.get(name)
 
+    def instance_var(self, name: str) -> int | None:
+        """The index of the instance variable `name`, in declaration order, or None when INSTANCE_VARS declares none."""
+        return self._instance_vars.get(name)
+
+    def declare_instance_variable(self, name: str, type_name: str) -> int:
+        if type_name != "string":
+            raise SymbolResolutionError(name, "instance variables are string only for now")
+        if name in self._symbols:
+            raise self._declared_in_both(name)
+        if name in self._instance_vars:
+            # Not a new index for the name, as VARS gives one: each i<k> is stored exactly once, and read by one name.
+            raise SymbolResolutionError(name, f"'{name}' is declared twice in INSTANCE_VARS")
+        self._instance_vars[name] = len(self._instance_vars)
+        return self._instance_vars[name]
+
+    @staticmethod
+    def _declared_in_both(name: str) -> SymbolResolutionError:
+        return SymbolResolutionError(name, f"'{name}' is declared in both VARS and INSTANCE_VARS")
+
     def declare_variable(
             self, name: str, type_name: str, explicit_slot: int | None = None, scope: types.VarScope = types.VarScope.TXN) -> str:
+        if name in self._instance_vars:
+            raise self._declared_in_both(name)
         try:
             var_type = types.VarType.from_str(type_name)
         except ValueError as e:

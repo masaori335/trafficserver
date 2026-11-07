@@ -24,6 +24,7 @@ shipping emitter is `test_front_end_parity.py`.
 
 import dataclasses
 import typing
+from pathlib import Path
 
 import yaml
 
@@ -32,19 +33,21 @@ from utils import parse_input_text
 
 from hrw4u.ast_nodes import Assignment, ProcedureDecl, Span
 from hrw4u.ast_visitor import ASTVisitor
-from hrw4u.common import HeaderOperations
+from hrw4u.common import HeaderOperations, compile_to_conf
 from hrw4u.errors import ErrorCollector, Hrw4uSyntaxError, SourceMap, SymbolResolutionError
+from hrw4u.externs import load_manifests
 from hrw4u.procedures import ProcRegistry
 from hrw4u.sandbox import SandboxConfig
 from hrw4u.sema import Sema
 from hrw4u.sema_nodes import (
-    And, BoolCond, BreakStmt, BuiltinRef, CallOp, CmpOp, CommentStmt, Cond, FuncCond, Group, IpRangeLit, ModifiedRef, Not,
-    OpVariant, Or, Program, RawArg, RegexLit, ResolvedSection, SetLit, SetOp, SetVar, Stmt, StrTemplate, Test, Truth, Unresolved,
-    VarsBlock, VarRef)
+    And, BoolCond, BreakStmt, BuiltinRef, CallOp, CmpOp, CommentStmt, Cond, ExternCall, FuncCond, Group, InstanceRef, InstanceVar,
+    InstanceVarsBlock, IpRangeLit, ModifiedRef, Not, OpVariant, Or, Program, RawArg, RegexLit, ResolvedSection, SetLit, SetOp,
+    SetVar, Stmt, StrTemplate, Test, Truth, Unresolved, VarsBlock, VarRef)
 from hrw4u.states import SectionType
 from hrw4u.symbols import SymbolResolver
 from hrw4u.tables import FUNCTION_MAP
 from hrw4u.types import MapParams, Symbol, VarType, VarScope
+from hrw4u.visitor import HRW4UVisitor
 
 
 class TestValueText:
@@ -306,7 +309,11 @@ class TestSemaStatements:
         s = _stmts('REMAP {\n    inbound.req.X-Foo = "bar";\n}')[0]
         assert isinstance(s, SetOp)
         assert (s.key, s.qualifier, s.variant) == ("inbound.req.", "X-Foo", OpVariant.SET)
-        assert s.value == StrTemplate(parts=("bar",))
+        assert s.value == StrTemplate(parts=("bar",), source="bar")
+
+    def test_template_keeps_its_source_as_written(self):
+        s = _stmts('REMAP {\n    inbound.req.X-Foo = "a {inbound.url.path} \\"b\\" {{c}}";\n}')[0]
+        assert s.value.source == 'a {inbound.url.path} \\"b\\" {{c}}'
 
     def test_empty_value_selects_remove(self):
         s = _stmts('REMAP {\n    inbound.req.X-Foo = "";\n}')[0]
@@ -532,14 +539,22 @@ class TestProcedureInlining:
         (procs / "Base").mkdir(parents=True)
         (procs / "Base" / "hdr.hrw4u").write_text('procedure Base::hdr($v) {\n    inbound.req.X-P = "$v";\n}\n')
         s = _sema('use Base::hdr\nREMAP {\n    Base::hdr("yes");\n}', proc_search_paths=[procs]).items[0].body[0].body[0]
-        assert s.value == StrTemplate(parts=("yes",))
+        assert s.value == StrTemplate(parts=("yes",), source="yes")
+
+    def test_template_source_is_the_substituted_text(self, tmp_path):
+        procs = tmp_path / "procs"
+        (procs / "Base").mkdir(parents=True)
+        (procs / "Base" / "hdr.hrw4u").write_text('procedure Base::hdr($v) {\n    inbound.req.X-P = "$v {inbound.url.path}";\n}\n')
+        s = _sema('use Base::hdr\nREMAP {\n    Base::hdr("yes");\n}', proc_search_paths=[procs]).items[0].body[0].body[0]
+        assert s.value.source == "yes {inbound.url.path}"
+        assert s.value.parts[1].arg == "PATH"
 
     def test_default_parameter(self, tmp_path):
         procs = tmp_path / "procs"
         (procs / "Base").mkdir(parents=True)
         (procs / "Base" / "hdr.hrw4u").write_text('procedure Base::hdr($v = "def") {\n    inbound.req.X-P = "$v";\n}\n')
         s = _sema('use Base::hdr\nREMAP {\n    Base::hdr();\n}', proc_search_paths=[procs]).items[0].body[0].body[0]
-        assert s.value == StrTemplate(parts=("def",))
+        assert s.value == StrTemplate(parts=("def",), source="def")
 
     def test_numeric_default_parameter_stays_unquoted(self, tmp_path):
         """A ParamRef binding must not be wrapped in LiteralStringValue, which would quote a
@@ -624,3 +639,126 @@ class TestDenialDoesNotFailOpen:
     def test_denied_statement_costs_only_itself(self, tmp_path):
         prog, _ = self._analyze(tmp_path, 'REMAP {\n    inbound.req.X-A = "1";\n    break;\n}\n', {"language": ["break"]})
         assert [type(b).__name__ for b in prog.items[0].body] == ["SetOp"]
+
+
+_CRIPTS = Path("tests/data/extern/cripts.ext.hrw4u")
+_INSTANCE_VARS = Path("tests/data/ir/instance_vars.input.txt")
+
+
+def _instance(source: str, ir_version=(1, 1)) -> tuple[Program, list[tuple[int, int, str]]]:
+    collector = ErrorCollector()
+    prog = _sema(source, error_collector=collector, externs=load_manifests([_CRIPTS]), ir_version=ir_version)
+    return prog, [(e.line, e.column, e.message) for e in collector.errors]
+
+
+def _instance_vars(decls: str, hook: str = "inbound.resp.X = a;") -> str:
+    return f"INSTANCE_VARS {{\n    {decls}\n}}\nSEND_RESPONSE {{\n    {hook}\n}}\n"
+
+
+class TestInstanceVars:
+    """INSTANCE_VARS: strings set once, at load, that every hook reads."""
+
+    def test_the_initializer_is_a_call_tree_that_may_run_at_load(self):
+        prog, errors = _instance(_INSTANCE_VARS.read_text())
+        assert errors == []
+        block = prog.items[0]
+        assert isinstance(block, InstanceVarsBlock)
+        [var] = block.vars
+        assert (var.index, var.value.decl.name) == (0, "cripts::Crypto::Hex::Decode")
+        [read] = var.value.args
+        assert (read.decl.name, read.decl.effect) == ("cripts::File::Line::Read", "load")
+        assert read.args == (StrTemplate(parts=("instance_vars_secret.hex",), source="instance_vars_secret.hex"),)
+
+    def test_a_hook_reads_one_where_a_string_goes(self):
+        hook = 'inbound.resp.X = a;\n    inbound.resp.Y = "<{a}>";\n    inbound.resp.Z = cripts::Crypto::Base64::Encode(a);'
+        prog, errors = _instance(_instance_vars('a: string = "x";', hook))
+        assert errors == []
+        assign, hole, arg = prog.items[-1].body
+        assert assign.value == InstanceRef(index=0, name="a")
+        assert hole.value.parts == ("<", InstanceRef(index=0, name="a"), ">")
+        assert arg.value.args == (InstanceRef(index=0, name="a"),)
+
+    def test_they_are_numbered_in_declaration_order(self):
+        prog, errors = _instance(_instance_vars('a: string = "x";\n    b: string = "y";', "inbound.resp.X = b;"))
+        assert errors == []
+        assert [v.index for v in prog.items[0].vars] == [0, 1]
+        assert prog.items[0].vars[1].value == StrTemplate(parts=("y",), source="y")
+        assert prog.items[-1].body[0].value == InstanceRef(index=1, name="b")
+
+    @pytest.mark.parametrize(
+        "decls, hook, error", [
+            ('a: int8 = "5";', "no-op();", (2, 4, "instance variables are string only for now")),
+            ('a: string = "x";', 'a = "y";', (5, 4, "'a' is an instance variable; it is set once, at load")),
+            ('a: string = "x";', 'a += "y";', (5, 4, "'a' is an instance variable; it is set once, at load")),
+            ('a: string = "{inbound.method}";', "no-op();", (2, 4, "an INSTANCE_VARS initializer cannot read the transaction")),
+            ('a: string = "{now()}";', "no-op();", (2, 4, "an INSTANCE_VARS initializer cannot read the transaction")),
+            (
+                'a: string = "{cripts::Crypto::Base64::Encode(\\"x\\")}";', "no-op();",
+                (2, 4, "an INSTANCE_VARS initializer cannot read the transaction")),
+            (
+                'a: string = cripts::Crypto::Base64::Encode("{inbound.req.X}");', "no-op();",
+                (2, 4, "an INSTANCE_VARS initializer cannot read the transaction")),
+            (
+                "a: string = cripts::Crypto::Base64::Encode(inbound.method);", "no-op();",
+                (2, 4, "an INSTANCE_VARS initializer cannot read the transaction")),
+            (
+                'a: string = "x";\n    b: string = cripts::Crypto::Base64::Encode(a);', "no-op();",
+                (3, 4, "'a' is an instance variable, which an INSTANCE_VARS initializer cannot read yet")),
+            ("a: string = cripts::Geo::ASN();", "no-op();", (2, 4, "'cripts::Geo::ASN' returns int64; a takes a string")),
+            (
+                'a: string = "x";', "if a {\n        no-op();\n    }",
+                (5, 7, "'a' is an instance variable, which cannot be read in a condition yet")),
+            (
+                'a: string = "x";', 'if access(a) {\n        no-op();\n    }',
+                (5, 7, "'a' is an instance variable, which cannot be read in a condition yet")),
+        ],
+        ids=[
+            "int8", "set-in-a-hook", "add-in-a-hook", "builtin-hole", "function-hole", "call-hole", "hole-in-an-argument",
+            "builtin-argument", "another-instance-variable", "int-result", "in-a-condition", "as-a-condition-argument"
+        ])
+    def test_what_it_refuses(self, decls, hook, error):
+        assert _instance(_instance_vars(decls, hook))[1] == [error]
+
+    @pytest.mark.parametrize(
+        "source, line", [
+            ('VARS {\n    a: bool;\n}\n' + _instance_vars('a: string = "x";', "no-op();"), 5),
+            (_instance_vars('a: string = "x";', "no-op();").replace("SEND_RESPONSE", "VARS {\n    a: bool;\n}\nSEND_RESPONSE"), 5),
+        ],
+        ids=["vars-first", "instance-vars-first"])
+    def test_a_name_in_both_vars_and_instance_vars_is_refused(self, source, line):
+        assert _instance(source)[1] == [(line, 4, "'a' is declared in both VARS and INSTANCE_VARS")]
+
+    def test_a_name_declared_twice_is_refused_and_keeps_the_next_index_free(self):
+        decls = 'a: string = "one";\n    a: string = "two";\n    b: string = "three";'
+        prog, errors = _instance(_instance_vars(decls, "inbound.resp.X = b;"))
+        assert errors == [(3, 4, "'a' is declared twice in INSTANCE_VARS")]
+        assert [v.index for v in prog.items[0].vars] == [0, 1]
+        assert prog.items[-1].body[0].value == InstanceRef(index=1, name="b")
+
+    def test_a_load_function_runs_in_an_initializer_only(self):
+        hook = 'inbound.resp.X = cripts::File::Line::Read("k");'
+        assert _instance(_instance_vars('a: string = cripts::File::Line::Read("k");', hook))[1] == [
+            (5, 4, "'cripts::File::Line::Read' runs at load only; call it in an INSTANCE_VARS initializer")
+        ]
+
+    def test_ir_1_0_cannot_hold_them(self):
+        assert _instance(
+            _INSTANCE_VARS.read_text(),
+            ir_version=(1, 0))[1][0] == (1, 0, "'INSTANCE_VARS' needs IR 1.1; the target is 1.0 (--ir-version)")
+
+    def test_a_conf_cannot_hold_them_on_either_front_end(self):
+        source = _INSTANCE_VARS.read_text()
+        expected = (1, 0, "'INSTANCE_VARS' has no .conf spelling; compile with --output ir")
+        externs = load_manifests([_CRIPTS])
+        _, tree = parse_input_text(source)
+        for compile_conf in (lambda c: HRW4UVisitor(filename="<test>", error_collector=c, externs=externs).visit(tree),
+                             lambda c: compile_to_conf(tree, "<test>", source, error_collector=c, externs=externs)):
+            collector = ErrorCollector()
+            compile_conf(collector)
+            assert (collector.errors[0].line, collector.errors[0].column, collector.errors[0].message) == expected
+
+    def test_flattening_procedures_keeps_them(self):
+        source = _INSTANCE_VARS.read_text()
+        _, tree = parse_input_text(source)
+        flattened = HRW4UVisitor(filename="<test>").flatten(tree, source)
+        assert "\n".join(flattened) == source.replace("\n\n", "\n").rstrip("\n")

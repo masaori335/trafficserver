@@ -28,7 +28,10 @@ from typing import Any
 from hrw4u.hrw4uLexer import hrw4uLexer
 from hrw4u.hrw4uParser import hrw4uParser
 from hrw4u.visitor import HRW4UVisitor
-from hrw4u.common import run_main
+from hrw4u.common import emit_fatal_error, emit_fatal_message, run_main
+from hrw4u.errors import Hrw4uSyntaxError
+from hrw4u.externs import load_manifests
+from hrw4u.features import IR_VERSIONS, version_text
 from hrw4u.sandbox import SandboxConfig
 
 
@@ -43,9 +46,17 @@ def _add_args(parser: argparse.ArgumentParser, output_group: argparse._MutuallyE
     parser.add_argument("--version", action="version", version=f"hrw4u {_package_version()}")
     output_group.add_argument(
         "--output",
-        choices=["hrw", "hrw4u"],
+        choices=["hrw", "hrw4u", "ir"],
         default="hrw",
-        help="Output format: hrw (header_rewrite, default) or hrw4u (expand procedures inline)")
+        help="Output format: hrw (header_rewrite, default), hrw4u (expand procedures inline) "
+        "or ir (Typed IR for hrw4u.so, experimental)")
+    parser.add_argument(
+        "--ir-version",
+        choices=[version_text(v) for v in IR_VERSIONS],
+        default=version_text(IR_VERSIONS[0]),
+        dest="ir_version",
+        help="The highest Typed IR version --output ir may write, which the hrw4u.so reading it must take "
+        "(default: %(default)s); a program is written at the lowest version that has what it uses")
     parser.add_argument(
         "--procedures-path",
         metavar="DIR[:DIR...]",
@@ -53,6 +64,13 @@ def _add_args(parser: argparse.ArgumentParser, output_group: argparse._MutuallyE
         default="",
         help="Colon-separated list of directories to search for procedure files")
     parser.add_argument("--sandbox", metavar="FILE", type=Path, help="Path to sandbox YAML configuration file")
+    parser.add_argument(
+        "--extern",
+        metavar="FILE",
+        type=Path,
+        action="append",
+        default=[],
+        help="A manifest hrw4u-extern printed, declaring the functions a script may call; repeatable, read in order")
 
 
 def _visitor_kwargs(args: argparse.Namespace) -> dict[str, Any]:
@@ -61,6 +79,13 @@ def _visitor_kwargs(args: argparse.Namespace) -> dict[str, Any]:
         kwargs['proc_search_paths'] = [Path(p) for p in args.procedures_path.split(os.pathsep) if p]
     if args.sandbox:
         kwargs['sandbox'] = SandboxConfig.load(args.sandbox)
+    if args.extern:
+        try:
+            kwargs['externs'] = load_manifests(args.extern)
+        except Hrw4uSyntaxError as e:
+            emit_fatal_error(args.error_format, e)
+        except OSError as e:
+            emit_fatal_message(args.error_format, f"Error reading '{e.filename}': {e.strerror}", filename=str(e.filename))
     return kwargs
 
 

@@ -22,7 +22,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from antlr4 import InputStream, CommonTokenStream
 from antlr4.error.ErrorStrategy import BailErrorStrategy
@@ -37,6 +37,10 @@ from hrw4u.common import SystemDefaults, apply_percent_mods, split_interpolation
 from hrw4u.visitor_base import BaseHRWVisitor
 from hrw4u.validation import Validator
 from hrw4u.procedures import resolve_use_path
+from hrw4u.ast_visitor import check_extern_keyword
+from hrw4u.externs import (
+    SCRIPT_DECL_ERROR, ExternDecl, check_call, lookup, refuse_bare_refs, refuse_call_args, value_call_statement)
+from hrw4u.features import CALL_VALUE, INSTANCE_VARS, check_target
 from hrw4u.interpolation import Escaped, Hole, parse_call, scan
 from hrw4u.sandbox import SandboxConfig, SandboxDenialError
 import hrw4u.types as types
@@ -76,7 +80,8 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
             error_collector=None,
             preserve_comments: bool = True,
             proc_search_paths: list[Path] | None = None,
-            sandbox: SandboxConfig | None = None) -> None:
+            sandbox: SandboxConfig | None = None,
+            externs: dict[str, ExternDecl] | None = None) -> None:
         super().__init__(filename, debug, error_collector)
 
         self._cond_state = CondState()
@@ -93,6 +98,7 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
         self._proc_search_paths: list[Path] = list(proc_search_paths) if proc_search_paths else []
         self._source_text: str = ""
         self._current_var_scope: types.VarScope = types.VarScope.TXN
+        self._externs = externs or {}
 
     def _sandbox_check(self, ctx, check_fn) -> bool:
         """Run a sandbox check, trapping any denial error into the error collector.
@@ -144,6 +150,51 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
         args = [v.getText() for v in ctx.argumentList().value()] if ctx.argumentList() else []
         return func, args
 
+    @staticmethod
+    def _call_args(ctx) -> list[Any]:
+        """A call's arguments in order: value and functionCall contexts."""
+        if not ctx.argumentList():
+            return []
+        return [
+            arg for arg in ctx.argumentList().getChildren()
+            if isinstance(arg, (hrw4uParser.ValueContext, hrw4uParser.FunctionCallContext))
+        ]
+
+    def _refuse_call_args(self, ctx, *, in_condition: bool) -> None:
+        calls = [arg.funcName.text for arg in self._call_args(ctx) if isinstance(arg, hrw4uParser.FunctionCallContext)]
+        refuse_call_args(self._externs, ctx.funcName.text, calls, in_condition=in_condition)
+
+    def _value_call(self, call_ctx, ctx) -> NoReturn:
+        """A call for its value, which header_rewrite cannot spell. Sema's checks run first, in its order, so that both
+        front ends report the same first error."""
+        name = call_ctx.funcName.text
+        decl = lookup(self._externs, name)
+        if warning := self._sandbox.check_function(name):
+            self._add_sandbox_warning(ctx, warning)
+        check_call(decl, [self._value_call_arg_type(arg, ctx) for arg in self._call_args(call_ctx)])
+        refuse_bare_refs(decl, [self._bare_ref(arg) for arg in self._call_args(call_ctx)])
+        check_target(CALL_VALUE, None)
+        raise AssertionError("check_target() refuses a .conf call")
+
+    @staticmethod
+    def _bare_ref(arg) -> str | None:
+        if isinstance(arg, hrw4uParser.ValueContext) and arg.ident is not None:
+            return arg.ident.text
+        return None
+
+    def _value_call_arg_type(self, arg, ctx) -> str | None:
+        if isinstance(arg, hrw4uParser.FunctionCallContext):
+            self._value_call(arg, ctx)
+        text = self._get_value_text(arg)
+        if arg.str_ is not None:
+            self._substitute_strings(text, ctx)
+            return "string"
+        if arg.number is not None:
+            return "int64"
+        if arg.TRUE() or arg.FALSE():
+            return "bool"
+        return None
+
     def _check_value_mods(self, mods: list[str], ctx) -> None:
         for mod in mods:
             if mod not in VALUE_MODIFIERS:
@@ -170,9 +221,12 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
                     self.debug(f"substitute: {{{var_name}}} -> {replacement}")
                     return replacement
                 hole = parse_call(part)
+                func_name = hole.call.funcName.text
                 self._check_value_mods(hole.mods, ctx)
+                if "::" in func_name:
+                    self._value_call(hole.call, ctx)
                 replacement = apply_percent_mods(
-                    self.symbol_resolver.resolve_function(hole.call.funcName.text, list(hole.args), strip_quotes=False), hole.mods)
+                    self.symbol_resolver.resolve_function(func_name, list(hole.args), strip_quotes=False), hole.mods)
                 self._drain_resolver_warnings(ctx)
                 self.debug(f"substitute: {{{part.text}}} -> {replacement}")
                 return replacement
@@ -317,6 +371,10 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
 
     def _bind_proc_args(self, sig: ProcSig, call_ctx) -> dict[str, str]:
         """Resolve call arguments against a procedure signature, returning bindings."""
+        try:
+            self._refuse_call_args(call_ctx, in_condition=False)
+        except ValueError as e:
+            raise hrw4u_error(self.filename, call_ctx, e) from None
         call_args: list[str] = []
         if call_ctx.argumentList():
             for val_ctx in call_ctx.argumentList().value():
@@ -412,7 +470,7 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
     def _get_proc_call_info(self, item) -> tuple[ProcSig, Any] | None:
         """If item (sectionBody or blockItem) is a procedure call, return (sig, call_ctx)."""
         stmt = item.statement()
-        if stmt and stmt.functionCall():
+        if stmt and stmt.functionCall() and stmt.lhs is None:
             func_name = stmt.functionCall().funcName.text
             sig = self._proc_registry.get(func_name)
             if sig:
@@ -570,6 +628,10 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
             elif item.procedureDecl():
                 with self.trap(item.procedureDecl()):
                     self.visitProcedureDecl(item.procedureDecl())
+            elif item.externDecl():
+                with self.trap(item.externDecl()):
+                    check_extern_keyword(item.externDecl(), self.filename)
+                    raise ValueError(SCRIPT_DECL_ERROR)
 
         # Phase 2: Emit flattened output
         output: list[str] = []
@@ -587,8 +649,8 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
             if item.section():
                 section_ctx = item.section()
 
-                if section_ctx.varSection():
-                    var_text = self._get_source_text(section_ctx.varSection(), self._source_text)
+                if var_ctx := section_ctx.varSection() or section_ctx.instanceVarSection():
+                    var_text = self._get_source_text(var_ctx, self._source_text)
                     output.append(var_text)
                     continue
 
@@ -665,6 +727,10 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
                         raise error
                     with self.trap(item.procedureDecl()):
                         self.visitProcedureDecl(item.procedureDecl())
+                elif item.externDecl():
+                    with self.trap(item.externDecl()):
+                        check_extern_keyword(item.externDecl(), self.filename)
+                        raise ValueError(SCRIPT_DECL_ERROR)
                 elif item.section():
                     seen_sections = True
                     self.visit(item.section())
@@ -684,6 +750,8 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
                 return self.visitVarSection(ctx.varSection())
             if ctx.sessionVarSection():
                 return self.visitSessionVarSection(ctx.sessionVarSection())
+            if ctx.instanceVarSection():
+                return self.visitInstanceVarSection(ctx.instanceVarSection())
 
             hook = None
             with self.trap(ctx):
@@ -800,6 +868,19 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
             self._current_var_scope = types.VarScope.SESSION
             self.visit(ctx.variables())
 
+    def visitInstanceVarSection(self, ctx) -> None:
+        """Refused, as a .conf cannot spell it, after the checks Sema runs before that, so both front ends report the same
+        error."""
+        with self.debug_context("visitInstanceVarSection"), self.trap(ctx):
+            if self.current_section is not None:
+                raise ValueError("Instance variable section must be first in a section")
+            if not self._sandbox_check(ctx, lambda: self._sandbox.check_section("INSTANCE_VARS")):
+                return
+            if not self._sandbox_check(ctx, lambda: self._sandbox.check_language("variables")):
+                return
+            check_target(INSTANCE_VARS, None)
+            raise AssertionError("check_target() refuses INSTANCE_VARS in a .conf")
+
     def visitCommentLine(self, ctx) -> None:
         if not self.preserve_comments:
             return
@@ -819,16 +900,22 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
                     self.emit_statement("no-op [L]")
                     return
 
+                case _ if ctx.lhs is not None and ctx.functionCall():
+                    self._value_call(ctx.functionCall(), ctx)
+
                 case _ if ctx.functionCall():
                     func, args = self._parse_function_call(ctx.functionCall())
                     if func in self._proc_registry:
                         self._expand_procedure_call(ctx.functionCall())
                         return
+                    if func in self._externs:
+                        raise value_call_statement(func)
                     if '::' in func:
                         raise Hrw4uSyntaxError(
                             self.filename,
                             ctx.functionCall().start.line,
                             ctx.functionCall().start.column, f"unknown procedure '{func}': not loaded via 'use'", "")
+                    self._refuse_call_args(ctx.functionCall(), in_condition=False)
                     subst_args = [
                         self._substitute_strings(arg, ctx) if arg.startswith('"') and arg.endswith('"') else arg for arg in args
                     ]
@@ -1026,6 +1113,7 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
 
     def visitFunctionCall(self, ctx) -> str:
         with self.trap(ctx):
+            self._refuse_call_args(ctx, in_condition=True)
             func, raw_args = self._parse_function_call(ctx)
             self._dbg(f"function: {func}({', '.join(raw_args)})")
             result = self.symbol_resolver.resolve_function(func, raw_args, strip_quotes=True)

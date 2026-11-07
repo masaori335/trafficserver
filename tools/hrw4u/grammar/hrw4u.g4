@@ -22,6 +22,7 @@ grammar hrw4u;
 // -----------------------------
 VARS          : 'VARS';
 SESSION_VARS  : 'SESSION_VARS';
+INSTANCE_VARS : 'INSTANCE_VARS';
 IF            : 'if';
 ELIF          : 'elif';
 ELSE          : 'else';
@@ -89,6 +90,7 @@ OR            : '||';
 TILDE         : '~';
 NOT_TILDE     : '!~';
 COLON         : ':';
+ARROW         : '->';
 COMMA         : ',';
 SEMICOLON     : ';';
 AT            : '@';
@@ -106,6 +108,7 @@ program
 programItem
     : useDirective
     | procedureDecl
+    | externDecl
     | section
     | commentLine
     ;
@@ -116,6 +119,12 @@ useDirective
 
 procedureDecl
     : PROCEDURE QUALIFIED_IDENT LPAREN paramList? RPAREN block
+    ;
+
+// Only a manifest (--extern FILE) holds one. `kw` is checked to be `extern`, and `effect` to be `pure` or `load`, so
+// that none of them is reserved: a 1.0 script that names something `extern` still parses.
+externDecl
+    : kw=IDENT name=QUALIFIED_IDENT LPAREN (IDENT (COMMA IDENT)*)? RPAREN ARROW ret=IDENT (effect=IDENT)? SEMICOLON
     ;
 
 paramList
@@ -133,6 +142,7 @@ paramRef
 section
     : varSection
     | sessionVarSection
+    | instanceVarSection
     | name=IDENT LBRACE sectionBody+ RBRACE
     ;
 
@@ -142,6 +152,20 @@ varSection
 
 sessionVarSection
     : SESSION_VARS LBRACE variables RBRACE
+    ;
+
+// IR 1.1 (features.INSTANCE_VARS).
+instanceVarSection
+    : INSTANCE_VARS LBRACE instanceVarItem+ RBRACE
+    ;
+
+instanceVarItem
+    : instanceVarDecl
+    | commentLine
+    ;
+
+instanceVarDecl
+    : name=IDENT COLON typeName=IDENT EQUAL (functionCall | STRING) SEMICOLON
     ;
 
 sectionBody
@@ -163,11 +187,14 @@ variableDecl
     : name=IDENT COLON typeName=IDENT (AT slot=NUMBER)? SEMICOLON
     ;
 
+// IR 1.1 (features.CALL_VALUE): an assignment from a call, which must be to a declared function.
 statement
     : BREAK SEMICOLON
     | functionCall SEMICOLON
     | lhs=IDENT EQUAL value SEMICOLON
+    | lhs=IDENT EQUAL functionCall SEMICOLON
     | lhs=IDENT PLUSEQUAL value SEMICOLON
+    | lhs=IDENT PLUSEQUAL functionCall SEMICOLON
     ;
 
 conditional
@@ -251,8 +278,10 @@ functionCall
     : funcName=(IDENT | QUALIFIED_IDENT) LPAREN argumentList? RPAREN
     ;
 
+// IR 1.1 (features.CALL_VALUE): a call to a declared function as a declared function's argument. It is not a `value`:
+// a parameter default, a comparison operand or a set item cannot be one.
 argumentList
-    : value (COMMA value)*
+    : (value | functionCall) (COMMA (value | functionCall))*
     ;
 
 regex
@@ -295,6 +324,7 @@ commentLine
     : COMMENT
     ;
 
+// IR 1.1 (features.CALL_VALUE) when the call is to a declared (`::`) function; a builtin's stays 1.0.
 // A "{...}" in a string that holds a call, which the STRING token keeps as text: no rule above reaches it, and the front
 // ends parse such a hole with it on its own. The trailing comma keeps `with NORM,` compiling as it did before.
 interpolation

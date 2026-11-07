@@ -48,9 +48,11 @@ __all__ = [
     "Section",
     "ProcParam",
     "VarDecl",
+    "InstanceVarDecl",
     "VarSection",
     "UseDirective",
     "ProcedureDecl",
+    "ExternDecl",
     "HRW4UAST",
     "ConditionExpr",
     "BodyNode",
@@ -130,13 +132,13 @@ class Node:
 class Assignment(Node):
     name: str
     operator: str  # "=" or "+="
-    value: ValueExpr
+    value: ValueExpr | FunctionCall
 
 
 @dataclass(frozen=True, kw_only=True)
 class FunctionCall(Node):
     name: str
-    args: tuple[ValueExpr, ...]
+    args: tuple[ValueExpr | FunctionCall, ...]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -221,9 +223,16 @@ class VarDecl(Node):
 
 
 @dataclass(frozen=True, kw_only=True)
+class InstanceVarDecl(Node):
+    name: str
+    type_name: str
+    value: LiteralStringValue | FunctionCall
+
+
+@dataclass(frozen=True, kw_only=True)
 class VarSection(Node):
-    scope: str
-    items: tuple[VarDecl | Comment, ...]
+    scope: str  # "txn", "session" or "instance"
+    items: tuple[VarDecl | InstanceVarDecl | Comment, ...]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -239,6 +248,14 @@ class ProcedureDecl(Node):
 
 
 @dataclass(frozen=True, kw_only=True)
+class ExternDecl(Node):
+    name: str
+    params: tuple[str, ...]
+    result: str
+    effect: str | None  # the word after the result type, as written
+
+
+@dataclass(frozen=True, kw_only=True)
 class HRW4UAST:
     body: tuple[TopLevelNode, ...]
 
@@ -246,4 +263,4 @@ class HRW4UAST:
 # Type aliases: must follow all class definitions (evaluated at runtime).
 ConditionExpr = Union[Comparison, LogicalOp, NotOp, Group, BoolLiteral, IdentCondition, FunctionCall]
 BodyNode = Union[Assignment, FunctionCall, IfBlock, Break, Comment]
-TopLevelNode = Union[UseDirective, VarSection, ProcedureDecl, Section, Comment]
+TopLevelNode = Union[UseDirective, VarSection, ProcedureDecl, ExternDecl, Section, Comment]

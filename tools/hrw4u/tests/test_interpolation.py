@@ -63,9 +63,10 @@ def test_only_a_hole_with_a_parenthesis_holds_a_call(text, holds_call):
         (" cidr( 24 , 48 ) ", "cidr", ("24", "48")),
         ('f(\\"a, b\\", c)', "f", ('\\"a, b\\"', "c")),
         ('f(\\"a\\\\\\"b\\")', "f", ('\\"a\\\\\\"b\\"',)),
+        ("f(g(a, b), c)", "f", ("g(a, b)", "c")),
         ("T::F(1, true)", "T::F", ("1", "true")),
     ],
-    ids=["no-args", "args", "whitespace", "quoted-comma", "escaped-quote", "qualified"])
+    ids=["no-args", "args", "whitespace", "quoted-comma", "escaped-quote", "nested-call", "qualified"])
 def test_a_call_keeps_its_arguments_as_written(text, name, args):
     hole = parse_call(Hole(text))
     assert (hole.call.funcName.text, hole.args, hole.mods) == (name, args, [])
