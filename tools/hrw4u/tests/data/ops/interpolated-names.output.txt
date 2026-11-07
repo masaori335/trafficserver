@@ -1,0 +1,9 @@
+cond %{SEND_RESPONSE_HDR_HOOK} [AND]
+    set-header X-Header "%{CLIENT-HEADER:X~Foo}"
+    set-header X-Cookie "%{COOKIE:a+b}"
+    set-header X-Path "%{CLIENT-URL:PATH [NORM]}"
+    set-header X-Random "%{RANDOM:10 [NORM]}"
+    set-header X-Glued "%{RANDOM:10 [NORM]}"
+    set-header X-Paren "see {(x)}"
+    set-header X-Words "{a b(c)}"
+    set-header X-Dotted "{a.b()}"

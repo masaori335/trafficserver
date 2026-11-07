@@ -19,66 +19,10 @@ from hrw4u.errors import ErrorCollector, Hrw4uSyntaxError, SymbolResolutionError
 from hrw4u.common import create_parse_tree
 from hrw4u.hrw4uLexer import hrw4uLexer
 from hrw4u.hrw4uParser import hrw4uParser
-from hrw4u.visitor import HRW4UVisitor
 from hrw4u.validation import Validator
 from hrw4u.types import MapParams
 from hrw4u.states import SectionType
 import pytest
-
-
-class TestHRW4UVisitorUnits:
-
-    def setup_method(self):
-        self.visitor = HRW4UVisitor()
-
-    def test_parse_function_args_empty(self):
-        assert self.visitor._parse_function_args('') == []
-        assert self.visitor._parse_function_args('   ') == []
-
-    def test_parse_function_args_simple(self):
-        assert self.visitor._parse_function_args('arg1') == ['arg1']
-        assert self.visitor._parse_function_args('arg1, arg2') == ['arg1', 'arg2']
-        assert self.visitor._parse_function_args('arg1, arg2, arg3') == ['arg1', 'arg2', 'arg3']
-
-    def test_parse_function_args_quoted_commas(self):
-        assert self.visitor._parse_function_args('"arg1, with comma", arg2') == ['"arg1, with comma"', 'arg2']
-        assert self.visitor._parse_function_args('arg1, "arg2, with comma"') == ['arg1', '"arg2, with comma"']
-        assert self.visitor._parse_function_args('"first, comma", "second, comma"') == ['"first, comma"', '"second, comma"']
-
-    def test_parse_function_args_single_quotes(self):
-        assert self.visitor._parse_function_args("'arg1, with comma', arg2") == ["'arg1, with comma'", 'arg2']
-        assert self.visitor._parse_function_args("arg1, 'arg2, with comma'") == ['arg1', "'arg2, with comma'"]
-
-    def test_parse_function_args_nested_functions(self):
-        assert self.visitor._parse_function_args('func(a,b), arg2') == ['func(a,b)', 'arg2']
-        assert self.visitor._parse_function_args('arg1, func(a,b)') == ['arg1', 'func(a,b)']
-        assert self.visitor._parse_function_args('func1(a,b), func2(c,d)') == ['func1(a,b)', 'func2(c,d)']
-
-    def test_parse_function_args_deeply_nested(self):
-        assert self.visitor._parse_function_args('func(nested(a,b),c), arg2') == ['func(nested(a,b),c)', 'arg2']
-        assert self.visitor._parse_function_args('outer(inner(deep(x,y),z),w), final') == ['outer(inner(deep(x,y),z),w)', 'final']
-
-    def test_parse_function_args_mixed_complex(self):
-        complex_arg = 'func("arg1, with comma", nested_func(a,b), "arg3")'
-        assert self.visitor._parse_function_args(complex_arg) == [complex_arg]
-        assert self.visitor._parse_function_args('"quoted, arg", func(a,b), normal_arg') == [
-            '"quoted, arg"', 'func(a,b)', 'normal_arg'
-        ]
-
-    def test_parse_function_args_whitespace_handling(self):
-        assert self.visitor._parse_function_args(' arg1 , arg2 ') == ['arg1', 'arg2']
-        assert self.visitor._parse_function_args('func( a , b ), arg2') == ['func( a , b )', 'arg2']
-        assert self.visitor._parse_function_args('\targ1\t,\targ2\t') == ['arg1', 'arg2']
-
-    def test_parse_function_args_escaped_quotes(self):
-        # The current implementation doesn't handle escaped quotes perfectly,
-        # but this documents the current behavior
-        result = self.visitor._parse_function_args('"arg with \\" quote", arg2')
-
-    def test_parse_function_args_edge_cases(self):
-        assert self.visitor._parse_function_args('func(a,b, arg2') == ['func(a,b, arg2']
-        assert self.visitor._parse_function_args('arg1,, arg2') == ['arg1', '', 'arg2']
-        assert self.visitor._parse_function_args(',,,') == ['', '', '']
 
 
 class TestErrorCollectorUnits:

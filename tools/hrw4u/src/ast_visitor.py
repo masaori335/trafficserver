@@ -17,9 +17,14 @@
 
 from __future__ import annotations
 
+from antlr4 import CommonTokenStream, InputStream
+
+from hrw4u.hrw4uLexer import hrw4uLexer
+from hrw4u.hrw4uParser import hrw4uParser
 from hrw4u.hrw4uVisitor import hrw4uVisitor
 from hrw4u.ast_nodes import *
 from hrw4u.common import SystemDefaults
+from hrw4u.errors import ThrowingErrorListener
 
 
 class ASTVisitor(hrw4uVisitor):
@@ -270,3 +275,18 @@ class ASTVisitor(hrw4uVisitor):
         if ctx.modifier():
             return tuple(tok.text for tok in ctx.modifier().modifierList().mods)
         return ()
+
+
+def make_parser(text: str, filename: str) -> hrw4uParser:
+    """A parser that raises its first syntax error as a Hrw4uSyntaxError.
+
+    Not create_parse_tree, which exits the process: a syntax error must raise into the caller's trap.
+    """
+    listener = ThrowingErrorListener(filename=filename)
+    lexer = hrw4uLexer(InputStream(text))
+    lexer.removeErrorListeners()
+    lexer.addErrorListener(listener)
+    parser = hrw4uParser(CommonTokenStream(lexer))
+    parser.removeErrorListeners()
+    parser.addErrorListener(listener)
+    return parser

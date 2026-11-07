@@ -1,0 +1,10 @@
+SEND_RESPONSE {
+    inbound.resp.X-Header = "{inbound.req.X~Foo}";
+    inbound.resp.X-Cookie = "{inbound.cookie.a+b}";
+    inbound.resp.X-Path = "{inbound.url.path with NORM,}";
+    inbound.resp.X-Random = "{random(10) with NORM,}";
+    inbound.resp.X-Glued = "{random(10)with NORM}";
+    inbound.resp.X-Paren = "see {(x)}";
+    inbound.resp.X-Words = "{a b(c)}";
+    inbound.resp.X-Dotted = "{a.b()}";
+}

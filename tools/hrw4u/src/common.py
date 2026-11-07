@@ -45,17 +45,6 @@ class RegexPatterns:
     PERCENT_BLOCK: Final = re.compile(r"^\%\{([A-Z0-9_-]+)(?::(.*))?\}$")
     PERCENT_INLINE: Final = re.compile(r"%\{([A-Z0-9_-]+)(?::(.*?))?\}")
     PERCENT_PATTERN: Final = re.compile(r'%\{([^}]+)\}')
-    SUBSTITUTE_PATTERN: Final = re.compile(
-        r"""(?P<escaped>\{\{.*?\}\})
-            |
-            (?<!%)\{\s*(?P<func>[a-zA-Z_][a-zA-Z0-9_-]*)\s*\((?P<args>[^)]*)\)
-                (?:\s+with\s+(?P<func_mods>[A-Za-z][A-Za-z0-9,\s]*?))?\s*\}
-            |
-            (?<!%)\{(?P<var>[^{}()]+)\}
-        """,
-        re.VERBOSE | re.DOTALL,
-    )
-
     # An interpolated symbol may carry modifiers, spelled as on a condition: {inbound.url.path with NORM}
     INTERPOLATION_MODS: Final = re.compile(r'^\s*(?P<name>\S+?)\s+with\s+(?P<mods>[A-Za-z][A-Za-z0-9,\s]*?)\s*$')
 

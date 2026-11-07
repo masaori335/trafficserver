@@ -9,3 +9,5 @@ header_value_context.input: u4wrh
 http_cntl_valid_bools.input: hrw4u
 # The reverse normalizes a bool argument's spelling (FALSE -> false)
 bool-spelling.input: hrw4u
+# The reverse writes no trailing comma after a hole's modifiers
+interpolated-names.input: hrw4u

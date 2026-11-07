@@ -33,10 +33,11 @@ from hrw4u.hrw4uLexer import hrw4uLexer
 from hrw4u.symbols import SymbolResolver, SymbolResolutionError
 from hrw4u.errors import hrw4u_error, Hrw4uSyntaxError, ThrowingErrorListener
 from hrw4u.states import CondState, SectionType, VALUE_MODIFIERS
-from hrw4u.common import RegexPatterns, SystemDefaults, apply_percent_mods, parse_mods, split_interpolation_mods
+from hrw4u.common import SystemDefaults, apply_percent_mods, split_interpolation_mods
 from hrw4u.visitor_base import BaseHRWVisitor
 from hrw4u.validation import Validator
 from hrw4u.procedures import resolve_use_path
+from hrw4u.interpolation import Escaped, Hole, parse_call, scan
 from hrw4u.sandbox import SandboxConfig, SandboxDenialError
 import hrw4u.types as types
 
@@ -66,7 +67,6 @@ class QueuedItem:
 
 
 class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
-    _SUBSTITUTE_PATTERN = RegexPatterns.SUBSTITUTE_PATTERN
     _PARAM_REF_PATTERN = re.compile(r'\$([a-zA-Z_][a-zA-Z0-9_-]*)')
 
     def __init__(
@@ -144,49 +144,6 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
         args = [v.getText() for v in ctx.argumentList().value()] if ctx.argumentList() else []
         return func, args
 
-    def _parse_function_args(self, arg_str: str) -> list[str]:
-        if not arg_str.strip():
-            return []
-
-        args = []
-        current_arg = []
-        paren_depth = 0
-        in_quotes = False
-        quote_char = None
-        i = 0
-
-        while i < len(arg_str):
-            char = arg_str[i]
-
-            if not in_quotes:
-                if char in ('"', "'"):
-                    in_quotes = True
-                    quote_char = char
-                    current_arg.append(char)
-                elif char == '(':
-                    paren_depth += 1
-                    current_arg.append(char)
-                elif char == ')':
-                    paren_depth -= 1
-                    current_arg.append(char)
-                elif char == ',' and paren_depth == 0:
-                    args.append(''.join(current_arg).strip())
-                    current_arg = []
-                else:
-                    current_arg.append(char)
-            else:
-                current_arg.append(char)
-                if char == quote_char:
-                    if i == 0 or arg_str[i - 1] != '\\':
-                        in_quotes = False
-                        quote_char = None
-            i += 1
-
-        if current_arg:
-            args.append(''.join(current_arg).strip())
-
-        return args
-
     def _check_value_mods(self, mods: list[str], ctx) -> None:
         for mod in mods:
             if mod not in VALUE_MODIFIERS:
@@ -200,30 +157,25 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
         if self._proc_bindings:
             inner = self._PARAM_REF_PATTERN.sub(lambda m: self._proc_bindings.get(m.group(1), m.group(0)), inner)
 
-        def repl(m: re.Match) -> str:
+        def repl(part: Escaped | Hole) -> str:
             try:
-                if m.group("escaped"):
-                    return m.group("escaped")
-                if m.group("func"):
-                    func_name = m.group("func").strip()
-                    arg_str = m.group("args").strip()
-                    mods = parse_mods(m.group("func_mods"))
-                    self._check_value_mods(mods, ctx)
-                    args = self._parse_function_args(arg_str) if arg_str else []
-                    replacement = apply_percent_mods(
-                        self.symbol_resolver.resolve_function(func_name, args, strip_quotes=False), mods)
-                    self._drain_resolver_warnings(ctx)
-                    self.debug(f"substitute: {{{func_name}({arg_str})}} -> {replacement}")
-                    return replacement
-                if m.group("var"):
-                    var_name, mods = split_interpolation_mods(m.group("var"))
+                if isinstance(part, Escaped):
+                    return part.text
+                if not part.holds_call:
+                    var_name, mods = split_interpolation_mods(part.text)
                     self._check_value_mods(mods, ctx)
                     resolved, _ = self.symbol_resolver.resolve_condition(var_name, self.current_section)
                     replacement = apply_percent_mods(resolved, mods)
                     self._drain_resolver_warnings(ctx)
                     self.debug(f"substitute: {{{var_name}}} -> {replacement}")
                     return replacement
-                raise SymbolResolutionError(m.group(0), "Unrecognized substitution format")
+                hole = parse_call(part)
+                self._check_value_mods(hole.mods, ctx)
+                replacement = apply_percent_mods(
+                    self.symbol_resolver.resolve_function(hole.call.funcName.text, list(hole.args), strip_quotes=False), hole.mods)
+                self._drain_resolver_warnings(ctx)
+                self.debug(f"substitute: {{{part.text}}} -> {replacement}")
+                return replacement
             except SandboxDenialError as e:
                 # Report it as a denial so the sandbox message is set.
                 e.add_note(f"String interpolation context: {s[:50]}...")
@@ -242,7 +194,7 @@ class HRW4UVisitor(hrw4uVisitor, BaseHRWVisitor):
                 else:
                     raise error
 
-        substituted = self._SUBSTITUTE_PATTERN.sub(repl, inner)
+        substituted = "".join(part if isinstance(part, str) else repl(part) for part in scan(inner))
         return f'"{substituted}"'
 
     def _resolve_identifier_with_validation(self, name: str) -> tuple[str, bool]:

@@ -44,11 +44,13 @@ from pathlib import Path
 
 import pytest
 from antlr4 import ParserRuleContext
+from antlr4.tree.Tree import TerminalNode
 
 import ast_unparse
 import utils
-from hrw4u.ast_visitor import ASTVisitor
+from hrw4u.ast_visitor import ASTVisitor, make_parser
 from hrw4u.hrw4uParser import hrw4uParser
+from hrw4u.interpolation import Hole, scan, unescape
 from hrw4u.visitor import HRW4UVisitor
 
 CORPUS = Path("tests/data")
@@ -91,6 +93,11 @@ def test_the_corpus_reaches_every_grammar_rule() -> None:
             reached.add(hrw4uParser.ruleNames[ctx.getRuleIndex()])
             for child in ctx.getChildren():
                 walk(child)
+        elif isinstance(ctx, TerminalNode) and ctx.symbol.type == hrw4uParser.STRING:
+            # A hole holding a call is parsed on its own, so the rule for it is reached only from here.
+            for part in scan(ctx.getText()[1:-1]):
+                if isinstance(part, Hole) and part.holds_call:
+                    walk(make_parser(unescape(part.text)[0], "<hole>").interpolation())
 
     for param in _cases():
         _, tree = utils.parse_input_text(param.values[0].read_text())

@@ -294,3 +294,9 @@ value
 commentLine
     : COMMENT
     ;
+
+// A "{...}" in a string that holds a call, which the STRING token keeps as text: no rule above reaches it, and the front
+// ends parse such a hole with it on its own. The trailing comma keeps `with NORM,` compiling as it did before.
+interpolation
+    : functionCall (modifier COMMA?)? EOF
+    ;

@@ -26,9 +26,10 @@ from typing import Callable
 import hrw4u.ast_nodes as ast
 import hrw4u.sema_nodes as ir
 import hrw4u.types as types
-from hrw4u.common import RegexPatterns, SystemDefaults, parse_mods, split_interpolation_mods
+from hrw4u.common import SystemDefaults, split_interpolation_mods
 from hrw4u.debugging import Dbg
 from hrw4u.errors import ErrorCollector, Hrw4uSyntaxError, SourceMap, SymbolResolutionError, Warning, hrw4u_error_at
+from hrw4u.interpolation import Escaped, Hole, parse_call, scan
 from hrw4u.procedures import ProcEntry, ProcRegistry
 from hrw4u.sandbox import SandboxConfig, SandboxDenialError
 from hrw4u.states import CondState, SectionType, VALUE_MODIFIERS
@@ -56,46 +57,7 @@ def _strip_quotes(text: str) -> str:
     return text
 
 
-# _split_args and _unescape_double_braces are copied from HRW4UVisitor rather than shared: its copies go with the CST emitter.
-def _split_args(arg_str: str) -> list[str]:
-    if not arg_str.strip():
-        return []
-
-    args = []
-    current_arg = []
-    paren_depth = 0
-    in_quotes = False
-    quote_char = None
-
-    for i, char in enumerate(arg_str):
-        if not in_quotes:
-            if char in ('"', "'"):
-                in_quotes = True
-                quote_char = char
-                current_arg.append(char)
-            elif char == '(':
-                paren_depth += 1
-                current_arg.append(char)
-            elif char == ')':
-                paren_depth -= 1
-                current_arg.append(char)
-            elif char == ',' and paren_depth == 0:
-                args.append(''.join(current_arg).strip())
-                current_arg = []
-            else:
-                current_arg.append(char)
-        else:
-            current_arg.append(char)
-            if char == quote_char and (i == 0 or arg_str[i - 1] != '\\'):
-                in_quotes = False
-                quote_char = None
-
-    if current_arg:
-        args.append(''.join(current_arg).strip())
-
-    return args
-
-
+# _unescape_double_braces is copied from HRW4UVisitor rather than shared: its copy goes with the CST emitter.
 def _unescape_double_braces(escaped: str) -> str:
     """`{{...}}` in a string literal: the payload as literal `{...}`, unescaped quotes escaped."""
     out: list[str] = []
@@ -584,19 +546,16 @@ class Sema:
     def _template(self, literal: ast.LiteralStringValue, span: ast.Span) -> ir.StrTemplate:
         inner = literal.raw
         parts: list[str | ir.BuiltinRef | ir.VarRef | ir.ModifiedRef] = []
-        pos = 0
-        for m in RegexPatterns.SUBSTITUTE_PATTERN.finditer(inner):
-            if m.start() > pos:
-                parts.append(inner[pos:m.start()])
-            parts.append(self._template_part(m, span, literal.written or inner))
-            pos = m.end()
-        if pos < len(inner):
-            parts.append(inner[pos:])
+        for part in scan(inner):
+            if isinstance(part, str):
+                parts.append(part)
+            else:
+                parts.append(self._template_part(part, span, literal.written or inner))
         return ir.StrTemplate(parts=tuple(parts))
 
-    def _template_part(self, m, span: ast.Span, inner: str) -> str | ir.BuiltinRef | ir.VarRef | ir.ModifiedRef:
+    def _template_part(self, part: Escaped | Hole, span: ast.Span, inner: str) -> str | ir.BuiltinRef | ir.VarRef | ir.ModifiedRef:
         try:
-            return self._template_part_inner(m, span)
+            return self._template_part_inner(part, span)
         except SandboxDenialError as exc:
             # Unwrapped, so the sandbox message is still set.
             exc.add_note(self._interpolation_note(inner))
@@ -619,25 +578,23 @@ class Sema:
         literal = f'"{inner}"'
         return f"String interpolation context: {literal[:50]}..."
 
-    def _template_part_inner(self, m, span: ast.Span):
-        if escaped := m.group("escaped"):
-            return _unescape_double_braces(escaped)
-        if func := m.group("func"):
-            mods = parse_mods(m.group("func_mods"))
-            self._check_value_mods(mods, span)
-            args = _split_args(m.group("args"))
-            key, entry = self.symbol_resolver.lookup_function(func.strip(), args)
-            self._drain_resolver_warnings(span)
-            return self._with_mods(ir.BuiltinRef.from_function(key, entry, args), mods)
-        if var := m.group("var"):
-            name, mods = split_interpolation_mods(var)
+    def _template_part_inner(self, part: Escaped | Hole, span: ast.Span):
+        if isinstance(part, Escaped):
+            return _unescape_double_braces(part.text)
+        if not part.holds_call:
+            name, mods = split_interpolation_mods(part.text)
             self._check_value_mods(mods, span)
             found = self.symbol_resolver.lookup_condition(name, self._section)
             self._drain_resolver_warnings(span)
             if found.symbol is not None:
                 return self._with_mods(ir.VarRef(symbol=found.symbol), mods)
             return self._with_mods(ir.BuiltinRef(key=found.key, entry=found.entry, arg=found.arg), mods)
-        raise SymbolResolutionError(m.group(0), "Unrecognized substitution format")
+        hole = parse_call(part)
+        self._check_value_mods(hole.mods, span)
+        args = list(hole.args)
+        key, entry = self.symbol_resolver.lookup_function(hole.call.funcName.text, args)
+        self._drain_resolver_warnings(span)
+        return self._with_mods(ir.BuiltinRef.from_function(key, entry, args), hole.mods)
 
     def _check_value_mods(self, mods: list[str], span: ast.Span) -> None:
         for mod in mods:
