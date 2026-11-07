@@ -1,0 +1,28 @@
+hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  consts = [K0:"X-A", K1:"1", K2:"X-B", K3:"X-C", K4:"X-Group", K5:"in", K6:"out"]
+  IR:
+    %1:sview = const.s K0 @2:8
+    %2:sview = call.pure BI_CLIENT_HEADER, %1 @2:8
+    %3:sview = const.s K1 @2:8
+    %4:bool = cmp.s.eq %2, %3 @2:8
+    br.t %4, .L10 @2:8
+    %5:sview = const.s K2 @2:34
+    %6:sview = call.pure BI_CLIENT_HEADER, %5 @2:34
+    %7:sview = const.s K1 @2:34
+    %8:bool = cmp.s.eq %6, %7 @2:34
+    br.f %8, .L19 @2:34
+    .L10: %9:sview = const.s K3 @2:63
+    %10:sview = call.pure BI_CLIENT_HEADER, %9 @2:63
+    %11:sview = const.s K1 @2:63
+    %12:bool = cmp.s.eq %10, %11 @2:63
+    br.t %12, .L19 @2:63
+    %13:sview = const.s K4 @3:8
+    %14:sview = const.s K5 @3:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %13, %14 @3:8
+    br .L22 @2:4
+    .L19: %15:sview = const.s K4 @5:8
+    %16:sview = const.s K6 @5:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %15, %16 @5:8
+    .L22: ret @5:8

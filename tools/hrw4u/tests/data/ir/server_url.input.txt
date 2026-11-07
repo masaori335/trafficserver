@@ -1,0 +1,11 @@
+SEND_REQUEST {
+    outbound.req.X-Server-Path = "{outbound.url.path}";
+}
+
+SEND_RESPONSE {
+    inbound.resp.X-Server-Path = "{outbound.url.path}";
+    inbound.resp.X-Server-Q = "{outbound.url.query.q}";
+    inbound.resp.X-Server-Port = "port={outbound.url.port}";
+    inbound.resp.X-Server-Url = "url={outbound.url.url}";
+    inbound.resp.X-Sent-Path = "sent={outbound.req.X-Server-Path}";
+}

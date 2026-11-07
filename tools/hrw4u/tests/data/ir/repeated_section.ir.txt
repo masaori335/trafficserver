@@ -1,0 +1,19 @@
+hrw4u-ir 1.0
+
+Section[REMAP]:
+  consts = [K0:"X-First", K1:"1", K2:"stop", K3:"X-Second", K4:"2"]
+  ints   = [I0:3]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:sview = const.s K1 @2:4
+    call.eff BI_SET_CLIENT_HEADER, %1, %2 @2:4
+    %3:i64 = const.i I0 @3:7
+    %4:sview = call.pure BI_CLIENT_URL, %3 @3:7
+    %5:sview = const.s K2 @3:7
+    %6:bool = cmp.s.eq %4, %5 @3:7
+    br.f %6, .L9 @3:7
+    break @4:8
+    .L9: %7:sview = const.s K3 @9:4
+    %8:sview = const.s K4 @9:4
+    call.eff BI_SET_CLIENT_HEADER, %7, %8 @9:4
+    ret @9:4

@@ -1,0 +1,3 @@
+tests/data/vars/instance_vars.fail.input.txt:1:0: error: 'INSTANCE_VARS' has no .conf spelling; compile with --output ir
+   1 | INSTANCE_VARS {
+     | ^

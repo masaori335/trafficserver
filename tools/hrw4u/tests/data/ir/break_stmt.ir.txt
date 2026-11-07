@@ -1,0 +1,13 @@
+hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  consts = [K0:"X-A", K1:"1", K2:"X-B", K3:"2"]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:sview = const.s K1 @2:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %1, %2 @2:4
+    break @3:4
+    %3:sview = const.s K2 @4:4
+    %4:sview = const.s K3 @4:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %3, %4 @4:4
+    ret @4:4

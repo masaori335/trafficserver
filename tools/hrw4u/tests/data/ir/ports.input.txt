@@ -1,0 +1,6 @@
+SEND_RESPONSE {
+    if inbound.conn.LOCAL-PORT == "0" {
+        inbound.resp.X-Zero = "yes";
+    }
+    inbound.resp.X-Ports = "{inbound.conn.LOCAL-PORT},{inbound.conn.REMOTE-PORT}";
+}

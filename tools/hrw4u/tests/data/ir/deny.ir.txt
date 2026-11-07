@@ -1,0 +1,14 @@
+hrw4u-ir 1.0
+
+Section[REMAP]:
+  consts = [K0:"deny"]
+  ints   = [I0:3, I1:403]
+  IR:
+    %1:i64 = const.i I0 @2:7
+    %2:sview = call.pure BI_CLIENT_URL, %1 @2:7
+    %3:sview = const.s K0 @2:7
+    %4:bool = cmp.s.eq %2, %3 @2:7
+    br.f %4, .L7 @2:7
+    %5:i64 = const.i I1 @3:8
+    call.eff BI_SET_CLIENT_RESP_STATUS, %5 @3:8
+    .L7: ret @3:8

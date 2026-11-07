@@ -1,0 +1,3 @@
+REMAP {
+    inbound.req.CDN-Forward-Host = "{from.url.host}";
+}

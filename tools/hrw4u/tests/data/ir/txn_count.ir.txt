@@ -1,0 +1,19 @@
+hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  consts = [K0:"X-Txn-Count", K1:"X-Txn-Later", K2:"yes"]
+  ints   = [I0:1]
+  fmt    = [F0:"{txn-count()}" arity=1 lits=["", ""]]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:i64 = call.pure BI_TXN_COUNT @2:4
+    %3:sview = fmt F0, %2 @2:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %1, %3 @2:4
+    %4:i64 = call.pure BI_TXN_COUNT @3:7
+    %5:i64 = const.i I0 @3:7
+    %6:bool = cmp.i64.gt %4, %5 @3:7
+    br.f %6, .L11 @3:7
+    %7:sview = const.s K1 @4:8
+    %8:sview = const.s K2 @4:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %7, %8 @4:8
+    .L11: ret @4:8

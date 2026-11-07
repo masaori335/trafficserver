@@ -1,0 +1,55 @@
+hrw4u-ir 1.0
+
+Section[TXN_START]:
+  vars   = [v0:bool, v1:bool]
+  consts = [K0:"X-Mark", K1:"read", K2:"X-Read", K3:"X-Pre", K4:"pre", K5:"X-Started", K6:"yes", K7:"X-Marked", K8:"X-Echo"]
+  ints   = [I0:1, I1:3]
+  fmt    = [F0:"{inbound.url.path}" arity=1 lits=["", ""], F1:"{inbound.req.X-Read},{inbound.req.X-Pre}" arity=2 lits=["", ",", ""]]
+  IR:
+    %1:bool = const.i I0 @7:4
+    store.v v0:bool, %1 @7:4
+    ret @7:4
+
+Section[READ_REQUEST]:
+  IR:
+    %1:sview = const.s K0 @11:7
+    %2:sview = call.pure BI_CLIENT_HEADER, %1 @11:7
+    %3:sview = const.s K1 @11:7
+    %4:bool = cmp.s.eq %2, %3 @11:7
+    br.f %4, .L12 @11:7
+    %5:sview = const.s K2 @12:8
+    %6:i64 = const.i I1 @12:8
+    %7:sview = call.pure BI_CLIENT_URL, %6 @12:8
+    %8:sview = fmt F0, %7 @12:8
+    call.eff BI_SET_CLIENT_HEADER, %5, %8 @12:8
+    %9:bool = const.i I0 @13:8
+    store.v v1:bool, %9 @13:8
+    .L12: ret @13:8
+
+Section[PRE_REMAP]:
+  IR:
+    %1:sview = const.s K3 @18:4
+    %2:sview = const.s K4 @18:4
+    call.eff BI_SET_CLIENT_HEADER, %1, %2 @18:4
+    ret @18:4
+
+Section[SEND_RESPONSE]:
+  IR:
+    %1:bool = load.v v0:bool @22:7
+    br.f %1, .L5 @22:7
+    %2:sview = const.s K5 @23:8
+    %3:sview = const.s K6 @23:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %2, %3 @23:8
+    .L5: %4:bool = load.v v1:bool @25:7
+    br.f %4, .L10 @25:7
+    %5:sview = const.s K7 @26:8
+    %6:sview = const.s K6 @26:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %5, %6 @26:8
+    .L10: %7:sview = const.s K8 @28:4
+    %8:sview = const.s K2 @28:4
+    %9:sview = call.pure BI_CLIENT_HEADER, %8 @28:4
+    %10:sview = const.s K3 @28:4
+    %11:sview = call.pure BI_CLIENT_HEADER, %10 @28:4
+    %12:sview = fmt F1, %9, %11 @28:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %7, %12 @28:4
+    ret @28:4

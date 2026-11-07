@@ -1,0 +1,18 @@
+hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  consts = [K0:"X-Added", K1:"one", K2:"two", K3:"X-None"]
+  fmt    = [F0:"{inbound.req.X-None}" arity=1 lits=["", ""]]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:sview = const.s K1 @2:4
+    call.eff BI_ADD_CLIENT_RESP_HEADER, %1, %2 @2:4
+    %3:sview = const.s K0 @3:4
+    %4:sview = const.s K2 @3:4
+    call.eff BI_ADD_CLIENT_RESP_HEADER, %3, %4 @3:4
+    %5:sview = const.s K0 @4:4
+    %6:sview = const.s K3 @4:4
+    %7:sview = call.pure BI_CLIENT_HEADER, %6 @4:4
+    %8:sview = fmt F0, %7 @4:4
+    call.eff BI_ADD_CLIENT_RESP_HEADER, %5, %8 @4:4
+    ret @4:4

@@ -1,0 +1,6 @@
+REMAP {
+    if inbound.url.path == "deny" {
+        inbound.status = 403;
+        set-body-from-file("deny_body.txt");
+    }
+}

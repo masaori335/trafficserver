@@ -1,0 +1,29 @@
+VARS {
+    started: bool;
+    marked: bool;
+}
+
+TXN_START {
+    started = true;
+}
+
+READ_REQUEST {
+    if inbound.req.X-Mark == "read" {
+        inbound.req.X-Read = "{inbound.url.path}";
+        marked = true;
+    }
+}
+
+PRE_REMAP {
+    inbound.req.X-Pre = "pre";
+}
+
+SEND_RESPONSE {
+    if started {
+        inbound.resp.X-Started = "yes";
+    }
+    if marked {
+        inbound.resp.X-Marked = "yes";
+    }
+    inbound.resp.X-Echo = "{inbound.req.X-Read},{inbound.req.X-Pre}";
+}

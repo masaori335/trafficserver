@@ -1,0 +1,4 @@
+SEND_RESPONSE {
+    no-op();
+    inbound.resp.X-After-No-Op = "ran";
+}

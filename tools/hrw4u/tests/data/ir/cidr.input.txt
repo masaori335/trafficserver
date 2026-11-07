@@ -1,0 +1,7 @@
+SEND_RESPONSE {
+    inbound.resp.X-Cidr = "{cidr(24,48)}";
+    inbound.resp.X-Cidr-Odd = "{cidr(4,128)}";
+    if cidr(8,128) == "127.0.0.0" {
+        inbound.resp.X-Cidr-Match = "yes";
+    }
+}

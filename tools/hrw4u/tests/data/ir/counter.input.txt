@@ -1,0 +1,4 @@
+REMAP {
+    counter("hrw4u.parity.counter");
+    inbound.req.X-Counted = "yes";
+}

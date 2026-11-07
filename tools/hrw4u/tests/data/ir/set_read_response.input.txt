@@ -1,0 +1,3 @@
+READ_RESPONSE {
+    outbound.resp.X-Foo = "bar";
+}

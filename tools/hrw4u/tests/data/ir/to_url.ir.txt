@@ -1,0 +1,18 @@
+hrw4u-ir 1.0
+
+Section[REMAP]:
+  consts = [K0:"X-To-Host", K1:"X-To-Path"]
+  ints   = [I0:1, I1:3]
+  fmt    = [F0:"{to.url.host}" arity=1 lits=["", ""], F1:"{to.url.path}" arity=1 lits=["", ""]]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:i64 = const.i I0 @2:4
+    %3:sview = call.pure BI_TO_URL, %2 @2:4
+    %4:sview = fmt F0, %3 @2:4
+    call.eff BI_SET_CLIENT_HEADER, %1, %4 @2:4
+    %5:sview = const.s K1 @3:4
+    %6:i64 = const.i I1 @3:4
+    %7:sview = call.pure BI_TO_URL, %6 @3:4
+    %8:sview = fmt F1, %7 @3:4
+    call.eff BI_SET_CLIENT_HEADER, %5, %8 @3:4
+    ret @3:4

@@ -1,0 +1,9 @@
+READ_RESPONSE {
+    outbound.status.reason = "From Origin";
+}
+
+SEND_RESPONSE {
+    if inbound.req.X-Reason != "" {
+        inbound.status.reason = "Said {inbound.req.X-Reason}";
+    }
+}

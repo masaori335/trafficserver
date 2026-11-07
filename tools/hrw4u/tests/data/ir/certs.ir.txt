@@ -1,0 +1,65 @@
+hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  consts = [K0:"X-Client-Subject", K1:"X-Client-Issuer", K2:"X-Client-Serial", K3:"X-Client-Version", K4:"X-Client-Not-Before", K5:"X-Client-Not-After", K6:"X-Client-Pem", K7:"X-Server-Subject", K8:"X-Server-Serial", K9:"X-Server-Sig", K10:"X-Server-San"]
+  ints   = [I0:2, I1:3, I2:4, I3:7, I4:5, I5:6, I6:0, I7:1, I8:8, I9:9]
+  fmt    = [F0:"{inbound.conn.client-cert.SUBJECT}" arity=1 lits=["", ""], F1:"{inbound.conn.client-cert.ISSUER}" arity=1 lits=["", ""], F2:"{inbound.conn.client-cert.SERIAL}" arity=1 lits=["", ""], F3:"{inbound.conn.client-cert.VERSION}" arity=1 lits=["", ""], F4:"{inbound.conn.client-cert.NOT_BEFORE}" arity=1 lits=["", ""], F5:"{inbound.conn.client-cert.NOT_AFTER}" arity=1 lits=["", ""], F6:"{inbound.conn.client-cert.PEM}" arity=1 lits=["", ""], F7:"{inbound.conn.server-cert.SUBJECT}" arity=1 lits=["", ""], F8:"{inbound.conn.server-cert.SERIAL}" arity=1 lits=["", ""], F9:"{inbound.conn.server-cert.SIG}" arity=1 lits=["", ""], F10:"{inbound.conn.server-cert.SAN.DNS}|{inbound.conn.server-cert.san.ip}" arity=2 lits=["", "|", ""]]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:i64 = const.i I0 @2:4
+    %3:sview = call.pure BI_INBOUND_CLIENT_CERT, %2 @2:4
+    %4:sview = fmt F0, %3 @2:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %1, %4 @2:4
+    %5:sview = const.s K1 @3:4
+    %6:i64 = const.i I1 @3:4
+    %7:sview = call.pure BI_INBOUND_CLIENT_CERT, %6 @3:4
+    %8:sview = fmt F1, %7 @3:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %5, %8 @3:4
+    %9:sview = const.s K2 @4:4
+    %10:i64 = const.i I2 @4:4
+    %11:sview = call.pure BI_INBOUND_CLIENT_CERT, %10 @4:4
+    %12:sview = fmt F2, %11 @4:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %9, %12 @4:4
+    %13:sview = const.s K3 @5:4
+    %14:i64 = const.i I3 @5:4
+    %15:sview = call.pure BI_INBOUND_CLIENT_CERT, %14 @5:4
+    %16:sview = fmt F3, %15 @5:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %13, %16 @5:4
+    %17:sview = const.s K4 @6:4
+    %18:i64 = const.i I4 @6:4
+    %19:sview = call.pure BI_INBOUND_CLIENT_CERT, %18 @6:4
+    %20:sview = fmt F4, %19 @6:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %17, %20 @6:4
+    %21:sview = const.s K5 @7:4
+    %22:i64 = const.i I5 @7:4
+    %23:sview = call.pure BI_INBOUND_CLIENT_CERT, %22 @7:4
+    %24:sview = fmt F5, %23 @7:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %21, %24 @7:4
+    %25:sview = const.s K6 @8:4
+    %26:i64 = const.i I6 @8:4
+    %27:sview = call.pure BI_INBOUND_CLIENT_CERT, %26 @8:4
+    %28:sview = fmt F6, %27 @8:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %25, %28 @8:4
+    %29:sview = const.s K7 @9:4
+    %30:i64 = const.i I0 @9:4
+    %31:sview = call.pure BI_INBOUND_SERVER_CERT, %30 @9:4
+    %32:sview = fmt F7, %31 @9:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %29, %32 @9:4
+    %33:sview = const.s K8 @10:4
+    %34:i64 = const.i I2 @10:4
+    %35:sview = call.pure BI_INBOUND_SERVER_CERT, %34 @10:4
+    %36:sview = fmt F8, %35 @10:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %33, %36 @10:4
+    %37:sview = const.s K9 @11:4
+    %38:i64 = const.i I7 @11:4
+    %39:sview = call.pure BI_INBOUND_SERVER_CERT, %38 @11:4
+    %40:sview = fmt F9, %39 @11:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %37, %40 @11:4
+    %41:sview = const.s K10 @12:4
+    %42:i64 = const.i I8 @12:4
+    %43:sview = call.pure BI_INBOUND_SERVER_CERT, %42 @12:4
+    %44:i64 = const.i I9 @12:4
+    %45:sview = call.pure BI_INBOUND_SERVER_CERT, %44 @12:4
+    %46:sview = fmt F10, %43, %45 @12:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %41, %46 @12:4
+    ret @12:4

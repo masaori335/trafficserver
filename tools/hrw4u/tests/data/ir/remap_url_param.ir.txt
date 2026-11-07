@@ -1,0 +1,12 @@
+hrw4u-ir 1.0
+
+Section[REMAP]:
+  consts = [K0:"X-To", K1:"t"]
+  fmt    = [F0:"{to.url.query.t}" arity=1 lits=["", ""]]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:sview = const.s K1 @2:4
+    %3:sview = call.pure BI_TO_URL_PARAM, %2 @2:4
+    %4:sview = fmt F0, %3 @2:4
+    call.eff BI_SET_CLIENT_HEADER, %1, %4 @2:4
+    ret @2:4

@@ -1,0 +1,17 @@
+REMAP {
+    if inbound.url.path == "Content/TS_ts/" with NOCASE,PRE {
+        inbound.req.X-Pre = "yes";
+    }
+    if inbound.url.path in ["m3u8"] with NOCASE,EXT {
+        inbound.req.X-Ext = "yes";
+    }
+    if inbound.url.path == "/index.m3u8" with MID {
+        inbound.req.X-Mid = "yes";
+    }
+    if inbound.url.path == ".ts" with SUF {
+        inbound.req.X-Suf = "yes";
+    }
+    if inbound.url.path != "content/" with PRE {
+        inbound.req.X-Not-Pre = "yes";
+    }
+}

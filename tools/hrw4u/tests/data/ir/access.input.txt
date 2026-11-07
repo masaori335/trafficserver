@@ -1,0 +1,8 @@
+REMAP {
+    if access("/etc/hosts") {
+        inbound.req.X-Readable = "yes";
+    }
+    if !access("/nonexistent/hrw4u-parity") {
+        inbound.req.X-Missing = "yes";
+    }
+}

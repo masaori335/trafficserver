@@ -1,0 +1,25 @@
+hrw4u-ir 1.0
+
+Section[REMAP]:
+  consts = [K0:"denied", K1:"https://moved.example.com/gone"]
+  ints   = [I0:3, I1:403, I2:302]
+  IR:
+    %1:i64 = const.i I0 @2:7
+    %2:sview = call.pure BI_CLIENT_URL, %1 @2:7
+    %3:sview = const.s K0 @2:7
+    %4:bool = cmp.s.eq %2, %3 @2:7
+    br.f %4, .L7 @2:7
+    %5:i64 = const.i I1 @3:8
+    call.eff BI_SET_CLIENT_RESP_STATUS, %5 @3:8
+    .L7: ret @3:8
+
+Section[SEND_RESPONSE]:
+  IR:
+    %1:i64 = call.pure BI_CLIENT_RESP_STATUS @8:7
+    %2:i64 = const.i I1 @8:7
+    %3:bool = cmp.i64.eq %1, %2 @8:7
+    br.f %3, .L7 @8:7
+    %4:i64 = const.i I2 @9:8
+    %5:sview = const.s K1 @9:8
+    call.eff BI_SET_CLIENT_RESP_REDIRECT, %4, %5 @9:8
+    .L7: ret @9:8

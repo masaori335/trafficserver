@@ -1,0 +1,3 @@
+SEND_REQUEST {
+    outbound.req.X-Foo = "bar";
+}

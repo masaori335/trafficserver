@@ -1,0 +1,5 @@
+REMAP {
+    if !internal() {
+        inbound.req.X-Ext = "1";
+    }
+}

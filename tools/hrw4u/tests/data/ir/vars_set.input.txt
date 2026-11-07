@@ -1,0 +1,25 @@
+VARS {
+    a: bool;
+    b: bool;
+}
+
+REMAP {
+    if inbound.req.X-Set == "1" {
+        a = true;
+    }
+    b = true;
+    b = false;
+}
+
+SEND_RESPONSE {
+    if a {
+        inbound.resp.X-A = "set";
+    } else {
+        inbound.resp.X-A = "clear";
+    }
+    if b {
+        inbound.resp.X-B = "set";
+    } else {
+        inbound.resp.X-B = "clear";
+    }
+}

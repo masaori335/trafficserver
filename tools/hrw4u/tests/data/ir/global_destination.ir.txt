@@ -1,0 +1,50 @@
+hrw4u-ir 1.0
+
+Section[READ_REQUEST]:
+  consts = [K0:"g/read", K1:"g/read-moved", K2:"g/pre", K3:"g/pre-moved", K4:"g/send", K5:"g/send-moved", K6:"sent=1", K7:"g/keys", K8:"a"]
+  ints   = [I0:3, I1:4]
+  IR:
+    %1:i64 = const.i I0 @2:7
+    %2:sview = call.pure BI_CLIENT_URL, %1 @2:7
+    %3:sview = const.s K0 @2:7
+    %4:bool = cmp.s.eq %2, %3 @2:7
+    br.f %4, .L8 @2:7
+    %5:i64 = const.i I0 @3:8
+    %6:sview = const.s K1 @3:8
+    call.eff BI_SET_CLIENT_URL, %5, %6 @3:8
+    .L8: ret @3:8
+
+Section[PRE_REMAP]:
+  IR:
+    %1:i64 = const.i I0 @8:7
+    %2:sview = call.pure BI_CLIENT_URL, %1 @8:7
+    %3:sview = const.s K2 @8:7
+    %4:bool = cmp.s.eq %2, %3 @8:7
+    br.f %4, .L8 @8:7
+    %5:i64 = const.i I0 @9:8
+    %6:sview = const.s K3 @9:8
+    call.eff BI_SET_CLIENT_URL, %5, %6 @9:8
+    .L8: ret @9:8
+
+Section[SEND_REQUEST]:
+  IR:
+    %1:i64 = const.i I0 @14:7
+    %2:sview = call.pure BI_SERVER_URL, %1 @14:7
+    %3:sview = const.s K4 @14:7
+    %4:bool = cmp.s.eq %2, %3 @14:7
+    br.f %4, .L11 @14:7
+    %5:i64 = const.i I0 @15:8
+    %6:sview = const.s K5 @15:8
+    call.eff BI_SET_SERVER_URL, %5, %6 @15:8
+    %7:i64 = const.i I1 @16:8
+    %8:sview = const.s K6 @16:8
+    call.eff BI_SET_SERVER_URL, %7, %8 @16:8
+    .L11: %9:i64 = const.i I0 @18:7
+    %10:sview = call.pure BI_SERVER_URL, %9 @18:7
+    %11:sview = const.s K7 @18:7
+    %12:bool = cmp.s.eq %10, %11 @18:7
+    br.f %12, .L19 @18:7
+    %13:i64 = const.i I1 @19:8
+    %14:sview = const.s K8 @19:8
+    call.eff BI_RM_SERVER_URL, %13, %14 @19:8
+    .L19: ret @19:8

@@ -1,0 +1,5 @@
+SEND_RESPONSE {
+    inbound.resp.X-Ip = "{inbound.ip}";
+    inbound.resp.X-Remote = "{inbound.conn.REMOTE-ADDR}";
+    inbound.resp.X-Port = "{inbound.conn.REMOTE-PORT}";
+}

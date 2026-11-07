@@ -1,0 +1,5 @@
+SEND_RESPONSE {
+    inbound.resp.X-Added += "one";
+    inbound.resp.X-Added += "two";
+    inbound.resp.X-Added += "{inbound.req.X-None}";
+}

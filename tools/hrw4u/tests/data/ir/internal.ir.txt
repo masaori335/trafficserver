@@ -1,0 +1,11 @@
+hrw4u-ir 1.0
+
+Section[REMAP]:
+  consts = [K0:"X-Ext", K1:"1"]
+  IR:
+    %1:bool = call.pure BI_INTERNAL @2:8
+    br.t %1, .L5 @2:8
+    %2:sview = const.s K0 @3:8
+    %3:sview = const.s K1 @3:8
+    call.eff BI_SET_CLIENT_HEADER, %2, %3 @3:8
+    .L5: ret @3:8

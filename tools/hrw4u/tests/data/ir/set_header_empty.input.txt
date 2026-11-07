@@ -1,0 +1,7 @@
+REMAP {
+    inbound.req.X-Keep = "{inbound.req.X-None}";
+}
+
+SEND_RESPONSE {
+    inbound.resp.X-Keep = "{inbound.req.X-None}";
+}

@@ -1,0 +1,42 @@
+hrw4u-ir 1.0
+
+Section[SEND_REQUEST]:
+  consts = [K0:"X-Server-Path", K1:"X-Server-Q", K2:"q", K3:"X-Server-Port", K4:"X-Server-Url", K5:"X-Sent-Path"]
+  ints   = [I0:3, I1:2, I2:5]
+  fmt    = [F0:"{outbound.url.path}" arity=1 lits=["", ""], F1:"{outbound.url.query.q}" arity=1 lits=["", ""], F2:"port={outbound.url.port}" arity=1 lits=["port=", ""], F3:"url={outbound.url.url}" arity=1 lits=["url=", ""], F4:"sent={outbound.req.X-Server-Path}" arity=1 lits=["sent=", ""]]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:i64 = const.i I0 @2:4
+    %3:sview = call.pure BI_SERVER_URL, %2 @2:4
+    %4:sview = fmt F0, %3 @2:4
+    call.eff BI_SET_SERVER_HEADER, %1, %4 @2:4
+    ret @2:4
+
+Section[SEND_RESPONSE]:
+  IR:
+    %1:sview = const.s K0 @6:4
+    %2:i64 = const.i I0 @6:4
+    %3:sview = call.pure BI_SERVER_URL, %2 @6:4
+    %4:sview = fmt F0, %3 @6:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %1, %4 @6:4
+    %5:sview = const.s K1 @7:4
+    %6:sview = const.s K2 @7:4
+    %7:sview = call.pure BI_SERVER_URL_PARAM, %6 @7:4
+    %8:sview = fmt F1, %7 @7:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %5, %8 @7:4
+    %9:sview = const.s K3 @8:4
+    %10:i64 = const.i I1 @8:4
+    %11:sview = call.pure BI_SERVER_URL, %10 @8:4
+    %12:sview = fmt F2, %11 @8:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %9, %12 @8:4
+    %13:sview = const.s K4 @9:4
+    %14:i64 = const.i I2 @9:4
+    %15:sview = call.pure BI_SERVER_URL, %14 @9:4
+    %16:sview = fmt F3, %15 @9:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %13, %16 @9:4
+    %17:sview = const.s K5 @10:4
+    %18:sview = const.s K0 @10:4
+    %19:sview = call.pure BI_SERVER_HEADER, %18 @10:4
+    %20:sview = fmt F4, %19 @10:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %17, %20 @10:4
+    ret @10:4

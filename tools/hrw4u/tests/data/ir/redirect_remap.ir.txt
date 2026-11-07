@@ -1,0 +1,20 @@
+hrw4u-ir 1.0
+
+Section[REMAP]:
+  consts = [K0:"old"]
+  ints   = [I0:3, I1:301, I2:4]
+  fmt    = [F0:"https://moved.example.com/{inbound.url.path}?{inbound.url.query}" arity=2 lits=["https://moved.example.com/", "?", ""]]
+  IR:
+    %1:i64 = const.i I0 @2:7
+    %2:sview = call.pure BI_CLIENT_URL, %1 @2:7
+    %3:sview = const.s K0 @2:7
+    %4:bool = cmp.s.eq %2, %3 @2:7
+    br.f %4, .L12 @2:7
+    %5:i64 = const.i I1 @3:8
+    %6:i64 = const.i I0 @3:8
+    %7:sview = call.pure BI_CLIENT_URL, %6 @3:8
+    %8:i64 = const.i I2 @3:8
+    %9:sview = call.pure BI_CLIENT_URL, %8 @3:8
+    %10:sview = fmt F0, %7, %9 @3:8
+    call.eff BI_SET_CLIENT_RESP_REDIRECT, %5, %10 @3:8
+    .L12: ret @3:8

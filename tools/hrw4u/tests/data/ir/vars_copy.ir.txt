@@ -1,0 +1,25 @@
+hrw4u-ir 1.0
+
+Section[REMAP]:
+  vars   = [v0:bool, v1:bool]
+  consts = [K0:"X-Copy", K1:"set", K2:"clear"]
+  ints   = [I0:1]
+  IR:
+    %1:bool = const.i I0 @7:4
+    store.v v1:bool, %1 @7:4
+    %2:bool = load.v v1:bool @8:4
+    store.v v0:bool, %2 @8:4
+    ret @8:4
+
+Section[SEND_RESPONSE]:
+  IR:
+    %1:bool = load.v v0:bool @12:7
+    br.f %1, .L6 @12:7
+    %2:sview = const.s K0 @13:8
+    %3:sview = const.s K1 @13:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %2, %3 @13:8
+    br .L9 @12:4
+    .L6: %4:sview = const.s K0 @15:8
+    %5:sview = const.s K2 @15:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %4, %5 @15:8
+    .L9: ret @15:8

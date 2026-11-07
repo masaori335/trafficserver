@@ -1,0 +1,10 @@
+REMAP {
+    inbound.req.X-First = "1";
+    if inbound.url.path == "stop" {
+        break;
+    }
+}
+
+REMAP {
+    inbound.req.X-Second = "2";
+}

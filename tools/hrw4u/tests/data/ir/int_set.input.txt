@@ -1,0 +1,10 @@
+SEND_RESPONSE {
+    if inbound.status in [200, 404] {
+        inbound.resp.X-Status-Set = "in";
+    } else {
+        inbound.resp.X-Status-Set = "out";
+    }
+    if random(1) in [0] {
+        inbound.resp.X-Random-Set = "zero";
+    }
+}

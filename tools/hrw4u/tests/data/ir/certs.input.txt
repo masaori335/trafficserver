@@ -1,0 +1,13 @@
+SEND_RESPONSE {
+    inbound.resp.X-Client-Subject = "{inbound.conn.client-cert.SUBJECT}";
+    inbound.resp.X-Client-Issuer = "{inbound.conn.client-cert.ISSUER}";
+    inbound.resp.X-Client-Serial = "{inbound.conn.client-cert.SERIAL}";
+    inbound.resp.X-Client-Version = "{inbound.conn.client-cert.VERSION}";
+    inbound.resp.X-Client-Not-Before = "{inbound.conn.client-cert.NOT_BEFORE}";
+    inbound.resp.X-Client-Not-After = "{inbound.conn.client-cert.NOT_AFTER}";
+    inbound.resp.X-Client-Pem = "{inbound.conn.client-cert.PEM}";
+    inbound.resp.X-Server-Subject = "{inbound.conn.server-cert.SUBJECT}";
+    inbound.resp.X-Server-Serial = "{inbound.conn.server-cert.SERIAL}";
+    inbound.resp.X-Server-Sig = "{inbound.conn.server-cert.SIG}";
+    inbound.resp.X-Server-San = "{inbound.conn.server-cert.SAN.DNS}|{inbound.conn.server-cert.san.ip}";
+}

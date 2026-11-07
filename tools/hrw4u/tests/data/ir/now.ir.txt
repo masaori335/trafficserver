@@ -1,0 +1,50 @@
+hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  consts = [K0:"X-Now", K1:"in-range", K2:"out-of-range", K3:"X-Day"]
+  ints   = [I0:7, I1:1700000000, I2:4000000000, I3:0, I4:2025, I5:1, I6:12, I7:5, I8:6, I9:366, I10:2]
+  fmt    = [F0:"{now.DAY}" arity=1 lits=["", ""]]
+  IR:
+    %1:i64 = const.i I0 @2:7
+    %2:i64 = call.pure BI_NOW, %1 @2:7
+    %3:i64 = const.i I1 @2:7
+    %4:bool = cmp.i64.gt %2, %3 @2:7
+    br.f %4, .L34 @2:7
+    %5:i64 = const.i I0 @2:27
+    %6:i64 = call.pure BI_NOW, %5 @2:27
+    %7:i64 = const.i I2 @2:27
+    %8:bool = cmp.i64.lt %6, %7 @2:27
+    br.f %8, .L34 @2:27
+    %9:i64 = const.i I3 @2:47
+    %10:i64 = call.pure BI_NOW, %9 @2:47
+    %11:i64 = const.i I4 @2:47
+    %12:bool = cmp.i64.gt %10, %11 @2:47
+    br.f %12, .L34 @2:47
+    %13:i64 = const.i I5 @2:66
+    %14:i64 = call.pure BI_NOW, %13 @2:66
+    %15:i64 = const.i I6 @2:66
+    %16:bool = cmp.i64.lt %14, %15 @2:66
+    br.f %16, .L34 @2:66
+    %17:i64 = const.i I7 @2:84
+    %18:i64 = call.pure BI_NOW, %17 @2:84
+    %19:i64 = const.i I0 @2:84
+    %20:bool = cmp.i64.lt %18, %19 @2:84
+    br.f %20, .L34 @2:84
+    %21:i64 = const.i I8 @2:103
+    %22:i64 = call.pure BI_NOW, %21 @2:103
+    %23:i64 = const.i I9 @2:103
+    %24:bool = cmp.i64.lt %22, %23 @2:103
+    br.f %24, .L34 @2:103
+    %25:sview = const.s K0 @3:8
+    %26:sview = const.s K1 @3:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %25, %26 @3:8
+    br .L37 @2:4
+    .L34: %27:sview = const.s K0 @5:8
+    %28:sview = const.s K2 @5:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %27, %28 @5:8
+    .L37: %29:sview = const.s K3 @7:4
+    %30:i64 = const.i I10 @7:4
+    %31:i64 = call.pure BI_NOW, %30 @7:4
+    %32:sview = fmt F0, %31 @7:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %29, %32 @7:4
+    ret @7:4

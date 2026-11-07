@@ -1,0 +1,21 @@
+READ_REQUEST {
+    if inbound.url.path == "g/read" {
+        inbound.url.path = "g/read-moved";
+    }
+}
+
+PRE_REMAP {
+    if inbound.url.path == "g/pre" {
+        inbound.url.path = "g/pre-moved";
+    }
+}
+
+SEND_REQUEST {
+    if outbound.url.path == "g/send" {
+        outbound.url.path = "g/send-moved";
+        outbound.url.query = "sent=1";
+    }
+    if outbound.url.path == "g/keys" {
+        remove_query("a");
+    }
+}

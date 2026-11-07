@@ -1,0 +1,5 @@
+REMAP {
+    if inbound.cookie.pod != "" {
+        inbound.req.X-Pod = "{inbound.cookie.pod}";
+    }
+}

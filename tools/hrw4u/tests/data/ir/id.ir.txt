@@ -1,0 +1,37 @@
+hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  consts = [K0:"X-Id-Request", K1:"X-Id-Process", K2:"X-Id-Unique", K3:"X-Id-Range", K4:"in"]
+  ints   = [I0:1, I1:2, I2:0, I3:1000000000]
+  fmt    = [F0:"{id.REQUEST}" arity=1 lits=["", ""], F1:"{id.PROCESS}" arity=1 lits=["", ""], F2:"{id.UNIQUE}" arity=1 lits=["", ""]]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:i64 = call.pure BI_REQUEST_ID @2:4
+    %3:sview = fmt F0, %2 @2:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %1, %3 @2:4
+    %4:sview = const.s K1 @3:4
+    %5:i64 = const.i I0 @3:4
+    %6:sview = call.pure BI_ID, %5 @3:4
+    %7:sview = fmt F1, %6 @3:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %4, %7 @3:4
+    %8:sview = const.s K2 @4:4
+    %9:i64 = const.i I1 @4:4
+    %10:sview = call.pure BI_ID, %9 @4:4
+    %11:sview = fmt F2, %10 @4:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %8, %11 @4:4
+    %12:i64 = call.pure BI_REQUEST_ID @5:7
+    %13:i64 = const.i I2 @5:7
+    %14:bool = cmp.i64.gt %12, %13 @5:7
+    br.f %14, .L29 @5:7
+    %15:i64 = call.pure BI_REQUEST_ID @5:25
+    %16:i64 = const.i I3 @5:25
+    %17:bool = cmp.i64.lt %15, %16 @5:25
+    br.f %17, .L29 @5:25
+    %18:i64 = call.pure BI_REQUEST_ID @5:52
+    %19:i64 = const.i I2 @5:52
+    %20:bool = cmp.i64.ne %18, %19 @5:52
+    br.f %20, .L29 @5:52
+    %21:sview = const.s K3 @6:8
+    %22:sview = const.s K4 @6:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %21, %22 @6:8
+    .L29: ret @6:8

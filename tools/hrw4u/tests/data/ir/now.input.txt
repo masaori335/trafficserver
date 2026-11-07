@@ -1,0 +1,8 @@
+SEND_RESPONSE {
+    if now > 1700000000 && now < 4000000000 && now.YEAR > 2025 && now.MONTH < 12 && now.WEEKDAY < 7 && now.YEARDAY < 366 {
+        inbound.resp.X-Now = "in-range";
+    } else {
+        inbound.resp.X-Now = "out-of-range";
+    }
+    inbound.resp.X-Day = "{now.DAY}";
+}

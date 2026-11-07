@@ -1,0 +1,7 @@
+INSTANCE_VARS {
+    greeting: string = "hello";
+}
+
+SEND_RESPONSE {
+    inbound.resp.X-Greeting = greeting;
+}

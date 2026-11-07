@@ -1,0 +1,4 @@
+REMAP {
+    inbound.conn.mark = 17;
+    inbound.req.X-Mark = "set";
+}

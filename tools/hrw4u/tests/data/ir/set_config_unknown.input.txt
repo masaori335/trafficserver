@@ -1,0 +1,4 @@
+REMAP {
+    set-config("proxy.config.no.such.record", 1);
+    set-config("proxy.config.http.response_server_str", "still-runs");
+}

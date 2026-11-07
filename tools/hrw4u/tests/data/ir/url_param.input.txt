@@ -1,0 +1,5 @@
+REMAP {
+    if inbound.url.query.r == "usw2" {
+        inbound.req.X-Region = "{inbound.url.query.r}";
+    }
+}

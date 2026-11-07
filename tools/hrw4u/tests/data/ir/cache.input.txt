@@ -1,0 +1,11 @@
+REMAP {
+    inbound.req.X-Remap-Cache = "{cache()}";
+}
+
+SEND_REQUEST {
+    outbound.req.X-Cache = "{cache()}";
+}
+
+SEND_RESPONSE {
+    inbound.resp.X-Cache = "{cache()}";
+}

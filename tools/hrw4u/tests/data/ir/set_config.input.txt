@@ -1,0 +1,4 @@
+REMAP {
+    set-config("proxy.config.http.insert_response_via_str", 1);
+    set-config("proxy.config.http.response_server_str", "parity-server");
+}

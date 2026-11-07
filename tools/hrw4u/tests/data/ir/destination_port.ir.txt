@@ -1,0 +1,8 @@
+hrw4u-ir 1.0
+
+Section[REMAP]:
+  ints   = [I0:1]
+  IR:
+    %1:i64 = const.i I0 @2:4
+    call.eff BI_SET_CLIENT_URL_PORT, %1 @2:4
+    ret @2:4

@@ -1,0 +1,9 @@
+VARS {
+    bool_0: bool;
+}
+
+REMAP {
+    if !bool_0 {
+        inbound.req.X-foo = "bar";
+    }
+}

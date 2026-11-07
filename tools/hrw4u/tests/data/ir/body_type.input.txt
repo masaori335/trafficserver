@@ -1,0 +1,10 @@
+REMAP {
+    if inbound.url.path == "json" {
+        inbound.status = 403;
+        set-body("{}", "application/json");
+    }
+    if inbound.url.path == "file" {
+        inbound.status = 403;
+        set-body-from-file("deny_body.txt", "text/x-{inbound.req.X-Kind}");
+    }
+}

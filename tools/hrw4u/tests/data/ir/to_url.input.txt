@@ -1,0 +1,4 @@
+REMAP {
+    inbound.req.X-To-Host = "{to.url.host}";
+    inbound.req.X-To-Path = "{to.url.path}";
+}

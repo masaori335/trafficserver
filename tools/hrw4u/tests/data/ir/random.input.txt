@@ -1,0 +1,5 @@
+REMAP {
+    if random(1) == 0 {
+        inbound.req.X-Random = "{random(1)}";
+    }
+}

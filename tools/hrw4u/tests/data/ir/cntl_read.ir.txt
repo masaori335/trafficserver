@@ -1,0 +1,30 @@
+hrw4u-ir 1.0
+
+Section[REMAP]:
+  consts = [K0:"X-Set", K1:"1", K2:"X-Debug", K3:"on", K4:"X-Skip"]
+  ints   = [I0:5, I1:1, I2:6]
+  IR:
+    %1:sview = const.s K0 @2:7
+    %2:sview = call.pure BI_CLIENT_HEADER, %1 @2:7
+    %3:sview = const.s K1 @2:7
+    %4:bool = cmp.s.eq %2, %3 @2:7
+    br.f %4, .L11 @2:7
+    %5:i64 = const.i I0 @3:8
+    %6:bool = const.i I1 @3:8
+    call.eff BI_SET_HTTP_CNTL, %5, %6 @3:8
+    %7:i64 = const.i I2 @4:8
+    %8:bool = const.i I1 @4:8
+    call.eff BI_SET_HTTP_CNTL, %7, %8 @4:8
+    .L11: %9:i64 = const.i I0 @6:7
+    %10:bool = call.pure BI_HTTP_CNTL, %9 @6:7
+    br.f %10, .L17 @6:7
+    %11:sview = const.s K2 @7:8
+    %12:sview = const.s K3 @7:8
+    call.eff BI_SET_CLIENT_HEADER, %11, %12 @7:8
+    .L17: %13:i64 = const.i I2 @9:7
+    %14:bool = call.pure BI_HTTP_CNTL, %13 @9:7
+    br.f %14, .L23 @9:7
+    %15:sview = const.s K4 @10:8
+    %16:sview = const.s K3 @10:8
+    call.eff BI_SET_CLIENT_HEADER, %15, %16 @10:8
+    .L23: ret @10:8

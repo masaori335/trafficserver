@@ -1,0 +1,6 @@
+READ_RESPONSE {
+    if outbound.status == 302 {
+        outbound.resp.X-Redirect-Source = "{nexthop.HOST}";
+    }
+    outbound.resp.X-Next-Hop-Port = "{nexthop.PORT}";
+}

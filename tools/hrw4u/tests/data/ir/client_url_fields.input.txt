@@ -1,0 +1,7 @@
+SEND_RESPONSE {
+    inbound.resp.X-Scheme = "{inbound.url.scheme}";
+    inbound.resp.X-Host = "{inbound.url.host}";
+    inbound.resp.X-Port = "{inbound.url.port}";
+    inbound.resp.X-Query = "{inbound.url.query}";
+    inbound.resp.X-Url = "{inbound.url.url}";
+}

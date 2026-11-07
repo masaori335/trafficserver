@@ -1,0 +1,26 @@
+hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  ints   = [I0:399, I1:500, I2:404, I3:502, I4:503]
+  IR:
+    %1:i64 = call.pure BI_CLIENT_RESP_STATUS @2:7
+    %2:i64 = const.i I0 @2:7
+    %3:bool = cmp.i64.gt %1, %2 @2:7
+    br.f %3, .L10 @2:7
+    %4:i64 = call.pure BI_CLIENT_RESP_STATUS @2:31
+    %5:i64 = const.i I1 @2:31
+    %6:bool = cmp.i64.lt %4, %5 @2:31
+    br.f %6, .L10 @2:31
+    %7:i64 = const.i I2 @3:8
+    call.eff BI_SET_CLIENT_RESP_STATUS, %7 @3:8
+    .L10: ret @3:8
+
+Section[READ_RESPONSE]:
+  IR:
+    %1:i64 = call.pure BI_SERVER_RESP_STATUS @8:7
+    %2:i64 = const.i I3 @8:7
+    %3:bool = cmp.i64.eq %1, %2 @8:7
+    br.f %3, .L6 @8:7
+    %4:i64 = const.i I4 @9:8
+    call.eff BI_SET_SERVER_RESP_STATUS, %4 @9:8
+    .L6: ret @9:8

@@ -1,0 +1,29 @@
+hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  consts = [K0:"X-Cidr", K1:"X-Cidr-Odd", K2:"127.0.0.0", K3:"X-Cidr-Match", K4:"yes"]
+  ints   = [I0:24, I1:48, I2:4, I3:128, I4:8]
+  fmt    = [F0:"{cidr(24,48)}" arity=1 lits=["", ""], F1:"{cidr(4,128)}" arity=1 lits=["", ""]]
+  IR:
+    %1:sview = const.s K0 @2:4
+    %2:i64 = const.i I0 @2:4
+    %3:i64 = const.i I1 @2:4
+    %4:sview = call.pure BI_CIDR, %2, %3 @2:4
+    %5:sview = fmt F0, %4 @2:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %1, %5 @2:4
+    %6:sview = const.s K1 @3:4
+    %7:i64 = const.i I2 @3:4
+    %8:i64 = const.i I3 @3:4
+    %9:sview = call.pure BI_CIDR, %7, %8 @3:4
+    %10:sview = fmt F1, %9 @3:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %6, %10 @3:4
+    %11:i64 = const.i I4 @4:7
+    %12:i64 = const.i I3 @4:7
+    %13:sview = call.pure BI_CIDR, %11, %12 @4:7
+    %14:sview = const.s K2 @4:7
+    %15:bool = cmp.s.eq %13, %14 @4:7
+    br.f %15, .L21 @4:7
+    %16:sview = const.s K3 @5:8
+    %17:sview = const.s K4 @5:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %16, %17 @5:8
+    .L21: ret @5:8

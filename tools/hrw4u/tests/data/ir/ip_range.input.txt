@@ -1,0 +1,8 @@
+REMAP {
+    if inbound.ip in {127.0.0.0/8, 2001:db8::/32} {
+        inbound.req.X-Local = "1";
+    }
+    if inbound.conn.REMOTE-ADDR in {10.0.0.0/8} {
+        inbound.req.X-Ten = "1";
+    }
+}

@@ -1,0 +1,12 @@
+SEND_REQUEST {
+    outbound.req.X-Source = "rewritten";
+    outbound.req.X-From-Client = "{inbound.req.X-Source}";
+}
+
+READ_RESPONSE {
+    outbound.resp.X-From-Client = "{inbound.req.X-Source}";
+}
+
+SEND_RESPONSE {
+    inbound.resp.X-Seen = "{inbound.req.X-Source}";
+}

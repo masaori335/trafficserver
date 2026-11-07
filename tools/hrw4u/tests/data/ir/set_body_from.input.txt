@@ -1,0 +1,7 @@
+READ_RESPONSE {
+    if outbound.status == 404 {
+        set-body-from("http://errors.test/{inbound.req.uuid}");
+    } elif outbound.status == 410 {
+        set-body-from("http://errors.test/{inbound.req.uuid}", "text/plain");
+    }
+}

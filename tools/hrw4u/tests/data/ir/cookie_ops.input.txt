@@ -1,0 +1,4 @@
+REMAP {
+    inbound.cookie.session = "{inbound.req.X-Session}";
+    inbound.cookie.tracking = "";
+}

@@ -1,0 +1,8 @@
+REMAP {
+    if inbound.url.path == "qk/remove" {
+        remove_query("b,d");
+    }
+    if inbound.url.path == "qk/keep" {
+        keep_query("a,c");
+    }
+}

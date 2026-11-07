@@ -1,0 +1,7 @@
+SEND_RESPONSE {
+    if (inbound.req.X-A == "1" || inbound.req.X-B == "1") && !(inbound.req.X-C == "1") {
+        inbound.resp.X-Group = "in";
+    } else {
+        inbound.resp.X-Group = "out";
+    }
+}

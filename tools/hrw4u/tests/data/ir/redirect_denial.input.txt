@@ -1,0 +1,11 @@
+REMAP {
+    if inbound.url.path == "denied" {
+        inbound.status = 403;
+    }
+}
+
+SEND_RESPONSE {
+    if inbound.status == 403 {
+        inbound.resp.set-redirect(302, "https://moved.example.com/gone");
+    }
+}

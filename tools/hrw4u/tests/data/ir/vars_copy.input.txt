@@ -1,0 +1,17 @@
+VARS {
+    a: bool;
+    b: bool;
+}
+
+REMAP {
+    b = true;
+    a = b;
+}
+
+SEND_RESPONSE {
+    if a {
+        inbound.resp.X-Copy = "set";
+    } else {
+        inbound.resp.X-Copy = "clear";
+    }
+}

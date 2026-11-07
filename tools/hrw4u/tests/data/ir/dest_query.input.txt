@@ -1,0 +1,8 @@
+REMAP {
+    if inbound.url.query == "strip=yes" {
+        inbound.url.query = "";
+    }
+    if inbound.url.query == "set=yes" {
+        inbound.url.query = "rewritten=1";
+    }
+}

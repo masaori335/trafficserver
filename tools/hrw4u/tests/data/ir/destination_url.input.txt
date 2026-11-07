@@ -1,0 +1,3 @@
+REMAP {
+    inbound.url.url = "http://backend.ex:{to.url.port}/elsewhere";
+}

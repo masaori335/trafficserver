@@ -1,0 +1,7 @@
+SEND_RESPONSE {
+    if inbound.conn.TLS ~ /./ {
+        inbound.resp.X-Tls = "{inbound.conn.TLS}";
+    }
+    inbound.resp.X-Family = "{inbound.conn.IP-FAMILY}";
+    inbound.resp.X-Stack = "{inbound.conn.STACK}";
+}

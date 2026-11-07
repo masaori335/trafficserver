@@ -1,0 +1,4 @@
+REMAP {
+    http.cntl.LOGGING = false;
+    inbound.req.X-Cntl = "set";
+}

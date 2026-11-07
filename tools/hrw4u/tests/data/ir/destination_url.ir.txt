@@ -1,0 +1,12 @@
+hrw4u-ir 1.0
+
+Section[REMAP]:
+  ints   = [I0:5, I1:2]
+  fmt    = [F0:"http://backend.ex:{to.url.port}/elsewhere" arity=1 lits=["http://backend.ex:", "/elsewhere"]]
+  IR:
+    %1:i64 = const.i I0 @2:4
+    %2:i64 = const.i I1 @2:4
+    %3:sview = call.pure BI_TO_URL, %2 @2:4
+    %4:sview = fmt F0, %3 @2:4
+    call.eff BI_SET_CLIENT_URL, %1, %4 @2:4
+    ret @2:4

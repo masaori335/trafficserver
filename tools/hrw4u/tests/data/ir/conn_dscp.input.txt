@@ -1,0 +1,4 @@
+REMAP {
+    inbound.conn.dscp = 10;
+    inbound.req.X-Dscp = "set";
+}

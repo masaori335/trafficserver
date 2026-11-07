@@ -1,0 +1,43 @@
+hrw4u-ir 1.0
+
+Section[REMAP]:
+  consts = [K0:"X-Pre", K1:"yes", K2:"X-Ext", K3:"X-Mid", K4:"X-Suf", K5:"X-Not-Pre"]
+  ints   = [I0:3]
+  sets   = [S0:s("Content/TS_ts/") pre nocase, S1:s("m3u8") ext nocase, S2:s("/index.m3u8") mid, S3:s(".ts") suf, S4:s("content/") pre]
+  IR:
+    %1:i64 = const.i I0 @2:7
+    %2:sview = call.pure BI_CLIENT_URL, %1 @2:7
+    %3:bool = in.set %2, S0 @2:7
+    br.f %3, .L7 @2:7
+    %4:sview = const.s K0 @3:8
+    %5:sview = const.s K1 @3:8
+    call.eff BI_SET_CLIENT_HEADER, %4, %5 @3:8
+    .L7: %6:i64 = const.i I0 @5:7
+    %7:sview = call.pure BI_CLIENT_URL, %6 @5:7
+    %8:bool = in.set %7, S1 @5:7
+    br.f %8, .L14 @5:7
+    %9:sview = const.s K2 @6:8
+    %10:sview = const.s K1 @6:8
+    call.eff BI_SET_CLIENT_HEADER, %9, %10 @6:8
+    .L14: %11:i64 = const.i I0 @8:7
+    %12:sview = call.pure BI_CLIENT_URL, %11 @8:7
+    %13:bool = in.set %12, S2 @8:7
+    br.f %13, .L21 @8:7
+    %14:sview = const.s K3 @9:8
+    %15:sview = const.s K1 @9:8
+    call.eff BI_SET_CLIENT_HEADER, %14, %15 @9:8
+    .L21: %16:i64 = const.i I0 @11:7
+    %17:sview = call.pure BI_CLIENT_URL, %16 @11:7
+    %18:bool = in.set %17, S3 @11:7
+    br.f %18, .L28 @11:7
+    %19:sview = const.s K4 @12:8
+    %20:sview = const.s K1 @12:8
+    call.eff BI_SET_CLIENT_HEADER, %19, %20 @12:8
+    .L28: %21:i64 = const.i I0 @14:7
+    %22:sview = call.pure BI_CLIENT_URL, %21 @14:7
+    %23:bool = in.set %22, S4 @14:7
+    br.t %23, .L35 @14:7
+    %24:sview = const.s K5 @15:8
+    %25:sview = const.s K1 @15:8
+    call.eff BI_SET_CLIENT_HEADER, %24, %25 @15:8
+    .L35: ret @15:8

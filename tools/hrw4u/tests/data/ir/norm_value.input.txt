@@ -1,0 +1,10 @@
+REMAP {
+    inbound.req.X-Norm-Path = "{inbound.url.path with NORM}";
+}
+
+SEND_RESPONSE {
+    if inbound.url.path == "norm/a b%0Dc" with NORM {
+        inbound.resp.X-Norm-Match = "yes";
+    }
+    inbound.resp.X-Norm-Query = "{inbound.url.query with NORM}";
+}

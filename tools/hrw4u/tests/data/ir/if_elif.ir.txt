@@ -1,0 +1,37 @@
+hrw4u-ir 1.0
+
+Section[SEND_RESPONSE]:
+  consts = [K0:"foo", K1:"X-Path", K2:"f", K3:"bar", K4:"b", K5:"hrw", K6:"h", K7:"X-path", K8:"other"]
+  ints   = [I0:3]
+  IR:
+    %1:i64 = const.i I0 @2:7
+    %2:sview = call.pure BI_CLIENT_URL, %1 @2:7
+    %3:sview = const.s K0 @2:7
+    %4:bool = cmp.s.eq %2, %3 @2:7
+    br.f %4, .L9 @2:7
+    %5:sview = const.s K1 @3:8
+    %6:sview = const.s K2 @3:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %5, %6 @3:8
+    br .L30 @2:4
+    .L9: %7:i64 = const.i I0 @4:11
+    %8:sview = call.pure BI_CLIENT_URL, %7 @4:11
+    %9:sview = const.s K3 @4:11
+    %10:bool = cmp.s.eq %8, %9 @4:11
+    br.f %10, .L18 @4:11
+    %11:sview = const.s K1 @5:8
+    %12:sview = const.s K4 @5:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %11, %12 @5:8
+    br .L30 @2:4
+    .L18: %13:i64 = const.i I0 @6:11
+    %14:sview = call.pure BI_CLIENT_URL, %13 @6:11
+    %15:sview = const.s K5 @6:11
+    %16:bool = cmp.s.eq %14, %15 @6:11
+    br.f %16, .L27 @6:11
+    %17:sview = const.s K1 @7:8
+    %18:sview = const.s K6 @7:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %17, %18 @7:8
+    br .L30 @2:4
+    .L27: %19:sview = const.s K7 @9:8
+    %20:sview = const.s K8 @9:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %19, %20 @9:8
+    .L30: ret @9:8

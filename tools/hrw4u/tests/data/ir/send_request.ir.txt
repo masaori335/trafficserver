@@ -1,0 +1,13 @@
+hrw4u-ir 1.0
+
+Section[SEND_REQUEST]:
+  consts = [K0:"X-Send-Request", K1:"yes"]
+  IR:
+    %1:sview = const.s K0 @2:7
+    %2:sview = call.pure BI_SERVER_HEADER, %1 @2:7
+    %3:sview = const.s K1 @2:7
+    %4:bool = cmp.s.eq %2, %3 @2:7
+    br.f %4, .L7 @2:7
+    %5:sview = const.s K0 @3:8
+    call.eff BI_RM_SERVER_HEADER, %5 @3:8
+    .L7: ret @3:8

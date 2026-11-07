@@ -1,0 +1,12 @@
+REMAP {
+    if inbound.req.X-Set == "1" {
+        set-debug();
+        skip-remap(true);
+    }
+    if http.cntl.TXN_DEBUG {
+        inbound.req.X-Debug = "on";
+    }
+    if http.cntl.SKIP_REMAP {
+        inbound.req.X-Skip = "on";
+    }
+}

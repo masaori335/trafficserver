@@ -1,0 +1,3 @@
+REMAP {
+    run-plugin("header_rewrite.so", "parity/run_plugin_a.conf", "parity/run_plugin_b.conf");
+}

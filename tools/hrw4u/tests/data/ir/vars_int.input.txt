@@ -1,0 +1,22 @@
+VARS {
+    a: int8;
+    b: int8 @2;
+    d: int8 @3;
+    c: int16;
+}
+
+REMAP {
+    a = 7;
+    b = a;
+    c = 1000;
+}
+
+SEND_RESPONSE {
+    inbound.resp.X-Ints = "{a}/{b}/{c}/{d}";
+    if b > 5 {
+        inbound.resp.X-B-Big = "yes";
+    }
+    if c < 999 {
+        inbound.resp.X-C-Small = "yes";
+    }
+}

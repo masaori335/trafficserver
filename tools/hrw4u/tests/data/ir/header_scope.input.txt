@@ -1,0 +1,9 @@
+READ_RESPONSE {
+    outbound.resp.X-From-Read = "1";
+}
+
+SEND_RESPONSE {
+    if inbound.status == 200 {
+        inbound.resp.X-Echo = "{inbound.resp.X-From-Read}";
+    }
+}

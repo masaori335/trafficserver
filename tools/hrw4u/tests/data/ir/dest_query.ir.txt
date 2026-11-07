@@ -1,0 +1,23 @@
+hrw4u-ir 1.0
+
+Section[REMAP]:
+  consts = [K0:"strip=yes", K1:"", K2:"set=yes", K3:"rewritten=1"]
+  ints   = [I0:4]
+  IR:
+    %1:i64 = const.i I0 @2:7
+    %2:sview = call.pure BI_CLIENT_URL, %1 @2:7
+    %3:sview = const.s K0 @2:7
+    %4:bool = cmp.s.eq %2, %3 @2:7
+    br.f %4, .L8 @2:7
+    %5:i64 = const.i I0 @3:8
+    %6:sview = const.s K1 @3:8
+    call.eff BI_RM_CLIENT_URL, %5, %6 @3:8
+    .L8: %7:i64 = const.i I0 @5:7
+    %8:sview = call.pure BI_CLIENT_URL, %7 @5:7
+    %9:sview = const.s K2 @5:7
+    %10:bool = cmp.s.eq %8, %9 @5:7
+    br.f %10, .L16 @5:7
+    %11:i64 = const.i I0 @6:8
+    %12:sview = const.s K3 @6:8
+    call.eff BI_SET_CLIENT_URL, %11, %12 @6:8
+    .L16: ret @6:8

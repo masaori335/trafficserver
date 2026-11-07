@@ -1,0 +1,40 @@
+hrw4u-ir 1.0
+
+Section[REMAP]:
+  vars   = [v0:u8, v1:u8, v2:u8, v0:u16, v3:u8]
+  consts = [K0:"X-Ints", K1:"X-B-Big", K2:"yes", K3:"X-C-Small"]
+  ints   = [I0:7, I1:1000, I2:5, I3:999]
+  fmt    = [F0:"{a}/{b}/{c}/{d}" arity=4 lits=["", "/", "/", "/", ""]]
+  IR:
+    %1:i64 = const.i I0 @9:4
+    store.v v0:u8, %1 @9:4
+    %2:i64 = load.v v0:u8 @10:4
+    store.v v2:u8, %2 @10:4
+    %3:i64 = const.i I1 @11:4
+    store.v v0:u16, %3 @11:4
+    ret @11:4
+
+Section[SEND_RESPONSE]:
+  IR:
+    %1:sview = const.s K0 @15:4
+    %2:i64 = load.v v0:u8 @15:4
+    %3:i64 = load.v v2:u8 @15:4
+    %4:i64 = load.v v0:u16 @15:4
+    %5:i64 = load.v v3:u8 @15:4
+    %6:sview = fmt F0, %2, %3, %4, %5 @15:4
+    call.eff BI_SET_CLIENT_RESP_HEADER, %1, %6 @15:4
+    %7:i64 = load.v v2:u8 @16:7
+    %8:i64 = const.i I2 @16:7
+    %9:bool = cmp.i64.gt %7, %8 @16:7
+    br.f %9, .L14 @16:7
+    %10:sview = const.s K1 @17:8
+    %11:sview = const.s K2 @17:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %10, %11 @17:8
+    .L14: %12:i64 = load.v v0:u16 @19:7
+    %13:i64 = const.i I3 @19:7
+    %14:bool = cmp.i64.lt %12, %13 @19:7
+    br.f %14, .L21 @19:7
+    %15:sview = const.s K3 @20:8
+    %16:sview = const.s K2 @20:8
+    call.eff BI_SET_CLIENT_RESP_HEADER, %15, %16 @20:8
+    .L21: ret @20:8

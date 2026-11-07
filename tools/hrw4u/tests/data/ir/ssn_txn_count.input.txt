@@ -1,0 +1,7 @@
+REMAP {
+    inbound.req.X-Ssn-Remap = "{ssn-txn-count()}";
+}
+
+SEND_RESPONSE {
+    inbound.resp.X-Ssn-Txn-Count = "{ssn-txn-count()}";
+}
