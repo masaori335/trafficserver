@@ -5,12 +5,14 @@
 Prism is meant to become a bytecode machine for performance, but this branch only has an interpreter that runs the
 `.ir` the hrw4u compiler writes with `--output ir`.
 
-## Unsupported hrw4u
+## hrw4u support
 
 This branch supports only part of hrw4u. `prism-vm-support.sandbox.yaml` names the sections, functions, conditions, operators and
 modifiers prism.so refuses; pass it as `--sandbox` to the compiler that writes the `.ir` to get those as compile errors
 instead of load-time failures. The policy cannot say which hooks a builtin runs in, so a builtin in a hook the compiler
-allows but prism.so does not is refused only when prism.so loads the `.ir`.
+allows but prism.so does not is refused only when prism.so loads the `.ir`. `docs/hrw4u-support.md` lists, by
+`.hrw4u` category, each spelling, the `header_rewrite` it compiles to, and whether prism.so runs it; for functions,
+conditions and operators, also in which hooks.
 
 ## libcripts
 
