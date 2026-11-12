@@ -26,12 +26,12 @@ procedure Apple::G2O::SetAuthData($nonce) {
 # Signs the X-Akamai-G2O-Auth-Data the request carries, with the path and, when there is one, the query.
 procedure Apple::G2O::SignAuthData($secret) {
     if outbound.url.query != "" {
-        outbound.req.X-Akamai-G2O-Auth-Sign = cripts::Crypto::Base64::Encode(
-            cripts::Crypto::HMAC::SHA256::Sign($secret,
+        outbound.req.X-Akamai-G2O-Auth-Sign = prism::Crypto::Base64::Encode(
+            prism::Crypto::HMAC::SHA256::Sign($secret,
                 "{outbound.req.X-Akamai-G2O-Auth-Data}/{outbound.url.path}?{outbound.url.query}"));
     } else {
-        outbound.req.X-Akamai-G2O-Auth-Sign = cripts::Crypto::Base64::Encode(
-            cripts::Crypto::HMAC::SHA256::Sign($secret,
+        outbound.req.X-Akamai-G2O-Auth-Sign = prism::Crypto::Base64::Encode(
+            prism::Crypto::HMAC::SHA256::Sign($secret,
                 "{outbound.req.X-Akamai-G2O-Auth-Data}/{outbound.url.path}"));
     }
 }

@@ -7,8 +7,8 @@ Instance:
   fmt    = [F0:"{inbound.req.X-Test-Auth-Data}" arity=1 lits=["", ""], F1:"{outbound.req.X-Akamai-G2O-Auth-Data}/{outbound.url.path}?{outbound.url.query}" arity=3 lits=["", "/", "?", ""], F2:"{outbound.req.X-Akamai-G2O-Auth-Data}/{outbound.url.path}" arity=2 lits=["", "/", ""]]
   IR:
     %1:sview = const.s K0 @4:4
-    %2:sview = call.load EXT"cripts::File::Line::Read", %1 @4:4
-    %3:sview = call.pure EXT"cripts::Crypto::Hex::Decode", %2 @4:4
+    %2:sview = call.load EXT"prism::File::Line::Read", %1 @4:4
+    %3:sview = call.pure EXT"prism::Crypto::Hex::Decode", %2 @4:4
     store.i i0, %3 @4:4
     ret @4:4
 
@@ -33,8 +33,8 @@ Section[SEND_REQUEST]:
     %15:i64 = const.i I0 @9:4
     %16:sview = call.pure BI_SERVER_URL, %15 @9:4
     %17:sview = fmt F1, %12, %14, %16 @9:4
-    %18:sview = call.pure EXT"cripts::Crypto::HMAC::SHA256::Sign", %10, %17 @9:4
-    %19:sview = call.pure EXT"cripts::Crypto::Base64::Encode", %18 @9:4
+    %18:sview = call.pure EXT"prism::Crypto::HMAC::SHA256::Sign", %10, %17 @9:4
+    %19:sview = call.pure EXT"prism::Crypto::Base64::Encode", %18 @9:4
     call.eff BI_SET_SERVER_HEADER, %9, %19 @9:4
     br .L33 @9:4
     .L23: %20:sview = const.s K4 @9:4
@@ -44,7 +44,7 @@ Section[SEND_REQUEST]:
     %24:i64 = const.i I1 @9:4
     %25:sview = call.pure BI_SERVER_URL, %24 @9:4
     %26:sview = fmt F2, %23, %25 @9:4
-    %27:sview = call.pure EXT"cripts::Crypto::HMAC::SHA256::Sign", %21, %26 @9:4
-    %28:sview = call.pure EXT"cripts::Crypto::Base64::Encode", %27 @9:4
+    %27:sview = call.pure EXT"prism::Crypto::HMAC::SHA256::Sign", %21, %26 @9:4
+    %28:sview = call.pure EXT"prism::Crypto::Base64::Encode", %27 @9:4
     call.eff BI_SET_SERVER_HEADER, %20, %28 @9:4
     .L33: ret @9:4

@@ -90,7 +90,7 @@ def test_the_instance_section_comes_first_and_takes_the_pools():
     k0, k1 = pools.intern_const("key.hex"), pools.intern_const("X")
     instance = [
         Instruction(Op.CONST_S, (Const(k0),), Reg(1, Ty.SVIEW), 2, 4),
-        Instruction(Op.CALL_LOAD, (Extern("cripts::File::Line::Read"), Reg(1, Ty.SVIEW)), Reg(2, Ty.SVIEW), 2, 4),
+        Instruction(Op.CALL_LOAD, (Extern("prism::File::Line::Read"), Reg(1, Ty.SVIEW)), Reg(2, Ty.SVIEW), 2, 4),
         Instruction(Op.STORE_I, (IVar(0), Reg(2, Ty.SVIEW)), None, 2, 4),
         Instruction(Op.RET, (), None, 2, 4),
     ]
@@ -109,7 +109,7 @@ def test_the_instance_section_comes_first_and_takes_the_pools():
         '  consts = [K0:"key.hex", K1:"X"]',
         "  IR:",
         "    %1:sview = const.s K0 @2:4",
-        '    %2:sview = call.load EXT"cripts::File::Line::Read", %1 @2:4',
+        '    %2:sview = call.load EXT"prism::File::Line::Read", %1 @2:4',
         "    store.i i0, %2 @2:4",
         "    ret @2:4",
         "",

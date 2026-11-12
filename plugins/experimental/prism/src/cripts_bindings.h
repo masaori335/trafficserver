@@ -1,6 +1,6 @@
 /** @file
 
-  The Cripts functions the IR calls by names under cripts::.
+  The functions prism.so gives the IR by names under prism::, whether each calls Cripts or is prism's own.
 
   @section license License
 
@@ -24,6 +24,6 @@
 
 namespace hrw4u
 {
-/// Registered before any extension loads, so an extension cannot take a Cripts name. False when one is refused.
+/// Registered before any extension loads, so an extension cannot take one of these names. False when one is refused.
 bool def_cripts_bindings(const hrw4u_host_api *api);
 } // namespace hrw4u

@@ -46,21 +46,21 @@ def _load_error(*paths: Path) -> Hrw4uSyntaxError:
 def test_the_cripts_manifest_loads():
     externs = load_manifests([_CRIPTS])
     assert list(externs) == [
-        "cripts::Crypto::Base64::Encode",
-        "cripts::Crypto::Base64::Decode",
-        "cripts::File::Line::Read",
-        "cripts::Crypto::Hex::Decode",
-        "cripts::Crypto::HMAC::SHA256::Sign",
+        "prism::Crypto::Base64::Encode",
+        "prism::Crypto::Base64::Decode",
+        "prism::File::Line::Read",
+        "prism::Crypto::Hex::Decode",
+        "prism::Crypto::HMAC::SHA256::Sign",
         "cripts::Geo::Country",
         "cripts::Geo::ASN",
         "cripts::Geo::ASNName",
     ]
-    assert externs["cripts::Crypto::Base64::Encode"] == ExternDecl(
-        "cripts::Crypto::Base64::Encode", ("string",), "string", "pure", f"{_CRIPTS}:4")
-    assert externs["cripts::File::Line::Read"].effect == "load"
-    assert externs["cripts::Crypto::HMAC::SHA256::Sign"] == ExternDecl(
-        "cripts::Crypto::HMAC::SHA256::Sign", ("string", "string"), "string", "pure", f"{_CRIPTS}:8")
-    assert externs["cripts::Geo::ASN"] == ExternDecl("cripts::Geo::ASN", (), "int64", "pure", f"{_CRIPTS}:10")
+    assert externs["prism::Crypto::Base64::Encode"] == ExternDecl(
+        "prism::Crypto::Base64::Encode", ("string",), "string", "pure", f"{_CRIPTS}:4")
+    assert externs["prism::File::Line::Read"].effect == "load"
+    assert externs["prism::Crypto::HMAC::SHA256::Sign"] == ExternDecl(
+        "prism::Crypto::HMAC::SHA256::Sign", ("string", "string"), "string", "pure", f"{_CRIPTS}:8")
+    assert externs["cripts::Geo::ASN"] == ExternDecl("cripts::Geo::ASN", (), "int64", "pure", f"{_CRIPTS}:12")
 
 
 def test_no_effect_word_declares_an_effect(tmp_path):
@@ -172,14 +172,14 @@ def _assignment(value: str, operator: str = "=") -> str:
 
 
 def test_nested_calls_lower_the_inner_call_first(externs):
-    lines, errors = _ir(_assignment('cripts::Crypto::Hex::Decode(cripts::Crypto::Base64::Decode("aGk="))'), externs)
+    lines, errors = _ir(_assignment('prism::Crypto::Hex::Decode(prism::Crypto::Base64::Decode("aGk="))'), externs)
     assert errors == []
     assert lines[0] == "hrw4u-ir 1.1"
     assert lines[5:] == [
         "    %1:sview = const.s K0 @2:4",
         "    %2:sview = const.s K1 @2:4",
-        '    %3:sview = call.pure EXT"cripts::Crypto::Base64::Decode", %2 @2:4',
-        '    %4:sview = call.pure EXT"cripts::Crypto::Hex::Decode", %3 @2:4',
+        '    %3:sview = call.pure EXT"prism::Crypto::Base64::Decode", %2 @2:4',
+        '    %4:sview = call.pure EXT"prism::Crypto::Hex::Decode", %3 @2:4',
         "    call.eff BI_SET_CLIENT_RESP_HEADER, %1, %4 @2:4",
         "    ret @2:4",
     ]
@@ -198,42 +198,40 @@ def test_arguments_take_the_types_the_declaration_names(externs):
 
 
 def test_a_call_appends_with_plus_equal(externs):
-    lines, errors = _ir(_assignment('cripts::Crypto::Base64::Encode("a")', "+="), externs)
+    lines, errors = _ir(_assignment('prism::Crypto::Base64::Encode("a")', "+="), externs)
     assert errors == []
     assert "    call.eff BI_ADD_CLIENT_RESP_HEADER, %1, %3 @2:4" in lines
 
 
 @pytest.mark.parametrize("target", ["inbound.resp.body", "inbound.status.reason"])
 def test_a_call_sets_a_target_whose_value_is_validated(externs, target):
-    source = f'SEND_RESPONSE {{\n    {target} = cripts::Crypto::Base64::Encode("a");\n}}\n'
+    source = f'SEND_RESPONSE {{\n    {target} = prism::Crypto::Base64::Encode("a");\n}}\n'
     lines, errors = _ir(source, externs)
     assert errors == []
-    assert '    %2:sview = call.pure EXT"cripts::Crypto::Base64::Encode", %1 @2:4' in lines
+    assert '    %2:sview = call.pure EXT"prism::Crypto::Base64::Encode", %1 @2:4' in lines
 
 
 def test_a_call_in_a_procedure_takes_its_arguments(externs):
     source = (
-        'procedure syn::p($v) {\n    inbound.resp.X = cripts::Crypto::Base64::Encode("$v");\n}\n'
+        'procedure syn::p($v) {\n    inbound.resp.X = prism::Crypto::Base64::Encode("$v");\n}\n'
         'SEND_RESPONSE {\n    syn::p("a");\n}\n')
     lines, errors = _ir(source, externs)
     assert errors == []
     assert lines[3] == '  consts = [K0:"X", K1:"a"]'
-    assert '    %3:sview = call.pure EXT"cripts::Crypto::Base64::Encode", %2 @5:4' in lines
+    assert '    %3:sview = call.pure EXT"prism::Crypto::Base64::Encode", %2 @5:4' in lines
 
 
 @pytest.mark.parametrize(
     "value, message", [
         ('T::Nope("a")', "unknown function 'T::Nope': no --extern manifest declares it"),
-        ("cripts::Crypto::Base64::Encode()", "'cripts::Crypto::Base64::Encode' takes 1 arguments, 0 given"),
-        ('cripts::Crypto::Base64::Encode("a", "b")', "'cripts::Crypto::Base64::Encode' takes 1 arguments, 2 given"),
-        ("cripts::Crypto::Base64::Encode(5)", "argument 1 of 'cripts::Crypto::Base64::Encode' is int64, not string"),
-        (
-            "cripts::Crypto::Base64::Encode(cripts::Geo::ASN())",
-            "argument 1 of 'cripts::Crypto::Base64::Encode' is int64, not string"),
+        ("prism::Crypto::Base64::Encode()", "'prism::Crypto::Base64::Encode' takes 1 arguments, 0 given"),
+        ('prism::Crypto::Base64::Encode("a", "b")', "'prism::Crypto::Base64::Encode' takes 1 arguments, 2 given"),
+        ("prism::Crypto::Base64::Encode(5)", "argument 1 of 'prism::Crypto::Base64::Encode' is int64, not string"),
+        ("prism::Crypto::Base64::Encode(cripts::Geo::ASN())", "argument 1 of 'prism::Crypto::Base64::Encode' is int64, not string"),
         ('T::Str(5, "true")', "argument 2 of 'T::Str' is string, not bool"),
         ("cripts::Geo::ASN()", "'cripts::Geo::ASN' returns int64; inbound.resp.X takes a string"),
         ('T::Log("a")', "'T::Log' has an effect; calling it is not supported yet"),
-        ('cripts::File::Line::Read("k")', "'cripts::File::Line::Read' runs at load only; call it in an INSTANCE_VARS initializer"),
+        ('prism::File::Line::Read("k")', "'prism::File::Line::Read' runs at load only; call it in an INSTANCE_VARS initializer"),
     ],
     ids=["unknown", "too-few", "too-many", "int-for-string", "call-for-string", "string-for-bool", "result", "effect", "load"])
 def test_a_call_that_cannot_be_compiled_errors(externs, value, message):
@@ -267,16 +265,16 @@ def _hole_ir(lines: list[str]) -> list[str]:
                 "    %5:sview = fmt F0, %4 @2:4",
             ]),
         (
-            'cripts::Crypto::Hex::Decode(cripts::Crypto::Base64::Decode(\\"aGk=\\"))', [
+            'prism::Crypto::Hex::Decode(prism::Crypto::Base64::Decode(\\"aGk=\\"))', [
                 "    %2:sview = const.s K1 @2:4",
-                '    %3:sview = call.pure EXT"cripts::Crypto::Base64::Decode", %2 @2:4',
-                '    %4:sview = call.pure EXT"cripts::Crypto::Hex::Decode", %3 @2:4',
+                '    %3:sview = call.pure EXT"prism::Crypto::Base64::Decode", %2 @2:4',
+                '    %4:sview = call.pure EXT"prism::Crypto::Hex::Decode", %3 @2:4',
                 "    %5:sview = fmt F0, %4 @2:4",
             ]),
         (
-            'cripts::Crypto::Base64::Encode(\\"a\\") with NORM', [
+            'prism::Crypto::Base64::Encode(\\"a\\") with NORM', [
                 "    %2:sview = const.s K1 @2:4",
-                '    %3:sview = call.pure EXT"cripts::Crypto::Base64::Encode", %2 @2:4',
+                '    %3:sview = call.pure EXT"prism::Crypto::Base64::Encode", %2 @2:4',
                 "    %4:sview = call.pure BI_NORM, %3 @2:4",
                 "    %5:sview = fmt F0, %4 @2:4",
             ]),
@@ -290,12 +288,12 @@ def test_a_call_in_a_hole_is_a_hole_of_the_format(externs, call, lowered):
 
 
 def test_a_call_in_a_hole_reads_an_instance_variable(externs):
-    source = 'INSTANCE_VARS {\n    k: string = "x";\n}\n' + _hole("cripts::Crypto::Base64::Encode(k)")
+    source = 'INSTANCE_VARS {\n    k: string = "x";\n}\n' + _hole("prism::Crypto::Base64::Encode(k)")
     lines, errors = _ir(source, externs)
     assert errors == []
     assert lines[-5:-2] == [
         "    %2:sview = load.i i0 @5:4",
-        '    %3:sview = call.pure EXT"cripts::Crypto::Base64::Encode", %2 @5:4',
+        '    %3:sview = call.pure EXT"prism::Crypto::Base64::Encode", %2 @5:4',
         "    %4:sview = fmt F0, %3 @5:4",
     ]
 
@@ -303,18 +301,18 @@ def test_a_call_in_a_hole_reads_an_instance_variable(externs):
 @pytest.mark.parametrize(
     "call, message", [
         ('T::Nope(\\"a\\")', "unknown function 'T::Nope': no --extern manifest declares it"),
-        ("cripts::Crypto::Base64::Encode()", "'cripts::Crypto::Base64::Encode' takes 1 arguments, 0 given"),
-        ("cripts::Crypto::Base64::Encode(5)", "argument 1 of 'cripts::Crypto::Base64::Encode' is int64, not string"),
+        ("prism::Crypto::Base64::Encode()", "'prism::Crypto::Base64::Encode' takes 1 arguments, 0 given"),
+        ("prism::Crypto::Base64::Encode(5)", "argument 1 of 'prism::Crypto::Base64::Encode' is int64, not string"),
         (
-            "cripts::Crypto::Base64::Encode(inbound.method)",
-            "argument 1 of 'cripts::Crypto::Base64::Encode' is a bare reference; write it as \"{inbound.method}\""),
+            "prism::Crypto::Base64::Encode(inbound.method)",
+            "argument 1 of 'prism::Crypto::Base64::Encode' is a bare reference; write it as \"{inbound.method}\""),
         ('T::Log(\\"a\\")', "'T::Log' has an effect; calling it is not supported yet"),
         (
-            'cripts::File::Line::Read(\\"k\\")',
-            "'cripts::File::Line::Read' runs at load only; call it in an INSTANCE_VARS initializer"),
+            'prism::File::Line::Read(\\"k\\")',
+            "'prism::File::Line::Read' runs at load only; call it in an INSTANCE_VARS initializer"),
         (
-            "cripts::Crypto::Base64::Encode(a b)",
-            "'{cripts::Crypto::Base64::Encode(a b)}' does not parse: extraneous input 'b' expecting ')'"),
+            "prism::Crypto::Base64::Encode(a b)",
+            "'{prism::Crypto::Base64::Encode(a b)}' does not parse: extraneous input 'b' expecting ')'"),
     ],
     ids=["unknown", "arity", "argument-type", "bare-reference", "effect", "load", "syntax"])
 def test_a_call_in_a_hole_that_cannot_be_compiled_errors(externs, call, message):
@@ -408,8 +406,8 @@ def test_a_procedure_called_for_a_value_is_not_inlined(externs):
 
 
 def test_a_declared_function_called_as_a_statement_is_called_for_its_value(externs):
-    source = 'SEND_RESPONSE {\n    cripts::Crypto::Base64::Encode("a");\n}\n'
-    expected = [(2, 4, "'cripts::Crypto::Base64::Encode' is called for its value; assign it")]
+    source = 'SEND_RESPONSE {\n    prism::Crypto::Base64::Encode("a");\n}\n'
+    expected = [(2, 4, "'prism::Crypto::Base64::Encode' is called for its value; assign it")]
     assert _ir(source, externs)[1] == expected
     assert _cst_errors(source, externs) == expected
 
@@ -417,11 +415,11 @@ def test_a_declared_function_called_as_a_statement_is_called_for_its_value(exter
 @pytest.mark.parametrize(
     "value, message", [
         (
-            "cripts::Crypto::Base64::Encode(inbound.req.X-Foo)",
-            "argument 1 of 'cripts::Crypto::Base64::Encode' is a bare reference; write it as \"{inbound.req.X-Foo}\""),
+            "prism::Crypto::Base64::Encode(inbound.req.X-Foo)",
+            "argument 1 of 'prism::Crypto::Base64::Encode' is a bare reference; write it as \"{inbound.req.X-Foo}\""),
         (
-            'cripts::Crypto::HMAC::SHA256::Sign("a", outbound.req.X-Foo)',
-            "argument 2 of 'cripts::Crypto::HMAC::SHA256::Sign' is a bare reference; write it as \"{outbound.req.X-Foo}\""),
+            'prism::Crypto::HMAC::SHA256::Sign("a", outbound.req.X-Foo)',
+            "argument 2 of 'prism::Crypto::HMAC::SHA256::Sign' is a bare reference; write it as \"{outbound.req.X-Foo}\""),
     ],
     ids=["first", "second"])
 def test_a_bare_reference_is_not_a_string_argument(externs, value, message):

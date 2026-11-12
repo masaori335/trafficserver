@@ -115,14 +115,18 @@ hrw4u --output ir --ir-version 1.1 --extern cripts.ext.hrw4u --extern example_ua
 - `--extern FILE` - A manifest `hrw4u-extern` printed, declaring the functions a script may call; repeatable, read in
   order. A manifest holds `extern` declarations only, and a name declared twice is an error
 
+A builtin, which the compiler knows as `header_rewrite` does, is named without `::`, as
+`random(100)`. A declared function is named with it: under `prism::` for prism.so's, whether
+it calls Cripts or is prism's own, and otherwise an extension's.
+
 A script calls a declared function for its value. The call is either the whole right-hand
 side of an `=` or `+=` whose target takes a string, where the function returns `string`, or
 a `{...}` hole in a string, where it may return any of the three types:
 
 ```
 SEND_RESPONSE {
-    inbound.resp.X-B64 = cripts::Crypto::Base64::Encode("{inbound.req.X-Raw}");
-    inbound.resp.X-Enc = "v={cripts::Crypto::Base64::Encode(\"{inbound.req.X-Raw}\")}";
+    inbound.resp.X-B64 = prism::Crypto::Base64::Encode("{inbound.req.X-Raw}");
+    inbound.resp.X-Enc = "v={prism::Crypto::Base64::Encode(\"{inbound.req.X-Raw}\")}";
 }
 ```
 
@@ -144,11 +148,11 @@ rule, from a string or a call to a declared `pure` or `load` function:
 
 ```
 INSTANCE_VARS {
-    secret: string = cripts::Crypto::Hex::Decode(cripts::File::Line::Read("secret.hex"));
+    secret: string = prism::Crypto::Hex::Decode(prism::File::Line::Read("secret.hex"));
 }
 
 SEND_REQUEST {
-    outbound.req.X-Sign = cripts::Crypto::Base64::Encode(cripts::Crypto::HMAC::SHA256::Sign(secret, "{outbound.url.path}"));
+    outbound.req.X-Sign = prism::Crypto::Base64::Encode(prism::Crypto::HMAC::SHA256::Sign(secret, "{outbound.url.path}"));
 }
 ```
 

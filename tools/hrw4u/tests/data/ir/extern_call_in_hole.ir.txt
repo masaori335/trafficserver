@@ -2,13 +2,13 @@ hrw4u-ir 1.1
 
 Section[SEND_RESPONSE]:
   consts = [K0:"X-Enc", K1:"X-In"]
-  fmt    = [F0:"{inbound.req.X-In}" arity=1 lits=["", ""], F1:"v={cripts::Crypto::Base64::Encode(\\\"{inbound.req.X-In}\\\")}" arity=1 lits=["v=", ""]]
+  fmt    = [F0:"{inbound.req.X-In}" arity=1 lits=["", ""], F1:"v={prism::Crypto::Base64::Encode(\\\"{inbound.req.X-In}\\\")}" arity=1 lits=["v=", ""]]
   IR:
     %1:sview = const.s K0 @1:16
     %2:sview = const.s K1 @1:16
     %3:sview = call.pure BI_CLIENT_HEADER, %2 @1:16
     %4:sview = fmt F0, %3 @1:16
-    %5:sview = call.pure EXT"cripts::Crypto::Base64::Encode", %4 @1:16
+    %5:sview = call.pure EXT"prism::Crypto::Base64::Encode", %4 @1:16
     %6:sview = fmt F1, %5 @1:16
     call.eff BI_SET_CLIENT_RESP_HEADER, %1, %6 @1:16
     ret @1:16

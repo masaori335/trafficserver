@@ -85,7 +85,7 @@ build_state(const std::string &ir_path, const std::vector<std::string> &ext_path
 
   // The registry has already logged which name it refused.
   if (!hrw4u::def_cripts_bindings(state->registry.host_api())) {
-    error = "could not register the Cripts bindings";
+    error = "could not register prism.so's functions";
     return nullptr;
   }
 

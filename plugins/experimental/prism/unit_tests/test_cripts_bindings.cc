@@ -1,6 +1,6 @@
 /** @file
 
-  Unit tests for the Cripts calls the IR makes, called through the registry as prism.so calls them.
+  Unit tests for the functions prism.so gives the IR, called through the registry as prism.so calls them.
 
   @section license License
 
@@ -73,7 +73,7 @@ call(std::string_view name, std::initializer_list<std::string_view> params)
 std::optional<std::string>
 hex_decode(std::string_view hex)
 {
-  return call("cripts::Crypto::Hex::Decode", {hex});
+  return call("prism::Crypto::Hex::Decode", {hex});
 }
 
 struct TempDir {
@@ -124,7 +124,7 @@ TEST_CASE("Hex::Decode rejects the characters next to each digit range, and high
 
 TEST_CASE("HMAC::SHA256::Sign takes the key first, as RFC 4231 test case 2", "[prism][bindings]")
 {
-  auto mac = call("cripts::Crypto::HMAC::SHA256::Sign", {"Jefe", "what do ya want for nothing?"});
+  auto mac = call("prism::Crypto::HMAC::SHA256::Sign", {"Jefe", "what do ya want for nothing?"});
 
   REQUIRE(mac);
   CHECK(ts::hex(*mac) == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
@@ -132,7 +132,7 @@ TEST_CASE("HMAC::SHA256::Sign takes the key first, as RFC 4231 test case 2", "[p
 
 TEST_CASE("Base64::Encode", "[prism][bindings]")
 {
-  CHECK(call("cripts::Crypto::Base64::Encode", {"foobar"}) == "Zm9vYmFy");
+  CHECK(call("prism::Crypto::Base64::Encode", {"foobar"}) == "Zm9vYmFy");
 }
 
 TEST_CASE("File::Line::Read: the first line of an absolute path", "[prism][bindings]")
@@ -141,7 +141,7 @@ TEST_CASE("File::Line::Read: the first line of an absolute path", "[prism][bindi
   auto    file = dir.path / "key.hex";
 
   std::ofstream{file} << "00ff\nsecond\n";
-  CHECK(call("cripts::File::Line::Read", {file.string()}) == "00ff");
+  CHECK(call("prism::File::Line::Read", {file.string()}) == "00ff");
 }
 
 TEST_CASE("File::Line::Read: a relative path from the config directory", "[prism][bindings]")
@@ -149,7 +149,7 @@ TEST_CASE("File::Line::Read: a relative path from the config directory", "[prism
   std::filesystem::path dir{TSConfigDirGet()};
 
   std::ofstream{dir / "prism_bindings_test.hex"} << "abcd\n";
-  CHECK(call("cripts::File::Line::Read", {"prism_bindings_test.hex"}) == "abcd");
+  CHECK(call("prism::File::Line::Read", {"prism_bindings_test.hex"}) == "abcd");
   std::filesystem::remove(dir / "prism_bindings_test.hex");
 }
 
@@ -158,7 +158,7 @@ TEST_CASE("File::Line::Read: no value for a relative path out of the config dire
   std::filesystem::path outside = std::filesystem::path{TSConfigDirGet()}.parent_path() / "prism_bindings_outside.hex";
 
   std::ofstream{outside} << "abcd\n";
-  CHECK_FALSE(call("cripts::File::Line::Read", {"../prism_bindings_outside.hex"}));
+  CHECK_FALSE(call("prism::File::Line::Read", {"../prism_bindings_outside.hex"}));
   std::filesystem::remove(outside);
 }
 
@@ -168,6 +168,6 @@ TEST_CASE("File::Line::Read: no value for a missing file or an empty first line"
   auto    empty = dir.path / "empty";
 
   std::ofstream{empty} << "\nsecond\n";
-  CHECK_FALSE(call("cripts::File::Line::Read", {(dir.path / "missing").string()}));
-  CHECK_FALSE(call("cripts::File::Line::Read", {empty.string()}));
+  CHECK_FALSE(call("prism::File::Line::Read", {(dir.path / "missing").string()}));
+  CHECK_FALSE(call("prism::File::Line::Read", {empty.string()}));
 }

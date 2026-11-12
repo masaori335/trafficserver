@@ -1,7 +1,7 @@
 use Apple::G2O
 
 INSTANCE_VARS {
-    g2o_secret: string = cripts::Crypto::Hex::Decode(cripts::File::Line::Read("g2o_secret.hex"));
+    g2o_secret: string = prism::Crypto::Hex::Decode(prism::File::Line::Read("g2o_secret.hex"));
 }
 
 SEND_REQUEST {

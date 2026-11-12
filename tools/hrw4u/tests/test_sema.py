@@ -664,13 +664,13 @@ class TestInstanceVars:
         block = prog.items[0]
         assert isinstance(block, InstanceVarsBlock)
         [var] = block.vars
-        assert (var.index, var.value.decl.name) == (0, "cripts::Crypto::Hex::Decode")
+        assert (var.index, var.value.decl.name) == (0, "prism::Crypto::Hex::Decode")
         [read] = var.value.args
-        assert (read.decl.name, read.decl.effect) == ("cripts::File::Line::Read", "load")
+        assert (read.decl.name, read.decl.effect) == ("prism::File::Line::Read", "load")
         assert read.args == (StrTemplate(parts=("instance_vars_secret.hex",), source="instance_vars_secret.hex"),)
 
     def test_a_hook_reads_one_where_a_string_goes(self):
-        hook = 'inbound.resp.X = a;\n    inbound.resp.Y = "<{a}>";\n    inbound.resp.Z = cripts::Crypto::Base64::Encode(a);'
+        hook = 'inbound.resp.X = a;\n    inbound.resp.Y = "<{a}>";\n    inbound.resp.Z = prism::Crypto::Base64::Encode(a);'
         prog, errors = _instance(_instance_vars('a: string = "x";', hook))
         assert errors == []
         assign, hole, arg = prog.items[-1].body
@@ -693,16 +693,16 @@ class TestInstanceVars:
             ('a: string = "{inbound.method}";', "no-op();", (2, 4, "an INSTANCE_VARS initializer cannot read the transaction")),
             ('a: string = "{now()}";', "no-op();", (2, 4, "an INSTANCE_VARS initializer cannot read the transaction")),
             (
-                'a: string = "{cripts::Crypto::Base64::Encode(\\"x\\")}";', "no-op();",
+                'a: string = "{prism::Crypto::Base64::Encode(\\"x\\")}";', "no-op();",
                 (2, 4, "an INSTANCE_VARS initializer cannot read the transaction")),
             (
-                'a: string = cripts::Crypto::Base64::Encode("{inbound.req.X}");', "no-op();",
+                'a: string = prism::Crypto::Base64::Encode("{inbound.req.X}");', "no-op();",
                 (2, 4, "an INSTANCE_VARS initializer cannot read the transaction")),
             (
-                "a: string = cripts::Crypto::Base64::Encode(inbound.method);", "no-op();",
+                "a: string = prism::Crypto::Base64::Encode(inbound.method);", "no-op();",
                 (2, 4, "an INSTANCE_VARS initializer cannot read the transaction")),
             (
-                'a: string = "x";\n    b: string = cripts::Crypto::Base64::Encode(a);', "no-op();",
+                'a: string = "x";\n    b: string = prism::Crypto::Base64::Encode(a);', "no-op();",
                 (3, 4, "'a' is an instance variable, which an INSTANCE_VARS initializer cannot read yet")),
             ("a: string = cripts::Geo::ASN();", "no-op();", (2, 4, "'cripts::Geo::ASN' returns int64; a takes a string")),
             (
@@ -736,9 +736,9 @@ class TestInstanceVars:
         assert prog.items[-1].body[0].value == InstanceRef(index=1, name="b")
 
     def test_a_load_function_runs_in_an_initializer_only(self):
-        hook = 'inbound.resp.X = cripts::File::Line::Read("k");'
-        assert _instance(_instance_vars('a: string = cripts::File::Line::Read("k");', hook))[1] == [
-            (5, 4, "'cripts::File::Line::Read' runs at load only; call it in an INSTANCE_VARS initializer")
+        hook = 'inbound.resp.X = prism::File::Line::Read("k");'
+        assert _instance(_instance_vars('a: string = prism::File::Line::Read("k");', hook))[1] == [
+            (5, 4, "'prism::File::Line::Read' runs at load only; call it in an INSTANCE_VARS initializer")
         ]
 
     def test_ir_1_0_cannot_hold_them(self):

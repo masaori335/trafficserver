@@ -1,7 +1,7 @@
 INSTANCE_VARS {
-    secret: string = cripts::Crypto::Hex::Decode(cripts::File::Line::Read("instance_vars_secret.hex"));
+    secret: string = prism::Crypto::Hex::Decode(prism::File::Line::Read("instance_vars_secret.hex"));
 }
 
 SEND_RESPONSE {
-    inbound.resp.X-Secret-B64 = cripts::Crypto::Base64::Encode(secret);
+    inbound.resp.X-Secret-B64 = prism::Crypto::Base64::Encode(secret);
 }

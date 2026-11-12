@@ -508,55 +508,55 @@ SYNTHETIC = [
         id="extern-as-a-variable-name"),
     pytest.param(Case('REMAP {\n    inbound.req.X-A = T::F("a");\n}\n'), id="call-without-a-manifest"),
     pytest.param(
-        Case('REMAP {\n    inbound.req.X-A = cripts::Crypto::Base64::Encode();\n}\n', externs=True),
+        Case('REMAP {\n    inbound.req.X-A = prism::Crypto::Base64::Encode();\n}\n', externs=True),
         id="call-with-too-few-arguments"),
     pytest.param(
-        Case('REMAP {\n    inbound.req.X-A = cripts::Crypto::Base64::Encode("{bogus}");\n}\n', externs=True),
+        Case('REMAP {\n    inbound.req.X-A = prism::Crypto::Base64::Encode("{bogus}");\n}\n', externs=True),
         id="call-with-an-interpolation-error"),
     pytest.param(
-        Case('REMAP {\n    inbound.req.X-A = cripts::Crypto::Hex::Decode(cripts::Crypto::Base64::Decode("x"));\n}\n', externs=True),
+        Case('REMAP {\n    inbound.req.X-A = prism::Crypto::Hex::Decode(prism::Crypto::Base64::Decode("x"));\n}\n', externs=True),
         id="nested-call"),
     pytest.param(
-        Case('REMAP {\n    inbound.req.X-A = "{cripts::Crypto::Base64::Encode(\\"x\\")}";\n}\n', externs=True),
+        Case('REMAP {\n    inbound.req.X-A = "{prism::Crypto::Base64::Encode(\\"x\\")}";\n}\n', externs=True),
         id="call-inside-a-string"),
     pytest.param(
-        Case('REMAP {\n    inbound.req.X-A = "{cripts::Crypto::Base64::Encode(\\"{inbound.req.X-In}\\")}";\n}\n', externs=True),
+        Case('REMAP {\n    inbound.req.X-A = "{prism::Crypto::Base64::Encode(\\"{inbound.req.X-In}\\")}";\n}\n', externs=True),
         id="call-inside-a-string-reading-a-hole"),
     pytest.param(Case('REMAP {\n    inbound.req.X-A = "{T::Nope()}";\n}\n', externs=True), id="unknown-call-inside-a-string"),
     pytest.param(
-        Case('REMAP {\n    inbound.req.X-A = "{cripts::File::Line::Read(\\"k\\")}";\n}\n', externs=True),
+        Case('REMAP {\n    inbound.req.X-A = "{prism::File::Line::Read(\\"k\\")}";\n}\n', externs=True),
         id="load-call-inside-a-string"),
     pytest.param(
-        Case('REMAP {\n    inbound.req.X-A = "{cripts::Crypto::Base64::Encode(\\"x\\") with NOCASE}";\n}\n', externs=True),
+        Case('REMAP {\n    inbound.req.X-A = "{prism::Crypto::Base64::Encode(\\"x\\") with NOCASE}";\n}\n', externs=True),
         id="call-inside-a-string-with-a-condition-modifier"),
     pytest.param(
-        Case('REMAP {\n    inbound.req.X-A = "{cripts::Crypto::Base64::Encode(a b)}";\n}\n', externs=True),
+        Case('REMAP {\n    inbound.req.X-A = "{prism::Crypto::Base64::Encode(a b)}";\n}\n', externs=True),
         id="call-inside-a-string-that-does-not-parse"),
     pytest.param(
         Case(
-            'REMAP {\n    inbound.req.X-A = "{cripts::Crypto::Base64::Encode(\\"x\\")}";\n}\n',
+            'REMAP {\n    inbound.req.X-A = "{prism::Crypto::Base64::Encode(\\"x\\")}";\n}\n',
             externs=True,
-            deny={"functions": ["cripts::Crypto::Base64::Encode"]}),
+            deny={"functions": ["prism::Crypto::Base64::Encode"]}),
         id="denied-call-inside-a-string"),
     pytest.param(
         Case(
-            'REMAP {\n    inbound.req.X-A = "{cripts::Crypto::Base64::Encode(\\"x\\")}";\n}\n',
+            'REMAP {\n    inbound.req.X-A = "{prism::Crypto::Base64::Encode(\\"x\\")}";\n}\n',
             externs=True,
-            warn={"functions": ["cripts::Crypto::Base64::Encode"]}),
+            warn={"functions": ["prism::Crypto::Base64::Encode"]}),
         id="warned-call-inside-a-string"),
     pytest.param(
         Case('REMAP {\n    if cripts::Geo::ASN() == 1 {\n        no-op();\n    }\n}\n', externs=True), id="call-in-a-condition"),
     pytest.param(
         Case(
-            'REMAP {\n    inbound.req.X-A = cripts::Crypto::Base64::Encode("a");\n}\n',
+            'REMAP {\n    inbound.req.X-A = prism::Crypto::Base64::Encode("a");\n}\n',
             externs=True,
-            deny={"functions": ["cripts::Crypto::Base64::Encode"]}),
+            deny={"functions": ["prism::Crypto::Base64::Encode"]}),
         id="denied-call"),
     pytest.param(
         Case(
-            'REMAP {\n    inbound.req.X-A = cripts::Crypto::Base64::Encode("a");\n}\n',
+            'REMAP {\n    inbound.req.X-A = prism::Crypto::Base64::Encode("a");\n}\n',
             externs=True,
-            warn={"functions": ["cripts::Crypto::Base64::Encode"]}),
+            warn={"functions": ["prism::Crypto::Base64::Encode"]}),
         id="warned-call"),
     pytest.param(Case('REMAP {\n    counter(cripts::Geo::Country());\n}\n', externs=True), id="call-as-an-operator-argument"),
     pytest.param(

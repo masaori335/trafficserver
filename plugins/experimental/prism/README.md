@@ -82,7 +82,7 @@ below, but it is a copy of the wheel: after a change under `tools/hrw4u`, build 
 G2O, written in hrw4u as the `Apple::G2O` procedures in `plugins/experimental/prism/procedures/Apple/G2O.hrw4u`, is the
 first target and runs on this branch. `g2o.ir` and `g2o_kat.ir` in `tests/uranium_tests/pluginTest/prism/` are compiled
 from the `.hrw4u` files next to them, which use those procedures, and `g2o.test.yaml` there checks the signatures in
-traffic_server. They use the Cripts calls bound in `plugins/experimental/prism/src/cripts_bindings.cc`. The procedures
+traffic_server. They use the `prism::` functions bound in `plugins/experimental/prism/src/cripts_bindings.cc`. The procedures
 are installed in `share/trafficserver/hrw4u/procedures/`, `prism-vm-support.sandbox.yaml` in `share/trafficserver/hrw4u/`, and
 `prism.ext.hrw4u`, the `extern` manifest of those calls that the build writes with `hrw4u-extern`, in
 `share/trafficserver/hrw4u/extern/`; bazinga-trafficserver-plugins-builtin ships them with prism.so.
@@ -103,7 +103,7 @@ are installed in `share/trafficserver/hrw4u/procedures/`, `prism-vm-support.sand
 
    After a change under `tools/hrw4u`, run `make -C tools/hrw4u gen` again; `.venv/bin/hrw4u` runs what it generates.
 
-2. Compile both programs. `INSTANCE_VARS` and calls to the Cripts functions need IR 1.1, and the compiler writes 1.0 by
+2. Compile both programs. `INSTANCE_VARS` and calls to the `prism::` functions need IR 1.1, and the compiler writes 1.0 by
    default; without `--ir-version 1.1` the instance variables are not declared, so the procedures also fail with
    unknown symbols and bare references.
 

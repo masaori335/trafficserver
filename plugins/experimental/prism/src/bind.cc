@@ -47,7 +47,7 @@ namespace
   check(const Section &sec, const Inst &inst, const Registry::Entry *entry)
   {
     if (entry == nullptr) {
-      return "neither a Cripts binding of this build nor a loaded extension registers it";
+      return "neither prism.so nor a loaded extension registers it";
     }
     if (inst.op == Op::CallLoad && entry->effect != HRW4U_EFFECT_LOAD) {
       return "it is not a load function, so call.load cannot call it";

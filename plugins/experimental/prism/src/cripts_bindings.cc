@@ -1,6 +1,6 @@
 /** @file
 
-  The Cripts functions the IR calls by names under cripts::.
+  The functions prism.so gives the IR by names under prism::, whether each calls Cripts or is prism's own.
 
   @section license License
 
@@ -98,11 +98,11 @@ namespace
     return ret;
   }
 
-  HRW4U_MODULE_TABLE(cripts_module, "cripts",
-                     HRW4U_DEF(&cripts::Crypto::Base64::Encode, "cripts::Crypto::Base64::Encode", HRW4U_EFFECT_PURE),
-                     HRW4U_DEF(&file_line_read, "cripts::File::Line::Read", HRW4U_EFFECT_LOAD),
-                     HRW4U_DEF(&hex_decode, "cripts::Crypto::Hex::Decode", HRW4U_EFFECT_PURE),
-                     HRW4U_DEF(&hmac_sha256_sign, "cripts::Crypto::HMAC::SHA256::Sign", HRW4U_EFFECT_PURE));
+  HRW4U_MODULE_TABLE(cripts_module, "prism",
+                     HRW4U_DEF(&cripts::Crypto::Base64::Encode, "prism::Crypto::Base64::Encode", HRW4U_EFFECT_PURE),
+                     HRW4U_DEF(&hmac_sha256_sign, "prism::Crypto::HMAC::SHA256::Sign", HRW4U_EFFECT_PURE),
+                     HRW4U_DEF(&file_line_read, "prism::File::Line::Read", HRW4U_EFFECT_LOAD),
+                     HRW4U_DEF(&hex_decode, "prism::Crypto::Hex::Decode", HRW4U_EFFECT_PURE));
 } // namespace
 
 bool

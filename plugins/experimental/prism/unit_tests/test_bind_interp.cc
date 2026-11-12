@@ -202,12 +202,12 @@ TEST_CASE("bind rejects")
 
   m.def<&set_header>("T::SetHeader", HRW4U_EFFECT_PURE);
 
-  SECTION("an unregistered name, as a Cripts binding left out of this build is")
+  SECTION("an unregistered name")
   {
     std::string error = bind_error(reg);
 
     CHECK(error.find("Example::UA::IsBot") != std::string::npos);
-    CHECK(error.find("neither a Cripts binding of this build nor a loaded extension registers it") != std::string::npos);
+    CHECK(error.find("neither prism.so nor a loaded extension registers it") != std::string::npos);
   }
   SECTION("an effectful function in call.pure")
   {
