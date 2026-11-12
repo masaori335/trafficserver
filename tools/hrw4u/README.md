@@ -117,7 +117,8 @@ hrw4u --output ir --ir-version 1.1 --extern cripts.ext.hrw4u --extern example_ua
 
 A builtin, which the compiler knows as `header_rewrite` does, is named without `::`, as
 `random(100)`. A declared function is named with it: under `prism::` for prism.so's, whether
-it calls Cripts or is prism's own, and otherwise an extension's.
+it calls Cripts or is prism's own, and otherwise an extension's, which cannot take a
+`prism::` name.
 
 A script calls a declared function for its value. The call is either the whole right-hand
 side of an `=` or `+=` whose target takes a string, where the function returns `string`, or

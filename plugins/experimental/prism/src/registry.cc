@@ -52,6 +52,10 @@ Registry::add(const hrw4u_fn_decl &decl, std::string &error)
     error = name + ": already registered";
     return false;
   }
+  if (!_reserved.empty() && name.starts_with(_reserved)) {
+    error = name + ": names under " + _reserved + " are reserved";
+    return false;
+  }
   if (decl.nparams > MAX_EXT_PARAMS || (decl.nparams > 0 && decl.params == nullptr)) {
     error = name + ": bad parameter list";
     return false;
@@ -88,6 +92,12 @@ Registry::find(std::string_view name) const
     return nullptr;
   }
   return &it->second;
+}
+
+void
+Registry::reserve(std::string_view prefix)
+{
+  _reserved = prefix;
 }
 
 int

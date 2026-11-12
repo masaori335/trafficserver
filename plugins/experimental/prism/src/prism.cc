@@ -88,6 +88,7 @@ build_state(const std::string &ir_path, const std::vector<std::string> &ext_path
     error = "could not register prism.so's functions";
     return nullptr;
   }
+  state->registry.reserve("prism::");
 
   for (const auto &path : ext_paths) {
     auto ext = hrw4u::LoadedExtension::load(path, state->registry.host_api(), error);

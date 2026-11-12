@@ -52,6 +52,9 @@ public:
   bool         add(const hrw4u_fn_decl &decl, std::string &error);
   const Entry *find(std::string_view name) const;
 
+  /// Refuse every later name under @a prefix, so a name there tells its provider.
+  void reserve(std::string_view prefix);
+
   /// Valid while this registry lives: it points back at it.
   const hrw4u_host_api *
   host_api() const
@@ -65,6 +68,7 @@ private:
 
   std::function<void(std::string_view)>     _log;
   std::map<std::string, Entry, std::less<>> _entries;
+  std::string                               _reserved;
   hrw4u_host_api                            _api;
 };
 } // namespace hrw4u

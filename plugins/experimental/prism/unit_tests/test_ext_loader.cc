@@ -27,6 +27,7 @@
 #include <utility>
 #include <string>
 #include <string_view>
+#include <vector>
 
 using namespace hrw4u;
 
@@ -147,4 +148,45 @@ TEST_CASE("two instances share one .so, and one can go while the other keeps wor
   first_ext.reset();
   CHECK(is_bot(second, "Googlebot/2.1"));
   CHECK(family(second, "curl/8.4.0") == "curl");
+}
+
+namespace
+{
+int
+nothing(hrw4u_rule_ctx *, const uint64_t *, uint64_t *)
+{
+  return 0;
+}
+
+hrw4u_fn_decl
+decl_of(const char *name)
+{
+  return {name, HRW4U_TYPE_BOOL, 0, nullptr, HRW4U_EFFECT_PURE, &nothing};
+}
+} // namespace
+
+TEST_CASE("a name under a reserved prefix is refused, and one registered before stays")
+{
+  Registry    reg(ignore);
+  std::string error;
+
+  REQUIRE(reg.add(decl_of("prism::Before"), error));
+  reg.reserve("prism::");
+  CHECK_FALSE(reg.add(decl_of("prism::After"), error));
+  CHECK(error == "prism::After: names under prism:: are reserved");
+  CHECK(reg.find("prism::Before") != nullptr);
+  CHECK(reg.add(decl_of("Example::After"), error));
+}
+
+TEST_CASE("an extension that takes a reserved name is refused")
+{
+  std::vector<std::string> logged;
+  Registry                 reg([&logged](std::string_view message) { logged.emplace_back(message); });
+  std::string              error;
+
+  reg.reserve("Example::");
+  CHECK(LoadedExtension::load(EXAMPLE_UA_SO, reg.host_api(), error) == nullptr);
+  CHECK(error == std::string(EXAMPLE_UA_SO) + ": hrw4u_ext_init failed");
+  CHECK(logged == std::vector<std::string>{"Example::UA::IsBot: names under Example:: are reserved",
+                                           "Example::UA::Family: names under Example:: are reserved"});
 }
