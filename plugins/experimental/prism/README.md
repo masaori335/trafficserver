@@ -76,8 +76,16 @@ uv tool install --reinstall --python 3.13 dist/apple_hrw4u-*.whl
 `make package` sets up `.venv` with `uv` itself. `python -m build` then installs the build backend with pip into a
 separate environment, which goes to pypi.org unless `PIP_INDEX_URL` says otherwise. The wheel's version is always
 `0.0.0+placeholder.do.not.publish`, so without `--reinstall` uv keeps whichever wheel it installed first. `hrw4u` lands
-in `~/.local/bin`; `uv tool update-shell` puts that on `PATH`. It can replace `tools/hrw4u/.venv/bin/hrw4u` in the steps
-below, but it is a copy of the wheel: after a change under `tools/hrw4u`, build and install the wheel again.
+in `~/.local/bin`; `uv tool update-shell` puts that on `PATH`. It runs the wheel's copy of `tools/hrw4u`, not the
+tree: after a change under `tools/hrw4u`, build and install the wheel again.
+
+#### on lab box
+
+```
+sudo env UV_TOOL_DIR=/opt/hrw4u/tools UV_TOOL_BIN_DIR=/opt/hrw4u/bin \
+  UV_PYTHON_INSTALL_DIR=/opt/hrw4u/python UV_LINK_MODE=copy \
+  "$(command -v uv)" tool install --force ./apple_hrw4u-10.2.2.dev12+intpr.1377.sec20261112.ee8eee902-py3-none-any.whl
+```
 
 ## Akamai G2O
 
@@ -91,38 +99,59 @@ are installed in `share/trafficserver/hrw4u/procedures/`, `prism-vm-support.sand
 
 ### Compiling G2O and running it on prism
 
-`<build>` is this tree's build directory, configured with `ENABLE_CRIPTS`, `ENABLE_URTEST` and `ENABLE_PRISM`
-(`BUILD_EXPERIMENTAL_PLUGINS` makes `ENABLE_PRISM` default on, but only on the first configure); without them
-`prism.so` or `urtest.sh` is not built. Steps 1 and 2 run from the top of the tree.
+These steps run on a host with bazinga-trafficserver and bazinga-trafficserver-plugins-builtin of the same version, and
+the compiler installed as above. The packages install in `/opt/bazinga`, whose `etc/trafficserver` is the config
+directory.
 
-1. Build and install, which builds `prism.so` and its manifest, then set up the compiler, which needs `antlr` and `uv`
-   on `PATH`:
-
-   ```
-   cmake --build <build> -t install
-   make -C tools/hrw4u setup-deps
-   ```
-
-   After a change under `tools/hrw4u`, run `make -C tools/hrw4u gen` again; `.venv/bin/hrw4u` runs what it generates.
-
-2. Compile both programs. `INSTANCE_VARS` and calls to the `prism::` functions need IR 1.1, and the compiler writes 1.0 by
-   default; without `--ir-version 1.1` the instance variables are not declared, so the procedures also fail with
-   unknown symbols and bare references.
+1. Compile the program into the config directory. `INSTANCE_VARS` and calls to the `prism::` functions need IR 1.1, and
+   the compiler writes 1.0 by default; without `--ir-version 1.1` the instance variables are not declared, so the
+   procedures also fail with unknown symbols and bare references. The manifest comes from the same build as the
+   installed prism.so, so the compiler checks the calls against the prism.so that runs them.
 
    ```
-   tools/hrw4u/.venv/bin/hrw4u --output ir --ir-version 1.1 \
-     --extern <build>/plugins/experimental/prism/prism.ext.hrw4u \
-     --sandbox plugins/experimental/prism/prism-vm-support.sandbox.yaml \
-     --procedures-path plugins/experimental/prism/procedures \
-     tests/uranium_tests/pluginTest/prism/g2o.hrw4u:tests/uranium_tests/pluginTest/prism/g2o.ir \
-     tests/uranium_tests/pluginTest/prism/g2o_kat.hrw4u:tests/uranium_tests/pluginTest/prism/g2o_kat.ir
+   hrw4u --output ir --ir-version 1.1 \
+     --extern /opt/bazinga/share/trafficserver/hrw4u/extern/prism.ext.hrw4u \
+     --sandbox /opt/bazinga/share/trafficserver/hrw4u/prism-vm-support.sandbox.yaml \
+     --procedures-path /opt/bazinga/share/trafficserver/hrw4u/procedures \
+     g2o.hrw4u:/opt/bazinga/etc/trafficserver/g2o.ir
    ```
 
-   `git status` must show no change to the two `.ir` files.
+   `g2o.hrw4u` is a copy of `tests/uranium_tests/pluginTest/prism/g2o.hrw4u` with your nonce in place of `my-nonce`;
+   `procedures/Apple/G2O.hrw4u` says what a nonce may hold.
 
-3. Run them in traffic_server:
+2. Write the secret in hex, on the first line, to `/opt/bazinga/etc/trafficserver/g2o_secret.hex`.
+   `prism::File::FirstLine` reads a relative path from the config directory, unless it names a file in `/opt/bazinga`,
+   where traffic_server runs.
+
+3. Add the remap rule to `/opt/bazinga/etc/trafficserver/remap.config` and run `traffic_ctl config reload`. prism.so
+   refuses a relative `.ir` path:
 
    ```
-   cd <build>/tests
-   ./urtest.sh --no-run-in-container -v -k g2o
+   map http://g2o.example/ https://origin.example/ @plugin=prism.so @pparam=/opt/bazinga/etc/trafficserver/g2o.ir
    ```
+
+### Rebuilding the test `.ir` files
+
+`g2o.ir` and `g2o_kat.ir` are compiled against this tree's build instead. `<build>` is configured with `ENABLE_CRIPTS`,
+`ENABLE_URTEST` and `ENABLE_PRISM` (`BUILD_EXPERIMENTAL_PLUGINS` makes `ENABLE_PRISM` default on, but only on the first
+configure); without them `prism.so` or `urtest.sh` is not built. Run from the top of the tree; the compiler needs
+`antlr` and `uv` on `PATH`. After a change under `tools/hrw4u`, run `make -C tools/hrw4u gen` again before compiling;
+`.venv/bin/hrw4u` runs what it generates.
+
+```
+cmake --build <build> -t install
+make -C tools/hrw4u setup-deps
+tools/hrw4u/.venv/bin/hrw4u --output ir --ir-version 1.1 \
+  --extern <build>/plugins/experimental/prism/prism.ext.hrw4u \
+  --sandbox plugins/experimental/prism/prism-vm-support.sandbox.yaml \
+  --procedures-path plugins/experimental/prism/procedures \
+  tests/uranium_tests/pluginTest/prism/g2o.hrw4u:tests/uranium_tests/pluginTest/prism/g2o.ir \
+  tests/uranium_tests/pluginTest/prism/g2o_kat.hrw4u:tests/uranium_tests/pluginTest/prism/g2o_kat.ir
+```
+
+`git status` must show no change to the two `.ir` files. Then run them in traffic_server:
+
+```
+cd <build>/tests
+./urtest.sh --no-run-in-container -v -k g2o
+```
