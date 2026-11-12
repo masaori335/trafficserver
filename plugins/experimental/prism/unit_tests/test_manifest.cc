@@ -337,6 +337,6 @@ TEST_CASE("prism.so's bindings are read from its .so")
                                                  "extern prism::Crypto::Base64::Encode(string) -> string pure;\n"
                                                  "extern prism::Crypto::HMAC::SHA256::Sign(string, string) -> string pure;\n"
                                                  "extern prism::Crypto::Hex::Decode(string) -> string pure;\n"
-                                                 "extern prism::File::Line::Read(string) -> string load;\n");
+                                                 "extern prism::File::FirstLine(string) -> string load;\n");
 }
 #endif

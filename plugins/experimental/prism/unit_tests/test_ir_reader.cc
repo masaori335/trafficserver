@@ -373,7 +373,7 @@ TEST_CASE("an IR of this version or of this major with no minor loads but anothe
 namespace
 {
 // What the compiler would write for:
-//   INSTANCE_VARS { g2o_secret: string = prism::Crypto::Hex::Decode(prism::File::Line::Read("g2o_secret.hex")); }
+//   INSTANCE_VARS { g2o_secret: string = prism::Crypto::Hex::Decode(prism::File::FirstLine("g2o_secret.hex")); }
 //   SEND_REQUEST { outbound.req.X-Secret = g2o_secret; }
 // with the header set a compare of its name and the secret.
 constexpr std::string_view INSTANCE_IR = R"(hrw4u-ir 1.1
@@ -383,7 +383,7 @@ Instance:
   consts = [K0:"g2o_secret.hex", K1:"X-Secret"]
   IR:
     %1:sview = const.s K0 @2:43
-    %2:sview = call.load EXT"prism::File::Line::Read", %1 @2:43
+    %2:sview = call.load EXT"prism::File::FirstLine", %1 @2:43
     %3:sview = call.pure EXT"prism::Crypto::Hex::Decode", %2 @2:20
     store.i i0, %3 @2:5
     ret @2:5
@@ -424,7 +424,7 @@ TEST_CASE("parse_ir reads an Instance section, which stores what the hooks load"
 
   REQUIRE(inst.insts.size() == 5);
   CHECK(inst.insts[1].op == Op::CallLoad);
-  CHECK(inst.insts[1].ext_name == "prism::File::Line::Read");
+  CHECK(inst.insts[1].ext_name == "prism::File::FirstLine");
   CHECK(inst.insts[1].args == std::vector<uint32_t>{1});
   CHECK(inst.insts[2].op == Op::CallPure);
   CHECK(inst.insts[2].ext_name == "prism::Crypto::Hex::Decode");

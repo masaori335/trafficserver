@@ -666,7 +666,7 @@ class TestInstanceVars:
         [var] = block.vars
         assert (var.index, var.value.decl.name) == (0, "prism::Crypto::Hex::Decode")
         [read] = var.value.args
-        assert (read.decl.name, read.decl.effect) == ("prism::File::Line::Read", "load")
+        assert (read.decl.name, read.decl.effect) == ("prism::File::FirstLine", "load")
         assert read.args == (StrTemplate(parts=("instance_vars_secret.hex",), source="instance_vars_secret.hex"),)
 
     def test_a_hook_reads_one_where_a_string_goes(self):
@@ -736,9 +736,9 @@ class TestInstanceVars:
         assert prog.items[-1].body[0].value == InstanceRef(index=1, name="b")
 
     def test_a_load_function_runs_in_an_initializer_only(self):
-        hook = 'inbound.resp.X = prism::File::Line::Read("k");'
-        assert _instance(_instance_vars('a: string = prism::File::Line::Read("k");', hook))[1] == [
-            (5, 4, "'prism::File::Line::Read' runs at load only; call it in an INSTANCE_VARS initializer")
+        hook = 'inbound.resp.X = prism::File::FirstLine("k");'
+        assert _instance(_instance_vars('a: string = prism::File::FirstLine("k");', hook))[1] == [
+            (5, 4, "'prism::File::FirstLine' runs at load only; call it in an INSTANCE_VARS initializer")
         ]
 
     def test_ir_1_0_cannot_hold_them(self):

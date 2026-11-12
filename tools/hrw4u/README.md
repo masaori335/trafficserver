@@ -149,7 +149,7 @@ rule, from a string or a call to a declared `pure` or `load` function:
 
 ```
 INSTANCE_VARS {
-    secret: string = prism::Crypto::Hex::Decode(prism::File::Line::Read("secret.hex"));
+    secret: string = prism::Crypto::Hex::Decode(prism::File::FirstLine("secret.hex"));
 }
 
 SEND_REQUEST {

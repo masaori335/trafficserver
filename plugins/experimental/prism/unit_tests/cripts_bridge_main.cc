@@ -51,7 +51,7 @@ main(int argc, char *argv[])
   main_thread->set_specific();
   DiagsPtr::set(new Diags("test_prism_cripts_bridge", "" /* tags */, "" /* actions */, new BaseLogFile("stderr")));
 
-  // An empty prefix of its own, for the config directory File::Line::Read resolves a relative path against. The cases
+  // An empty prefix of its own, for the config directory File::FirstLine resolves a relative path against. The cases
   // write there, so an exported config directory must not take its place.
   unsetenv("PROXY_CONFIG_CONFIG_DIR");
   std::error_code ec;

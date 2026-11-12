@@ -3,7 +3,7 @@
 # module prism
 extern prism::Crypto::Base64::Encode(string) -> string pure;
 extern prism::Crypto::Base64::Decode(string) -> string pure;
-extern prism::File::Line::Read(string) -> string load;
+extern prism::File::FirstLine(string) -> string load;
 extern prism::Crypto::Hex::Decode(string) -> string pure;
 extern prism::Crypto::HMAC::SHA256::Sign(string, string) -> string pure;
 

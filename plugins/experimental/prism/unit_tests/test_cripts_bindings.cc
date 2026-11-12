@@ -135,39 +135,39 @@ TEST_CASE("Base64::Encode", "[prism][bindings]")
   CHECK(call("prism::Crypto::Base64::Encode", {"foobar"}) == "Zm9vYmFy");
 }
 
-TEST_CASE("File::Line::Read: the first line of an absolute path", "[prism][bindings]")
+TEST_CASE("File::FirstLine: an absolute path, without the lines after", "[prism][bindings]")
 {
   TempDir dir;
   auto    file = dir.path / "key.hex";
 
   std::ofstream{file} << "00ff\nsecond\n";
-  CHECK(call("prism::File::Line::Read", {file.string()}) == "00ff");
+  CHECK(call("prism::File::FirstLine", {file.string()}) == "00ff");
 }
 
-TEST_CASE("File::Line::Read: a relative path from the config directory", "[prism][bindings]")
+TEST_CASE("File::FirstLine: a relative path from the config directory", "[prism][bindings]")
 {
   std::filesystem::path dir{TSConfigDirGet()};
 
   std::ofstream{dir / "prism_bindings_test.hex"} << "abcd\n";
-  CHECK(call("prism::File::Line::Read", {"prism_bindings_test.hex"}) == "abcd");
+  CHECK(call("prism::File::FirstLine", {"prism_bindings_test.hex"}) == "abcd");
   std::filesystem::remove(dir / "prism_bindings_test.hex");
 }
 
-TEST_CASE("File::Line::Read: no value for a relative path out of the config directory", "[prism][bindings]")
+TEST_CASE("File::FirstLine: no value for a relative path out of the config directory", "[prism][bindings]")
 {
   std::filesystem::path outside = std::filesystem::path{TSConfigDirGet()}.parent_path() / "prism_bindings_outside.hex";
 
   std::ofstream{outside} << "abcd\n";
-  CHECK_FALSE(call("prism::File::Line::Read", {"../prism_bindings_outside.hex"}));
+  CHECK_FALSE(call("prism::File::FirstLine", {"../prism_bindings_outside.hex"}));
   std::filesystem::remove(outside);
 }
 
-TEST_CASE("File::Line::Read: no value for a missing file or an empty first line", "[prism][bindings]")
+TEST_CASE("File::FirstLine: no value for a missing file or an empty first line", "[prism][bindings]")
 {
   TempDir dir;
   auto    empty = dir.path / "empty";
 
   std::ofstream{empty} << "\nsecond\n";
-  CHECK_FALSE(call("prism::File::Line::Read", {(dir.path / "missing").string()}));
-  CHECK_FALSE(call("prism::File::Line::Read", {empty.string()}));
+  CHECK_FALSE(call("prism::File::FirstLine", {(dir.path / "missing").string()}));
+  CHECK_FALSE(call("prism::File::FirstLine", {empty.string()}));
 }

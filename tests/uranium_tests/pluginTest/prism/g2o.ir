@@ -7,7 +7,7 @@ Instance:
   fmt    = [F0:"5, {inbound.server}, {inbound.ip}, {now}, {random(2147483648)}, {g2o_nonce}" arity=5 lits=["5, ", ", ", ", ", ", ", ", ", ""], F1:"{outbound.req.X-Akamai-G2O-Auth-Data}/{outbound.url.path}?{outbound.url.query}" arity=3 lits=["", "/", "?", ""], F2:"{outbound.req.X-Akamai-G2O-Auth-Data}/{outbound.url.path}" arity=2 lits=["", "/", ""]]
   IR:
     %1:sview = const.s K0 @4:4
-    %2:sview = call.load EXT"prism::File::Line::Read", %1 @4:4
+    %2:sview = call.load EXT"prism::File::FirstLine", %1 @4:4
     %3:sview = call.pure EXT"prism::Crypto::Hex::Decode", %2 @4:4
     store.i i0, %3 @4:4
     %4:sview = const.s K1 @5:4

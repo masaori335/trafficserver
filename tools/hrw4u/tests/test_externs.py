@@ -48,7 +48,7 @@ def test_the_cripts_manifest_loads():
     assert list(externs) == [
         "prism::Crypto::Base64::Encode",
         "prism::Crypto::Base64::Decode",
-        "prism::File::Line::Read",
+        "prism::File::FirstLine",
         "prism::Crypto::Hex::Decode",
         "prism::Crypto::HMAC::SHA256::Sign",
         "cripts::Geo::Country",
@@ -57,7 +57,7 @@ def test_the_cripts_manifest_loads():
     ]
     assert externs["prism::Crypto::Base64::Encode"] == ExternDecl(
         "prism::Crypto::Base64::Encode", ("string",), "string", "pure", f"{_CRIPTS}:4")
-    assert externs["prism::File::Line::Read"].effect == "load"
+    assert externs["prism::File::FirstLine"].effect == "load"
     assert externs["prism::Crypto::HMAC::SHA256::Sign"] == ExternDecl(
         "prism::Crypto::HMAC::SHA256::Sign", ("string", "string"), "string", "pure", f"{_CRIPTS}:8")
     assert externs["cripts::Geo::ASN"] == ExternDecl("cripts::Geo::ASN", (), "int64", "pure", f"{_CRIPTS}:12")
@@ -231,7 +231,7 @@ def test_a_call_in_a_procedure_takes_its_arguments(externs):
         ('T::Str(5, "true")', "argument 2 of 'T::Str' is string, not bool"),
         ("cripts::Geo::ASN()", "'cripts::Geo::ASN' returns int64; inbound.resp.X takes a string"),
         ('T::Log("a")', "'T::Log' has an effect; calling it is not supported yet"),
-        ('prism::File::Line::Read("k")', "'prism::File::Line::Read' runs at load only; call it in an INSTANCE_VARS initializer"),
+        ('prism::File::FirstLine("k")', "'prism::File::FirstLine' runs at load only; call it in an INSTANCE_VARS initializer"),
     ],
     ids=["unknown", "too-few", "too-many", "int-for-string", "call-for-string", "string-for-bool", "result", "effect", "load"])
 def test_a_call_that_cannot_be_compiled_errors(externs, value, message):
@@ -307,9 +307,7 @@ def test_a_call_in_a_hole_reads_an_instance_variable(externs):
             "prism::Crypto::Base64::Encode(inbound.method)",
             "argument 1 of 'prism::Crypto::Base64::Encode' is a bare reference; write it as \"{inbound.method}\""),
         ('T::Log(\\"a\\")', "'T::Log' has an effect; calling it is not supported yet"),
-        (
-            'prism::File::Line::Read(\\"k\\")',
-            "'prism::File::Line::Read' runs at load only; call it in an INSTANCE_VARS initializer"),
+        ('prism::File::FirstLine(\\"k\\")', "'prism::File::FirstLine' runs at load only; call it in an INSTANCE_VARS initializer"),
         (
             "prism::Crypto::Base64::Encode(a b)",
             "'{prism::Crypto::Base64::Encode(a b)}' does not parse: extraneous input 'b' expecting ')'"),

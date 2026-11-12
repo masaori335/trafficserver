@@ -1,5 +1,5 @@
 INSTANCE_VARS {
-    secret: string = prism::Crypto::Hex::Decode(prism::File::Line::Read("instance_vars_secret.hex"));
+    secret: string = prism::Crypto::Hex::Decode(prism::File::FirstLine("instance_vars_secret.hex"));
 }
 
 SEND_RESPONSE {

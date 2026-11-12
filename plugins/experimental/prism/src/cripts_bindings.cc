@@ -38,7 +38,7 @@ namespace
 {
   // Runs only at load, so it can afford to log why: the key's own path, never its bytes, as the file holds a secret.
   std::optional<std::string>
-  file_line_read(std::string_view path)
+  file_first_line(std::string_view path)
   {
     cripts::File::Path resolved{path};
 
@@ -102,7 +102,7 @@ namespace
                      HRW4U_DEF("prism::Crypto::Base64::Encode", HRW4U_EFFECT_PURE, &cripts::Crypto::Base64::Encode),
                      HRW4U_DEF("prism::Crypto::HMAC::SHA256::Sign", HRW4U_EFFECT_PURE, &hmac_sha256_sign),
                      HRW4U_DEF("prism::Crypto::Hex::Decode", HRW4U_EFFECT_PURE, &hex_decode),
-                     HRW4U_DEF("prism::File::Line::Read", HRW4U_EFFECT_LOAD, &file_line_read));
+                     HRW4U_DEF("prism::File::FirstLine", HRW4U_EFFECT_LOAD, &file_first_line));
 } // namespace
 
 bool

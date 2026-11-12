@@ -524,7 +524,7 @@ SYNTHETIC = [
         id="call-inside-a-string-reading-a-hole"),
     pytest.param(Case('REMAP {\n    inbound.req.X-A = "{T::Nope()}";\n}\n', externs=True), id="unknown-call-inside-a-string"),
     pytest.param(
-        Case('REMAP {\n    inbound.req.X-A = "{prism::File::Line::Read(\\"k\\")}";\n}\n', externs=True),
+        Case('REMAP {\n    inbound.req.X-A = "{prism::File::FirstLine(\\"k\\")}";\n}\n', externs=True),
         id="load-call-inside-a-string"),
     pytest.param(
         Case('REMAP {\n    inbound.req.X-A = "{prism::Crypto::Base64::Encode(\\"x\\") with NOCASE}";\n}\n', externs=True),
