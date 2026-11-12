@@ -189,21 +189,21 @@ ptr_word(std::string_view s)
 }
 } // namespace
 
-HRW4U_MODULE("test", HRW4U_DEF(&is_jp, "T::IsJp", HRW4U_EFFECT_PURE));
+HRW4U_MODULE("test", HRW4U_DEF("T::IsJp", HRW4U_EFFECT_PURE, &is_jp));
 
-HRW4U_MODULE_TABLE(test_table, "table", HRW4U_DEF(&is_jp, "T::IsJp", HRW4U_EFFECT_PURE),
-                   HRW4U_DEF(&both, "T::Both", HRW4U_EFFECT_EFFECT));
+HRW4U_MODULE_TABLE(test_table, "table", HRW4U_DEF("T::IsJp", HRW4U_EFFECT_PURE, &is_jp),
+                   HRW4U_DEF("T::Both", HRW4U_EFFECT_EFFECT, &both));
 
-HRW4U_MODULE_TABLE(string_table, "strings::table", HRW4U_DEF(&twice, "T::Twice", HRW4U_EFFECT_PURE));
+HRW4U_MODULE_TABLE(string_table, "strings::table", HRW4U_DEF("T::Twice", HRW4U_EFFECT_PURE, &twice));
 
-HRW4U_MODULE_TABLE(ctx_table, "ctx", HRW4U_DEF(&ctx_is_jp, "T::CtxIsJp", HRW4U_EFFECT_PURE));
+HRW4U_MODULE_TABLE(ctx_table, "ctx", HRW4U_DEF("T::CtxIsJp", HRW4U_EFFECT_PURE, &ctx_is_jp));
 
-HRW4U_MODULE_TABLE(int_table, "ints", HRW4U_DEF(&negate, "T::Negate", HRW4U_EFFECT_PURE));
+HRW4U_MODULE_TABLE(int_table, "ints", HRW4U_DEF("T::Negate", HRW4U_EFFECT_PURE, &negate));
 
-HRW4U_MODULE_TABLE(load_table, "load", HRW4U_DEF(&twice, "T::Load", HRW4U_EFFECT_LOAD));
+HRW4U_MODULE_TABLE(load_table, "load", HRW4U_DEF("T::Load", HRW4U_EFFECT_LOAD, &twice));
 
-HRW4U_MODULE_TABLE(optional_table, "optional", HRW4U_DEF(&non_empty, "T::NonEmpty", HRW4U_EFFECT_PURE),
-                   HRW4U_DEF(&is_a, "T::IsA", HRW4U_EFFECT_PURE));
+HRW4U_MODULE_TABLE(optional_table, "optional", HRW4U_DEF("T::NonEmpty", HRW4U_EFFECT_PURE, &non_empty),
+                   HRW4U_DEF("T::IsA", HRW4U_EFFECT_PURE, &is_a));
 
 TEST_CASE("def records the signature")
 {

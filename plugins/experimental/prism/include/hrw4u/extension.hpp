@@ -2,7 +2,7 @@
 
   Writes the C ABI of hrw4u/extension.h for ordinary C++ functions.
 
-  HRW4U_MODULE("example::ua", HRW4U_DEF(&is_bot, "Example::UA::IsBot", HRW4U_EFFECT_PURE));
+  HRW4U_MODULE("example::ua", HRW4U_DEF("Example::UA::IsBot", HRW4U_EFFECT_PURE, &is_bot));
 
   Parameters may be bool, int64_t or std::string_view and the return bool, int64_t or std::string, or std::optional of
   one, whose empty value is a fault; any other type does not compile.
@@ -313,7 +313,6 @@ private:
   bool                  _failed = false;
 };
 
-/// One function of a module table: the C++ function, the name scripts call it by, and its effect.
 template <auto Fn, detail::Literal Name, hrw4u_effect Effect> struct Def {
   static_assert(detail::is_manifest_word(Name.view()), "a function name may hold only letters, digits, '_', '-' and ':'");
 
@@ -392,7 +391,8 @@ template <detail::Literal Name, typename... Defs> struct Table {
 
 #define HRW4U_EXT_EXPORT __attribute__((visibility("default")))
 
-#define HRW4U_DEF(fn, name, effect) ::hrw4u::ext::Def<fn, name, effect>
+/// One function of a module table: the name scripts call it by, its effect, and the C++ function.
+#define HRW4U_DEF(name, effect, fn) ::hrw4u::ext::Def<fn, name, effect>
 
 // used keeps the unreferenced manifest; on ELF, retain also keeps it from --gc-sections.
 #if defined(__APPLE__)

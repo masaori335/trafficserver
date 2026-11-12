@@ -74,5 +74,5 @@ family(std::string_view ua)
 }
 } // namespace example_ua
 
-HRW4U_MODULE("example::ua", HRW4U_DEF(&example_ua::is_bot, "Example::UA::IsBot", HRW4U_EFFECT_PURE),
-             HRW4U_DEF(&example_ua::family, "Example::UA::Family", HRW4U_EFFECT_PURE));
+HRW4U_MODULE("example::ua", HRW4U_DEF("Example::UA::IsBot", HRW4U_EFFECT_PURE, &example_ua::is_bot),
+             HRW4U_DEF("Example::UA::Family", HRW4U_EFFECT_PURE, &example_ua::family));
